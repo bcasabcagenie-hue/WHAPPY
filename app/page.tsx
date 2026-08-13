@@ -27,10 +27,10 @@ const lives = [
 ];
 
 const messages = [
-  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#ff8668", unread: 2 },
-  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#7564e4", unread: 1 },
-  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#d78530", unread: 0 },
-  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#218e76", unread: 0 },
+  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#13d713", unread: 2 },
+  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#13d713", unread: 1 },
+  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#13d713", unread: 0 },
+  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#13d713", unread: 0 },
 ];
 
 function Mark({ children, color, small = false }: { children: React.ReactNode; color?: string; small?: boolean }) {
@@ -47,7 +47,6 @@ export default function Home() {
   const [liveIndex, setLiveIndex] = useState<number | null>(null);
   const [twinStep, setTwinStep] = useState(1);
   const [consent, setConsent] = useState(false);
-  const [dark, setDark] = useState(true);
 
   const filtered = useMemo(() => listings.filter((item) => {
     const matchesText = `${item.title} ${item.category} ${item.place}`.toLowerCase().includes(search.toLowerCase());
@@ -81,7 +80,7 @@ export default function Home() {
     twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
   };
 
-  return <main className={`nova-shell ${dark ? "night" : "day"}`}>
+  return <main className="nova-shell white-green">
     <aside className="nova-rail">
       <button className="nova-logo" onClick={() => go("orbit")} aria-label="Accueil Whappy"><Image src="/whappy-logo.svg" alt="Icône Whappy" width={50} height={50} priority /></button>
       <nav aria-label="Espaces Whappy">
@@ -94,7 +93,6 @@ export default function Home() {
       </nav>
       <div className="rail-tools">
         <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
-        <button onClick={() => setDark((value) => !value)} aria-label="Changer le thème">{dark ? "☀" : "◐"}</button>
         <button className="me">CB<i /></button>
       </div>
     </aside>

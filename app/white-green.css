@@ -1,0 +1,113 @@
+/* Identité Whappy : blanc et vert officiel */
+.white-green {
+  --night: #fff;
+  --deep: #f4fff5;
+  --panel: #fff;
+  --card: #fff;
+  --line: rgba(19, 145, 32, 0.18);
+  --text: #075c16;
+  --muted: #56845e;
+  --warm: #075c16;
+  background: #fff;
+  color: var(--text);
+}
+
+.white-green .nova-rail { background: #fff; border-color: var(--line); box-shadow: 8px 0 28px rgba(19, 145, 32, 0.06); }
+.white-green .nova-rail nav button,
+.white-green .rail-tools > button { color: #56845e; }
+.white-green .nova-rail nav button.active,
+.white-green .rail-tools > button.active { background: #effbef; color: var(--neon); }
+.white-green .rail-tools .me { background: #effbef; color: #087319; }
+.white-green .nova-topbar { background: rgba(255, 255, 255, 0.95); border-color: var(--line); }
+.white-green .nova-search,
+.white-green .top-actions button { background: #f7fff7; color: var(--text); }
+
+.white-green .orbit-hero,
+.white-green .live-command,
+.white-green .barter-hero,
+.white-green .seek-hero,
+.white-green .twin-hero,
+.white-green .market-banner {
+  background: radial-gradient(circle at 75% 40%, #e6ffe7, #f7fff7 45%, #fff 76%);
+  color: var(--text);
+}
+
+.white-green .hero-copy p,
+.white-green .live-command-copy p,
+.white-green .barter-hero > p,
+.white-green .seek-hero > div > p,
+.white-green .twin-copy > p { color: var(--muted); }
+.white-green .hero-copy > div button,
+.white-green .barter-engine input { color: var(--text); }
+.white-green .hero-copy > div button:first-child,
+.white-green .live-command-copy > button,
+.white-green .seek-hero > div > button { color: #fff; }
+.white-green .hero-mesh { opacity: 0.12; }
+.white-green .map-node { background: rgba(255, 255, 255, 0.94); color: var(--text); box-shadow: 0 12px 35px rgba(19, 145, 32, 0.12); }
+.white-green .action-strip > button { background: #fff; color: var(--text); box-shadow: 0 14px 35px rgba(19, 145, 32, 0.1); }
+
+.white-green .listing-card,
+.white-green .request-grid article,
+.white-green .barter-cards > div,
+.white-green .live-features > div,
+.white-green .builder-card { box-shadow: 0 12px 32px rgba(19, 145, 32, 0.07); }
+.white-green .listing-card > div > button,
+.white-green .barter-cards button { color: var(--text); background: #f7fff7; }
+.white-green .listing-art.lime,
+.white-green .listing-art.violet,
+.white-green .listing-art.orange,
+.white-green .listing-art.blue,
+.white-green .barter-art.violet,
+.white-green .barter-art.amber { background: linear-gradient(135deg, #13d713, #087c19); }
+.white-green .need-ribbon,
+.white-green .barter-cards .chain-card { background: linear-gradient(120deg, #edffed, #d9fbdc); color: var(--text); }
+.white-green .barter-engine { background: #fff; box-shadow: 0 12px 35px rgba(19, 145, 32, 0.08); }
+.white-green .barter-engine label { background: #f4fff5; }
+.white-green .match-result { background: #efffef; }
+.white-green .seek-cloud span { border-color: var(--line); background: #fff; color: var(--text); box-shadow: 0 8px 24px rgba(19, 145, 32, 0.1); }
+.white-green .request-grid header > span.urgent { background: #eaffeb; color: #079118; }
+
+.white-green .inbox-list { background: #fff; }
+.white-green .inbox-list > button { border-color: var(--line); color: var(--text); }
+.white-green .deal-chat { background: radial-gradient(circle at 50% 40%, #f0fff1, #fff); color: var(--text); }
+.white-green .deal-chat > header,
+.white-green .deal-chat > form { background: #fff; }
+.white-green .deal-chat > header > button,
+.white-green .deal-chat form button { background: #f4fff5; color: var(--text); }
+.white-green .deal-chat form input { background: #f8fff8; color: var(--text); }
+.white-green .deal-messages > div { background: #fff; box-shadow: 0 7px 22px rgba(19, 145, 32, 0.08); }
+.white-green .deal-messages > div.mine { background: #dcfadd; }
+
+.white-green .human,
+.white-green .digital { background: linear-gradient(180deg, #e8ffe9, #fff); color: var(--text); }
+.white-green .builder-steps button span { background: #fff; }
+.white-green .builder-card > p,
+.white-green .consent span { color: var(--muted); }
+.white-green .record-frame { background: radial-gradient(circle, #e1ffe3, #fff); }
+
+.white-green .action-modal { background: #fff; color: var(--text); }
+.white-green .modal-close,
+.white-green .action-modal label { color: var(--text); }
+.white-green .action-modal input,
+.white-green .action-modal textarea,
+.white-green .action-modal select { background: #f6fff6; color: var(--text); }
+.white-green .action-modal select option { background: #fff; }
+.white-green .live-cart { background: #fff; color: var(--text); }
+.white-green .live-cart .quantity button,
+.white-green .live-cart .offer { color: var(--text); }
+.white-green .cart-product { background: linear-gradient(135deg, #e7ffe8, #bdf4c2); }
+.white-green .nova-toast { background: #fff; color: var(--text); box-shadow: 0 15px 45px rgba(19, 145, 32, 0.18); }
+
+.white-green .live-label,
+.white-green .big-live > span,
+.white-green .preview-live,
+.white-green .live-video > header span,
+.white-green .map-node.n4 > b,
+.white-green .nova-rail nav button i { background: var(--neon); color: #fff; box-shadow: none; }
+.white-green .viewer-bottom button.hearted { background: #fff; color: var(--neon); }
+
+@media (max-width: 760px) {
+  .white-green .nova-rail { box-shadow: 0 -8px 28px rgba(19, 145, 32, 0.08); }
+  .white-green .live-cart { background: rgba(255, 255, 255, 0.96); }
+  .white-green .mobile-logo { display: block; }
+}
