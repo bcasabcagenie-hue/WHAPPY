@@ -28,6 +28,16 @@ const lives = [
   { host: "Tech House", title: "Test sans filtre : les meilleurs smartphones", viewers: "963", product: "Galaxy S26", price: "490 000", tone: "tech", badge: "DÉMO LIVE" },
 ];
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject({ code: "auth/verification-timeout" }), milliseconds);
+    promise.then(
+      (value) => { window.clearTimeout(timeout); resolve(value); },
+      (error) => { window.clearTimeout(timeout); reject(error); },
+    );
+  });
+}
+
 const messages = [
   { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#13d713", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
   { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#13d713", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
@@ -47,6 +57,7 @@ export default function Home() {
   const [verificationCode, setVerificationCode] = useState("");
   const [profileName, setProfileName] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [authStatus, setAuthStatus] = useState("");
   const [authError, setAuthError] = useState("");
   const confirmationRef = useRef<ConfirmationResult | null>(null);
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
@@ -97,15 +108,38 @@ export default function Home() {
     }
     setAuthBusy(true);
     setAuthError("");
+    setAuthStatus("Chargement du contrôle de sécurité…");
     try {
       recaptchaRef.current?.clear();
-      const verifier = new RecaptchaVerifier(auth, "whappy-recaptcha", { size: "invisible" });
+      auth.languageCode = "fr";
+      const verifier = new RecaptchaVerifier(auth, "whappy-recaptcha", {
+        size: "normal",
+        callback: () => setAuthStatus("Vérification réussie. Envoi du SMS…"),
+        "expired-callback": () => setAuthStatus("La vérification a expiré. Cochez-la de nouveau."),
+      });
       recaptchaRef.current = verifier;
-      confirmationRef.current = await signInWithPhoneNumber(auth, `${countryCode}${digits}`, verifier);
+      await verifier.render();
+      setAuthStatus("Cochez le contrôle anti-robot ci-dessous pour recevoir le SMS.");
+      confirmationRef.current = await withTimeout(
+        signInWithPhoneNumber(auth, `${countryCode}${digits}`, verifier),
+        90_000,
+      );
+      setAuthStatus("");
       setAuthStep("code");
     } catch (error) {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
-      setAuthError(code.includes("operation-not-allowed") ? "La connexion par téléphone doit être activée dans Firebase Authentication." : code.includes("too-many-requests") ? "Trop de tentatives. Patientez quelques minutes." : "Le SMS n'a pas pu être envoyé. Vérifiez le numéro puis réessayez.");
+      setAuthError(
+        code.includes("operation-not-allowed") ? "La connexion par téléphone doit être activée dans Firebase Authentication."
+          : code.includes("billing") || code.includes("payment-required") ? "Les SMS réels nécessitent le forfait Firebase Blaze avec un compte de facturation."
+          : code.includes("too-many-requests") || code.includes("quota-exceeded") ? "Trop de tentatives ou quota SMS atteint. Patientez quelques minutes."
+            : code.includes("invalid-phone-number") ? "Ce numéro n'est pas reconnu. Vérifiez le pays et les chiffres saisis."
+              : code.includes("unauthorized-domain") || code.includes("app-not-authorized") ? "Ce domaine n'est pas autorisé dans Firebase Authentication."
+                : code.includes("captcha-check-failed") || code.includes("invalid-app-credential") ? "La vérification anti-robot a échoué. Rechargez la page puis réessayez."
+                  : code.includes("network-request-failed") ? "Connexion internet interrompue. Vérifiez votre réseau puis réessayez."
+                    : code.includes("verification-timeout") ? "La vérification a pris trop de temps. Cliquez sur Continuer puis cochez immédiatement le contrôle anti-robot."
+                    : `Le SMS n'a pas pu être envoyé${code ? ` (${code.replace("auth/", "")})` : ""}. Réessayez.`,
+      );
+      setAuthStatus("");
       recaptchaRef.current?.clear();
       recaptchaRef.current = null;
     } finally {
@@ -155,7 +189,7 @@ export default function Home() {
     twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
   };
 
-  if (!authenticated) return <PhoneAccess step={authStep} countryCode={countryCode} setCountryCode={setCountryCode} phone={phone} setPhone={setPhone} code={verificationCode} setCode={setVerificationCode} profileName={profileName} setProfileName={setProfileName} busy={authBusy} error={authError} requestSms={requestSms} verifySms={verifySms} finishProfile={finishProfile} back={()=>{setAuthError("");setAuthStep("phone")}} preview={()=>setAuthenticated(true)} />;
+  if (!authenticated) return <PhoneAccess step={authStep} countryCode={countryCode} setCountryCode={setCountryCode} phone={phone} setPhone={setPhone} code={verificationCode} setCode={setVerificationCode} profileName={profileName} setProfileName={setProfileName} busy={authBusy} status={authStatus} error={authError} requestSms={requestSms} verifySms={verifySms} finishProfile={finishProfile} back={()=>{setAuthError("");setAuthStatus("");setAuthStep("phone")}} preview={()=>setAuthenticated(true)} />;
 
   return <main className="nova-shell white-green">
     <aside className="nova-rail">
@@ -201,9 +235,9 @@ export default function Home() {
   </main>;
 }
 
-function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
+function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,status,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;status:string;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
   const fullNumber=`${countryCode} ${phone || "—"}`;
-  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={70} height={70} priority/><strong>WHAPPY</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>numéro.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha"/><button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Renvoyer le code dans 00:42</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Cyril Bokilo"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy →"}</button></form>}{error&&<p className="access-error">! {error}</p>}{process.env.NODE_ENV!=="production"&&<button className="access-demo" type="button" onClick={preview}>Voir la démonstration locale</button>}<small className="access-legal">En continuant, vous acceptez les conditions Whappy et confirmez être propriétaire de ce numéro.</small></div></section></main>;
+  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={70} height={70} priority/><strong>WHAPPY</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>numéro.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div className={status?"recaptcha-box visible":"recaptcha-box"}><div id="whappy-recaptcha"/>{status&&<p>{status}</p>}</div><button className="access-primary" disabled={busy}>{busy?"Vérification de sécurité…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Renvoyer le code dans 00:42</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Cyril Bokilo"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy →"}</button></form>}{error&&<p className="access-error">! {error}</p>}{process.env.NODE_ENV!=="production"&&<button className="access-demo" type="button" onClick={preview}>Voir la démonstration locale</button>}<small className="access-legal">En continuant, vous acceptez les conditions Whappy et confirmez être propriétaire de ce numéro.</small></div></section></main>;
 }
 
 function Rail({ active, icon, label, count, live, onClick }: { active: boolean; icon: string; label: string; count?: number; live?: boolean; onClick: () => void }) {
