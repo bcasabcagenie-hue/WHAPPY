@@ -22,6 +22,7 @@ service cloud.firestore {
     match /conversations/{conversationId} {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.keys().hasOnly(["ownerId", "name", "handle", "type", "category", "bio", "city", "phone", "website", "status", "followers", "createdAt", "updatedAt"])
         && request.auth.uid in request.resource.data.memberIds
         && request.resource.data.memberIds is list
         && request.resource.data.memberIds.size() >= 1
@@ -174,6 +175,83 @@ service cloud.firestore {
                 && get(/databases/$(database)/documents/calls/$(callId)).data.calleeId == request.auth.uid));
         allow update, delete: if false;
       }
+    }
+
+    match /businessPages/{pageId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.handle is string
+        && request.resource.data.handle.size() >= 3
+        && request.resource.data.handle.size() <= 50
+        && request.resource.data.type in ["business", "creator", "organization"]
+        && request.resource.data.category is string
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 400
+        && request.resource.data.status == "active"
+        && request.resource.data.followers == 0;
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.handle == resource.data.handle
+        && request.resource.data.followers == resource.data.followers
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 400
+        && request.resource.data.type in ["business", "creator", "organization"]
+        && request.resource.data.status in ["active", "hidden"]
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "type", "category", "bio", "city", "phone", "website", "status", "updatedAt"]);
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /adCampaigns/{campaignId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.keys().hasOnly(["ownerId", "pageId", "pageName", "objective", "title", "creative", "cta", "audience", "city", "dailyBudget", "days", "totalBudget", "status", "createdAt", "updatedAt"])
+        && get(/databases/$(database)/documents/businessPages/$(request.resource.data.pageId)).data.ownerId == request.auth.uid
+        && request.resource.data.objective in ["reach", "messages", "traffic", "sales"]
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 2
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.creative is string
+        && request.resource.data.creative.size() >= 2
+        && request.resource.data.creative.size() <= 600
+        && request.resource.data.cta is string
+        && request.resource.data.cta.size() <= 40
+        && request.resource.data.audience is string
+        && request.resource.data.audience.size() <= 120
+        && request.resource.data.city is string
+        && request.resource.data.city.size() <= 80
+        && request.resource.data.dailyBudget is number
+        && request.resource.data.dailyBudget >= 500
+        && request.resource.data.days is number
+        && request.resource.data.days >= 1
+        && request.resource.data.days <= 90
+        && request.resource.data.totalBudget == request.resource.data.dailyBudget * request.resource.data.days
+        && request.resource.data.status == "active";
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.status in ["active", "paused", "completed"]
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]);
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /adEvents/{eventId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasOnly(["campaignId", "ownerId", "userId", "type", "createdAt"])
+        && request.resource.data.type in ["impression", "click"]
+        && get(/databases/$(database)/documents/adCampaigns/$(request.resource.data.campaignId)).data.ownerId == request.resource.data.ownerId
+        && get(/databases/$(database)/documents/adCampaigns/$(request.resource.data.campaignId)).data.status == "active";
+      allow update, delete: if false;
     }
 
     match /listings/{listingId} {

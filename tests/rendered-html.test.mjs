@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -58,10 +58,12 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../app/components/GroupActivities.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/RealTimeInbox.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/whappy-calls.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/BusinessStudio.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-business.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
-  assert.match(page, /type Space = "orbit" \| "live" \| "market" \| "barter" \| "seek" \| "inbox" \| "contacts" \| "services" \| "twin"/);
+  assert.match(page, /type Space = .*"business"/);
   assert.match(page, /useState<Space>\("inbox"\)/);
   assert.match(page, /Votre image, votre contrôle/i);
   assert.match(page, /ma propre image/i);
@@ -116,6 +118,9 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(rules, /match \/activities\/\{activityId\}/);
   assert.match(rules, /match \/calls\/\{callId\}/);
   assert.match(rules, /match \/responses\/\{responseId\}/);
+  assert.match(rules, /match \/businessPages\/\{pageId\}/);
+  assert.match(rules, /match \/adCampaigns\/\{campaignId\}/);
+  assert.match(rules, /match \/adEvents\/\{eventId\}/);
   assert.match(commerce, /ProductPanel/);
   assert.match(commerce, /CartPanel/);
   assert.match(commerce, /Paiement à la livraison/);
@@ -159,6 +164,13 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(callData, /watchIncomingCalls/);
   assert.match(callData, /watchCallHistory/);
   assert.match(callData, /addCallCandidate/);
+  assert.match(businessStudio, /WHAPPY BUSINESS SUITE/);
+  assert.match(businessStudio, /Créer une page/);
+  assert.match(businessStudio, /Campagnes publicitaires/);
+  assert.match(businessStudio, /IMPRESSIONS RÉELLES/);
+  assert.match(businessData, /watchActiveCampaigns/);
+  assert.match(businessData, /recordAdEvent/);
+  assert.match(businessData, /createAdCampaign/);
   assert.match(groupActivities, /Votre vote est enregistré/);
   assert.match(groupActivities, /Votre participation est confirmée/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
