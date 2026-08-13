@@ -64,6 +64,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /Mobile Money/);
   assert.match(page, /Carte bancaire/);
   assert.match(page, /Whappy Marketplace/i);
+  assert.match(page, /ACHETEUSE FIABLE/);
+  assert.match(page, /ÉCHANGES RÉUSSIS/);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);

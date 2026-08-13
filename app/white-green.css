@@ -87,8 +87,12 @@
 .white-green .inbox-list > button { margin: 3px 10px; width: calc(100% - 20px); min-height: 68px; padding: 12px; border: 0; border-radius: 15px; color: var(--text); cursor: pointer; transition: 0.18s ease; }
 .white-green .inbox-list > button:hover { background: #f6fcf6; transform: translateX(2px); }
 .white-green .inbox-list > button.active { background: #eafaea; }
+.white-green .profile-avatar { position: relative; flex: 0 0 auto; }
+.white-green .profile-avatar > i { position: absolute; right: -1px; bottom: 0; width: 11px; height: 11px; border: 2px solid #fff; border-radius: 50%; background: var(--neon); box-shadow: 0 0 0 3px rgba(19,215,19,.08); }
+.white-green .profile-avatar.large > i { right: -2px; bottom: 1px; width: 12px; height: 12px; }
 .white-green .inbox-list > button .op-mark { width: 44px; height: 44px; border-radius: 15px; color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
-.white-green .inbox-list strong { font-size: 10px; }
+.white-green .inbox-list strong { display: flex; align-items: center; gap: 5px; font-size: 10px; }
+.white-green .inbox-list strong em { padding: 3px 5px; border-radius: 5px; background: #e8fbe9; color: #079118; font-size: 5px; font-style: normal; font-weight: 900; letter-spacing: .4px; }
 .white-green .inbox-list small { margin-top: 6px; font-size: 8px; }
 .white-green .inbox-list > button > b { right: 13px; bottom: 12px; width: 19px; height: 19px; color: #fff; }
 .white-green .empty-messages { padding: 24px 14px; color: var(--muted); font-size: 9px; text-align: center; }
@@ -105,12 +109,21 @@
 .white-green .deal-chat form button { border: 0; background: #f0f8f1; color: var(--text); cursor: pointer; }
 .white-green .chat-back { display: none; }
 .white-green .deal-context { position: relative; z-index: 1; margin-top: 18px; padding: 12px 14px; border: 0; background: #fff; box-shadow: 0 10px 30px rgba(19, 145, 32, 0.08); }
+.white-green .profile-pulse { position: relative; z-index: 1; display: flex; width: min(650px,calc(100% - 28px)); align-items: center; gap: 10px; margin: 14px auto 0; padding: 10px 12px; border: 1px solid rgba(19,145,32,.12); border-radius: 13px; background: linear-gradient(90deg,#ecfced,#fff); animation: rise-in .38s ease both; }
+.white-green .profile-pulse > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--neon); color: #fff; box-shadow: 0 7px 18px rgba(19,215,19,.2); }
+.white-green .profile-pulse > div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.white-green .profile-pulse small { color: var(--neon); font-size: 6px; font-weight: 900; letter-spacing: .5px; }
+.white-green .profile-pulse strong { overflow: hidden; color: var(--text); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.white-green .profile-pulse button { border: 0; background: none; color: var(--neon); font-size: 7px; font-weight: 800; cursor: pointer; }
 .white-green .product-thumb { background: #e9fbea; color: var(--neon); }
 .white-green .deal-context button { color: var(--neon); font-weight: 750; }
 .white-green .deal-messages { position: relative; z-index: 1; padding: 32px 0 22px; }
 .white-green .chat-date { padding: 6px 9px; border-radius: 8px; background: rgba(255,255,255,.8); box-shadow: 0 5px 16px rgba(19,145,32,.06); }
 .white-green .deal-messages > div { padding: 12px 14px; border-radius: 5px 17px 17px 17px; background: #fff; box-shadow: 0 7px 22px rgba(19, 145, 32, 0.08); line-height: 1.45; }
 .white-green .deal-messages > div.mine { border-radius: 17px 5px 17px 17px; background: #dff8e1; }
+.white-green .deal-messages > div:nth-of-type(1) { animation: message-in-left .32s ease both; }
+.white-green .deal-messages > div:nth-of-type(2) { animation: message-in-right .36s .08s ease both; }
+.white-green .deal-messages > div:nth-of-type(3) { animation: message-in-left .38s .16s ease both; }
 .white-green .deal-messages div small b { color: var(--neon); }
 .white-green .typing { display: flex; width: max-content; align-items: center; gap: 3px; margin-top: 15px; padding: 8px 10px; border-radius: 11px; background: rgba(255,255,255,.75); color: var(--muted); font-size: 7px; }
 .white-green .typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--neon); animation: blink 1.2s infinite; }
@@ -118,7 +131,13 @@
 .white-green .deal-chat > form { margin: 0 20px 18px; padding: 8px; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 14px 35px rgba(19,145,32,.1); }
 .white-green .deal-chat form input { min-height: 42px; border: 0; background: transparent; color: var(--text); }
 .white-green .deal-chat form .offer-action { padding-inline: 14px; color: var(--neon); font-weight: 800; }
+.white-green .deal-chat form .voice-action { color: var(--neon); }
 .white-green .deal-chat form .send-action { width: 42px; height: 42px; padding: 0; border-radius: 13px; background: var(--neon); color: #fff; box-shadow: 0 7px 18px rgba(19,215,19,.23); }
+.white-green button:active { transform: scale(.96); }
+
+@keyframes rise-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes message-in-left { from { opacity: 0; transform: translateX(-14px) scale(.97); } to { opacity: 1; transform: translateX(0) scale(1); } }
+@keyframes message-in-right { from { opacity: 0; transform: translateX(14px) scale(.97); } to { opacity: 1; transform: translateX(0) scale(1); } }
 
 .white-green .human,
 .white-green .digital { background: linear-gradient(180deg, #e8ffe9, #fff); color: var(--text); }
@@ -241,6 +260,8 @@
   .white-green .deal-chat > header > button { width: 31px; height: 31px; }
   .white-green .deal-chat > header > button:last-child { display: none; }
   .white-green .deal-context { margin: 9px 10px 0; width: calc(100% - 20px); }
+  .white-green .profile-pulse { width: calc(100% - 20px); margin-top: 9px; }
+  .white-green .profile-pulse button { display: none; }
   .white-green .deal-messages { width: calc(100% - 24px); padding-top: 18px; }
   .white-green .deal-chat > form { margin: 0 8px 8px; }
   .white-green .deal-chat form .offer-action { display: none; }
@@ -262,4 +283,34 @@
   .white-green .seller-console { width: 100%; margin-top: 25px; }
   .white-green .payment-ready { align-items: flex-start; flex-direction: column; }
   .white-green .payment-ready > button { align-self: flex-end; }
+}
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .white-green .inbox-space { grid-template-columns: 315px 1fr; }
+  .white-green .inbox-title { padding-inline: 15px; }
+  .white-green .inbox-list strong em { display: none; }
+  .white-green .deal-context,.white-green .deal-messages,.white-green .profile-pulse { width: calc(100% - 30px); }
+  .white-green .deal-chat > form { margin-inline: 12px; }
+  .white-green .payment-ready { flex-wrap: wrap; }
+  .white-green .payment-methods { order: 3; flex-basis: 100%; }
+}
+
+@media (max-width: 430px) {
+  .white-green .nova-topbar { min-height: 102px; }
+  .white-green .topbar-identity p { display: none; }
+  .white-green .inbox-title { padding: 15px 14px 10px; }
+  .white-green .inbox-presence { padding-inline: 14px; }
+  .white-green .inbox-filters { padding-inline: 14px; overflow-x: auto; }
+  .white-green .inbox-list > button { margin-inline: 6px; width: calc(100% - 12px); }
+  .white-green .deal-chat > header .op-mark { width: 37px; height: 37px; }
+  .white-green .deal-chat > header > button { width: 29px; height: 29px; }
+  .white-green .deal-chat > header > button[aria-label="Appel audio"] { display: none; }
+  .white-green .profile-pulse { padding-block: 8px; }
+  .white-green .deal-context button { font-size: 0; }
+  .white-green .deal-context button::after { content: "↗"; font-size: 12px; }
+  .white-green .deal-chat form .voice-action { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .white-green * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
