@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 
 type Chat = {
   id: number;
@@ -129,8 +130,10 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("whappy-theme");
-    setDark(savedTheme === "dark");
+    const themeTimer = window.setTimeout(() => {
+      setDark(localStorage.getItem("whappy-theme") === "dark");
+    }, 0);
+    return () => window.clearTimeout(themeTimer);
   }, []);
 
   useEffect(() => {
@@ -183,7 +186,7 @@ export default function Home() {
       <aside className={`sidebar ${showConversation ? "mobile-hidden" : ""}`}>
         <header className="sidebar-header">
           <div className="brand">
-            <img src="/whappy-logo.svg" alt="Logo Whappy" />
+            <Image src="/whappy-logo.svg" alt="Logo Whappy" width={43} height={43} priority />
             <div><h1>Whappy</h1><span>Connectés, simplement.</span></div>
           </div>
           <div className="header-actions">
@@ -245,7 +248,7 @@ export default function Home() {
 
         <div className="message-area">
           <div className="encryption-note"><span>🔒</span> Vos messages personnels sont chiffrés de bout en bout.</div>
-          <div className="date-pill">AUJOURD'HUI</div>
+          <div className="date-pill">AUJOURD&apos;HUI</div>
           <div className="messages">
             {activeChat.messages.map((item) => (
               <div key={item.id} className={`message-row ${item.mine ? "mine" : "theirs"}`}>
