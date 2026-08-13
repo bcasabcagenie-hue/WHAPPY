@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { sendGroupMessage, watchGroupMessages, type CloudGroup, type CloudGroupMessage } from "@/lib/whappy-data";
+import { createGroupActivity, sendGroupMessage, watchGroupActivities, watchGroupMessages, type CloudGroup, type CloudGroupActivity, type CloudGroupMessage } from "@/lib/whappy-data";
+import { GroupActivities, type ActivityDraft } from "@/app/components/GroupActivities";
 
 type Destination = "live" | "market" | "barter" | "seek" | "twin" | "orbit";
 
@@ -21,6 +22,11 @@ const initialGroups = [
 const initialGroupMessages: Record<string,CloudGroupMessage[]> = {
   "design-crew": [{id:"d1",text:"La nouvelle identité est prête. Je vous envoie la présentation.",senderId:"amina",senderName:"Amina M."},{id:"d2",text:"Parfait. On valide ensemble à 16 h ?",senderId:"junior",senderName:"Junior K."}],
   "commercants-brazza": [{id:"c1",text:"Qui connaît un livreur disponible cet après-midi ?",senderId:"mokabi",senderName:"Mokabi Store"}],
+};
+
+const initialActivities: Record<string,CloudGroupActivity[]> = {
+  "design-crew": [{id:"a1",type:"poll",title:"Quelle heure pour la validation ?",details:"Choisissez avant 14 h.",options:["16 h","17 h","Demain 9 h"],eventDate:"",creatorId:"amina",creatorName:"Amina M."}],
+  "commercants-brazza": [{id:"a2",type:"event",title:"Rencontre vendeurs Whappy",details:"Échange sur la livraison et les paiements.",options:[],eventDate:"2026-08-16T15:00",creatorId:"mokabi",creatorName:"Mokabi Store"}],
 };
 
 export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, onCreateGroup, onMessage, onCall, notify }: {
@@ -43,6 +49,8 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
   const [groupText,setGroupText]=useState("");
   const [groupInfo,setGroupInfo]=useState(false);
   const [notificationsEnabled,setNotificationsEnabled]=useState(true);
+  const [activities,setActivities]=useState<Record<string,CloudGroupActivity[]>>(initialActivities);
+  const [groupView,setGroupView]=useState<"chat"|"activities">("chat");
   const notifyRef=useRef(notify);
   useEffect(()=>{notifyRef.current=notify;},[notify]);
   const visible = useMemo(() => contactList.filter((contact) => `${contact.name} ${contact.note}`.toLowerCase().includes(search.toLowerCase())), [contactList, search]);
@@ -52,6 +60,7 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
   }, [cloudGroups]);
   const currentGroup=groups.find((group)=>group.id===selectedGroup)||groups[0];
   useEffect(()=>{if(!userId||!cloudGroups.some((group)=>group.id===selectedGroup))return;return watchGroupMessages(selectedGroup,(items)=>setGroupMessages((current)=>({...current,[selectedGroup]:items})),()=>notifyRef.current("Discussion de groupe momentanément hors ligne"));},[userId,selectedGroup,cloudGroups]);
+  useEffect(()=>{if(!userId||!cloudGroups.some((group)=>group.id===selectedGroup))return;return watchGroupActivities(selectedGroup,(items)=>setActivities((current)=>({...current,[selectedGroup]:items})),()=>notifyRef.current("Activités de groupe momentanément hors ligne"));},[userId,selectedGroup,cloudGroups]);
 
   async function sendToGroup(event:FormEvent){event.preventDefault();const value=groupText.trim();if(!value||!currentGroup||busy)return;setGroupText("");if(!userId||!cloudGroups.some((group)=>group.id===currentGroup.id)){setGroupMessages((current)=>({...current,[currentGroup.id]:[...(current[currentGroup.id]||[]),{id:`local-${Date.now()}`,text:value,senderId:userId||"local",senderName:userName}]}));return;}setBusy(true);try{await sendGroupMessage(currentGroup.id,userId,userName,value);}catch{setGroupText(value);notify("Le message a été conservé : l’envoi a échoué.");}finally{setBusy(false);}}
 
@@ -64,6 +73,8 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
       notify("Invitation du groupe partagée");
     } catch { /* La feuille de partage a été fermée. */ }
   }
+
+  async function publishActivity(activity:ActivityDraft){if(!currentGroup)return;setBusy(true);try{const created=userId&&cloudGroups.some((group)=>group.id===currentGroup.id)?await createGroupActivity(currentGroup.id,userId,userName,activity):{...activity,id:`local-activity-${Date.now()}`,creatorId:userId||"local",creatorName:userName,createdAt:null};setActivities((current)=>({...current,[currentGroup.id]:[created,...(current[currentGroup.id]||[])]}));setGroupView("activities");notify(activity.type==="poll"?"Sondage publié":activity.type==="event"?"Événement publié":"Annonce publiée");}catch{notify("La publication n’a pas pu être créée.");}finally{setBusy(false);}}
 
   async function createEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,6 +106,7 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
       </main>
     </div>
     {creator && <div className="contact-create-layer"><button className="contact-create-dismiss" onClick={() => setCreator(null)} aria-label="Fermer"/><form onSubmit={createEntry}><header><div><small>CARNET WHAPPY</small><h3>{creator === "group" ? "Créer un groupe" : "Ajouter un contact"}</h3></div><button type="button" onClick={() => setCreator(null)}>×</button></header><label>{creator === "group" ? "Nom du groupe" : "Nom complet"}<input name="name" required placeholder={creator === "group" ? "Ex. Équipe projet" : "Ex. Grâce M."}/></label>{creator === "contact" ? <label>Numéro ou Whappy ID<input name="phone" required inputMode="tel" placeholder="+242 06…"/></label> : <><label>Description<input name="description" placeholder="Ex. Coordination du projet"/></label><label>Membres à inviter<input name="members" placeholder="Amina, Junior, Nadia…"/></label></>}<p>{creator === "group" ? cloud ? "Le groupe sera synchronisé avec votre compte Whappy." : "Le groupe sera créé dans cette démonstration pour la session." : "Le contact sera ajouté au carnet de démonstration pour cette session."}</p><button className="contact-create-submit" disabled={busy}>{busy ? "Création…" : creator === "group" ? "Créer le groupe →" : "Ajouter le contact →"}</button></form></div>}
+    {tab==="groups"&&currentGroup&&<div className={`community-drawer ${groupView==="activities"?"open":""}`}><button className="community-toggle" onClick={()=>setGroupView((view)=>view==="chat"?"activities":"chat")}>{groupView==="chat"?`✦ Communauté · ${(activities[currentGroup.id]||[]).length}`:"× Retour au salon"}</button>{groupView==="activities"&&<GroupActivities groupId={currentGroup.id} userId={userId} cloud={cloudGroups.some((group)=>group.id===currentGroup.id)} items={activities[currentGroup.id]||[]} busy={busy} onCreate={publishActivity} notify={notify}/>}</div>}
   </div>;
 }
 

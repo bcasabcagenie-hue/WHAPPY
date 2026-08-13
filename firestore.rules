@@ -40,6 +40,7 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
         allow update, delete: if false;
       }
+
     }
 
     match /groups/{groupId} {
@@ -70,6 +71,42 @@ service cloud.firestore {
           && request.resource.data.text.size() <= 4000
           && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
         allow update, delete: if false;
+      }
+
+      match /activities/{activityId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        allow create: if signedIn()
+          && request.resource.data.creatorId == request.auth.uid
+          && request.resource.data.type in ["poll", "event", "announcement"]
+          && request.resource.data.title is string
+          && request.resource.data.title.size() >= 2
+          && request.resource.data.title.size() <= 160
+          && request.resource.data.options is list
+          && request.resource.data.options.size() <= 8
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        allow update, delete: if signedIn()
+          && resource.data.creatorId == request.auth.uid
+          && request.resource.data.creatorId == resource.data.creatorId;
+
+        match /responses/{responseId} {
+          allow read: if signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+          allow create: if signedIn()
+            && responseId == request.auth.uid
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.kind in ["poll", "event"]
+            && request.resource.data.keys().hasOnly(["userId", "kind", "optionIndex", "attending", "updatedAt"])
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+          allow update: if signedIn()
+            && responseId == request.auth.uid
+            && resource.data.userId == request.auth.uid
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.kind == resource.data.kind
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["optionIndex", "attending", "updatedAt"])
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+          allow delete: if signedIn() && responseId == request.auth.uid;
+        }
       }
     }
 

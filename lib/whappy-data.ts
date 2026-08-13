@@ -47,6 +47,28 @@ export type CloudGroup = {
 
 export type CloudGroupMessage = CloudMessage & { senderName: string };
 
+export type GroupActivityType = "poll" | "event" | "announcement";
+
+export type CloudGroupActivity = {
+  id: string;
+  type: GroupActivityType;
+  title: string;
+  details: string;
+  options: string[];
+  eventDate: string;
+  creatorId: string;
+  creatorName: string;
+  createdAt?: { toDate?: () => Date } | null;
+};
+
+export type CloudGroupActivityResponse = {
+  id: string;
+  userId: string;
+  kind: "poll" | "event";
+  optionIndex?: number;
+  attending?: boolean;
+};
+
 export type OrderStatus = "pending" | "confirmed" | "ready" | "completed" | "cancelled";
 
 export type CloudOrder = {
@@ -203,6 +225,42 @@ export async function sendGroupMessage(groupId: string, userId: string, senderNa
   });
   await updateDoc(doc(db, "groups", groupId), { lastMessage: value, updatedAt: serverTimestamp() });
   return message.id;
+}
+
+export function watchGroupActivities(groupId: string, onActivities: (items: CloudGroupActivity[]) => void, onError: () => void) {
+  const activitiesQuery = query(collection(db, "groups", groupId, "activities"), orderBy("createdAt", "desc"));
+  return onSnapshot(activitiesQuery, (snapshot) => onActivities(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudGroupActivity))), onError);
+}
+
+export async function createGroupActivity(groupId: string, userId: string, creatorName: string, activity: Pick<CloudGroupActivity, "type" | "title" | "details" | "options" | "eventDate">) {
+  const title = activity.title.trim();
+  if (title.length < 2 || title.length > 160) throw new Error("invalid-activity");
+  const payload = {
+    ...activity,
+    title,
+    details: activity.details.trim().slice(0, 1000),
+    options: activity.options.map((option) => option.trim()).filter(Boolean).slice(0, 8),
+    eventDate: activity.eventDate.slice(0, 40),
+    creatorId: userId,
+    creatorName: creatorName.trim().slice(0, 80) || "Membre Whappy",
+    createdAt: serverTimestamp(),
+  };
+  const document = await addDoc(collection(db, "groups", groupId, "activities"), payload);
+  return { ...payload, id: document.id, createdAt: null } satisfies CloudGroupActivity;
+}
+
+export function watchGroupActivityResponses(groupId: string, activityId: string, onResponses: (items: CloudGroupActivityResponse[]) => void, onError: () => void) {
+  return onSnapshot(collection(db, "groups", groupId, "activities", activityId, "responses"), (snapshot) => {
+    onResponses(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudGroupActivityResponse)));
+  }, onError);
+}
+
+export async function saveGroupActivityResponse(groupId: string, activityId: string, userId: string, response: Omit<CloudGroupActivityResponse, "id" | "userId">) {
+  await setDoc(doc(db, "groups", groupId, "activities", activityId, "responses", userId), {
+    ...response,
+    userId,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export function watchUserOrders(userId: string, onOrders: (items: CloudOrder[]) => void, onError: () => void) {
