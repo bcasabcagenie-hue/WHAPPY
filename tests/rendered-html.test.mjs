@@ -31,13 +31,12 @@ test("affiche l'application Whappy côté serveur", async () => {
   const html = await response.text();
   assert.match(html, /<title>Whappy — Tout peut devenir une opportunité<\/title>/i);
   assert.match(html, /Icône Whappy/);
-  assert.match(html, /Chercher un produit, une compétence, un lieu, une solution/);
-  assert.match(html, /Tout peut devenir/);
-  assert.match(html, /Lancer un direct/);
-  assert.match(html, /Activer mon Double/);
-  assert.match(html, /Proposer un troc/);
   assert.match(html, /Directs/);
   assert.match(html, /Marché/);
+  assert.match(html, /MESSAGERIE PRIORITAIRE/);
+  assert.match(html, /Rechercher une conversation/);
+  assert.match(html, /Écrire un message/);
+  assert.match(html, /Appel audio/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -54,6 +53,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
   assert.match(page, /type Space = "orbit" \| "live" \| "market" \| "barter" \| "seek" \| "inbox" \| "twin"/);
+  assert.match(page, /useState<Space>\("inbox"\)/);
   assert.match(page, /Votre image, votre contrôle/i);
   assert.match(page, /ma propre image/i);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);

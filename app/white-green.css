@@ -68,7 +68,13 @@
 .white-green .request-grid header > span.urgent { background: #eaffeb; color: #079118; }
 
 .white-green .inbox-list { background: #fff; }
+.white-green .inbox-title { display: flex; align-items: center; padding: 18px 14px 10px; }
+.white-green .inbox-title > div { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.white-green .inbox-title small { color: var(--neon); font-size: 7px; font-weight: 900; letter-spacing: 1.2px; }
+.white-green .inbox-title strong { color: var(--text); font-size: 20px; letter-spacing: -0.7px; }
+.white-green .inbox-title > button { width: 34px; height: 34px; border: 0; border-radius: 10px; background: var(--neon); color: #fff; cursor: pointer; }
 .white-green .inbox-list > button { border-color: var(--line); color: var(--text); }
+.white-green .empty-messages { padding: 24px 14px; color: var(--muted); font-size: 9px; text-align: center; }
 .white-green .deal-chat { background: radial-gradient(circle at 50% 40%, #f0fff1, #fff); color: var(--text); }
 .white-green .deal-chat > header,
 .white-green .deal-chat > form { background: #fff; }
@@ -110,4 +116,5 @@
   .white-green .nova-rail { box-shadow: 0 -8px 28px rgba(19, 145, 32, 0.08); }
   .white-green .live-cart { background: rgba(255, 255, 255, 0.96); }
   .white-green .mobile-logo { display: block; }
+  .white-green .inbox-list { min-height: 275px; max-height: 340px; }
 }

@@ -38,7 +38,7 @@ function Mark({ children, color, small = false }: { children: React.ReactNode; c
 }
 
 export default function Home() {
-  const [space, setSpace] = useState<Space>("orbit");
+  const [space, setSpace] = useState<Space>("inbox");
   const [search, setSearch] = useState("");
   const [marketFilter, setMarketFilter] = useState("Tout");
   const [saved, setSaved] = useState<Record<number, boolean>>({});
@@ -82,14 +82,14 @@ export default function Home() {
 
   return <main className="nova-shell white-green">
     <aside className="nova-rail">
-      <button className="nova-logo" onClick={() => go("orbit")} aria-label="Accueil Whappy"><Image src="/whappy-logo.svg" alt="Icône Whappy" width={50} height={50} priority /></button>
+      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-logo.svg" alt="Icône Whappy" width={50} height={50} priority /></button>
       <nav aria-label="Espaces Whappy">
+        <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
         <Rail active={space === "orbit"} icon="✦" label="Orbite" onClick={() => go("orbit")} />
         <Rail active={space === "live"} icon="◉" label="Directs" live onClick={() => go("live")} />
         <Rail active={space === "market"} icon="◇" label="Marché" onClick={() => go("market")} />
         <Rail active={space === "barter"} icon="⇄" label="Troquer" onClick={() => go("barter")} />
         <Rail active={space === "seek"} icon="⌖" label="Chercher" onClick={() => go("seek")} />
-        <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
       </nav>
       <div className="rail-tools">
         <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
@@ -100,13 +100,13 @@ export default function Home() {
     <section className="nova-stage">
       <header className="nova-topbar">
         <div className="topbar-identity">
-          <button className="mobile-logo" onClick={() => go("orbit")} aria-label="Accueil Whappy">
+          <button className="mobile-logo" onClick={() => go("inbox")} aria-label="Messages Whappy">
             <Image src="/whappy-logo.svg" alt="Logo officiel Whappy" width={40} height={40} priority />
           </button>
           <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
         </div>
-        <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Chercher un produit, une compétence, un lieu, une solution…" />{search && <button onClick={() => setSearch("")}>×</button>}</label>
-        <div className="top-actions"><button onClick={() => setModal("seek")}><span>⌖</span><small>Je cherche</small></button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></div>
+        <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={space === "inbox" ? "Rechercher une conversation…" : "Chercher un produit, une compétence, un lieu, une solution…"} />{search && <button onClick={() => setSearch("")}>×</button>}</label>
+        <div className="top-actions">{space === "inbox" ? <><button onClick={() => notify("Nouvelle conversation prête")}><span>＋</span><small>Nouveau</small></button><button className="sell" onClick={() => notify("Appel Whappy démarré")}><span>⌕</span><small>Appeler</small></button></> : <><button onClick={() => setModal("seek")}><span>⌖</span><small>Je cherche</small></button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
       </header>
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
@@ -114,7 +114,7 @@ export default function Home() {
       {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} />}
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} />}
-      {space === "inbox" && <InboxSpace setModal={setModal} notify={notify} />}
+      {space === "inbox" && <InboxSpace search={search} setModal={setModal} notify={notify} />}
       {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
     </section>
 
@@ -168,10 +168,11 @@ function SeekSpace({ setModal, notify }: { setModal:(type:"seek")=>void; notify:
   return <div className="space-scroll seek-space"><section className="seek-hero"><div><span className="signal"><i/> INTELLIGENCE COLLECTIVE</span><h2>Demandez.<br/><em>Quelqu&apos;un sait.</em></h2><p>Un produit introuvable, une compétence urgente, une situation à résoudre ? Publiez votre besoin avec le lieu, le délai et votre budget.</p><button onClick={()=>setModal("seek")}>⌖ Publier ce que je cherche</button></div><div className="seek-cloud"><span className="q1">Un plombier maintenant</span><span className="q2">Appartement à louer</span><span className="q3">Pièce Toyota 2017</span><span className="q4">Graphiste disponible</span><span className="q5">Bon restaurant calme</span><b>⌖</b></div></section><section className="space-content"><div className="seek-tabs">{["Tous","Urgent","Produits","Services","Situations"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><div className="request-grid">{requests.filter(x=>filter==="Tous"||(filter==="Urgent"&&x.urgent)||(filter==="Services"&&x.title.includes("développeur"))||(filter==="Situations"&&x.title.includes("groupe"))).map((item,index)=><article key={item.title}><header><span className={item.urgent?"urgent":""}>{item.urgent?"URGENT":"RECHERCHE"}</span><small>Il y a {index*7+3} min</small></header><h3>{item.title}</h3><p>{item.details}</p><div><span>⌖ {item.place}</span><b>{item.reward}</b></div><footer><span>{index*4+7} personnes ont vu</span><button onClick={()=>notify("Votre réponse a été envoyée")}>Je peux aider ↗</button></footer></article>)}</div></section></div>;
 }
 
-function InboxSpace({ setModal, notify }: { setModal:(type:"message")=>void; notify:(text:string)=>void }) {
+function InboxSpace({ search, setModal, notify }: { search:string; setModal:(type:"message")=>void; notify:(text:string)=>void }) {
   const [selected,setSelected]=useState(0); const [text,setText]=useState("");
+  const visibleMessages = messages.map((message,index)=>({message,index})).filter(({message})=>`${message.name} ${message.text}`.toLowerCase().includes(search.toLowerCase()));
   function send(e:FormEvent){e.preventDefault();if(!text.trim())return;notify("Message envoyé");setText("");}
-  return <div className="inbox-space"><aside className="inbox-list"><div className="inbox-filters"><button className="active">Tout</button><button>Achats</button><button>Ventes</button><button>Trocs</button></div>{messages.map((m,index)=><button className={selected===index?"active":""} onClick={()=>setSelected(index)} key={m.name}><Mark color={m.color}>{m.mark}</Mark><span><strong>{m.name}</strong><small>{m.text}</small></span><i>{m.time}</i>{m.unread>0&&<b>{m.unread}</b>}</button>)}</aside><section className="deal-chat"><header><Mark color={messages[selected].color}>{messages[selected].mark}</Mark><div><strong>{messages[selected].name}</strong><small>Identité vérifiée · Répond rapidement</small></div><button>⌕</button><button>•••</button></header><div className="deal-context"><span className="product-thumb">◇</span><div><small>À PROPOS DE L&apos;ANNONCE</small><strong>{selected===0?"Canapé modulable en velours":"MacBook Air M3 · Comme neuf"}</strong><p>{selected===0?"Échange accepté":"750 000 FCFA"}</p></div><button onClick={()=>notify("Annonce ouverte")}>Voir</button></div><div className="deal-messages"><span className="chat-date">AUJOURD&apos;HUI</span><div className="theirs">Bonjour ! Est-ce que votre annonce est toujours disponible ?<small>12:03</small></div><div className="mine">Oui, absolument. On peut aussi discuter d&apos;un échange.<small>12:05 ✓✓</small></div><div className="theirs">Parfait, je vous envoie ma proposition.<small>12:08</small></div></div><form onSubmit={send}><button type="button">＋</button><input value={text} onChange={e=>setText(e.target.value)} placeholder="Écrire un message ou faire une offre…"/><button type="button" onClick={()=>setModal("message")}>◇ Offre</button><button type="submit">➤</button></form></section></div>;
+  return <div className="inbox-space"><aside className="inbox-list"><div className="inbox-title"><div><small>MESSAGERIE PRIORITAIRE</small><strong>Discussions</strong></div><button onClick={()=>notify("Nouvelle conversation prête")}>＋</button></div><div className="inbox-filters"><button className="active">Tout</button><button>Non lus</button><button>Groupes</button><button>Affaires</button></div>{visibleMessages.map(({message:m,index})=><button className={selected===index?"active":""} onClick={()=>setSelected(index)} key={m.name}><Mark color={m.color}>{m.mark}</Mark><span><strong>{m.name}</strong><small>{m.text}</small></span><i>{m.time}</i>{m.unread>0&&<b>{m.unread}</b>}</button>)}{visibleMessages.length===0&&<p className="empty-messages">Aucune conversation trouvée.</p>}</aside><section className="deal-chat"><header><Mark color={messages[selected].color}>{messages[selected].mark}</Mark><div><strong>{messages[selected].name}</strong><small>En ligne · Identité vérifiée</small></div><button onClick={()=>notify("Appel audio démarré")} aria-label="Appel audio">☎</button><button onClick={()=>notify("Appel vidéo démarré")} aria-label="Appel vidéo">▣</button><button aria-label="Options">•••</button></header><div className="deal-context"><span className="product-thumb">◇</span><div><small>À PROPOS DE L&apos;ANNONCE</small><strong>{selected===0?"Canapé modulable en velours":"MacBook Air M3 · Comme neuf"}</strong><p>{selected===0?"Échange accepté":"750 000 FCFA"}</p></div><button onClick={()=>notify("Annonce ouverte")}>Voir</button></div><div className="deal-messages"><span className="chat-date">AUJOURD&apos;HUI</span><div className="theirs">Bonjour ! Est-ce que votre annonce est toujours disponible ?<small>12:03</small></div><div className="mine">Oui, absolument. On peut aussi discuter d&apos;un échange.<small>12:05 ✓✓</small></div><div className="theirs">Parfait, je vous envoie ma proposition.<small>12:08</small></div></div><form onSubmit={send}><button type="button">＋</button><input value={text} onChange={e=>setText(e.target.value)} placeholder="Écrire un message…"/><button type="button" onClick={()=>setModal("message")}>◇ Offre</button><button type="submit">➤</button></form></section></div>;
 }
 
 function TwinSpace({ step, setStep, consent, setConsent, notify }: { step:number; setStep:(n:number)=>void; consent:boolean; setConsent:(v:boolean)=>void; notify:(text:string)=>void }) {
