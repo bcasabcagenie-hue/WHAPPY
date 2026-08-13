@@ -183,6 +183,51 @@
 .white-green .shift-explainer p { margin: 0; color: var(--muted); font-size: 7px; line-height: 1.45; }
 .white-green .shift-explainer > i { color: var(--neon); font-style: normal; }
 
+/* Accueil publicitaire et Whappy Marketplace */
+.white-green .home-ads { margin-top: 38px; }
+.white-green .home-ads-head { display: flex; align-items: flex-end; margin-bottom: 15px; }
+.white-green .home-ads-head > div { flex: 1; }
+.white-green .home-ads-head small { color: var(--neon); font-size: 7px; font-weight: 900; letter-spacing: 1.5px; }
+.white-green .home-ads-head h3 { margin: 5px 0 0; font-size: 23px; letter-spacing: -.8px; }
+.white-green .home-ads-head button { border: 0; background: none; color: var(--neon); font-size: 9px; cursor: pointer; }
+.white-green .ad-grid { display: grid; grid-template-columns: 1.5fr .75fr .75fr; gap: 12px; }
+.white-green .ad-grid article { position: relative; min-height: 230px; overflow: hidden; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
+.white-green .ad-featured { background: radial-gradient(circle at 88% 25%, #c9f8cd, #effff0 42%, #fff 78%) !important; }
+.white-green .ad-featured::after { content: "WHAPPY"; position: absolute; right: -14px; bottom: -22px; color: rgba(19,215,19,.08); font-size: 75px; font-weight: 950; letter-spacing: -6px; }
+.white-green .ad-featured > span,.white-green .ad-compact small { color: var(--neon); font-size: 7px; font-weight: 900; letter-spacing: 1px; }
+.white-green .ad-featured h3 { margin: 24px 0 8px; font-size: 25px; letter-spacing: -1px; }
+.white-green .ad-featured p,.white-green .ad-compact p { color: var(--muted); font-size: 8px; line-height: 1.55; }
+.white-green .ad-featured > div { display: flex; gap: 8px; margin-top: 20px; }
+.white-green .ad-featured button,.white-green .ad-compact button { padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); font-size: 8px; cursor: pointer; }
+.white-green .ad-featured button:first-child { border-color: var(--neon); background: var(--neon); color: #fff; }
+.white-green .ad-featured > b { position: absolute; right: 16px; top: 16px; padding: 6px 8px; border-radius: 8px; background: #e7fbe8; color: #078017; font-size: 6px; }
+.white-green .ad-compact { display: flex; flex-direction: column; justify-content: center; }
+.white-green .ad-compact.soft { background: #effcef; }
+.white-green .ad-compact strong { margin-top: 16px; font-size: 15px; line-height: 1.25; }
+.white-green .ad-compact button { width: max-content; margin-top: 12px; color: var(--neon); }
+.white-green .marketplace-banner { min-height: 410px; }
+.white-green .market-hero-actions { display: flex; gap: 8px; margin-top: 22px; }
+.white-green .market-hero-actions button { padding: 12px 15px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--text); font-size: 9px; font-weight: 800; cursor: pointer; }
+.white-green .market-hero-actions button:first-child { border-color: var(--neon); background: var(--neon); color: #fff; }
+.white-green .seller-console { width: min(330px, 35vw); padding: 24px; border: 1px solid var(--line); border-radius: 24px; background: rgba(255,255,255,.88); box-shadow: 0 25px 65px rgba(19,145,32,.13); backdrop-filter: blur(12px); }
+.white-green .seller-console > small { color: var(--neon); font-size: 7px; font-weight: 900; letter-spacing: 1px; }
+.white-green .seller-console > strong { display: block; margin-top: 22px; font-size: 34px; letter-spacing: -1.5px; }
+.white-green .seller-console > span { color: var(--muted); font-size: 8px; }
+.white-green .seller-console > div { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; gap: 6px; margin: 20px 0; padding: 14px; border-radius: 13px; background: #f1fbf2; }
+.white-green .seller-console > div b { color: var(--neon); font-size: 16px; }
+.white-green .seller-console > div small { color: var(--muted); font-size: 7px; }
+.white-green .seller-console > button { width: 100%; padding: 11px; border: 0; border-radius: 11px; background: var(--neon); color: #fff; font-size: 8px; font-weight: 850; cursor: pointer; }
+.white-green .payment-ready { display: flex; align-items: center; gap: 18px; margin-bottom: 25px; padding: 17px; border: 1px solid var(--line); border-radius: 17px; background: #f7fff7; }
+.white-green .payment-ready > div:first-child { display: flex; align-items: center; gap: 10px; }
+.white-green .payment-ready > div:first-child > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: #ddf9df; color: var(--neon); }
+.white-green .payment-ready > div:first-child > div { display: flex; min-width: 210px; flex-direction: column; }
+.white-green .payment-ready small { color: var(--neon); font-size: 6px; font-weight: 900; }
+.white-green .payment-ready strong { margin-top: 3px; font-size: 9px; }
+.white-green .payment-methods { display: flex; flex: 1; gap: 6px; flex-wrap: wrap; }
+.white-green .payment-methods span { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font-size: 7px; }
+.white-green .payment-ready > button { border: 0; background: none; color: var(--neon); font-size: 8px; cursor: pointer; }
+.white-green .market-sell-fab { position: sticky; left: 100%; bottom: 18px; margin-top: 22px; padding: 12px 16px; border: 0; border-radius: 14px; background: var(--neon); color: #fff; font-size: 9px; font-weight: 850; box-shadow: 0 14px 35px rgba(19,215,19,.24); cursor: pointer; }
+
 @media (max-width: 760px) {
   .white-green .nova-rail { box-shadow: 0 -8px 28px rgba(19, 145, 32, 0.08); }
   .white-green .live-cart { background: rgba(255, 255, 255, 0.96); }
@@ -210,4 +255,11 @@
   .white-green .shift-link { width: 34px; height: 34px; }
   .white-green .shift-explainer { grid-template-columns: 1fr; gap: 12px; }
   .white-green .shift-explainer > i { display: none; }
+  .white-green .ad-grid { grid-template-columns: 1fr; }
+  .white-green .ad-grid article { min-height: 205px; }
+  .white-green .home-ads-head button { display: none; }
+  .white-green .marketplace-banner { min-height: auto; display: block; }
+  .white-green .seller-console { width: 100%; margin-top: 25px; }
+  .white-green .payment-ready { align-items: flex-start; flex-direction: column; }
+  .white-green .payment-ready > button { align-self: flex-end; }
 }

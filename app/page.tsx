@@ -71,9 +71,9 @@ export default function Home() {
   }
 
   const titles: Record<Space, [string, string]> = {
-    orbit: ["Aujourd'hui dans votre monde", "Des opportunités choisies autour de vous"],
+    orbit: ["Accueil", "Publicités, nouveautés et opportunités du moment"],
     live: ["Whappy Live", "Regardez, échangez et achetez en temps réel"],
-    market: ["Marché vivant", "Des produits et services de confiance"],
+    market: ["Whappy Marketplace", "Tout le monde peut vendre, acheter ou négocier"],
     barter: ["Troc intelligent", "Échangez de la valeur, sans limite"],
     seek: ["Je cherche", "Publiez un besoin, la communauté répond"],
     inbox: ["Connexions", "Vos conversations, commandes et offres"],
@@ -85,9 +85,9 @@ export default function Home() {
       <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-logo.svg" alt="Icône Whappy" width={50} height={50} priority /></button>
       <nav aria-label="Espaces Whappy">
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
-        <Rail active={space === "orbit"} icon="✦" label="Orbite" onClick={() => go("orbit")} />
+        <Rail active={space === "orbit"} icon="⌂" label="Accueil" onClick={() => go("orbit")} />
         <Rail active={space === "live"} icon="◉" label="Directs" live onClick={() => go("live")} />
-        <Rail active={space === "market"} icon="◇" label="Marché" onClick={() => go("market")} />
+        <Rail active={space === "market"} icon="◇" label="Market" onClick={() => go("market")} />
         <Rail active={space === "barter"} icon="⇄" label="Troquer" onClick={() => go("barter")} />
         <Rail active={space === "seek"} icon="⌖" label="Chercher" onClick={() => go("seek")} />
       </nav>
@@ -111,7 +111,7 @@ export default function Home() {
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
       {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
-      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} />}
+      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} />}
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} />}
       {space === "inbox" && <InboxSpace search={search} setModal={setModal} notify={notify} />}
@@ -137,6 +137,7 @@ function Orbit({ go, setModal, setLiveIndex, notify, saved, setSaved }: { go: (s
     </section>
     <div className="orbit-body">
       <section className="action-strip"><button onClick={() => setModal("live")}><Mark>●</Mark><div><strong>Lancer un direct</strong><small>Présentez et vendez en live</small></div><span>↗</span></button><button onClick={() => go("twin")}><Mark>◎</Mark><div><strong>Activer mon Double</strong><small>Votre vendeur vidéo consentant</small></div><span>↗</span></button><button onClick={() => go("barter")}><Mark>⇄</Mark><div><strong>Proposer un troc</strong><small>Échangez ce que vous avez</small></div><span>↗</span></button></section>
+      <section className="home-ads"><div className="home-ads-head"><div><small>PUBLICITÉS & NOUVEAUTÉS</small><h3>Les marques vivent sur l&apos;Accueil.</h3></div><button onClick={() => notify("Votre espace publicitaire est prêt à être configuré")}>Créer une publicité ↗</button></div><div className="ad-grid"><article className="ad-featured"><span>SPONSORISÉ · MOKABI STUDIO</span><h3>La nouvelle collection N&apos;Tela<br/>prend vie en direct.</h3><p>Découvrez les pièces, posez vos questions et achetez pendant le défilé.</p><div><button onClick={() => setLiveIndex(0)}>Voir le direct ●</button><button onClick={() => go("market")}>Voir la boutique</button></div><b>WHAPPY LIVE AD</b></article><article className="ad-compact"><small>OFFRE LOCALE</small><strong>Livraison offerte aujourd&apos;hui</strong><p>Sur une sélection de vendeurs vérifiés à Brazzaville.</p><button onClick={() => go("market")}>Découvrir ↗</button></article><article className="ad-compact soft"><small>NOUVEAU SUR WHAPPY</small><strong>Votre Double peut présenter vos offres</strong><p>Chaque vidéo reste signalée comme IA et contrôlée par vous.</p><button onClick={() => go("twin")}>Ouvrir le Studio ↗</button></article></div></section>
       <SectionTitle overline="ÇA SE PASSE MAINTENANT" title="Directs près de vous" action="Explorer les directs" onClick={() => go("live")} />
       <div className="mini-live-grid">{lives.map((live, index) => <button key={live.host} className={`mini-live ${live.tone}`} onClick={() => setLiveIndex(index)}><span className="live-label"><i/> {live.badge}</span><div className="live-person">{live.host.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div className="live-info"><small>{live.host} · {live.viewers} regardent</small><strong>{live.title}</strong><span>{live.product} <b>{live.price} FCFA</b></span></div></button>)}</div>
       <SectionTitle overline="SÉLECTION POUR VOUS" title="À saisir autour de vous" action="Voir le marché" onClick={() => go("market")} />
@@ -154,9 +155,9 @@ function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => voi
   </div>;
 }
 
-function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<number,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<number, boolean>>>; notify:(text:string)=>void }) {
+function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify, setModal }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<number,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<number, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void }) {
   const filters=["Tout","Tech","Mode","Maison","Services","Troc"];
-  return <div className="space-scroll market-space"><section className="market-banner"><div><span>WHAPPY MARKET / CONFIANCE LOCALE</span><h2>Achetez à des personnes,<br/>pas à des catalogues.</h2><p>Profils vérifiés, paiement protégé et négociation humaine.</p></div><div className="trust-orbit"><strong>97%</strong><span>indice moyen<br/>de confiance</span></div></section><section className="space-content"><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button>⌖ Autour de moi</button><button>≡ Trier</button></div><div className="results-line"><span>{items.length} opportunités {search && `pour « ${search} »`}</span><small>Rayon : 10 km</small></div><div className="listing-grid market-listings">{items.map(item=><ListingCard key={item.id} item={item} saved={!!saved[item.id]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[item.id]}))} onOpen={()=>notify(`Discussion ouverte avec ${item.seller}`)}/>)}</div></section></div>;
+  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={()=>notify("Tableau vendeur ouvert")}>Ma boutique ↗</button></div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>0 FCFA</strong><span>Solde disponible</span><div><b>12</b><small>Vues</small><b>3</b><small>Messages</small></div><button onClick={()=>setModal("sell")}>Publier mon premier produit</button></div></section><section className="space-content"><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Une architecture prête pour encaisser en sécurité</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Configuration des paiements préparée")}>Configurer plus tard ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button>⌖ Autour de moi</button><button>≡ Trier</button></div><div className="results-line"><span>{items.length} produits et services {search && `pour « ${search} »`}</span><small>Vendeurs particuliers et professionnels</small></div><div className="listing-grid market-listings">{items.map(item=><ListingCard key={item.id} item={item} saved={!!saved[item.id]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[item.id]}))} onOpen={()=>notify(`Discussion ouverte avec ${item.seller}`)}/>)}</div><button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
 }
 
 function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModal:(type:"sell")=>void }) {

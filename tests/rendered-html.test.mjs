@@ -32,7 +32,7 @@ test("affiche l'application Whappy côté serveur", async () => {
   assert.match(html, /<title>Whappy — Tout peut devenir une opportunité<\/title>/i);
   assert.match(html, /Icône Whappy/);
   assert.match(html, /Directs/);
-  assert.match(html, /Marché/);
+  assert.match(html, /Market/);
   assert.match(html, /MESSAGERIE PRIORITAIRE/);
   assert.match(html, /Rechercher une conversation/);
   assert.match(html, /Écrire un message/);
@@ -59,6 +59,11 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /WHAPPY LIVE SHIFT/i);
   assert.match(page, /Vous commencez.*Votre Double continue/is);
   assert.match(page, /Passage de relais/);
+  assert.match(page, /PUBLICITÉS & NOUVEAUTÉS/);
+  assert.match(page, /Tout le monde peut.*ouvrir sa boutique/is);
+  assert.match(page, /Mobile Money/);
+  assert.match(page, /Carte bancaire/);
+  assert.match(page, /Whappy Marketplace/i);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);
