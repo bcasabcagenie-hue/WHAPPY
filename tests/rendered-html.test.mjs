@@ -29,11 +29,14 @@ test("affiche l'application Whappy côté serveur", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Whappy — Connectés, simplement<\/title>/i);
-  assert.match(html, /Logo Whappy/);
-  assert.match(html, /Rechercher une discussion/);
-  assert.match(html, /Équipe Whappy/);
+  assert.match(html, /<title>Whappy — Votre monde, connecté<\/title>/i);
+  assert.match(html, /Icône Whappy/);
+  assert.match(html, /Rechercher une conversation/);
+  assert.match(html, /Design Crew/);
   assert.match(html, /Écrire un message/);
+  assert.match(html, /Pulse/);
+  assert.match(html, /Groupes/);
+  assert.match(html, /Appels/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -49,8 +52,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
-  assert.match(page, /localStorage\.setItem\("whappy-theme"/);
-  assert.match(layout, /title:\s*"Whappy — Connectés, simplement"/);
+  assert.match(page, /type View = "messages" \| "calls" \| "groups" \| "pulse"/);
+  assert.match(layout, /title:\s*"Whappy — Votre monde, connecté"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /projet autonome pour Visual Studio Code/i);
   assert.match(logo, /#13d713/i);

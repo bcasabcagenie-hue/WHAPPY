@@ -8,8 +8,8 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Whappy — Connectés, simplement",
-  description: "Une messagerie moderne, rapide et intuitive pour rester proche de ceux qui comptent.",
+  title: "Whappy — Votre monde, connecté",
+  description: "Messages, appels, groupes et découvertes réunis dans une expérience sociale nouvelle génération.",
   icons: {
     icon: "/whappy-logo.svg",
     shortcut: "/whappy-logo.svg",
