@@ -56,6 +56,9 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /useState<Space>\("inbox"\)/);
   assert.match(page, /Votre image, votre contrôle/i);
   assert.match(page, /ma propre image/i);
+  assert.match(page, /WHAPPY LIVE SHIFT/i);
+  assert.match(page, /Vous commencez.*Votre Double continue/is);
+  assert.match(page, /Passage de relais/);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);
