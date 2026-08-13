@@ -1,0 +1,13 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+export function CallRoom({ contact, video, onClose }: { contact:string;video:boolean;onClose:()=>void }) {
+  const videoRef=useRef<HTMLVideoElement>(null); const streamRef=useRef<MediaStream|null>(null);
+  const [status,setStatus]=useState<"opening"|"ready"|"error">("opening"); const [muted,setMuted]=useState(false); const [camera,setCamera]=useState(video); const [seconds,setSeconds]=useState(0);
+  useEffect(()=>{let active=true;navigator.mediaDevices?.getUserMedia({audio:true,video}).then(async stream=>{if(!active){stream.getTracks().forEach(track=>track.stop());return;}streamRef.current=stream;if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}setStatus("ready");}).catch(()=>setStatus("error"));return()=>{active=false;streamRef.current?.getTracks().forEach(track=>track.stop());};},[video]);
+  useEffect(()=>{if(status!=="ready")return;const timer=window.setInterval(()=>setSeconds(value=>value+1),1000);return()=>window.clearInterval(timer);},[status]);
+  function toggle(kind:"audio"|"video"){const tracks=kind==="audio"?streamRef.current?.getAudioTracks():streamRef.current?.getVideoTracks();if(!tracks?.length)return;const enabled=!tracks[0].enabled;tracks.forEach(track=>{track.enabled=enabled;});if(kind==="audio")setMuted(!enabled);else setCamera(enabled);}
+  const time=`${Math.floor(seconds/60).toString().padStart(2,"0")}:${(seconds%60).toString().padStart(2,"0")}`;
+  return <div className="call-layer" role="dialog" aria-modal="true" aria-label={`Appel avec ${contact}`}><section className={`call-room ${video?"video":"audio"}`}><header><span>WHAPPY CALL</span><b>{status==="ready"?time:status==="error"?"Accès refusé":"Connexion…"}</b></header>{video&&<video ref={videoRef} muted playsInline/>}<div className="call-contact"><span>{contact.split(/\s+/).map(part=>part[0]).join("").slice(0,2)}</span><h2>{contact}</h2><p>{status==="ready"?"Caméra et micro prêts sur cet appareil":status==="error"?"Autorisez le micro et la caméra pour continuer":"Préparation sécurisée de l’appel…"}</p></div><footer><button className={muted?"off":""} onClick={()=>toggle("audio")} disabled={status!=="ready"}>◉<small>{muted?"Réactiver":"Micro"}</small></button>{video&&<button className={camera?"":"off"} onClick={()=>toggle("video")} disabled={status!=="ready"}>▣<small>{camera?"Caméra":"Réactiver"}</small></button>}<button onClick={onClose} className="hangup">☎<small>Raccrocher</small></button></footer><small className="call-note">La connexion à un interlocuteur distant nécessitera le service d’appel Whappy.</small></section></div>;
+}
