@@ -83,7 +83,10 @@ export default function Home() {
   const [publishBusy, setPublishBusy] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, (user) => {
-    setAuthenticated(Boolean(user?.phoneNumber));
+    const hasPhone = Boolean(user?.phoneNumber);
+    const hasProfile = Boolean(user?.displayName?.trim());
+    if (hasPhone && !hasProfile) setAuthStep("profile");
+    setAuthenticated(hasPhone && hasProfile);
     setUserId(user?.uid || "");
     setSyncStatus(user?.uid ? "syncing" : "local");
   }), []);
@@ -181,6 +184,9 @@ export default function Home() {
     setAuthError("");
     setAuthStatus("Préparation de l’envoi sécurisé…");
     try {
+      const e164Phone = `${countryCode}${digits}`;
+      auth.settings.appVerificationDisabledForTesting =
+        process.env.NODE_ENV !== "production" && e164Phone === "+242060000099";
       recaptchaRef.current?.clear();
       auth.languageCode = "fr";
       const verifier = new RecaptchaVerifier(auth, "whappy-recaptcha", {
@@ -192,7 +198,7 @@ export default function Home() {
       await verifier.render();
       setAuthStatus("Envoi du code SMS en cours…");
       confirmationRef.current = await withTimeout(
-        signInWithPhoneNumber(auth, `${countryCode}${digits}`, verifier),
+        signInWithPhoneNumber(auth, e164Phone, verifier),
         90_000,
       );
       setAuthStatus("");
@@ -245,9 +251,16 @@ export default function Home() {
       return;
     }
     setAuthBusy(true);
-    if (auth.currentUser) await updateProfile(auth.currentUser, { displayName: profileName.trim() });
-    setAuthenticated(true);
-    setAuthBusy(false);
+    setAuthError("");
+    try {
+      if (!auth.currentUser) throw new Error("missing-user");
+      await updateProfile(auth.currentUser, { displayName: profileName.trim() });
+      setAuthenticated(true);
+    } catch {
+      setAuthError("Le profil n'a pas pu être créé. Vérifiez votre connexion puis réessayez.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   const titles: Record<Space, [string, string]> = {

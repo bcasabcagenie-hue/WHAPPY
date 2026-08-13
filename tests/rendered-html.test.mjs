@@ -70,6 +70,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /UN NUMÉRO\. UN COMPTE/);
   assert.match(page, /signInWithPhoneNumber/);
   assert.match(page, /RecaptchaVerifier/);
+  assert.match(page, /appVerificationDisabledForTesting/);
+  assert.match(page, /hasPhone && hasProfile/);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);
