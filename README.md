@@ -13,6 +13,10 @@ Whappy est une application locale de messagerie moderne, conçue comme un projet
 - mode clair ou sombre mémorisé sur l'appareil ;
 - interface adaptée aux ordinateurs, tablettes et téléphones ;
 - logo officiel Whappy intégré.
+- backend Firebase dédié (`whappy-d97e7`) ;
+- comptes par e-mail et mot de passe avec Firebase Authentication ;
+- base Cloud Firestore en temps réel pour les profils, conversations et messages ;
+- règles Firestore et Storage sécurisées incluses dans le projet.
 
 ## Ouvrir le projet dans Visual Studio Code
 
@@ -44,6 +48,19 @@ npm run lint      # vérifier la qualité du code
 npm test          # compiler puis exécuter les tests
 npm run check     # exécuter toutes les vérifications
 ```
+
+## Firebase
+
+Whappy est relié au projet Firebase indépendant `whappy-d97e7`.
+
+- `lib/firebase.ts` initialise Firebase Authentication, Firestore et Storage ;
+- `.env.local` contient la configuration locale publique de l'application Web ;
+- `.env.example` documente les variables nécessaires sans exposer la configuration locale ;
+- `firestore.rules` protège les profils, conversations et messages ;
+- `storage.rules` limite l'accès et la taille des fichiers envoyés ;
+- `firestore.indexes.json` contient les index nécessaires aux discussions.
+
+Les clés de configuration Web Firebase identifient l'application mais ne remplacent pas les règles de sécurité. L'accès aux données est contrôlé par Authentication et les règles fournies.
 
 ## Structure principale
 

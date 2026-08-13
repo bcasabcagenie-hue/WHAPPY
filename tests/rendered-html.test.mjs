@@ -38,12 +38,14 @@ test("affiche l'application Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
     readFile(new URL("../public/whappy-logo.svg", import.meta.url), "utf8"),
+    readFile(new URL("../lib/firebase.ts", import.meta.url), "utf8"),
+    readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -52,5 +54,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /projet autonome pour Visual Studio Code/i);
   assert.match(logo, /#13d713/i);
+  assert.match(firebase, /getFirestore/);
+  assert.match(firebase, /getAuth/);
+  assert.match(rules, /request\.auth\.uid/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
 });
