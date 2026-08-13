@@ -99,6 +99,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(dataLayer, /watchUserOrders/);
   assert.match(dataLayer, /createOrder/);
   assert.match(dataLayer, /cancelOrder/);
+  assert.match(dataLayer, /watchGroupMessages/);
+  assert.match(dataLayer, /sendGroupMessage/);
   assert.match(dataLayer, /watchUserGroups/);
   assert.match(dataLayer, /createGroup/);
   assert.match(rules, /request\.resource\.data\.text\.size\(\) <= 4000/);
@@ -122,6 +124,9 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(superHub, /WHAPPY PAY/);
   assert.match(superHub, /Mobile Money/);
   assert.match(superHub, /MINI-SERVICES WHAPPY/);
+  assert.match(superHub, /Salon sécurisé/);
+  assert.match(superHub, /Appel de groupe/);
+  assert.match(superHub, /Créateur du groupe/);
   assert.match(superHub, /onCreateGroup/);
   assert.match(superHub, /Compte synchronisé/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);

@@ -435,7 +435,7 @@ export default function Home() {
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
       {space === "inbox" && <InboxSpace search={search} userId={userId} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />}
-      {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{go("inbox");notify(`Conversation avec ${contact} ouverte`)}} />}
+      {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{go("inbox");notify(`Conversation avec ${contact} ouverte`)}} />}
       {space === "services" && <SuperHub go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
     </section>
