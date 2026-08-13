@@ -26,5 +26,19 @@ service firebase.storage {
         && request.auth.uid == userId;
       allow update: if false;
     }
+
+    match /twins/{userId}/{fileName} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.identityConsent == true
+        && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.voiceConsent == true
+        && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.movementConsent == true
+        && request.resource.size < 80 * 1024 * 1024
+        && (request.resource.contentType.matches('video/.*')
+          || request.resource.contentType.matches('audio/.*'));
+      allow update: if false;
+    }
   }
 }

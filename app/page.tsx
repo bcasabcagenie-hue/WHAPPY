@@ -8,6 +8,7 @@ import { cancelOrder, createGroup, createOrder, publishListing, publishRequest, 
 import { saveWhappyProfile } from "@/lib/whappy-profile";
 import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
 import { TwinRecorder } from "@/app/components/TwinRecorder";
+import { TwinEngineStudio } from "@/app/components/TwinEngineStudio";
 import { CallRoom } from "@/app/components/CallRoom";
 import { CartPanel, type CartLine, type CheckoutDraft, ProductPanel } from "@/app/components/CommercePanels";
 import { SellerDashboard } from "@/app/components/SellerDashboard";
@@ -454,7 +455,8 @@ export default function Home() {
       {space === "inbox" && (userId ? <RealTimeInbox key={directCompose} embedded composeToken={directCompose} search={search} user={directUser} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <InboxSpace search={search} userId={userId} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />)}
       {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{go("inbox");notify(`Conversation avec ${contact} ouverte`)}} />}
       {space === "services" && <SuperHub go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
-      {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
+      {space === "twin" && userId && <TwinEngineStudio userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} consent={consent} setConsent={setConsent} notify={notify}/>}
+      {space === "twin" && !userId && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
       {space === "business" && userId && <BusinessStudio userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} search={search} notify={notify}/>}
     </section>
 

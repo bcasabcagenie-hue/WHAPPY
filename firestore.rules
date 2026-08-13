@@ -17,12 +17,57 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
       allow create, update, delete: if ownsProfile(userId);
+
+      match /twinProfiles/{profileId} {
+        allow read, delete: if ownsProfile(userId) && profileId == "main";
+        allow create, update: if ownsProfile(userId)
+          && profileId == "main"
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.identityConsent is bool
+          && request.resource.data.voiceConsent is bool
+          && request.resource.data.movementConsent is bool;
+      }
+
+      match /twinAutomations/{automationId} {
+        allow read, delete: if ownsProfile(userId);
+        allow create: if ownsProfile(userId)
+          && request.resource.data.userId == request.auth.uid
+          && get(/databases/$(database)/documents/users/$(userId)/twinProfiles/main).data.identityConsent == true
+          && get(/databases/$(database)/documents/users/$(userId)/twinProfiles/main).data.voiceConsent == true
+          && get(/databases/$(database)/documents/users/$(userId)/twinProfiles/main).data.movementConsent == true
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.script is string
+          && request.resource.data.script.size() <= 4000
+          && request.resource.data.enabled is bool;
+        allow update: if ownsProfile(userId)
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["enabled", "updatedAt"]);
+      }
+
+      match /twinRenders/{renderId} {
+        allow read, delete: if ownsProfile(userId);
+        allow create: if ownsProfile(userId)
+          && request.resource.data.userId == request.auth.uid
+          && get(/databases/$(database)/documents/users/$(userId)/twinProfiles/main).data.identityConsent == true
+          && get(/databases/$(database)/documents/users/$(userId)/twinProfiles/main).data.voiceConsent == true
+          && get(/databases/$(database)/documents/users/$(userId)/twinProfiles/main).data.movementConsent == true
+          && request.resource.data.status == "prepared"
+          && request.resource.data.script is string
+          && request.resource.data.script.size() > 0
+          && request.resource.data.script.size() <= 4000
+          && request.resource.data.sequence is list
+          && request.resource.data.sequence.size() <= 40;
+        allow update: if false;
+      }
     }
 
     match /conversations/{conversationId} {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
-        && request.resource.data.keys().hasOnly(["ownerId", "name", "handle", "type", "category", "bio", "city", "phone", "website", "status", "followers", "createdAt", "updatedAt"])
+        && request.resource.data.keys().hasOnly(["ownerId", "memberIds", "members", "typingBy", "readBy", "contactId", "contactName", "updatedAt"])
         && request.auth.uid in request.resource.data.memberIds
         && request.resource.data.memberIds is list
         && request.resource.data.memberIds.size() >= 1

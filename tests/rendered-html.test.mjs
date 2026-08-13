@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -60,6 +60,9 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../lib/whappy-calls.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/BusinessStudio.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/whappy-business.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/TwinEngineStudio.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-twin.ts", import.meta.url), "utf8"),
+    readFile(new URL("../storage.rules", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -171,6 +174,16 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(businessData, /watchActiveCampaigns/);
   assert.match(businessData, /recordAdEvent/);
   assert.match(businessData, /createAdCampaign/);
+  assert.match(page, /TwinEngineStudio/);
+  assert.match(twinEngine, /Moteur mouvement/);
+  assert.match(twinEngine, /Clone vocal/);
+  assert.match(twinEngine, /Motion Capture/);
+  assert.match(twinEngine, /speechSynthesis/);
+  assert.match(twinEngine, /Automatisation du Double activée/);
+  assert.match(twinData, /twinAutomations/);
+  assert.match(twinData, /twinRenders/);
+  assert.match(rules, /match \/twinProfiles\/\{profileId\}/);
+  assert.match(storageRules, /match \/twins\/\{userId\}/);
   assert.match(groupActivities, /Votre vote est enregistré/);
   assert.match(groupActivities, /Votre participation est confirmée/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
