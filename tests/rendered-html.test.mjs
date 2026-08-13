@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -48,6 +48,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../public/whappy-logo.svg", import.meta.url), "utf8"),
     readFile(new URL("../lib/firebase.ts", import.meta.url), "utf8"),
     readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-data.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -77,5 +78,10 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(firebase, /getFirestore/);
   assert.match(firebase, /getAuth/);
   assert.match(rules, /request\.auth\.uid/);
+  assert.match(rules, /match \/listings\/\{listingId\}/);
+  assert.match(rules, /match \/requests\/\{requestId\}/);
+  assert.match(dataLayer, /watchWhappyData/);
+  assert.match(dataLayer, /publishListing/);
+  assert.match(dataLayer, /uploadBytes/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
 });

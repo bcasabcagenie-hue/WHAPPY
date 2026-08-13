@@ -4,12 +4,13 @@ import Image from "next/image";
 import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
+import { publishListing, publishRequest, watchWhappyData } from "@/lib/whappy-data";
 import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
 import { TwinRecorder } from "@/app/components/TwinRecorder";
 
 type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "twin";
-type Listing = { id: number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; };
-type RequestItem = { id: number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
+type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; };
+type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const listings: Listing[] = [
   { id: 1, title: "MacBook Air M3 · Comme neuf", price: "750 000 FCFA", place: "Poto-Poto · 1,2 km", seller: "Junior K.", mark: "JK", tone: "lime", category: "Tech", mode: "vente", trust: 98 },
@@ -67,7 +68,7 @@ export default function Home() {
   const [space, setSpace] = useState<Space>("inbox");
   const [search, setSearch] = useState("");
   const [marketFilter, setMarketFilter] = useState("Tout");
-  const [saved, setSaved] = useState<Record<number, boolean>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState<"sell" | "seek" | "live" | "twin" | "message" | null>(null);
   const [liveIndex, setLiveIndex] = useState<number | null>(null);
@@ -77,12 +78,26 @@ export default function Home() {
   const [customListings, setCustomListings] = useState<Listing[]>([]);
   const [customRequests, setCustomRequests] = useState<RequestItem[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [userId, setUserId] = useState("");
+  const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "offline">("local");
+  const [publishBusy, setPublishBusy] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, (user) => {
     setAuthenticated(Boolean(user?.phoneNumber));
+    setUserId(user?.uid || "");
+    setSyncStatus(user?.uid ? "syncing" : "local");
   }), []);
 
   useEffect(() => () => recaptchaRef.current?.clear(), []);
+
+  useEffect(() => {
+    if (!userId) return;
+    return watchWhappyData(
+      (items) => { setCustomListings(items.map((item) => ({ ...item, tone: "lime" }))); setSyncStatus("synced"); },
+      (items) => { setCustomRequests(items); setSyncStatus("synced"); },
+      () => setSyncStatus("offline"),
+    );
+  }, [userId]);
 
   const filtered = useMemo(() => [...customListings, ...listings].filter((item) => {
     const matchesText = `${item.title} ${item.category} ${item.place}`.toLowerCase().includes(search.toLowerCase());
@@ -100,7 +115,7 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2400);
   }
 
-  function submitModal(event: FormEvent) {
+  async function submitModal(event: FormEvent) {
     event.preventDefault();
     const form = new FormData(event.currentTarget as HTMLFormElement);
     if (modal === "live") {
@@ -116,19 +131,42 @@ export default function Home() {
       const title = String(form.get("title") || "Nouvelle annonce").trim();
       const mode = String(form.get("mode"));
       const seller = auth.currentUser?.displayName || profileName.trim() || "Vous";
-      setCustomListings((current) => [{
-        id: Date.now(), title, price: String(form.get("price") || "Prix à discuter"), place: String(form.get("place") || "Brazzaville"), seller,
-        mark: seller.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "VO", tone: "lime", category: String(form.get("category") || "Services"), mode: mode === "sell" ? "vente" : "troc", trust: 100,
-      }, ...current]);
+      const listing = { title, price: String(form.get("price") || "Prix à discuter"), place: String(form.get("place") || "Brazzaville"), seller, mark: seller.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "VO", category: String(form.get("category") || "Services"), mode: (mode === "sell" ? "vente" : "troc") as Listing["mode"] };
+      setPublishBusy(true);
+      try {
+        if (userId) {
+          const media = form.get("media");
+          const persisted = await publishListing(userId, listing, media instanceof File && media.size ? media : undefined);
+          setCustomListings((current) => current.some((item) => item.id === persisted.id) ? current : [{ ...persisted, tone: "lime" }, ...current]);
+        } else setCustomListings((current) => [{ ...listing, id: Date.now(), tone: "lime", trust: 100 }, ...current]);
+      } catch (error) {
+        notify(error instanceof Error && error.message === "media-too-large" ? "Le média doit peser moins de 10 Mo" : "Synchronisation impossible. Vérifiez votre connexion puis réessayez.");
+        setSyncStatus("offline");
+        setPublishBusy(false);
+        return;
+      }
       setMarketFilter("Tout");
       go("market");
-      notify(`« ${title} » est maintenant visible dans le Market`);
+      notify(userId ? `« ${title} » est publié et synchronisé` : `« ${title} » est visible dans cette démonstration`);
     } else if (modal === "seek") {
       const title = String(form.get("title") || "Nouvelle recherche").trim();
-      setCustomRequests((current) => [{ id: Date.now(), title, details: String(form.get("details") || "Réponse rapide souhaitée"), place: String(form.get("area") || "Brazzaville"), reward: String(form.get("reward") || "À discuter"), urgent: form.get("urgent") === "on", category: String(form.get("category") || "Situations") as RequestItem["category"] }, ...current]);
+      const request = { title, details: String(form.get("details") || "Réponse rapide souhaitée"), place: String(form.get("area") || "Brazzaville"), reward: String(form.get("reward") || "À discuter"), urgent: form.get("urgent") === "on", category: String(form.get("category") || "Situations") as RequestItem["category"] };
+      setPublishBusy(true);
+      try {
+        if (userId) {
+          const persisted = await publishRequest(userId, request);
+          setCustomRequests((current) => current.some((item) => item.id === persisted.id) ? current : [persisted, ...current]);
+        } else setCustomRequests((current) => [{ ...request, id: Date.now() }, ...current]);
+      } catch {
+        notify("Synchronisation impossible. Vérifiez votre connexion puis réessayez.");
+        setSyncStatus("offline");
+        setPublishBusy(false);
+        return;
+      }
       go("seek");
-      notify(`Votre recherche « ${title} » est active`);
+      notify(userId ? `Votre recherche « ${title} » est synchronisée` : `Votre recherche « ${title} » est active dans la démonstration`);
     } else if (modal === "message") notify("Votre offre a été ajoutée à la conversation");
+    setPublishBusy(false);
     setModal(null);
   }
 
@@ -250,7 +288,7 @@ export default function Home() {
           <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
         </div>
         <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={space === "inbox" ? "Rechercher une conversation…" : "Chercher un produit, une compétence, un lieu, une solution…"} />{search && <button onClick={() => setSearch("")}>×</button>}</label>
-        <div className="top-actions">{space === "inbox" ? <><button onClick={() => notify("Nouvelle conversation prête")}><span>＋</span><small>Nouveau</small></button><button className="sell" onClick={() => notify("Appel Whappy démarré")}><span>⌕</span><small>Appeler</small></button></> : <><button onClick={() => setModal("seek")}><span>⌖</span><small>Je cherche</small></button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
+        <div className="top-actions"><span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Démonstration locale"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Local"}</span>{space === "inbox" ? <><button onClick={() => notify("Nouvelle conversation prête")}><span>＋</span><small>Nouveau</small></button><button className="sell" onClick={() => notify("Appel Whappy démarré")}><span>⌕</span><small>Appeler</small></button></> : <><button onClick={() => setModal("seek")}><span>⌖</span><small>Je cherche</small></button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
       </header>
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
@@ -264,7 +302,7 @@ export default function Home() {
 
     {liveIndex !== null && <LiveViewer live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
-    {modal && <ActionModal type={modal} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
+    {modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
     {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Cyril Bokilo"} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
     {toast && <div className="nova-toast">✦ {toast}</div>}
   </main>;
@@ -292,7 +330,7 @@ function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => voi
   </div>;
 }
 
-function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify, setModal, onContact }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<number,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<number, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void; onContact:(seller:string)=>void }) {
+function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify, setModal, onContact }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<string,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<string, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void; onContact:(seller:string)=>void }) {
   const filters=["Tout","Tech","Mode","Maison","Services","Troc"];
   const [sort,setSort]=useState<"near"|"trust">("near");
   const [nearby,setNearby]=useState(false);
@@ -306,7 +344,7 @@ function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModa
 }
 
 function SeekSpace({ setModal, notify, items }: { setModal:(type:"seek")=>void; notify:(text:string)=>void; items:RequestItem[] }) {
-  const [filter,setFilter]=useState("Tous"); const [answered,setAnswered]=useState<Record<number,boolean>>({});
+  const [filter,setFilter]=useState("Tous"); const [answered,setAnswered]=useState<Record<string,boolean>>({});
   const visible=items.filter(item=>filter==="Tous"||(filter==="Urgent"&&item.urgent)||item.category===filter);
   return <div className="space-scroll seek-space"><section className="seek-hero"><div><span className="signal"><i/> INTELLIGENCE COLLECTIVE</span><h2>Demandez.<br/><em>Quelqu&apos;un sait.</em></h2><p>Un produit introuvable, une compétence urgente, une situation à résoudre ? Publiez votre besoin avec le lieu, le délai et votre budget.</p><button onClick={()=>setModal("seek")}>⌖ Publier ce que je cherche</button></div><div className="seek-cloud"><span className="q1">Un plombier maintenant</span><span className="q2">Appartement à louer</span><span className="q3">Pièce Toyota 2017</span><span className="q4">Graphiste disponible</span><span className="q5">Bon restaurant calme</span><b>⌖</b></div></section><section className="space-content"><div className="seek-tabs">{["Tous","Urgent","Produits","Services","Situations"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><div className="request-grid">{visible.map((item,index)=><article key={item.id}><header><span className={item.urgent?"urgent":""}>{item.urgent?"URGENT":item.category.toUpperCase()}</span><small>{item.id>4?"À l'instant":`Il y a ${index*7+3} min`}</small></header><h3>{item.title}</h3><p>{item.details}</p><div><span>⌖ {item.place}</span><b>{item.reward}</b></div><footer><span>{index*4+7} personnes ont vu</span><button className={answered[item.id]?"answered":""} disabled={answered[item.id]} onClick={()=>{setAnswered(current=>({...current,[item.id]:true}));notify("Votre réponse a été envoyée")}}>{answered[item.id]?"✓ Réponse envoyée":"Je peux aider ↗"}</button></footer></article>)}</div>{visible.length===0&&<div className="market-empty"><span>⌖</span><h3>Aucune recherche ici</h3><p>Soyez la première personne à publier un besoin.</p><button onClick={()=>setModal("seek")}>Publier une recherche</button></div>}</section></div>;
 }
@@ -326,19 +364,19 @@ function TwinSpace({ step, setStep, consent, setConsent, notify }: { step:number
 }
 
 function ListingCard({ item, saved, onSave, onOpen }: { item:Listing; saved:boolean; onSave:()=>void; onOpen:()=>void }) {
-  return <article className="listing-card"><button className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button className={`listing-art ${item.tone}`} onClick={onOpen}><span>{item.mark}</span><small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><button onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Discuter"} ↗</button></div></article>;
+  return <article className="listing-card"><button className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button className={`listing-art ${item.tone} ${item.mediaUrl?"has-media":""}`} style={item.mediaUrl?{backgroundImage:`linear-gradient(180deg,transparent 45%,rgba(2,18,7,.72)),url(${item.mediaUrl})`}:undefined} onClick={onOpen}>{!item.mediaUrl&&<span>{item.mark}</span>}<small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><button onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Discuter"} ↗</button></div></article>;
 }
 
 function SectionTitle({ overline,title,action,onClick }: { overline:string;title:string;action:string;onClick:()=>void }) { return <div className="section-title"><div><small>{overline}</small><h3>{title}</h3></div><button onClick={onClick}>{action} ↗</button></div>; }
 
 function LiveViewer({ live,onClose,notify }: { live:(typeof lives)[number];onClose:()=>void;notify:(text:string)=>void }) { const [heart,setHeart]=useState(false);const [quantity,setQuantity]=useState(1);return <div className="live-viewer"><div className={`live-video ${live.tone}`}><button className="viewer-close" onClick={onClose} aria-label="Fermer le direct">×</button><header><span><i/> EN DIRECT</span><b>{live.viewers} spectateurs</b></header><div className="viewer-host">{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}</div><div className="floating-chat"><span><b>Amina</b> Livraison possible ?</span><span><b>Junior</b> Je prends en bleu 🔥</span><span><b>Grâce</b> Très beau produit !</span></div><div className="viewer-bottom"><div><small>{live.host}</small><h2>{live.title}</h2></div><button aria-label="Aimer ce direct" onClick={()=>setHeart(v=>!v)} className={heart?"hearted":""}>♥</button></div></div><aside className="live-cart"><span>PRODUIT DU DIRECT</span><div className="cart-product">◇</div><h3>{live.product}</h3><strong>{live.price} FCFA</strong><p>Stock limité · Livraison disponible</p><div className="quantity"><button type="button" onClick={()=>setQuantity(value=>Math.max(1,value-1))}>−</button><b>{quantity}</b><button type="button" onClick={()=>setQuantity(value=>Math.min(9,value+1))}>＋</button></div><button className="buy" onClick={()=>notify(`${quantity} article${quantity>1?"s":""} ajouté${quantity>1?"s":""} au panier`)}>Ajouter au panier</button><button className="offer" onClick={()=>notify("Offre préparée — vous pouvez maintenant écrire au vendeur")}>Faire une offre</button><small>◆ Paiement protégé à activer avant encaissement</small></aside></div>; }
 
-function ActionModal({ type,onClose,onSubmit,consent,setConsent,setTwinStep,go,notify }: { type:"sell"|"seek"|"live"|"twin"|"message";onClose:()=>void;onSubmit:(e:FormEvent)=>void;consent:boolean;setConsent:(v:boolean)=>void;setTwinStep:(v:number)=>void;go:(s:Space)=>void;notify:(t:string)=>void }) {
+function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep,go,notify }: { type:"sell"|"seek"|"live"|"twin"|"message";busy:boolean;onClose:()=>void;onSubmit:(e:FormEvent)=>void;consent:boolean;setConsent:(v:boolean)=>void;setTwinStep:(v:number)=>void;go:(s:Space)=>void;notify:(t:string)=>void }) {
   const [liveMode,setLiveMode]=useState<"human"|"twin">("human");
   const [fileCount,setFileCount]=useState(0);
   if(type==="twin") return null;
   const data={sell:["Vendre ou troquer","Transformez ce que vous avez en opportunité."],seek:["Publier une recherche","Décrivez clairement votre besoin."],live:["Préparer votre direct","Produits, titre et audience en un seul endroit."],message:["Faire une offre","Proposez un prix ou un échange sécurisé."]}[type];
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><div className="modal-row"><label>Catégorie<select name="category"><option>Tech</option><option>Mode</option><option>Maison</option><option>Services</option></select></label><label>Lieu<input name="place" required placeholder="Ex. Poto-Poto"/></label></div><label className={`upload-zone ${fileCount?"selected":""}`}>{fileCount?`✓ ${fileCount} fichier${fileCount>1?"s":""} prêt${fileCount>1?"s":""}`:"＋ Ajouter photos ou vidéo"}<input type="file" accept="image/*,video/*" multiple onChange={e=>{const count=e.target.files?.length||0;setFileCount(count);if(count)notify(`${count} fichier${count>1?"s":""} ajouté${count>1?"s":""}`)}}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<input name="title" required placeholder="Ex. Un développeur Flutter disponible"/></label><label>Détails<textarea name="details" required placeholder="Décrivez précisément votre besoin…"/></label><div className="modal-row"><label>Catégorie<select name="category"><option>Produits</option><option>Services</option><option>Situations</option></select></label><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label></div><div className="modal-row"><label>Budget ou échange<input name="reward" placeholder="Ex. 150 000 FCFA"/></label><label className="urgent-check"><input type="checkbox" name="urgent"/> Besoin urgent</label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={type==="live"&&!consent}>{type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><div className="modal-row"><label>Catégorie<select name="category"><option>Tech</option><option>Mode</option><option>Maison</option><option>Services</option></select></label><label>Lieu<input name="place" required placeholder="Ex. Poto-Poto"/></label></div><label className={`upload-zone ${fileCount?"selected":""}`}>{fileCount?"✓ Média prêt à être téléversé":"＋ Ajouter une photo ou vidéo"}<input name="media" type="file" accept="image/*,video/*" onChange={e=>{const count=e.target.files?.length||0;setFileCount(count);if(count)notify("Média prêt à être téléversé")}}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<input name="title" required placeholder="Ex. Un développeur Flutter disponible"/></label><label>Détails<textarea name="details" required placeholder="Décrivez précisément votre besoin…"/></label><div className="modal-row"><label>Catégorie<select name="category"><option>Produits</option><option>Services</option><option>Situations</option></select></label><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label></div><div className="modal-row"><label>Budget ou échange<input name="reward" placeholder="Ex. 150 000 FCFA"/></label><label className="urgent-check"><input type="checkbox" name="urgent"/> Besoin urgent</label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={busy||(type==="live"&&!consent)}>{busy?"Synchronisation…":type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
 }
 
 function ProfilePanel({ name,phone,onClose,go,onSignOut }: { name:string;phone:string;onClose:()=>void;go:(space:Space)=>void;onSignOut:()=>void }) {
