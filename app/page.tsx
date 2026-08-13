@@ -101,7 +101,12 @@ export default function Home() {
 
     <section className="nova-stage">
       <header className="nova-topbar">
-        <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
+        <div className="topbar-identity">
+          <button className="mobile-logo" onClick={() => go("orbit")} aria-label="Accueil Whappy">
+            <Image src="/whappy-logo.svg" alt="Logo officiel Whappy" width={40} height={40} priority />
+          </button>
+          <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
+        </div>
         <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Chercher un produit, une compétence, un lieu, une solution…" />{search && <button onClick={() => setSearch("")}>×</button>}</label>
         <div className="top-actions"><button onClick={() => setModal("seek")}><span>⌖</span><small>Je cherche</small></button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></div>
       </header>
