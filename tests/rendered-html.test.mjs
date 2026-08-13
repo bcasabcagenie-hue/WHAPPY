@@ -175,11 +175,14 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(businessData, /recordAdEvent/);
   assert.match(businessData, /createAdCampaign/);
   assert.match(page, /TwinEngineStudio/);
-  assert.match(twinEngine, /Moteur mouvement/);
-  assert.match(twinEngine, /Clone vocal/);
-  assert.match(twinEngine, /Motion Capture/);
+  assert.match(twinEngine, /MOTION CORE 2\.0/);
+  assert.match(twinEngine, /Ma voix IA/);
+  assert.match(twinEngine, /Signature de mouvements/);
   assert.match(twinEngine, /speechSynthesis/);
-  assert.match(twinEngine, /Automatisation du Double activée/);
+  assert.match(twinEngine, /MISSIONS DU DOUBLE/);
+  assert.match(twinEngine, /Vendeur 24\/7/);
+  assert.match(twinEngine, /Portrait vidéo/);
+  assert.match(twinEngine, /Aperçu complet/);
   assert.match(twinData, /twinAutomations/);
   assert.match(twinData, /twinRenders/);
   assert.match(rules, /match \/twinProfiles\/\{profileId\}/);
