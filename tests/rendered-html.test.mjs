@@ -23,20 +23,19 @@ async function render() {
   );
 }
 
-test("affiche l'application Whappy côté serveur", async () => {
+test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Whappy — Tout peut devenir une opportunité<\/title>/i);
-  assert.match(html, /Icône Whappy/);
-  assert.match(html, /Directs/);
-  assert.match(html, /Market/);
-  assert.match(html, /MESSAGERIE PRIORITAIRE/);
-  assert.match(html, /Rechercher une conversation/);
-  assert.match(html, /Écrire un message/);
-  assert.match(html, /Appel audio/);
+  assert.match(html, /Logo Whappy/);
+  assert.match(html, /UN NUMÉRO\. UN COMPTE\./);
+  assert.match(html, /Entrez votre numéro/);
+  assert.match(html, /Congo \(\+242\)/);
+  assert.match(html, /Continuer par SMS/);
+  assert.match(html, /Un numéro = un compte Whappy/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -67,6 +66,9 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /Whappy Marketplace/i);
   assert.match(page, /ACHETEUSE FIABLE/);
   assert.match(page, /ÉCHANGES RÉUSSIS/);
+  assert.match(page, /UN NUMÉRO\. UN COMPTE/);
+  assert.match(page, /signInWithPhoneNumber/);
+  assert.match(page, /RecaptchaVerifier/);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);

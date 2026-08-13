@@ -11,6 +11,7 @@ Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, cherch
 - **Chercher** : publication de besoins, services et situations urgentes ;
 - **Messages** : négociation contextualisée autour d'une transaction ;
 - **Mon Double** : parcours de création d'un présentateur vidéo numérique pour ses propres produits.
+- **Connexion téléphone** : inscription sans mot de passe, code SMS et règle « un numéro = un compte » avec Firebase Phone Auth.
 
 Le Double vidéo exige un consentement explicite, reste révocable, affiche son caractère artificiel et ne doit utiliser que l'image ou la voix dont la personne contrôle les droits.
 
