@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, updateProfile } from "firebase/auth";
+import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
@@ -9,6 +9,7 @@ import { TwinRecorder } from "@/app/components/TwinRecorder";
 
 type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "twin";
 type Listing = { id: number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; };
+type RequestItem = { id: number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const listings: Listing[] = [
   { id: 1, title: "MacBook Air M3 · Comme neuf", price: "750 000 FCFA", place: "Poto-Poto · 1,2 km", seller: "Junior K.", mark: "JK", tone: "lime", category: "Tech", mode: "vente", trust: 98 },
@@ -17,11 +18,11 @@ const listings: Listing[] = [
   { id: 4, title: "Studio photo — 3 heures", price: "Contre identité visuelle", place: "Moungali · 2,1 km", seller: "Nadia M.", mark: "NM", tone: "blue", category: "Services", mode: "troc", trust: 97 },
 ];
 
-const requests = [
-  { title: "Je cherche un développeur Flutter", details: "Mission de 3 semaines · Budget disponible", place: "À distance", reward: "450 000 FCFA", urgent: true },
-  { title: "Besoin d'un groupe électrogène ce soir", details: "Pour un événement de 18 h à minuit", place: "Talangaï · 6 km", reward: "Location", urgent: true },
-  { title: "Où trouver du tissu wax premium ?", details: "Recherche fournisseur pour 60 mètres", place: "Brazzaville", reward: "Bon plan", urgent: false },
-  { title: "Cours de guitare contre cours d'anglais", details: "Deux séances par semaine", place: "Moungali · 3 km", reward: "Troc", urgent: false },
+const requests: RequestItem[] = [
+  { id: 1, title: "Je cherche un développeur Flutter", details: "Mission de 3 semaines · Budget disponible", place: "À distance", reward: "450 000 FCFA", urgent: true, category: "Services" },
+  { id: 2, title: "Besoin d'un groupe électrogène ce soir", details: "Pour un événement de 18 h à minuit", place: "Talangaï · 6 km", reward: "Location", urgent: true, category: "Situations" },
+  { id: 3, title: "Où trouver du tissu wax premium ?", details: "Recherche fournisseur pour 60 mètres", place: "Brazzaville", reward: "Bon plan", urgent: false, category: "Produits" },
+  { id: 4, title: "Cours de guitare contre cours d'anglais", details: "Deux séances par semaine", place: "Moungali · 3 km", reward: "Troc", urgent: false, category: "Services" },
 ];
 
 const lives = [
@@ -73,6 +74,9 @@ export default function Home() {
   const [twinStep, setTwinStep] = useState(1);
   const [consent, setConsent] = useState(false);
   const [broadcast, setBroadcast] = useState<BroadcastConfig | null>(null);
+  const [customListings, setCustomListings] = useState<Listing[]>([]);
+  const [customRequests, setCustomRequests] = useState<RequestItem[]>([]);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, (user) => {
     setAuthenticated(Boolean(user?.phoneNumber));
@@ -80,11 +84,11 @@ export default function Home() {
 
   useEffect(() => () => recaptchaRef.current?.clear(), []);
 
-  const filtered = useMemo(() => listings.filter((item) => {
+  const filtered = useMemo(() => [...customListings, ...listings].filter((item) => {
     const matchesText = `${item.title} ${item.category} ${item.place}`.toLowerCase().includes(search.toLowerCase());
     const matchesFilter = marketFilter === "Tout" || item.category === marketFilter || (marketFilter === "Troc" && item.mode === "troc");
     return matchesText && matchesFilter;
-  }), [search, marketFilter]);
+  }), [customListings, search, marketFilter]);
 
   function go(next: Space) {
     setSpace(next);
@@ -98,8 +102,8 @@ export default function Home() {
 
   function submitModal(event: FormEvent) {
     event.preventDefault();
+    const form = new FormData(event.currentTarget as HTMLFormElement);
     if (modal === "live") {
-      const form = new FormData(event.currentTarget as HTMLFormElement);
       setBroadcast({
         title: String(form.get("title") || "Mon direct Whappy"),
         product: String(form.get("product") || "Aucun produit épinglé"),
@@ -108,7 +112,23 @@ export default function Home() {
       setModal(null);
       return;
     }
-    notify(modal === "seek" ? "Votre recherche est maintenant active" : "Votre annonce est prête à être publiée");
+    if (modal === "sell") {
+      const title = String(form.get("title") || "Nouvelle annonce").trim();
+      const mode = String(form.get("mode"));
+      const seller = auth.currentUser?.displayName || profileName.trim() || "Vous";
+      setCustomListings((current) => [{
+        id: Date.now(), title, price: String(form.get("price") || "Prix à discuter"), place: String(form.get("place") || "Brazzaville"), seller,
+        mark: seller.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "VO", tone: "lime", category: String(form.get("category") || "Services"), mode: mode === "sell" ? "vente" : "troc", trust: 100,
+      }, ...current]);
+      setMarketFilter("Tout");
+      go("market");
+      notify(`« ${title} » est maintenant visible dans le Market`);
+    } else if (modal === "seek") {
+      const title = String(form.get("title") || "Nouvelle recherche").trim();
+      setCustomRequests((current) => [{ id: Date.now(), title, details: String(form.get("details") || "Réponse rapide souhaitée"), place: String(form.get("area") || "Brazzaville"), reward: String(form.get("reward") || "À discuter"), urgent: form.get("urgent") === "on", category: String(form.get("category") || "Situations") as RequestItem["category"] }, ...current]);
+      go("seek");
+      notify(`Votre recherche « ${title} » est active`);
+    } else if (modal === "message") notify("Votre offre a été ajoutée à la conversation");
     setModal(null);
   }
 
@@ -217,7 +237,7 @@ export default function Home() {
       </nav>
       <div className="rail-tools">
         <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
-        <button className="me">CB<i /></button>
+        <button className="me" onClick={() => setProfileOpen(true)} aria-label="Ouvrir mon profil">CB<i /></button>
       </div>
     </aside>
 
@@ -235,9 +255,9 @@ export default function Home() {
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
       {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
-      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} />}
+      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} onContact={(seller) => { go("inbox"); notify(`Conversation avec ${seller} ouverte`); }} />}
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
-      {space === "seek" && <SeekSpace setModal={setModal} notify={notify} />}
+      {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
       {space === "inbox" && <InboxSpace search={search} setModal={setModal} notify={notify} />}
       {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
     </section>
@@ -245,6 +265,7 @@ export default function Home() {
     {liveIndex !== null && <LiveViewer live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
     {modal && <ActionModal type={modal} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
+    {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Cyril Bokilo"} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
     {toast && <div className="nova-toast">✦ {toast}</div>}
   </main>;
 }
@@ -271,12 +292,12 @@ function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => voi
   </div>;
 }
 
-function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify, setModal }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<number,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<number, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void }) {
+function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify, setModal, onContact }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<number,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<number, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void; onContact:(seller:string)=>void }) {
   const filters=["Tout","Tech","Mode","Maison","Services","Troc"];
   const [sort,setSort]=useState<"near"|"trust">("near");
   const [nearby,setNearby]=useState(false);
   const sortedItems=[...items].sort((a,b)=>sort==="trust"?b.trust-a.trust:a.id-b.id);
-  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={()=>notify("Votre tableau vendeur est à jour")}>Ma boutique ↗</button></div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>0 FCFA</strong><span>Solde disponible</span><div><b>12</b><small>Vues</small><b>3</b><small>Messages</small></div><button onClick={()=>setModal("sell")}>Publier mon premier produit</button></div></section><section className="space-content"><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Préparez votre moyen d&apos;encaissement</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Le paiement à la livraison est sélectionné")}>Choisir ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button className={nearby?"active":""} onClick={()=>{setNearby(v=>!v);notify(nearby?"Filtre de proximité retiré":"Produits proches affichés")}}>⌖ {nearby?"À proximité":"Autour de moi"}</button><button onClick={()=>setSort(v=>v==="near"?"trust":"near")}>≡ {sort==="near"?"Trier par confiance":"Trier par proximité"}</button></div><div className="results-line"><span>{sortedItems.length} produits et services {search && `pour « ${search} »`}</span><small>{nearby?"Dans un rayon de 5 km":"Vendeurs particuliers et professionnels"}</small></div><div className="listing-grid market-listings">{sortedItems.map(item=><ListingCard key={item.id} item={item} saved={!!saved[item.id]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[item.id]}))} onOpen={()=>notify(`Discussion ouverte avec ${item.seller}`)}/>)}</div><button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
+  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={()=>notify("Votre tableau vendeur est à jour")}>Ma boutique ↗</button></div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>0 FCFA</strong><span>Solde disponible</span><div><b>12</b><small>Vues</small><b>3</b><small>Messages</small></div><button onClick={()=>setModal("sell")}>Publier mon premier produit</button></div></section><section className="space-content"><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Préparez votre moyen d&apos;encaissement</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Le paiement à la livraison est sélectionné")}>Choisir ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button className={nearby?"active":""} onClick={()=>{setNearby(v=>!v);notify(nearby?"Filtre de proximité retiré":"Produits proches affichés")}}>⌖ {nearby?"À proximité":"Autour de moi"}</button><button onClick={()=>setSort(v=>v==="near"?"trust":"near")}>≡ {sort==="near"?"Trier par confiance":"Trier par proximité"}</button></div><div className="results-line"><span>{sortedItems.length} produits et services {search && `pour « ${search} »`}</span><small>{nearby?"Dans un rayon de 5 km":"Vendeurs particuliers et professionnels"}</small></div><div className="listing-grid market-listings">{sortedItems.map(item=><ListingCard key={item.id} item={item} saved={!!saved[item.id]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[item.id]}))} onOpen={()=>onContact(item.seller)}/>)}</div>{sortedItems.length===0&&<div className="market-empty"><span>⌕</span><h3>Aucun résultat</h3><p>Essayez une autre catégorie ou publiez votre propre annonce.</p><button onClick={()=>setModal("sell")}>＋ Publier une annonce</button></div>}<button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
 }
 
 function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModal:(type:"sell")=>void }) {
@@ -284,9 +305,10 @@ function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModa
   return <div className="space-scroll barter-space"><section className="barter-hero"><span className="signal"><i/> WHAPPY MATCH</span><h2>La valeur ne se mesure<br/>pas toujours en argent.</h2><p>Décrivez ce que vous avez et ce que vous voulez. Notre moteur trouve les échanges possibles, même à plusieurs personnes.</p><div className="barter-engine"><label><small>JE PROPOSE</small><input value={mine} onChange={e=>setMine(e.target.value)}/><span>＋ Photo</span></label><button className="swap">⇄</button><label><small>JE RECHERCHE</small><input value={want} onChange={e=>setWant(e.target.value)}/><span>⌖ Zone : 25 km</span></label><button className="match" onClick={()=>setScore(94)}>Trouver un échange ✦</button></div>{score&&<div className="match-result"><span>{score}%</span><div><small>MEILLEURE CORRESPONDANCE</small><strong>Patrick propose un MacBook Pro</strong><p>Il cherche un appareil photo hybride + complément.</p></div><button onClick={()=>notify("Proposition de troc envoyée")}>Proposer le troc ↗</button></div>}</section><section className="space-content"><SectionTitle overline="ÉCHANGES OUVERTS" title="Le troc bouge près de vous" action="Publier un objet" onClick={()=>setModal("sell")}/><div className="barter-cards"><div><span className="barter-art violet">⌁</span><small>PROPOSE</small><strong>Service de photographie</strong><i>contre</i><small>RECHERCHE</small><strong>Création d&apos;un site vitrine</strong><button onClick={()=>notify("Détails du troc ouverts")}>Voir l&apos;échange</button></div><div><span className="barter-art amber">◆</span><small>PROPOSE</small><strong>Canapé en excellent état</strong><i>contre</i><small>RECHERCHE</small><strong>Table à manger + 4 chaises</strong><button onClick={()=>notify("Détails du troc ouverts")}>Voir l&apos;échange</button></div><div className="chain-card"><span>⇄</span><h3>Troc en chaîne</h3><p>Vous avez A, vous voulez B. Une troisième personne veut A et possède C. Whappy relie les trois.</p><b>18 chaînes possibles aujourd&apos;hui</b></div></div></section></div>;
 }
 
-function SeekSpace({ setModal, notify }: { setModal:(type:"seek")=>void; notify:(text:string)=>void }) {
-  const [filter,setFilter]=useState("Tous");
-  return <div className="space-scroll seek-space"><section className="seek-hero"><div><span className="signal"><i/> INTELLIGENCE COLLECTIVE</span><h2>Demandez.<br/><em>Quelqu&apos;un sait.</em></h2><p>Un produit introuvable, une compétence urgente, une situation à résoudre ? Publiez votre besoin avec le lieu, le délai et votre budget.</p><button onClick={()=>setModal("seek")}>⌖ Publier ce que je cherche</button></div><div className="seek-cloud"><span className="q1">Un plombier maintenant</span><span className="q2">Appartement à louer</span><span className="q3">Pièce Toyota 2017</span><span className="q4">Graphiste disponible</span><span className="q5">Bon restaurant calme</span><b>⌖</b></div></section><section className="space-content"><div className="seek-tabs">{["Tous","Urgent","Produits","Services","Situations"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><div className="request-grid">{requests.filter(x=>filter==="Tous"||(filter==="Urgent"&&x.urgent)||(filter==="Services"&&x.title.includes("développeur"))||(filter==="Situations"&&x.title.includes("groupe"))).map((item,index)=><article key={item.title}><header><span className={item.urgent?"urgent":""}>{item.urgent?"URGENT":"RECHERCHE"}</span><small>Il y a {index*7+3} min</small></header><h3>{item.title}</h3><p>{item.details}</p><div><span>⌖ {item.place}</span><b>{item.reward}</b></div><footer><span>{index*4+7} personnes ont vu</span><button onClick={()=>notify("Votre réponse a été envoyée")}>Je peux aider ↗</button></footer></article>)}</div></section></div>;
+function SeekSpace({ setModal, notify, items }: { setModal:(type:"seek")=>void; notify:(text:string)=>void; items:RequestItem[] }) {
+  const [filter,setFilter]=useState("Tous"); const [answered,setAnswered]=useState<Record<number,boolean>>({});
+  const visible=items.filter(item=>filter==="Tous"||(filter==="Urgent"&&item.urgent)||item.category===filter);
+  return <div className="space-scroll seek-space"><section className="seek-hero"><div><span className="signal"><i/> INTELLIGENCE COLLECTIVE</span><h2>Demandez.<br/><em>Quelqu&apos;un sait.</em></h2><p>Un produit introuvable, une compétence urgente, une situation à résoudre ? Publiez votre besoin avec le lieu, le délai et votre budget.</p><button onClick={()=>setModal("seek")}>⌖ Publier ce que je cherche</button></div><div className="seek-cloud"><span className="q1">Un plombier maintenant</span><span className="q2">Appartement à louer</span><span className="q3">Pièce Toyota 2017</span><span className="q4">Graphiste disponible</span><span className="q5">Bon restaurant calme</span><b>⌖</b></div></section><section className="space-content"><div className="seek-tabs">{["Tous","Urgent","Produits","Services","Situations"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><div className="request-grid">{visible.map((item,index)=><article key={item.id}><header><span className={item.urgent?"urgent":""}>{item.urgent?"URGENT":item.category.toUpperCase()}</span><small>{item.id>4?"À l'instant":`Il y a ${index*7+3} min`}</small></header><h3>{item.title}</h3><p>{item.details}</p><div><span>⌖ {item.place}</span><b>{item.reward}</b></div><footer><span>{index*4+7} personnes ont vu</span><button className={answered[item.id]?"answered":""} disabled={answered[item.id]} onClick={()=>{setAnswered(current=>({...current,[item.id]:true}));notify("Votre réponse a été envoyée")}}>{answered[item.id]?"✓ Réponse envoyée":"Je peux aider ↗"}</button></footer></article>)}</div>{visible.length===0&&<div className="market-empty"><span>⌖</span><h3>Aucune recherche ici</h3><p>Soyez la première personne à publier un besoin.</p><button onClick={()=>setModal("seek")}>Publier une recherche</button></div>}</section></div>;
 }
 
 function InboxSpace({ search, setModal, notify }: { search:string; setModal:(type:"message")=>void; notify:(text:string)=>void }) {
@@ -313,7 +335,12 @@ function LiveViewer({ live,onClose,notify }: { live:(typeof lives)[number];onClo
 
 function ActionModal({ type,onClose,onSubmit,consent,setConsent,setTwinStep,go,notify }: { type:"sell"|"seek"|"live"|"twin"|"message";onClose:()=>void;onSubmit:(e:FormEvent)=>void;consent:boolean;setConsent:(v:boolean)=>void;setTwinStep:(v:number)=>void;go:(s:Space)=>void;notify:(t:string)=>void }) {
   const [liveMode,setLiveMode]=useState<"human"|"twin">("human");
+  const [fileCount,setFileCount]=useState(0);
   if(type==="twin") return null;
   const data={sell:["Vendre ou troquer","Transformez ce que vous avez en opportunité."],seek:["Publier une recherche","Décrivez clairement votre besoin."],live:["Préparer votre direct","Produits, titre et audience en un seul endroit."],message:["Faire une offre","Proposez un prix ou un échange sécurisé."]}[type];
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><label className="upload-zone">＋ Ajouter photos ou vidéo<input type="file" accept="image/*,video/*" multiple onChange={e=>e.target.files?.length&&notify(`${e.target.files.length} fichier${e.target.files.length>1?"s":""} ajouté${e.target.files.length>1?"s":""}`)}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<textarea name="request" required placeholder="Décrivez le produit, service ou la situation…"/></label><div className="modal-row"><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label><label>Délai<select name="deadline"><option>Dès que possible</option><option>Aujourd&apos;hui</option><option>Cette semaine</option></select></label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={type==="live"&&!consent}>{type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><div className="modal-row"><label>Catégorie<select name="category"><option>Tech</option><option>Mode</option><option>Maison</option><option>Services</option></select></label><label>Lieu<input name="place" required placeholder="Ex. Poto-Poto"/></label></div><label className={`upload-zone ${fileCount?"selected":""}`}>{fileCount?`✓ ${fileCount} fichier${fileCount>1?"s":""} prêt${fileCount>1?"s":""}`:"＋ Ajouter photos ou vidéo"}<input type="file" accept="image/*,video/*" multiple onChange={e=>{const count=e.target.files?.length||0;setFileCount(count);if(count)notify(`${count} fichier${count>1?"s":""} ajouté${count>1?"s":""}`)}}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<input name="title" required placeholder="Ex. Un développeur Flutter disponible"/></label><label>Détails<textarea name="details" required placeholder="Décrivez précisément votre besoin…"/></label><div className="modal-row"><label>Catégorie<select name="category"><option>Produits</option><option>Services</option><option>Situations</option></select></label><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label></div><div className="modal-row"><label>Budget ou échange<input name="reward" placeholder="Ex. 150 000 FCFA"/></label><label className="urgent-check"><input type="checkbox" name="urgent"/> Besoin urgent</label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={type==="live"&&!consent}>{type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
+}
+
+function ProfilePanel({ name,phone,onClose,go,onSignOut }: { name:string;phone:string;onClose:()=>void;go:(space:Space)=>void;onSignOut:()=>void }) {
+  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>COMPTE WHAPPY</small><strong>{name}</strong><p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("market")}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>Identité protégée</strong><small>Un numéro unique pour votre compte</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
 }
