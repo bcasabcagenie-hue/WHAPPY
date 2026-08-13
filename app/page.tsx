@@ -4,7 +4,7 @@ import Image from "next/image";
 import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
-import { cancelOrder, createOrder, publishListing, publishRequest, removeListing, sendConversationMessage, updateListing, watchConversationMessages, watchUserOrders, watchWhappyData, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
+import { cancelOrder, createGroup, createOrder, publishListing, publishRequest, removeListing, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
 import { saveWhappyProfile } from "@/lib/whappy-profile";
 import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
 import { TwinRecorder } from "@/app/components/TwinRecorder";
@@ -12,8 +12,9 @@ import { CallRoom } from "@/app/components/CallRoom";
 import { CartPanel, type CartLine, type CheckoutDraft, ProductPanel } from "@/app/components/CommercePanels";
 import { SellerDashboard } from "@/app/components/SellerDashboard";
 import { OrdersPanel } from "@/app/components/OrdersPanel";
+import { ContactsSpace, SuperHub } from "@/app/components/SuperHub";
 
-type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "twin";
+type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "contacts" | "services" | "twin";
 type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; status?: "active" | "reserved" | "sold"; };
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
@@ -91,6 +92,7 @@ export default function Home() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [orders, setOrders] = useState<CloudOrder[]>([]);
+  const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [call, setCall] = useState<{ contact:string; video:boolean } | null>(null);
 
@@ -117,6 +119,11 @@ export default function Home() {
   useEffect(() => {
     if (!userId) return;
     return watchUserOrders(userId, setOrders, () => setSyncStatus("offline"));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    return watchUserGroups(userId, setGroups, () => setSyncStatus("offline"));
   }, [userId]);
 
   const filtered = useMemo(() => [...customListings, ...listings].filter((item) => {
@@ -203,6 +210,19 @@ export default function Home() {
     } catch {
       setSyncStatus("offline");
       notify("L’annulation n’a pas pu être synchronisée. Réessayez.");
+      return false;
+    }
+  }
+
+  async function createTrackedGroup(name: string, description: string, members: string[]) {
+    try {
+      const created = userId ? await createGroup(userId, name, description, members) : { id: `local-group-${Date.now()}`, name, description, mark: name.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase(), ownerId: "local", memberIds: ["local"], memberNames: members.map((member) => member.trim()).filter(Boolean), createdAt: { toDate: () => new Date() } };
+      setGroups((current) => current.some((group) => group.id === created.id) ? current : [created, ...current]);
+      notify(userId ? `Le groupe « ${name} » est synchronisé` : `Le groupe « ${name} » est prêt dans la démonstration`);
+      return true;
+    } catch {
+      setSyncStatus("offline");
+      notify("Le groupe n’a pas pu être créé. Vérifiez les informations puis réessayez.");
       return false;
     }
   }
@@ -364,7 +384,20 @@ export default function Home() {
     barter: ["Troc intelligent", "Échangez de la valeur, sans limite"],
     seek: ["Je cherche", "Publiez un besoin, la communauté répond"],
     inbox: ["Connexions", "Vos conversations, commandes et offres"],
+    contacts: ["Contacts", "Personnes, groupes et professionnels autour de vous"],
+    services: ["Services", "Payez, achetez, trouvez et gérez votre quotidien"],
     twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
+  };
+  const searchPlaceholders: Record<Space,string> = {
+    inbox: "Rechercher une conversation…",
+    contacts: "Rechercher une personne, un groupe ou un professionnel…",
+    orbit: "Rechercher dans les Moments…",
+    services: "Rechercher un service Whappy…",
+    live: "Rechercher un direct…",
+    market: "Rechercher un produit ou une boutique…",
+    barter: "Rechercher un échange…",
+    seek: "Rechercher une solution ou un besoin…",
+    twin: "Rechercher dans le Studio Double…",
   };
 
   if (!authenticated) return <PhoneAccess step={authStep} countryCode={countryCode} setCountryCode={setCountryCode} phone={phone} setPhone={setPhone} code={verificationCode} setCode={setVerificationCode} profileName={profileName} setProfileName={setProfileName} busy={authBusy} status={authStatus} error={authError} requestSms={requestSms} verifySms={verifySms} finishProfile={finishProfile} back={()=>{setAuthError("");setAuthStatus("");setAuthStep("phone")}} preview={()=>setAuthenticated(true)} />;
@@ -374,11 +407,9 @@ export default function Home() {
       <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-logo.svg" alt="Icône Whappy" width={50} height={50} priority /></button>
       <nav aria-label="Espaces Whappy">
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
-        <Rail active={space === "orbit"} icon="⌂" label="Accueil" onClick={() => go("orbit")} />
-        <Rail active={space === "live"} icon="◉" label="Directs" live onClick={() => go("live")} />
-        <Rail active={space === "market"} icon="◇" label="Market" onClick={() => go("market")} />
-        <Rail active={space === "barter"} icon="⇄" label="Troquer" onClick={() => go("barter")} />
-        <Rail active={space === "seek"} icon="⌖" label="Chercher" onClick={() => go("seek")} />
+        <Rail active={space === "contacts"} icon="◎" label="Contacts" onClick={() => go("contacts")} />
+        <Rail active={space === "orbit"} icon="▦" label="Moments" onClick={() => go("orbit")} />
+        <Rail active={space === "services"} icon="⌗" label="Services" onClick={() => go("services")} />
       </nav>
       <div className="rail-tools">
         <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
@@ -394,7 +425,7 @@ export default function Home() {
           </button>
           <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
         </div>
-        <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={space === "inbox" ? "Rechercher une conversation…" : "Chercher un produit, une compétence, un lieu, une solution…"} />{search && <button onClick={() => setSearch("")}>×</button>}</label>
+        <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholders[space]} />{search && <button onClick={() => setSearch("")}>×</button>}</label>
         <div className="top-actions"><span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Démonstration locale"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Local"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => setCall({contact:"Amina M.",video:false})}><span>☎</span><small>Appeler</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
       </header>
 
@@ -404,6 +435,8 @@ export default function Home() {
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
       {space === "inbox" && <InboxSpace search={search} userId={userId} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />}
+      {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{go("inbox");notify(`Conversation avec ${contact} ouverte`)}} />}
+      {space === "services" && <SuperHub go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
     </section>
 

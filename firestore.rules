@@ -42,6 +42,37 @@ service cloud.firestore {
       }
     }
 
+    match /groups/{groupId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.memberIds == [request.auth.uid]
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.memberNames is list
+        && request.resource.data.memberNames.size() <= 999;
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.memberIds
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.memberIds == resource.data.memberIds
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastMessage", "updatedAt"]);
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        allow create: if signedIn()
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.senderName is string
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 4000
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        allow update, delete: if false;
+      }
+    }
+
     match /listings/{listingId} {
       allow read: if signedIn();
       allow create: if signedIn()

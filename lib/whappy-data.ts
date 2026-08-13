@@ -34,6 +34,19 @@ export type CloudMessage = {
   createdAt?: { toDate?: () => Date } | null;
 };
 
+export type CloudGroup = {
+  id: string;
+  name: string;
+  description: string;
+  mark: string;
+  ownerId: string;
+  memberIds: string[];
+  memberNames: string[];
+  createdAt?: { toDate?: () => Date } | null;
+};
+
+export type CloudGroupMessage = CloudMessage & { senderName: string };
+
 export type OrderStatus = "pending" | "confirmed" | "ready" | "completed" | "cancelled";
 
 export type CloudOrder = {
@@ -143,6 +156,52 @@ export async function sendConversationMessage(userId: string, contactId: string,
     createdAt: serverTimestamp(),
   });
   await updateDoc(conversation, { lastMessage: value, updatedAt: serverTimestamp() });
+  return message.id;
+}
+
+export function watchUserGroups(userId: string, onGroups: (items: CloudGroup[]) => void, onError: () => void) {
+  const groupsQuery = query(collection(db, "groups"), where("memberIds", "array-contains", userId));
+  return onSnapshot(groupsQuery, (snapshot) => {
+    const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudGroup));
+    items.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onGroups(items);
+  }, onError);
+}
+
+export async function createGroup(userId: string, name: string, description: string, memberNames: string[]) {
+  const cleanName = name.trim();
+  if (cleanName.length < 2 || cleanName.length > 80) throw new Error("invalid-group-name");
+  const uniqueMembers = [...new Set(memberNames.map((member) => member.trim()).filter(Boolean))].slice(0, 999);
+  const mark = cleanName.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase();
+  const payload = {
+    name: cleanName,
+    description: description.trim().slice(0, 240),
+    mark: mark || "WG",
+    ownerId: userId,
+    memberIds: [userId],
+    memberNames: uniqueMembers,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  const document = await addDoc(collection(db, "groups"), payload);
+  return { ...payload, id: document.id, createdAt: null } satisfies CloudGroup;
+}
+
+export function watchGroupMessages(groupId: string, onMessages: (items: CloudGroupMessage[]) => void, onError: () => void) {
+  const messagesQuery = query(collection(db, "groups", groupId, "messages"), orderBy("createdAt", "asc"));
+  return onSnapshot(messagesQuery, (snapshot) => onMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudGroupMessage))), onError);
+}
+
+export async function sendGroupMessage(groupId: string, userId: string, senderName: string, text: string) {
+  const value = text.trim();
+  if (!value || value.length > 4000) throw new Error("invalid-message");
+  const message = await addDoc(collection(db, "groups", groupId, "messages"), {
+    text: value,
+    senderId: userId,
+    senderName: senderName.trim().slice(0, 80) || "Membre Whappy",
+    createdAt: serverTimestamp(),
+  });
+  await updateDoc(doc(db, "groups", groupId), { lastMessage: value, updatedAt: serverTimestamp() });
   return message.id;
 }
 
