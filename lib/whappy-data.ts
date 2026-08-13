@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
@@ -26,6 +26,31 @@ export type CloudRequest = {
   urgent: boolean;
   category: "Produits" | "Services" | "Situations";
 };
+
+export type CloudMessage = {
+  id: string;
+  text: string;
+  senderId: string;
+  createdAt?: { toDate?: () => Date } | null;
+};
+
+export type OrderStatus = "pending" | "confirmed" | "ready" | "completed" | "cancelled";
+
+export type CloudOrder = {
+  id: string;
+  reference: string;
+  buyerId: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  paymentMethod: "delivery" | "mobile";
+  total: number;
+  status: OrderStatus;
+  items: Array<{ listingId: string; title: string; seller: string; price: string; quantity: number }>;
+  createdAt?: { toDate?: () => Date } | null;
+};
+
+export type NewOrder = Omit<CloudOrder, "id" | "reference" | "buyerId" | "status" | "createdAt">;
 
 type NewListing = Omit<CloudListing, "id" | "trust" | "mediaUrl" | "ownerId" | "status">;
 type NewRequest = Omit<CloudRequest, "id">;
@@ -62,4 +87,86 @@ export async function removeListing(listingId: string) {
 export async function publishRequest(userId: string, request: NewRequest) {
   const document = await addDoc(collection(db, "requests"), { ...request, ownerId: userId, createdAt: serverTimestamp() });
   return { ...request, id: document.id } satisfies CloudRequest;
+}
+
+function conversationId(userId: string, contactId: string) {
+  return `${userId}--${contactId.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase()}`;
+}
+
+async function ensureConversation(userId: string, contactId: string, contactName: string) {
+  const reference = doc(db, "conversations", conversationId(userId, contactId));
+  await setDoc(reference, {
+    ownerId: userId,
+    memberIds: [userId],
+    contactId,
+    contactName,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  return reference;
+}
+
+export function watchConversationMessages(
+  userId: string,
+  contactId: string,
+  contactName: string,
+  onMessages: (items: CloudMessage[]) => void,
+  onError: () => void,
+) {
+  let active = true;
+  let stop = () => {};
+
+  void ensureConversation(userId, contactId, contactName)
+    .then((conversation) => {
+      if (!active) return;
+      const messagesQuery = query(collection(conversation, "messages"), orderBy("createdAt", "asc"));
+      stop = onSnapshot(
+        messagesQuery,
+        (snapshot) => onMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudMessage))),
+        onError,
+      );
+    })
+    .catch(onError);
+
+  return () => {
+    active = false;
+    stop();
+  };
+}
+
+export async function sendConversationMessage(userId: string, contactId: string, contactName: string, text: string) {
+  const value = text.trim();
+  if (!value || value.length > 4000) throw new Error("invalid-message");
+  const conversation = await ensureConversation(userId, contactId, contactName);
+  const message = await addDoc(collection(conversation, "messages"), {
+    text: value,
+    senderId: userId,
+    createdAt: serverTimestamp(),
+  });
+  await updateDoc(conversation, { lastMessage: value, updatedAt: serverTimestamp() });
+  return message.id;
+}
+
+export function watchUserOrders(userId: string, onOrders: (items: CloudOrder[]) => void, onError: () => void) {
+  const ordersQuery = query(collection(db, "orders"), where("buyerId", "==", userId));
+  return onSnapshot(ordersQuery, (snapshot) => {
+    const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudOrder));
+    items.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onOrders(items);
+  }, onError);
+}
+
+export async function createOrder(userId: string, order: NewOrder) {
+  const reference = `WH-${Date.now().toString(36).slice(-6).toUpperCase()}`;
+  const document = await addDoc(collection(db, "orders"), {
+    ...order,
+    buyerId: userId,
+    reference,
+    status: "pending",
+    createdAt: serverTimestamp(),
+  });
+  return { ...order, id: document.id, buyerId: userId, reference, status: "pending" as const } satisfies CloudOrder;
+}
+
+export async function cancelOrder(orderId: string) {
+  await updateDoc(doc(db, "orders", orderId), { status: "cancelled", updatedAt: serverTimestamp() });
 }

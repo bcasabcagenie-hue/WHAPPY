@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -53,6 +53,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../app/components/CallRoom.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/whappy-profile.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/SellerDashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/OrdersPanel.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -91,6 +92,14 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(dataLayer, /uploadBytes/);
   assert.match(dataLayer, /updateListing/);
   assert.match(dataLayer, /removeListing/);
+  assert.match(dataLayer, /watchConversationMessages/);
+  assert.match(dataLayer, /sendConversationMessage/);
+  assert.match(dataLayer, /collection\(conversation, "messages"\)/);
+  assert.match(dataLayer, /watchUserOrders/);
+  assert.match(dataLayer, /createOrder/);
+  assert.match(dataLayer, /cancelOrder/);
+  assert.match(rules, /request\.resource\.data\.text\.size\(\) <= 4000/);
+  assert.match(rules, /match \/orders\/\{orderId\}/);
   assert.match(commerce, /ProductPanel/);
   assert.match(commerce, /CartPanel/);
   assert.match(commerce, /Paiement à la livraison/);
@@ -100,5 +109,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(seller, /Tableau de bord vendeur/);
   assert.match(seller, /boutique-whappy\.csv/);
   assert.match(seller, /Confirmer/);
+  assert.match(orders, /Mes commandes/);
+  assert.match(orders, /Télécharger le récapitulatif/);
+  assert.match(orders, /Confirmer l’annulation/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
 });
