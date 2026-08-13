@@ -1,4 +1,4 @@
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
@@ -13,6 +13,8 @@ export type CloudListing = {
   mode: "vente" | "troc";
   trust: number;
   mediaUrl?: string;
+  ownerId?: string;
+  status?: "active" | "reserved" | "sold";
 };
 
 export type CloudRequest = {
@@ -25,7 +27,7 @@ export type CloudRequest = {
   category: "Produits" | "Services" | "Situations";
 };
 
-type NewListing = Omit<CloudListing, "id" | "trust" | "mediaUrl">;
+type NewListing = Omit<CloudListing, "id" | "trust" | "mediaUrl" | "ownerId" | "status">;
 type NewRequest = Omit<CloudRequest, "id">;
 
 export function watchWhappyData(onListings: (items: CloudListing[]) => void, onRequests: (items: CloudRequest[]) => void, onError: () => void) {
@@ -45,8 +47,16 @@ export async function publishListing(userId: string, listing: NewListing, media?
     await uploadBytes(mediaRef, media, { contentType: media.type });
     mediaUrl = await getDownloadURL(mediaRef);
   }
-  const document = await addDoc(collection(db, "listings"), { ...listing, ownerId: userId, trust: 100, mediaUrl: mediaUrl ?? null, createdAt: serverTimestamp() });
-  return { ...listing, id: document.id, trust: 100, mediaUrl } satisfies CloudListing;
+  const document = await addDoc(collection(db, "listings"), { ...listing, ownerId: userId, status: "active", trust: 100, mediaUrl: mediaUrl ?? null, createdAt: serverTimestamp() });
+  return { ...listing, id: document.id, ownerId: userId, status: "active", trust: 100, mediaUrl } satisfies CloudListing;
+}
+
+export async function updateListing(listingId: string, changes: Pick<CloudListing, "title" | "price" | "place" | "status">) {
+  await updateDoc(doc(db, "listings", listingId), { ...changes, updatedAt: serverTimestamp() });
+}
+
+export async function removeListing(listingId: string) {
+  await deleteDoc(doc(db, "listings", listingId));
 }
 
 export async function publishRequest(userId: string, request: NewRequest) {

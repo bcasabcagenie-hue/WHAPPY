@@ -4,14 +4,16 @@ import Image from "next/image";
 import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
-import { publishListing, publishRequest, watchWhappyData } from "@/lib/whappy-data";
+import { publishListing, publishRequest, removeListing, updateListing, watchWhappyData } from "@/lib/whappy-data";
+import { saveWhappyProfile } from "@/lib/whappy-profile";
 import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
 import { TwinRecorder } from "@/app/components/TwinRecorder";
 import { CallRoom } from "@/app/components/CallRoom";
 import { CartPanel, type CartLine, ProductPanel } from "@/app/components/CommercePanels";
+import { SellerDashboard } from "@/app/components/SellerDashboard";
 
 type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "twin";
-type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; };
+type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; status?: "active" | "reserved" | "sold"; };
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const listings: Listing[] = [
@@ -80,6 +82,7 @@ export default function Home() {
   const [customListings, setCustomListings] = useState<Listing[]>([]);
   const [customRequests, setCustomRequests] = useState<RequestItem[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
   const [userId, setUserId] = useState("");
   const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "offline">("local");
   const [publishBusy, setPublishBusy] = useState(false);
@@ -109,10 +112,12 @@ export default function Home() {
   }, [userId]);
 
   const filtered = useMemo(() => [...customListings, ...listings].filter((item) => {
+    if (item.status === "sold") return false;
     const matchesText = `${item.title} ${item.category} ${item.place}`.toLowerCase().includes(search.toLowerCase());
     const matchesFilter = marketFilter === "Tout" || item.category === marketFilter || (marketFilter === "Troc" && item.mode === "troc");
     return matchesText && matchesFilter;
   }), [customListings, search, marketFilter]);
+  const shopListings = useMemo(() => userId ? customListings.filter((item) => item.ownerId === userId) : customListings, [customListings, userId]);
 
   function go(next: Space) {
     setSpace(next);
@@ -122,6 +127,32 @@ export default function Home() {
   function notify(text: string) {
     setToast(text);
     window.setTimeout(() => setToast(""), 2400);
+  }
+
+  async function manageListing(id: Listing["id"], changes: Pick<Listing, "title" | "price" | "place" | "status">) {
+    try {
+      if (userId && typeof id === "string") await updateListing(id, changes);
+      setCustomListings((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
+      notify(userId ? "Annonce mise à jour et synchronisée" : "Annonce mise à jour dans la démonstration");
+      return true;
+    } catch {
+      setSyncStatus("offline");
+      notify("La modification n’a pas pu être synchronisée. Réessayez.");
+      return false;
+    }
+  }
+
+  async function deleteShopListing(id: Listing["id"]) {
+    try {
+      if (userId && typeof id === "string") await removeListing(id);
+      setCustomListings((current) => current.filter((item) => item.id !== id));
+      notify(userId ? "Annonce supprimée de votre boutique" : "Annonce retirée de la démonstration");
+      return true;
+    } catch {
+      setSyncStatus("offline");
+      notify("La suppression n’a pas pu être synchronisée. Réessayez.");
+      return false;
+    }
   }
 
   function addToCart(item: Listing, quantity: number) {
@@ -157,7 +188,7 @@ export default function Home() {
           const media = form.get("media");
           const persisted = await publishListing(userId, listing, media instanceof File && media.size ? media : undefined);
           setCustomListings((current) => current.some((item) => item.id === persisted.id) ? current : [{ ...persisted, tone: "lime" }, ...current]);
-        } else setCustomListings((current) => [{ ...listing, id: Date.now(), tone: "lime", trust: 100 }, ...current]);
+        } else setCustomListings((current) => [{ ...listing, id: Date.now(), tone: "lime", trust: 100, ownerId: "local", status: "active" }, ...current]);
       } catch (error) {
         notify(error instanceof Error && error.message === "media-too-large" ? "Le média doit peser moins de 10 Mo" : "Synchronisation impossible. Vérifiez votre connexion puis réessayez.");
         setSyncStatus("offline");
@@ -271,6 +302,11 @@ export default function Home() {
     try {
       if (!auth.currentUser) throw new Error("missing-user");
       await updateProfile(auth.currentUser, { displayName: profileName.trim() });
+      await saveWhappyProfile({
+        uid: auth.currentUser.uid,
+        displayName: profileName.trim(),
+        phoneNumber: auth.currentUser.phoneNumber || `${countryCode}${phone.replace(/\D/g, "")}`,
+      });
       setAuthenticated(true);
     } catch {
       setAuthError("Le profil n'a pas pu être créé. Vérifiez votre connexion puis réessayez.");
@@ -322,7 +358,7 @@ export default function Home() {
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
       {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
-      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} onOpen={setSelectedProduct} />}
+      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} shopCount={shopListings.length} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} onOpenShop={() => setShopOpen(true)} onOpen={setSelectedProduct} />}
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
       {space === "inbox" && <InboxSpace search={search} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />}
@@ -332,7 +368,8 @@ export default function Home() {
     {liveIndex !== null && <LiveViewer live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Whappy",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
     {modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
-    {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Cyril Bokilo"} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
+    {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Cyril Bokilo"} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
+    {shopOpen && <SellerDashboard items={shopListings} cloud={Boolean(userId)} onClose={() => setShopOpen(false)} onCreate={() => { setShopOpen(false); setModal("sell"); }} onUpdate={manageListing} onDelete={deleteShopListing} notify={notify} />}
     {selectedProduct&&<ProductPanel item={selectedProduct} saved={!!saved[String(selectedProduct.id)]} onSave={()=>setSaved(current=>({...current,[selectedProduct.id]:!current[String(selectedProduct.id)]}))} onClose={()=>setSelectedProduct(null)} onContact={()=>{const seller=selectedProduct.seller;setSelectedProduct(null);go("inbox");notify(`Conversation avec ${seller} ouverte`);}} onAdd={(quantity)=>addToCart(selectedProduct,quantity)}/>}
     {cartOpen&&<CartPanel lines={cart} onClose={()=>setCartOpen(false)} onQuantity={(id,quantity)=>setCart(current=>current.map(line=>line.item.id===id?{...line,quantity}:line))} onRemove={(id)=>setCart(current=>current.filter(line=>line.item.id!==id))} notify={notify}/>}
     {call&&<CallRoom contact={call.contact} video={call.video} onClose={()=>setCall(null)}/>}
@@ -362,12 +399,12 @@ function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => voi
   </div>;
 }
 
-function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify, setModal, onOpen }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<string,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<string, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void; onOpen:(item:Listing)=>void }) {
+function MarketSpace({ search, filter, setFilter, items, shopCount, saved, setSaved, notify, setModal, onOpenShop, onOpen }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; shopCount:number; saved:Record<string,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<string, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void; onOpenShop:()=>void; onOpen:(item:Listing)=>void }) {
   const filters=["Tout","Tech","Mode","Maison","Services","Troc"];
   const [sort,setSort]=useState<"near"|"trust">("near");
   const [nearby,setNearby]=useState(false);
-  const sortedItems=[...items].sort((a,b)=>sort==="trust"?b.trust-a.trust:a.id-b.id);
-  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={()=>notify("Votre tableau vendeur est à jour")}>Ma boutique ↗</button></div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>0 FCFA</strong><span>Solde disponible</span><div><b>12</b><small>Vues</small><b>3</b><small>Messages</small></div><button onClick={()=>setModal("sell")}>Publier mon premier produit</button></div></section><section className="space-content"><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Préparez votre moyen d&apos;encaissement</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Le paiement à la livraison est sélectionné")}>Choisir ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button className={nearby?"active":""} onClick={()=>{setNearby(v=>!v);notify(nearby?"Filtre de proximité retiré":"Produits proches affichés")}}>⌖ {nearby?"À proximité":"Autour de moi"}</button><button onClick={()=>setSort(v=>v==="near"?"trust":"near")}>≡ {sort==="near"?"Trier par confiance":"Trier par proximité"}</button></div><div className="results-line"><span>{sortedItems.length} produits et services {search && `pour « ${search} »`}</span><small>{nearby?"Dans un rayon de 5 km":"Vendeurs particuliers et professionnels"}</small></div><div className="listing-grid market-listings">{sortedItems.map(item=><ListingCard key={item.id} item={item} saved={!!saved[String(item.id)]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[String(item.id)]}))} onOpen={()=>onOpen(item)}/>)}</div>{sortedItems.length===0&&<div className="market-empty"><span>⌕</span><h3>Aucun résultat</h3><p>Essayez une autre catégorie ou publiez votre propre annonce.</p><button onClick={()=>setModal("sell")}>＋ Publier une annonce</button></div>}<button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
+  const sortedItems=[...items].sort((a,b)=>sort==="trust"?b.trust-a.trust:String(a.id).localeCompare(String(b.id)));
+  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={onOpenShop}>Ma boutique ↗</button></div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>{shopCount}</strong><span>{shopCount>1?"annonces publiées":"annonce publiée"}</span><div><b>{shopCount*37}</b><small>Vues</small><b>{shopCount*4}</b><small>Messages</small></div><button onClick={shopCount?onOpenShop:()=>setModal("sell")}>{shopCount?"Gérer ma boutique":"Publier mon premier produit"}</button></div></section><section className="space-content"><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Préparez votre moyen d&apos;encaissement</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Le paiement à la livraison est sélectionné")}>Choisir ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button className={nearby?"active":""} onClick={()=>{setNearby(v=>!v);notify(nearby?"Filtre de proximité retiré":"Produits proches affichés")}}>⌖ {nearby?"À proximité":"Autour de moi"}</button><button onClick={()=>setSort(v=>v==="near"?"trust":"near")}>≡ {sort==="near"?"Trier par confiance":"Trier par proximité"}</button></div><div className="results-line"><span>{sortedItems.length} produits et services {search && `pour « ${search} »`}</span><small>{nearby?"Dans un rayon de 5 km":"Vendeurs particuliers et professionnels"}</small></div><div className="listing-grid market-listings">{sortedItems.map(item=><ListingCard key={item.id} item={item} saved={!!saved[String(item.id)]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[String(item.id)]}))} onOpen={()=>onOpen(item)}/>)}</div>{sortedItems.length===0&&<div className="market-empty"><span>⌕</span><h3>Aucun résultat</h3><p>Essayez une autre catégorie ou publiez votre propre annonce.</p><button onClick={()=>setModal("sell")}>＋ Publier une annonce</button></div>}<button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
 }
 
 function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModal:(type:"sell")=>void }) {
@@ -396,7 +433,7 @@ function TwinSpace({ step, setStep, consent, setConsent, notify }: { step:number
 }
 
 function ListingCard({ item, saved, onSave, onOpen }: { item:Listing; saved:boolean; onSave:()=>void; onOpen:()=>void }) {
-  return <article className="listing-card"><button className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button className={`listing-art ${item.tone} ${item.mediaUrl?"has-media":""}`} style={item.mediaUrl?{backgroundImage:`linear-gradient(180deg,transparent 45%,rgba(2,18,7,.72)),url(${item.mediaUrl})`}:undefined} onClick={onOpen}>{!item.mediaUrl&&<span>{item.mark}</span>}<small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><button onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Discuter"} ↗</button></div></article>;
+  return <article className="listing-card"><button className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button className={`listing-art ${item.tone} ${item.mediaUrl?"has-media":""}`} style={item.mediaUrl?{backgroundImage:`linear-gradient(180deg,transparent 45%,rgba(2,18,7,.72)),url(${item.mediaUrl})`}:undefined} onClick={onOpen}>{!item.mediaUrl&&<span>{item.mark}</span>}<small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}{item.status==="reserved"&&<em className="reserved-badge">RÉSERVÉ</em>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><button onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Discuter"} ↗</button></div></article>;
 }
 
 function SectionTitle({ overline,title,action,onClick }: { overline:string;title:string;action:string;onClick:()=>void }) { return <div className="section-title"><div><small>{overline}</small><h3>{title}</h3></div><button onClick={onClick}>{action} ↗</button></div>; }
@@ -411,6 +448,6 @@ function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep
   return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><div className="modal-row"><label>Catégorie<select name="category"><option>Tech</option><option>Mode</option><option>Maison</option><option>Services</option></select></label><label>Lieu<input name="place" required placeholder="Ex. Poto-Poto"/></label></div><label className={`upload-zone ${fileCount?"selected":""}`}>{fileCount?"✓ Média prêt à être téléversé":"＋ Ajouter une photo ou vidéo"}<input name="media" type="file" accept="image/*,video/*" onChange={e=>{const count=e.target.files?.length||0;setFileCount(count);if(count)notify("Média prêt à être téléversé")}}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<input name="title" required placeholder="Ex. Un développeur Flutter disponible"/></label><label>Détails<textarea name="details" required placeholder="Décrivez précisément votre besoin…"/></label><div className="modal-row"><label>Catégorie<select name="category"><option>Produits</option><option>Services</option><option>Situations</option></select></label><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label></div><div className="modal-row"><label>Budget ou échange<input name="reward" placeholder="Ex. 150 000 FCFA"/></label><label className="urgent-check"><input type="checkbox" name="urgent"/> Besoin urgent</label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={busy||(type==="live"&&!consent)}>{busy?"Synchronisation…":type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
 }
 
-function ProfilePanel({ name,phone,onClose,go,onSignOut }: { name:string;phone:string;onClose:()=>void;go:(space:Space)=>void;onSignOut:()=>void }) {
-  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>COMPTE WHAPPY</small><strong>{name}</strong><p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("market")}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>Identité protégée</strong><small>Un numéro unique pour votre compte</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
+function ProfilePanel({ name,phone,onClose,go,onOpenShop,onSignOut }: { name:string;phone:string;onClose:()=>void;go:(space:Space)=>void;onOpenShop:()=>void;onSignOut:()=>void }) {
+  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>COMPTE WHAPPY</small><strong>{name}</strong><p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>Identité protégée</strong><small>Un numéro unique pour votre compte</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
 }

@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -51,6 +51,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../lib/whappy-data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/CommercePanels.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/CallRoom.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-profile.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SellerDashboard.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -87,9 +89,16 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(dataLayer, /watchWhappyData/);
   assert.match(dataLayer, /publishListing/);
   assert.match(dataLayer, /uploadBytes/);
+  assert.match(dataLayer, /updateListing/);
+  assert.match(dataLayer, /removeListing/);
   assert.match(commerce, /ProductPanel/);
   assert.match(commerce, /CartPanel/);
   assert.match(commerce, /Paiement à la livraison/);
   assert.match(calls, /getUserMedia/);
+  assert.match(profile, /setDoc/);
+  assert.match(profile, /phoneNumber/);
+  assert.match(seller, /Tableau de bord vendeur/);
+  assert.match(seller, /boutique-whappy\.csv/);
+  assert.match(seller, /Confirmer/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
 });
