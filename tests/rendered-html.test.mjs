@@ -59,7 +59,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /WHAPPY LIVE SHIFT/i);
   assert.match(page, /Vous commencez.*Votre Double continue/is);
   assert.match(page, /Passage de relais/);
-  assert.match(page, /PUBLICITÉS & NOUVEAUTÉS/);
+  assert.match(page, /Publication sponsorisée/);
+  assert.match(page, /Ce qui se passe/);
   assert.match(page, /Tout le monde peut.*ouvrir sa boutique/is);
   assert.match(page, /Mobile Money/);
   assert.match(page, /Carte bancaire/);
