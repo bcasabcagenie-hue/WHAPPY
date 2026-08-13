@@ -1,296 +1,190 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 
-type View = "messages" | "calls" | "groups" | "pulse";
+type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "twin";
+type Listing = { id: number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; };
 
-type Message = { id: number; text: string; time: string; mine: boolean; seen?: boolean };
-type Person = {
-  id: number;
-  name: string;
-  initials: string;
-  color: string;
-  status: string;
-  preview: string;
-  time: string;
-  online?: boolean;
-  unread?: number;
-  messages: Message[];
-};
-
-const peopleSeed: Person[] = [
-  { id: 1, name: "Sarah M.", initials: "SM", color: "#ff8c69", status: "En ligne maintenant", preview: "On se retrouve à 18h ?", time: "10:42", online: true, unread: 2, messages: [
-    { id: 1, text: "Salut Cyril ! Tu as vu la nouvelle campagne ?", time: "10:35", mine: false },
-    { id: 2, text: "Oui, le concept Whappy Pulse est incroyable.", time: "10:37", mine: true, seen: true },
-    { id: 3, text: "On se retrouve à 18h pour finaliser ?", time: "10:42", mine: false },
-  ] },
-  { id: 2, name: "Design Crew", initials: "DC", color: "#6856d6", status: "8 membres · 3 en ligne", preview: "Nadia : Le prototype est prêt ✨", time: "09:18", unread: 5, messages: [
-    { id: 1, text: "Le nouveau système visuel est prêt à être testé.", time: "09:04", mine: false },
-    { id: 2, text: "Super. Je lance une revue collective à midi.", time: "09:11", mine: true, seen: true },
-    { id: 3, text: "Le prototype est prêt ✨", time: "09:18", mine: false },
-  ] },
-  { id: 3, name: "Maman", initials: "MA", color: "#d65b8f", status: "Vue aujourd'hui à 08:12", preview: "N'oublie pas de m'appeler ❤️", time: "Hier", messages: [
-    { id: 1, text: "Bonjour mon fils, j'espère que tu vas bien.", time: "18:25", mine: false },
-    { id: 2, text: "Très bien maman, je te rappelle ce soir.", time: "18:30", mine: true, seen: true },
-    { id: 3, text: "N'oublie pas de m'appeler ❤️", time: "18:34", mine: false },
-  ] },
-  { id: 4, name: "David K.", initials: "DK", color: "#218e76", status: "Actif il y a 12 min", preview: "📷 Photo", time: "Hier", online: true, messages: [
-    { id: 1, text: "Je t'envoie les images de notre sortie.", time: "21:40", mine: false },
-    { id: 2, text: "Elles sont magnifiques, merci !", time: "21:45", mine: true, seen: true },
-  ] },
-  { id: 5, name: "Projet Kivu", initials: "PK", color: "#c88927", status: "12 membres", preview: "Vous : Document reçu, merci.", time: "Lun.", messages: [
-    { id: 1, text: "📄 Planning-final.pdf", time: "14:13", mine: false },
-    { id: 2, text: "Document reçu, merci.", time: "14:20", mine: true, seen: true },
-  ] },
+const listings: Listing[] = [
+  { id: 1, title: "MacBook Air M3 · Comme neuf", price: "750 000 FCFA", place: "Poto-Poto · 1,2 km", seller: "Junior K.", mark: "JK", tone: "lime", category: "Tech", mode: "vente", trust: 98 },
+  { id: 2, title: "Canapé modulable en velours", price: "Échange accepté", place: "Bacongo · 3,4 km", seller: "Maison Noki", mark: "MN", tone: "violet", category: "Maison", mode: "troc", trust: 94 },
+  { id: 3, title: "Sneakers édition limitée", price: "85 000 FCFA", place: "Centre-ville · 800 m", seller: "Mokabi Store", mark: "MS", tone: "orange", category: "Mode", mode: "vente", trust: 99 },
+  { id: 4, title: "Studio photo — 3 heures", price: "Contre identité visuelle", place: "Moungali · 2,1 km", seller: "Nadia M.", mark: "NM", tone: "blue", category: "Services", mode: "troc", trust: 97 },
 ];
 
-const calls = [
-  { name: "Sarah M.", initials: "SM", color: "#ff8c69", type: "Vidéo", time: "Aujourd'hui, 11:24", state: "entrant" },
-  { name: "Design Crew", initials: "DC", color: "#6856d6", type: "Salon · 38 min", time: "Aujourd'hui, 09:00", state: "sortant" },
-  { name: "Maman", initials: "MA", color: "#d65b8f", type: "Audio · 12 min", time: "Hier, 20:16", state: "sortant" },
-  { name: "David K.", initials: "DK", color: "#218e76", type: "Appel manqué", time: "Hier, 17:42", state: "manqué" },
+const requests = [
+  { title: "Je cherche un développeur Flutter", details: "Mission de 3 semaines · Budget disponible", place: "À distance", reward: "450 000 FCFA", urgent: true },
+  { title: "Besoin d'un groupe électrogène ce soir", details: "Pour un événement de 18 h à minuit", place: "Talangaï · 6 km", reward: "Location", urgent: true },
+  { title: "Où trouver du tissu wax premium ?", details: "Recherche fournisseur pour 60 mètres", place: "Brazzaville", reward: "Bon plan", urgent: false },
+  { title: "Cours de guitare contre cours d'anglais", details: "Deux séances par semaine", place: "Moungali · 3 km", reward: "Troc", urgent: false },
 ];
 
-const groups = [
-  { name: "Design Crew", icon: "✦", color: "#6856d6", members: 8, online: 3, topic: "Construire la prochaine expérience Whappy", badge: 5 },
-  { name: "Projet Kivu", icon: "◆", color: "#c88927", members: 12, online: 5, topic: "Documents, réunions et suivi terrain", badge: 0 },
-  { name: "Famille", icon: "♥", color: "#d65b8f", members: 9, online: 2, topic: "Toujours proches, où que nous soyons", badge: 2 },
-  { name: "Founders Congo", icon: "↗", color: "#218e76", members: 48, online: 16, topic: "Idées, entraide et opportunités", badge: 12 },
+const lives = [
+  { host: "Mokabi Studio", title: "Nouvelle collection · essayage en direct", viewers: "2,8 k", product: "Veste N'Tela", price: "65 000", tone: "fashion", badge: "LIVE SHOP" },
+  { host: "Chef Grâce", title: "Secrets du poulet moambe moderne", viewers: "1,4 k", product: "Masterclass", price: "12 000", tone: "food", badge: "EN DIRECT" },
+  { host: "Tech House", title: "Test sans filtre : les meilleurs smartphones", viewers: "963", product: "Galaxy S26", price: "490 000", tone: "tech", badge: "DÉMO LIVE" },
 ];
 
-const posts = [
-  { brand: "AIR CONGO", mark: "AC", color: "#147f52", verified: true, label: "Sponsorisé", title: "Brazzaville ↔ Paris. Le monde n'a jamais été aussi proche.", body: "Découvrez nos nouvelles cabines Horizon et profitez de -20% sur votre prochain voyage.", visual: "flight", cta: "Réserver maintenant", likes: "2,4 k", comments: 184 },
-  { brand: "MOKABI STUDIO", mark: "MS", color: "#6652d9", verified: true, label: "Tendance à Brazzaville", title: "La créativité congolaise s'habille en lumière.", body: "Une collection pensée ici, portée partout. Édition limitée disponible dès aujourd'hui.", visual: "fashion", cta: "Découvrir la collection", likes: "6,8 k", comments: 392 },
-  { brand: "WHAPPY BUSINESS", mark: "WB", color: "#0fbf35", verified: true, label: "Nouveau", title: "Transformez chaque conversation en opportunité.", body: "Catalogue, paiement et support client : tout votre commerce vit maintenant dans Whappy.", visual: "business", cta: "Essayer gratuitement", likes: "9,1 k", comments: 721 },
+const messages = [
+  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#ff8668", unread: 2 },
+  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#7564e4", unread: 1 },
+  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#d78530", unread: 0 },
+  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#218e76", unread: 0 },
 ];
 
-function Avatar({ initials, color, online, size = "normal" }: { initials: string; color: string; online?: boolean; size?: "small" | "normal" | "large" }) {
-  return <span className={`avatar avatar-${size}`} style={{ background: color }}>{initials}{online && <i />}</span>;
-}
-
-function Glyph({ children }: { children: React.ReactNode }) {
-  return <span className="glyph" aria-hidden="true">{children}</span>;
+function Mark({ children, color, small = false }: { children: React.ReactNode; color?: string; small?: boolean }) {
+  return <span className={`op-mark ${small ? "small" : ""}`} style={color ? { background: color } : undefined}>{children}</span>;
 }
 
 export default function Home() {
-  const [view, setView] = useState<View>("messages");
-  const [people, setPeople] = useState(peopleSeed);
-  const [activeId, setActiveId] = useState(1);
-  const [query, setQuery] = useState("");
-  const [message, setMessage] = useState("");
-  const [dark, setDark] = useState(false);
-  const [mobileDetail, setMobileDetail] = useState(false);
-  const [activeCall, setActiveCall] = useState<string | null>(null);
-  const [callVideo, setCallVideo] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [liked, setLiked] = useState<Record<number, boolean>>({});
+  const [space, setSpace] = useState<Space>("orbit");
+  const [search, setSearch] = useState("");
+  const [marketFilter, setMarketFilter] = useState("Tout");
   const [saved, setSaved] = useState<Record<number, boolean>>({});
   const [toast, setToast] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
+  const [modal, setModal] = useState<"sell" | "seek" | "live" | "twin" | "message" | null>(null);
+  const [liveIndex, setLiveIndex] = useState<number | null>(null);
+  const [twinStep, setTwinStep] = useState(1);
+  const [consent, setConsent] = useState(false);
+  const [dark, setDark] = useState(true);
 
-  const activePerson = people.find((person) => person.id === activeId) ?? people[0];
-  const filteredPeople = useMemo(() => people.filter((person) => `${person.name} ${person.preview}`.toLowerCase().includes(query.toLowerCase())), [people, query]);
+  const filtered = useMemo(() => listings.filter((item) => {
+    const matchesText = `${item.title} ${item.category} ${item.place}`.toLowerCase().includes(search.toLowerCase());
+    const matchesFilter = marketFilter === "Tout" || item.category === marketFilter || (marketFilter === "Troc" && item.mode === "troc");
+    return matchesText && matchesFilter;
+  }), [search, marketFilter]);
 
-  function navigate(next: View) {
-    setView(next);
-    setMobileDetail(false);
-    setQuery("");
-  }
-
-  function openChat(id: number) {
-    setActiveId(id);
-    setMobileDetail(true);
-    setPeople((current) => current.map((person) => person.id === id ? { ...person, unread: undefined } : person));
-  }
-
-  function sendMessage(event: FormEvent) {
-    event.preventDefault();
-    const text = message.trim();
-    if (!text) return;
-    const time = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-    setPeople((current) => current.map((person) => person.id === activeId ? {
-      ...person,
-      preview: `Vous : ${text}`,
-      time,
-      messages: [...person.messages, { id: Date.now(), text, time, mine: true, seen: true }],
-    } : person));
-    setMessage("");
-    window.setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-  }
-
-  function startCall(name: string, video = false) {
-    setActiveCall(name);
-    setCallVideo(video);
-    setMuted(false);
+  function go(next: Space) {
+    setSpace(next);
+    setSearch("");
   }
 
   function notify(text: string) {
     setToast(text);
-    window.setTimeout(() => setToast(""), 2300);
+    window.setTimeout(() => setToast(""), 2400);
   }
 
-  return (
-    <main className={`whappy-shell ${dark ? "dark" : ""}`}>
-      <aside className="nav-rail">
-        <button className="logo-button" onClick={() => navigate("messages")} aria-label="Accueil Whappy">
-          <Image src="/whappy-logo.svg" width={48} height={48} alt="Icône Whappy" priority />
-        </button>
-        <nav aria-label="Navigation principale">
-          <button className={view === "messages" ? "active" : ""} onClick={() => navigate("messages")}><Glyph>◫</Glyph><span>Messages</span><b>7</b></button>
-          <button className={view === "calls" ? "active" : ""} onClick={() => navigate("calls")}><Glyph>⌕</Glyph><span>Appels</span></button>
-          <button className={view === "groups" ? "active" : ""} onClick={() => navigate("groups")}><Glyph>♧</Glyph><span>Groupes</span><b>3</b></button>
-          <button className={view === "pulse" ? "active" : ""} onClick={() => navigate("pulse")}><Glyph>◉</Glyph><span>Pulse</span><em>Nouveau</em></button>
-        </nav>
-        <div className="rail-bottom">
-          <button onClick={() => setDark((value) => !value)} aria-label="Changer le thème"><Glyph>{dark ? "☀" : "◐"}</Glyph></button>
-          <button onClick={() => notify("Paramètres bientôt disponibles")} aria-label="Paramètres"><Glyph>⚙</Glyph></button>
-          <button className="profile-dot" aria-label="Profil de Cyril">CB<i /></button>
-        </div>
-      </aside>
+  function submitModal(event: FormEvent) {
+    event.preventDefault();
+    notify(modal === "seek" ? "Votre recherche est maintenant active" : "Votre annonce est prête à être publiée");
+    setModal(null);
+  }
 
-      {view === "messages" && <>
-        <aside className={`context-panel ${mobileDetail ? "mobile-away" : ""}`}>
-          <PanelHeader title="Messages" subtitle="7 non lus" action="＋" onAction={() => notify("Nouvelle discussion")} />
-          <Search value={query} onChange={setQuery} placeholder="Rechercher une conversation" />
-          <div className="story-row">
-            <button className="story story-me"><span>＋</span><small>Mon statut</small></button>
-            {people.slice(0, 4).map((person) => <button className="story" key={person.id} onClick={() => openChat(person.id)}><span style={{ background: person.color }}>{person.initials}</span><small>{person.name.split(" ")[0]}</small></button>)}
-          </div>
-          <div className="section-label"><span>CONVERSATIONS</span><button>Tout marquer comme lu</button></div>
-          <div className="conversation-list">
-            {filteredPeople.map((person) => <button key={person.id} className={`person-row ${activeId === person.id ? "selected" : ""}`} onClick={() => openChat(person.id)}>
-              <Avatar initials={person.initials} color={person.color} online={person.online} />
-              <span className="person-copy"><span><strong>{person.name}</strong><time>{person.time}</time></span><span><small>{person.preview}</small>{person.unread && <b>{person.unread}</b>}</span></span>
-            </button>)}
-          </div>
-        </aside>
-        <section className={`content-stage chat-stage ${mobileDetail ? "mobile-show" : ""}`}>
-          <header className="stage-header">
-            <button className="mobile-back" onClick={() => setMobileDetail(false)}>‹</button>
-            <Avatar initials={activePerson.initials} color={activePerson.color} online={activePerson.online} />
-            <div className="stage-title"><strong>{activePerson.name}</strong><span>{activePerson.status}</span></div>
-            <div className="stage-actions">
-              <button onClick={() => startCall(activePerson.name, true)} aria-label="Appel vidéo"><Glyph>▣</Glyph></button>
-              <button onClick={() => startCall(activePerson.name)} aria-label="Appel audio"><Glyph>⌕</Glyph></button>
-              <button onClick={() => notify("Recherche dans la conversation")} aria-label="Rechercher"><Glyph>⌕</Glyph></button>
-              <button aria-label="Plus d'options"><Glyph>•••</Glyph></button>
-            </div>
-          </header>
-          <div className="chat-canvas">
-            <div className="secure-pill">◆ Messages protégés de bout en bout</div>
-            <div className="day-pill">AUJOURD&apos;HUI</div>
-            <div className="message-stack">
-              {activePerson.messages.map((item) => <div key={item.id} className={`message ${item.mine ? "mine" : ""}`}><div><p>{item.text}</p><span>{item.time} {item.mine && <i>✓✓</i>}</span></div></div>)}
-              <div ref={endRef} />
-            </div>
-          </div>
-          <form className="message-composer" onSubmit={sendMessage}>
-            <button type="button" onClick={() => notify("Choisissez un emoji")}>☺</button>
-            <button type="button" onClick={() => notify("Ajoutez une photo ou un document")}>＋</button>
-            <input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Écrivez quelque chose de génial…" aria-label="Écrire un message" />
-            <button type="button" className="voice" onClick={() => notify("Maintenez pour enregistrer")}>●</button>
-            <button className="submit" type="submit" disabled={!message.trim()}>➤</button>
-          </form>
-        </section>
-      </>}
+  const titles: Record<Space, [string, string]> = {
+    orbit: ["Aujourd'hui dans votre monde", "Des opportunités choisies autour de vous"],
+    live: ["Whappy Live", "Regardez, échangez et achetez en temps réel"],
+    market: ["Marché vivant", "Des produits et services de confiance"],
+    barter: ["Troc intelligent", "Échangez de la valeur, sans limite"],
+    seek: ["Je cherche", "Publiez un besoin, la communauté répond"],
+    inbox: ["Connexions", "Vos conversations, commandes et offres"],
+    twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
+  };
 
-      {view === "calls" && <>
-        <aside className={`context-panel ${mobileDetail ? "mobile-away" : ""}`}>
-          <PanelHeader title="Appels" subtitle="Restez proches" action="＋" onAction={() => startCall("Nouvel appel")} />
-          <Search value={query} onChange={setQuery} placeholder="Rechercher un contact" />
-          <div className="quick-call">
-            <button onClick={() => startCall("Nouveau salon", true)}><span>▣</span><strong>Créer un salon</strong><small>Invitez jusqu&apos;à 50 personnes</small></button>
-          </div>
-          <div className="section-label"><span>RÉCENTS</span></div>
-          <div className="call-list">{calls.map((call) => <button key={call.name} onClick={() => startCall(call.name, call.type.includes("Vidéo"))}>
-            <Avatar initials={call.initials} color={call.color} />
-            <span><strong>{call.name}</strong><small className={call.state === "manqué" ? "missed" : ""}>{call.state === "entrant" ? "↙" : "↗"} {call.type} · {call.time}</small></span><Glyph>⌕</Glyph>
-          </button>)}</div>
-        </aside>
-        <section className={`content-stage calls-stage ${mobileDetail ? "mobile-show" : ""}`}>
-          <div className="calls-hero">
-            <div className="orb orb-one" /><div className="orb orb-two" />
-            <span className="eyebrow">WHAPPY ROOMS</span>
-            <h1>Les appels qui vous<br/><em>rapprochent vraiment.</em></h1>
-            <p>Un son spatial, une vidéo limpide et des salons qui accueillent toute votre communauté.</p>
-            <div><button className="primary-cta" onClick={() => startCall("Salon instantané", true)}>▣ Démarrer un salon</button><button className="soft-cta" onClick={() => notify("Lien copié")}>◇ Copier mon lien</button></div>
-          </div>
-          <div className="live-rooms">
-            <div className="section-heading"><div><span>EN CE MOMENT</span><h2>Salons à rejoindre</h2></div><button>Voir tout</button></div>
-            <div className="room-grid">
-              <button onClick={() => startCall("Café des créateurs", true)}><div className="room-visual room-purple"><span>CK</span><span>AM</span><span>JD</span><b>+12</b></div><small>CRÉATIVITÉ</small><strong>Café des créateurs</strong><p>15 personnes discutent maintenant</p></button>
-              <button onClick={() => startCall("Tech & Futur", true)}><div className="room-visual room-green"><span>MB</span><span>SK</span><span>YL</span><b>+28</b></div><small>INNOVATION</small><strong>Tech & Futur</strong><p>31 personnes discutent maintenant</p></button>
-            </div>
-          </div>
-        </section>
-      </>}
+  return <main className={`nova-shell ${dark ? "night" : "day"}`}>
+    <aside className="nova-rail">
+      <button className="nova-logo" onClick={() => go("orbit")} aria-label="Accueil Whappy"><Image src="/whappy-logo.svg" alt="Icône Whappy" width={50} height={50} priority /></button>
+      <nav aria-label="Espaces Whappy">
+        <Rail active={space === "orbit"} icon="✦" label="Orbite" onClick={() => go("orbit")} />
+        <Rail active={space === "live"} icon="◉" label="Directs" live onClick={() => go("live")} />
+        <Rail active={space === "market"} icon="◇" label="Marché" onClick={() => go("market")} />
+        <Rail active={space === "barter"} icon="⇄" label="Troquer" onClick={() => go("barter")} />
+        <Rail active={space === "seek"} icon="⌖" label="Chercher" onClick={() => go("seek")} />
+        <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
+      </nav>
+      <div className="rail-tools">
+        <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
+        <button onClick={() => setDark((value) => !value)} aria-label="Changer le thème">{dark ? "☀" : "◐"}</button>
+        <button className="me">CB<i /></button>
+      </div>
+    </aside>
 
-      {view === "groups" && <>
-        <aside className={`context-panel ${mobileDetail ? "mobile-away" : ""}`}>
-          <PanelHeader title="Groupes" subtitle="Vos communautés" action="＋" onAction={() => notify("Création d'un groupe")} />
-          <Search value={query} onChange={setQuery} placeholder="Rechercher un groupe" />
-          <button className="create-group" onClick={() => notify("Nouveau groupe prêt à créer")}><span>＋</span><div><strong>Créer un groupe</strong><small>Réunissez votre communauté</small></div></button>
-          <div className="section-label"><span>VOS GROUPES</span><button>Gérer</button></div>
-          <div className="group-list">{groups.map((group, index) => <button key={group.name} className={index === 0 ? "selected" : ""} onClick={() => setMobileDetail(true)}><span className="group-icon" style={{ background: group.color }}>{group.icon}</span><div><strong>{group.name}</strong><small>{group.members} membres · {group.online} en ligne</small></div>{group.badge > 0 && <b>{group.badge}</b>}</button>)}</div>
-        </aside>
-        <section className={`content-stage groups-stage ${mobileDetail ? "mobile-show" : ""}`}>
-          <header className="group-cover">
-            <button className="mobile-back" onClick={() => setMobileDetail(false)}>‹</button>
-            <div className="cover-shape shape-a"/><div className="cover-shape shape-b"/>
-            <span className="group-big-icon">✦</span>
-            <div><span className="eyebrow">GROUPE CRÉATIF</span><h1>Design Crew</h1><p>Construire la prochaine expérience Whappy.</p></div>
-            <button className="group-menu">•••</button>
-          </header>
-          <div className="group-dashboard">
-            <div className="group-tabs"><button className="active">Aperçu</button><button>Discussion</button><button>Médias</button><button>Événements</button></div>
-            <div className="group-stats"><div><span>8</span><small>Membres</small></div><div><span>3</span><small>En ligne</small></div><div><span>126</span><small>Médias</small></div><button onClick={() => startCall("Design Crew", true)}>▣ Lancer un salon</button></div>
-            <div className="group-columns">
-              <div className="group-card"><div className="card-title"><h3>Prochain événement</h3><button>Tout voir</button></div><div className="event-card"><span><b>18</b>AOÛT</span><div><small>VISIOCONFÉRENCE</small><strong>Revue du prototype v2</strong><p>12:00 · 45 minutes</p></div><button onClick={() => notify("Participation confirmée")}>Participer</button></div></div>
-              <div className="group-card"><div className="card-title"><h3>Membres actifs</h3><button>Inviter</button></div><div className="member-line"><Avatar initials="NM" color="#ff8c69"/><span><strong>Nadia M.</strong><small>Administratrice</small></span><i>●</i></div><div className="member-line"><Avatar initials="JK" color="#218e76"/><span><strong>Junior K.</strong><small>Designer produit</small></span><i>●</i></div><div className="member-line"><Avatar initials="AM" color="#6856d6"/><span><strong>Amina M.</strong><small>Stratégie</small></span></div></div>
-            </div>
-          </div>
-        </section>
-      </>}
+    <section className="nova-stage">
+      <header className="nova-topbar">
+        <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
+        <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Chercher un produit, une compétence, un lieu, une solution…" />{search && <button onClick={() => setSearch("")}>×</button>}</label>
+        <div className="top-actions"><button onClick={() => setModal("seek")}><span>⌖</span><small>Je cherche</small></button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></div>
+      </header>
 
-      {view === "pulse" && <>
-        <aside className={`context-panel pulse-side ${mobileDetail ? "mobile-away" : ""}`}>
-          <PanelHeader title="Pulse" subtitle="Le monde maintenant" action="✦" onAction={() => notify("Créez votre publication")} />
-          <Search value={query} onChange={setQuery} placeholder="Explorer Whappy Pulse" />
-          <div className="pulse-intro"><span>◉</span><h3>Votre monde.<br/>Votre rythme.</h3><p>Découvrez les idées, marques et moments qui font vibrer votre communauté.</p><button onClick={() => notify("Créateur Pulse ouvert")}>＋ Créer un Pulse</button></div>
-          <div className="trends"><div className="section-label"><span>TENDANCES</span></div>{["#MadeInCongo", "#TechAfrica", "#ModeLocale", "#Entrepreneurs"].map((trend, index) => <button key={trend}><span>{index + 1}</span><div><strong>{trend}</strong><small>{["12,8 k", "8,4 k", "6,1 k", "4,9 k"][index]} publications</small></div><Glyph>›</Glyph></button>)}</div>
-        </aside>
-        <section className={`content-stage pulse-stage ${mobileDetail ? "mobile-show" : ""}`}>
-          <header className="pulse-header"><button className="mobile-back" onClick={() => setMobileDetail(false)}>‹</button><div><h1>Pour vous</h1><p>Sélectionné selon vos passions</p></div><div><button className="active">Pour vous</button><button>Abonnements</button><button>À proximité</button></div></header>
-          <div className="pulse-scroll">
-            <div className="pulse-stories"><button><span className="add-pulse">＋</span><small>Votre Pulse</small></button>{["Voyage", "Créateurs", "Cuisine", "Business", "Musique"].map((label, index) => <button key={label}><span className={`pulse-ring ring-${index + 1}`}>{["✈", "✦", "♨", "↗", "♫"][index]}</span><small>{label}</small></button>)}</div>
-            <div className="feed-layout"><div className="feed">
-              {posts.map((post, index) => <article className="post" key={post.brand}>
-                <header><Avatar initials={post.mark} color={post.color}/><div><strong>{post.brand} {post.verified && <i>✓</i>}</strong><small>{post.label} · il y a {index + 1} h</small></div><button>•••</button></header>
-                <div className={`ad-visual ${post.visual}`}><span className="ad-kicker">{index === 0 ? "PRENEZ DE LA HAUTEUR" : index === 1 ? "LUMIÈRE SUR LE CONGO" : "WHAPPY POUR ENTREPRENDRE"}</span><h2>{post.title}</h2><div className="visual-mark">{post.mark}</div></div>
-                <div className="post-copy"><p>{post.body}</p><button className="ad-cta" onClick={() => notify(`${post.brand} ouvert`)}>{post.cta} <span>↗</span></button></div>
-                <footer><button className={liked[index] ? "liked" : ""} onClick={() => setLiked((current) => ({ ...current, [index]: !current[index] }))}>{liked[index] ? "♥" : "♡"} {post.likes}</button><button onClick={() => notify(`${post.comments} commentaires`)}>◌ {post.comments}</button><button onClick={() => notify("Publication partagée")}>↗ Partager</button><button className={saved[index] ? "saved" : ""} onClick={() => setSaved((current) => ({ ...current, [index]: !current[index] }))}>◇</button></footer>
-              </article>)}
-            </div><aside className="pulse-right"><div className="business-box"><span>WHAPPY <b>BUSINESS</b></span><h3>Faites grandir votre marque là où les conversations commencent.</h3><p>Créez des campagnes utiles, humaines et mesurables.</p><button onClick={() => notify("Espace annonceur ouvert")}>Devenir annonceur ↗</button></div><div className="who-follow"><h3>Comptes à suivre</h3>{["Congo Culture", "Africa Tech", "Green Future"].map((name, index) => <div key={name}><Avatar initials={name.split(" ").map((x) => x[0]).join("")} color={["#c88927", "#6856d6", "#218e76"][index]} size="small"/><span><strong>{name}</strong><small>@{name.toLowerCase().replace(" ", "")}</small></span><button onClick={(event) => { event.currentTarget.textContent = "Suivi"; }}>Suivre</button></div>)}</div></aside></div>
-          </div>
-        </section>
-      </>}
+      {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
+      {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
+      {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} saved={saved} setSaved={setSaved} notify={notify} />}
+      {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
+      {space === "seek" && <SeekSpace setModal={setModal} notify={notify} />}
+      {space === "inbox" && <InboxSpace setModal={setModal} notify={notify} />}
+      {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
+    </section>
 
-      {activeCall && <div className="call-overlay" role="dialog" aria-label={`Appel avec ${activeCall}`}>
-        <div className="call-backdrop"><div className="call-glow"/></div>
-        <button className="call-close" onClick={() => setActiveCall(null)}>×</button>
-        <div className="call-person"><Avatar initials={activeCall.split(" ").map((part) => part[0]).join("").slice(0, 2)} color="#13d713" size="large"/><span>{callVideo ? "APPEL VIDÉO WHAPPY" : "APPEL AUDIO WHAPPY"}</span><h2>{activeCall}</h2><p>Connexion sécurisée en cours…</p></div>
-        <div className="call-controls"><button className={muted ? "off" : ""} onClick={() => setMuted((value) => !value)}><Glyph>{muted ? "×" : "●"}</Glyph><span>Micro</span></button><button onClick={() => setCallVideo((value) => !value)} className={!callVideo ? "off" : ""}><Glyph>▣</Glyph><span>Caméra</span></button><button><Glyph>♬</Glyph><span>Son</span></button><button className="hangup" onClick={() => setActiveCall(null)}><Glyph>⌒</Glyph><span>Raccrocher</span></button></div>
-      </div>}
-      {toast && <div className="toast">✓ {toast}</div>}
-    </main>
-  );
+    {liveIndex !== null && <LiveViewer live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} />}
+    {modal && <ActionModal type={modal} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
+    {toast && <div className="nova-toast">✦ {toast}</div>}
+  </main>;
 }
 
-function PanelHeader({ title, subtitle, action, onAction }: { title: string; subtitle: string; action: string; onAction: () => void }) {
-  return <header className="panel-header"><div><h1>{title}</h1><span>{subtitle}</span></div><button onClick={onAction}>{action}</button></header>;
+function Rail({ active, icon, label, count, live, onClick }: { active: boolean; icon: string; label: string; count?: number; live?: boolean; onClick: () => void }) {
+  return <button className={active ? "active" : ""} onClick={onClick}><span>{icon}</span><small>{label}</small>{count ? <b>{count}</b> : null}{live ? <i /> : null}</button>;
 }
 
-function Search({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
-  return <label className="global-search"><Glyph>⌕</Glyph><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder}/>{value && <button onClick={() => onChange("")}>×</button>}</label>;
+function Orbit({ go, setModal, setLiveIndex, notify, saved, setSaved }: { go: (space: Space) => void; setModal: (modal: "sell" | "seek" | "live" | "twin") => void; setLiveIndex: (index: number) => void; notify: (text: string) => void; saved: Record<number, boolean>; setSaved: React.Dispatch<React.SetStateAction<Record<number, boolean>>> }) {
+  return <div className="orbit-scroll">
+    <section className="orbit-hero">
+      <div className="hero-mesh"><i/><i/><i/><i/></div>
+      <div className="hero-copy"><span className="signal"><i/> VOTRE VILLE EST ACTIVE</span><h2>Tout peut devenir<br/><em>une opportunité.</em></h2><p>Une idée. Un objet. Un talent. Une urgence. Whappy connecte ce que vous avez à ce dont quelqu&apos;un a besoin — maintenant.</p><div><button onClick={() => setModal("seek")}>⌖ Trouver une solution</button><button onClick={() => setModal("sell")}>＋ Proposer quelque chose</button></div></div>
+      <div className="orbit-map"><div className="radar"><span className="radar-core"><Image src="/whappy-logo.svg" alt="" width={44} height={44}/></span><i className="ring r1"/><i className="ring r2"/><i className="ring r3"/><button className="map-node n1" onClick={() => go("market")}><b>◇</b><span>MacBook<br/><small>1,2 km</small></span></button><button className="map-node n2" onClick={() => go("seek")}><b>⌖</b><span>Besoin urgent<br/><small>6 km</small></span></button><button className="map-node n3" onClick={() => go("barter")}><b>⇄</b><span>Troc proposé<br/><small>3,4 km</small></span></button><button className="map-node n4" onClick={() => setLiveIndex(0)}><b>●</b><span>En direct<br/><small>2,8 k vues</small></span></button></div></div>
+    </section>
+    <div className="orbit-body">
+      <section className="action-strip"><button onClick={() => setModal("live")}><Mark>●</Mark><div><strong>Lancer un direct</strong><small>Présentez et vendez en live</small></div><span>↗</span></button><button onClick={() => go("twin")}><Mark>◎</Mark><div><strong>Activer mon Double</strong><small>Votre vendeur vidéo consentant</small></div><span>↗</span></button><button onClick={() => go("barter")}><Mark>⇄</Mark><div><strong>Proposer un troc</strong><small>Échangez ce que vous avez</small></div><span>↗</span></button></section>
+      <SectionTitle overline="ÇA SE PASSE MAINTENANT" title="Directs près de vous" action="Explorer les directs" onClick={() => go("live")} />
+      <div className="mini-live-grid">{lives.map((live, index) => <button key={live.host} className={`mini-live ${live.tone}`} onClick={() => setLiveIndex(index)}><span className="live-label"><i/> {live.badge}</span><div className="live-person">{live.host.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div className="live-info"><small>{live.host} · {live.viewers} regardent</small><strong>{live.title}</strong><span>{live.product} <b>{live.price} FCFA</b></span></div></button>)}</div>
+      <SectionTitle overline="SÉLECTION POUR VOUS" title="À saisir autour de vous" action="Voir le marché" onClick={() => go("market")} />
+      <div className="listing-grid">{listings.slice(0,3).map((item) => <ListingCard key={item.id} item={item} saved={!!saved[item.id]} onSave={() => setSaved((current) => ({...current,[item.id]:!current[item.id]}))} onOpen={() => notify(`${item.title} ouvert`)} />)}</div>
+      <section className="need-ribbon"><div><span>⌖</span><div><small>UNE QUESTION À LA COMMUNAUTÉ ?</small><h3>Décrivez ce que vous cherchez.<br/>Whappy trouve qui peut vous aider.</h3></div></div><button onClick={() => setModal("seek")}>Publier une recherche ↗</button></section>
+    </div>
+  </div>;
+}
+
+function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => void; setLiveIndex: (index: number) => void }) {
+  return <div className="space-scroll live-space">
+    <section className="live-command"><div className="live-command-copy"><span className="signal"><i/> STUDIO LIVE NOUVELLE GÉNÉRATION</span><h2>Ne publiez plus.<br/><em>Faites vivre.</em></h2><p>Montrez vos produits, répondez aux questions, négociez et concluez la vente sans quitter la vidéo.</p><button onClick={() => setModal("live")}>● Créer mon direct</button></div><div className="studio-preview"><div className="preview-person">CB</div><span className="preview-live">● LIVE · 00:12:48</span><div className="preview-comments"><span>Ça existe en bleu ?</span><span>Livraison à Pointe-Noire ?</span><span>🔥🔥🔥</span></div><div className="preview-product"><i>◇</i><span><small>PRODUIT ÉPINGLÉ</small><strong>Montre Kongo One</strong><b>42 000 FCFA</b></span><button>Acheter</button></div></div></section>
+    <section className="space-content"><SectionTitle overline="EN CE MOMENT" title="Des expériences, pas des publicités" action="Voir le programme" onClick={() => {}}/><div className="big-live-grid">{lives.map((live,index)=><button key={live.host} className={`big-live ${live.tone}`} onClick={() => setLiveIndex(index)}><span><i/> {live.badge}</span><div className="host-face">{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}</div><div><small>{live.host} · {live.viewers} spectateurs</small><h3>{live.title}</h3><p>Produit épinglé : {live.product}</p><b>{live.price} FCFA</b></div></button>)}</div><div className="live-features"><div><span>⚡</span><strong>Achat instantané</strong><p>Le produit reste visible pendant que vous présentez.</p></div><div><span>◌</span><strong>Questions en scène</strong><p>Faites monter un client dans votre direct.</p></div><div><span>◎</span><strong>Relais par votre Double</strong><p>Continuez à vendre après la fin du direct.</p></div></div></section>
+  </div>;
+}
+
+function MarketSpace({ search, filter, setFilter, items, saved, setSaved, notify }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; saved:Record<number,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<number, boolean>>>; notify:(text:string)=>void }) {
+  const filters=["Tout","Tech","Mode","Maison","Services","Troc"];
+  return <div className="space-scroll market-space"><section className="market-banner"><div><span>WHAPPY MARKET / CONFIANCE LOCALE</span><h2>Achetez à des personnes,<br/>pas à des catalogues.</h2><p>Profils vérifiés, paiement protégé et négociation humaine.</p></div><div className="trust-orbit"><strong>97%</strong><span>indice moyen<br/>de confiance</span></div></section><section className="space-content"><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button>⌖ Autour de moi</button><button>≡ Trier</button></div><div className="results-line"><span>{items.length} opportunités {search && `pour « ${search} »`}</span><small>Rayon : 10 km</small></div><div className="listing-grid market-listings">{items.map(item=><ListingCard key={item.id} item={item} saved={!!saved[item.id]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[item.id]}))} onOpen={()=>notify(`Discussion ouverte avec ${item.seller}`)}/>)}</div></section></div>;
+}
+
+function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModal:(type:"sell")=>void }) {
+  const [mine,setMine]=useState("Mon appareil photo"); const [want,setWant]=useState("Un ordinateur portable"); const [score,setScore]=useState<number|null>(null);
+  return <div className="space-scroll barter-space"><section className="barter-hero"><span className="signal"><i/> WHAPPY MATCH</span><h2>La valeur ne se mesure<br/>pas toujours en argent.</h2><p>Décrivez ce que vous avez et ce que vous voulez. Notre moteur trouve les échanges possibles, même à plusieurs personnes.</p><div className="barter-engine"><label><small>JE PROPOSE</small><input value={mine} onChange={e=>setMine(e.target.value)}/><span>＋ Photo</span></label><button className="swap">⇄</button><label><small>JE RECHERCHE</small><input value={want} onChange={e=>setWant(e.target.value)}/><span>⌖ Zone : 25 km</span></label><button className="match" onClick={()=>setScore(94)}>Trouver un échange ✦</button></div>{score&&<div className="match-result"><span>{score}%</span><div><small>MEILLEURE CORRESPONDANCE</small><strong>Patrick propose un MacBook Pro</strong><p>Il cherche un appareil photo hybride + complément.</p></div><button onClick={()=>notify("Proposition de troc envoyée")}>Proposer le troc ↗</button></div>}</section><section className="space-content"><SectionTitle overline="ÉCHANGES OUVERTS" title="Le troc bouge près de vous" action="Publier un objet" onClick={()=>setModal("sell")}/><div className="barter-cards"><div><span className="barter-art violet">⌁</span><small>PROPOSE</small><strong>Service de photographie</strong><i>contre</i><small>RECHERCHE</small><strong>Création d&apos;un site vitrine</strong><button onClick={()=>notify("Détails du troc ouverts")}>Voir l&apos;échange</button></div><div><span className="barter-art amber">◆</span><small>PROPOSE</small><strong>Canapé en excellent état</strong><i>contre</i><small>RECHERCHE</small><strong>Table à manger + 4 chaises</strong><button onClick={()=>notify("Détails du troc ouverts")}>Voir l&apos;échange</button></div><div className="chain-card"><span>⇄</span><h3>Troc en chaîne</h3><p>Vous avez A, vous voulez B. Une troisième personne veut A et possède C. Whappy relie les trois.</p><b>18 chaînes possibles aujourd&apos;hui</b></div></div></section></div>;
+}
+
+function SeekSpace({ setModal, notify }: { setModal:(type:"seek")=>void; notify:(text:string)=>void }) {
+  const [filter,setFilter]=useState("Tous");
+  return <div className="space-scroll seek-space"><section className="seek-hero"><div><span className="signal"><i/> INTELLIGENCE COLLECTIVE</span><h2>Demandez.<br/><em>Quelqu&apos;un sait.</em></h2><p>Un produit introuvable, une compétence urgente, une situation à résoudre ? Publiez votre besoin avec le lieu, le délai et votre budget.</p><button onClick={()=>setModal("seek")}>⌖ Publier ce que je cherche</button></div><div className="seek-cloud"><span className="q1">Un plombier maintenant</span><span className="q2">Appartement à louer</span><span className="q3">Pièce Toyota 2017</span><span className="q4">Graphiste disponible</span><span className="q5">Bon restaurant calme</span><b>⌖</b></div></section><section className="space-content"><div className="seek-tabs">{["Tous","Urgent","Produits","Services","Situations"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><div className="request-grid">{requests.filter(x=>filter==="Tous"||(filter==="Urgent"&&x.urgent)||(filter==="Services"&&x.title.includes("développeur"))||(filter==="Situations"&&x.title.includes("groupe"))).map((item,index)=><article key={item.title}><header><span className={item.urgent?"urgent":""}>{item.urgent?"URGENT":"RECHERCHE"}</span><small>Il y a {index*7+3} min</small></header><h3>{item.title}</h3><p>{item.details}</p><div><span>⌖ {item.place}</span><b>{item.reward}</b></div><footer><span>{index*4+7} personnes ont vu</span><button onClick={()=>notify("Votre réponse a été envoyée")}>Je peux aider ↗</button></footer></article>)}</div></section></div>;
+}
+
+function InboxSpace({ setModal, notify }: { setModal:(type:"message")=>void; notify:(text:string)=>void }) {
+  const [selected,setSelected]=useState(0); const [text,setText]=useState("");
+  function send(e:FormEvent){e.preventDefault();if(!text.trim())return;notify("Message envoyé");setText("");}
+  return <div className="inbox-space"><aside className="inbox-list"><div className="inbox-filters"><button className="active">Tout</button><button>Achats</button><button>Ventes</button><button>Trocs</button></div>{messages.map((m,index)=><button className={selected===index?"active":""} onClick={()=>setSelected(index)} key={m.name}><Mark color={m.color}>{m.mark}</Mark><span><strong>{m.name}</strong><small>{m.text}</small></span><i>{m.time}</i>{m.unread>0&&<b>{m.unread}</b>}</button>)}</aside><section className="deal-chat"><header><Mark color={messages[selected].color}>{messages[selected].mark}</Mark><div><strong>{messages[selected].name}</strong><small>Identité vérifiée · Répond rapidement</small></div><button>⌕</button><button>•••</button></header><div className="deal-context"><span className="product-thumb">◇</span><div><small>À PROPOS DE L&apos;ANNONCE</small><strong>{selected===0?"Canapé modulable en velours":"MacBook Air M3 · Comme neuf"}</strong><p>{selected===0?"Échange accepté":"750 000 FCFA"}</p></div><button onClick={()=>notify("Annonce ouverte")}>Voir</button></div><div className="deal-messages"><span className="chat-date">AUJOURD&apos;HUI</span><div className="theirs">Bonjour ! Est-ce que votre annonce est toujours disponible ?<small>12:03</small></div><div className="mine">Oui, absolument. On peut aussi discuter d&apos;un échange.<small>12:05 ✓✓</small></div><div className="theirs">Parfait, je vous envoie ma proposition.<small>12:08</small></div></div><form onSubmit={send}><button type="button">＋</button><input value={text} onChange={e=>setText(e.target.value)} placeholder="Écrire un message ou faire une offre…"/><button type="button" onClick={()=>setModal("message")}>◇ Offre</button><button type="submit">➤</button></form></section></div>;
+}
+
+function TwinSpace({ step, setStep, consent, setConsent, notify }: { step:number; setStep:(n:number)=>void; consent:boolean; setConsent:(v:boolean)=>void; notify:(text:string)=>void }) {
+  return <div className="space-scroll twin-space"><section className="twin-hero"><div className="twin-copy"><span className="signal"><i/> STUDIO DOUBLE · VOTRE IMAGE, VOTRE CONTRÔLE</span><h2>Vous créez une fois.<br/><em>Votre Double vend toujours.</em></h2><p>Enregistrez votre propre vidéo. Whappy crée un présentateur numérique qui explique vos produits dans les langues et formats que vous autorisez.</p><div className="safety-chips"><span>✓ Consentement explicite</span><span>✓ Révocable à tout moment</span><span>✓ Marqué comme IA</span></div></div><div className="twin-visual"><div className="scan-lines"/><div className="human"><span>CB</span><small>VOUS</small></div><div className="transfer">··· ✦ ···</div><div className="digital"><span>CB</span><small>DOUBLE IA</small><b>AI</b></div></div></section><section className="twin-builder"><div className="builder-steps">{["Consentement","Enregistrement","Produits","Personnalité","Publication"].map((x,index)=><button className={step===index+1?"active":step>index+1?"done":""} onClick={()=>setStep(index+1)} key={x}><span>{step>index+1?"✓":index+1}</span><small>{x}</small></button>)}</div><div className="builder-card">{step===1&&<><span className="builder-icon">◎</span><h3>Votre identité vous appartient</h3><p>Whappy utilise uniquement les vidéos de vous-même que vous fournissez. Votre Double ne peut pas représenter une autre personne et chaque vidéo générée porte le label « Créé avec un Double IA ».</p><label className="consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>Je confirme créer un Double à partir de ma propre image et j&apos;accepte son utilisation uniquement pour mes contenus Whappy autorisés.</span></label><button disabled={!consent} onClick={()=>setStep(2)}>Continuer vers l&apos;enregistrement ↗</button></>}{step===2&&<><span className="builder-icon record">●</span><h3>Enregistrez votre capsule source</h3><p>Regardez la caméra et lisez le texte guidé pendant 90 secondes. Lumière naturelle, voix claire, aucun filtre.</p><div className="record-frame"><span>Placez votre visage ici</span><i>90 s</i></div><button onClick={()=>{notify("Caméra prête pour votre propre vidéo");setStep(3)}}>▣ Ouvrir la caméra</button></>}{step===3&&<><span className="builder-icon">◇</span><h3>Ajoutez ce que votre Double vendra</h3><p>Choisissez seulement vos produits et services. Fixez prix, stock, conditions et réponses autorisées.</p><div className="product-slot"><span>＋</span><div><strong>Ajouter un produit</strong><small>Photo, vidéo, prix et disponibilité</small></div></div><button onClick={()=>setStep(4)}>Configurer sa personnalité ↗</button></>}{step===4&&<><span className="builder-icon">✦</span><h3>Donnez-lui votre ton</h3><div className="tone-grid"><button className="active">Chaleureux</button><button>Expert</button><button>Énergique</button><button>Élégant</button></div><p>Langues autorisées : Français · Lingala. Réponses commerciales seulement, aucune prise de position personnelle.</p><button onClick={()=>setStep(5)}>Prévisualiser mon Double ↗</button></>}{step===5&&<><span className="builder-icon ready">✓</span><h3>Votre Double est prêt à travailler</h3><p>Il peut présenter vos produits sur votre boutique et prendre le relais après vos directs. Vous approuvez chaque script avant publication.</p><div className="publish-options"><label><input type="checkbox" defaultChecked/> Boutique Whappy</label><label><input type="checkbox" defaultChecked/> Replay des directs</label><label><input type="checkbox"/> Réponses vidéo automatiques</label></div><button onClick={()=>notify("Double enregistré en brouillon pour votre validation")}>Enregistrer en brouillon ✦</button></>}</div></section></div>;
+}
+
+function ListingCard({ item, saved, onSave, onOpen }: { item:Listing; saved:boolean; onSave:()=>void; onOpen:()=>void }) {
+  return <article className="listing-card"><button className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button className={`listing-art ${item.tone}`} onClick={onOpen}><span>{item.mark}</span><small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><button onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Discuter"} ↗</button></div></article>;
+}
+
+function SectionTitle({ overline,title,action,onClick }: { overline:string;title:string;action:string;onClick:()=>void }) { return <div className="section-title"><div><small>{overline}</small><h3>{title}</h3></div><button onClick={onClick}>{action} ↗</button></div>; }
+
+function LiveViewer({ live,onClose,notify }: { live:(typeof lives)[number];onClose:()=>void;notify:(text:string)=>void }) { const [heart,setHeart]=useState(false);return <div className="live-viewer"><div className={`live-video ${live.tone}`}><button className="viewer-close" onClick={onClose}>×</button><header><span><i/> EN DIRECT</span><b>{live.viewers} spectateurs</b></header><div className="viewer-host">{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}</div><div className="floating-chat"><span><b>Amina</b> Livraison possible ?</span><span><b>Junior</b> Je prends en bleu 🔥</span><span><b>Grâce</b> Très beau produit !</span></div><div className="viewer-bottom"><div><small>{live.host}</small><h2>{live.title}</h2></div><button onClick={()=>setHeart(v=>!v)} className={heart?"hearted":""}>♥</button></div></div><aside className="live-cart"><span>PRODUIT DU DIRECT</span><div className="cart-product">◇</div><h3>{live.product}</h3><strong>{live.price} FCFA</strong><p>Stock limité · Livraison disponible</p><div className="quantity"><button type="button">−</button><b>1</b><button type="button">＋</button></div><button className="buy" onClick={()=>notify("Produit ajouté au panier sécurisé")}>Acheter maintenant</button><button className="offer" onClick={()=>notify("Votre offre a été envoyée au vendeur")}>Faire une offre</button><small>◆ Paiement protégé par Whappy</small></aside></div>; }
+
+function ActionModal({ type,onClose,onSubmit,consent,setConsent,setTwinStep,go,notify }: { type:"sell"|"seek"|"live"|"twin"|"message";onClose:()=>void;onSubmit:(e:FormEvent)=>void;consent:boolean;setConsent:(v:boolean)=>void;setTwinStep:(v:number)=>void;go:(s:Space)=>void;notify:(t:string)=>void }) {
+  if(type==="twin") return null;
+  const data={sell:["Vendre ou troquer","Transformez ce que vous avez en opportunité."],seek:["Publier une recherche","Décrivez clairement votre besoin."],live:["Préparer votre direct","Produits, titre et audience en un seul endroit."],message:["Faire une offre","Proposez un prix ou un échange sécurisé."]}[type];
+  return <div className="modal-layer" role="dialog"><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose}>×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select defaultValue="sell"><option value="sell">Vendre</option><option>Troquer</option><option>Vendre ou troquer</option></select></label><label>Prix<input placeholder="FCFA ou échange souhaité"/></label></div><button type="button" className="upload-zone">＋ Ajouter photos ou vidéo</button></>}{type==="seek"&&<><label>Que recherchez-vous ?<textarea required placeholder="Décrivez le produit, service ou la situation…"/></label><div className="modal-row"><label>Zone<input placeholder="Quartier, ville ou à distance"/></label><label>Délai<select><option>Dès que possible</option><option>Aujourd&apos;hui</option><option>Cette semaine</option></select></label></div></>}{type==="live"&&<><label>Titre du direct<input required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input placeholder="Sélectionner dans ma boutique"/></label><div className="live-mode"><button type="button" className="active">▣ Caméra</button><button type="button">◎ Avec mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={type==="live"&&!consent}>{type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Continuer"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
 }

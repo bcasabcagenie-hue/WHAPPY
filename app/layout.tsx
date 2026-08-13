@@ -8,11 +8,25 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Whappy — Votre monde, connecté",
-  description: "Messages, appels, groupes et découvertes réunis dans une expérience sociale nouvelle génération.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  title: "Whappy — Tout peut devenir une opportunité",
+  description: "Trouvez, vendez, troquez et diffusez en direct dans le réseau d'opportunités qui rapproche les besoins des solutions.",
   icons: {
     icon: "/whappy-logo.svg",
     shortcut: "/whappy-logo.svg",
+  },
+  openGraph: {
+    title: "Whappy — Tout peut devenir une opportunité",
+    description: "Directs marchands, vente, troc, recherche et Double vidéo consentant.",
+    images: ["/whappy-social.png"],
+    locale: "fr_FR",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Whappy — Tout peut devenir une opportunité",
+    description: "Directs marchands, vente, troc, recherche et Double vidéo consentant.",
+    images: ["/whappy-social.png"],
   },
 };
 

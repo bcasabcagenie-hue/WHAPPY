@@ -1,34 +1,30 @@
 # Whappy
 
-Whappy est une application locale de messagerie moderne, conçue comme un projet autonome pour Visual Studio Code.
+Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, chercher, négocier et présenter ses produits en direct. Le projet est prêt à être développé dans Visual Studio Code et utilise l'identité noire et vert néon du logo officiel.
 
-## Fonctionnalités disponibles
+## Expérience disponible
 
-- liste et recherche des discussions ;
-- sélection d'une conversation ;
-- envoi local de messages ;
-- ajout d'emojis et menu de pièces jointes ;
-- simulation d'enregistrement vocal ;
-- compteur de messages non lus ;
-- mode clair ou sombre mémorisé sur l'appareil ;
-- interface adaptée aux ordinateurs, tablettes et téléphones ;
-- logo officiel Whappy intégré.
-- backend Firebase dédié (`whappy-d97e7`) ;
-- comptes par e-mail et mot de passe avec Firebase Authentication ;
-- base Cloud Firestore en temps réel pour les profils, conversations et messages ;
-- règles Firestore et Storage sécurisées incluses dans le projet.
+- **Orbite** : radar visuel des produits, besoins, directs et échanges proches ;
+- **Directs** : studio de live shopping, fiche produit, panier et offres en direct ;
+- **Marché** : catalogue filtrable pour vendre ou proposer un échange ;
+- **Troc** : moteur de correspondance et concept de troc en chaîne ;
+- **Chercher** : publication de besoins, services et situations urgentes ;
+- **Messages** : négociation contextualisée autour d'une transaction ;
+- **Mon Double** : parcours de création d'un présentateur vidéo numérique pour ses propres produits.
 
-## Ouvrir le projet dans Visual Studio Code
+Le Double vidéo exige un consentement explicite, reste révocable, affiche son caractère artificiel et ne doit utiliser que l'image ou la voix dont la personne contrôle les droits.
 
-Ouvrez le dossier suivant dans VS Code :
+## Ouvrir dans Visual Studio Code
+
+Ouvrez ce dossier :
 
 ```text
 /Users/cyrilbokilo/Documents/ChatGPT/WHAPPY
 ```
 
-Le panneau **Exécuter et déboguer** contient la configuration **Whappy : lancer en local**. Elle démarre automatiquement l'application et ouvre sa page dans le navigateur.
+La configuration **Whappy : lancer en local** du panneau **Exécuter et déboguer** démarre l'application et ouvre sa page.
 
-## Installation manuelle
+## Démarrage manuel
 
 Prérequis : Node.js 22.13 ou une version plus récente.
 
@@ -37,40 +33,37 @@ npm install
 npm run dev
 ```
 
-L'application devient disponible à l'adresse [http://localhost:3000](http://localhost:3000).
+L'application est disponible sur [http://localhost:3000](http://localhost:3000).
 
-## Commandes utiles
+## Vérification
 
 ```bash
-npm run dev       # lancer Whappy en développement
-npm run build     # produire et vérifier la version finale
-npm run lint      # vérifier la qualité du code
-npm test          # compiler puis exécuter les tests
-npm run check     # exécuter toutes les vérifications
+npm run check
 ```
+
+Cette commande vérifie le code, produit la version finale et exécute les tests.
 
 ## Firebase
 
 Whappy est relié au projet Firebase indépendant `whappy-d97e7`.
 
-- `lib/firebase.ts` initialise Firebase Authentication, Firestore et Storage ;
-- `.env.local` contient la configuration locale publique de l'application Web ;
-- `.env.example` documente les variables nécessaires sans exposer la configuration locale ;
-- `firestore.rules` protège les profils, conversations et messages ;
-- `storage.rules` limite l'accès et la taille des fichiers envoyés ;
-- `firestore.indexes.json` contient les index nécessaires aux discussions.
+- `lib/firebase.ts` initialise Authentication, Firestore et Storage ;
+- `.env.local` contient la configuration locale de l'application Web ;
+- `firestore.rules` et `storage.rules` fournissent les règles de sécurité ;
+- `firestore.indexes.json` contient les index nécessaires.
 
-Les clés de configuration Web Firebase identifient l'application mais ne remplacent pas les règles de sécurité. L'accès aux données est contrôlé par Authentication et les règles fournies.
+Les clés Firebase Web identifient l'application ; les autorisations réelles restent contrôlées par Authentication et les règles de sécurité.
 
-## Structure principale
+## Fichiers principaux
 
-- `app/page.tsx` : logique et interface de la messagerie ;
-- `app/globals.css` : identité visuelle et adaptation mobile ;
-- `app/layout.tsx` : titre, description et icône de l'application ;
+- `app/page.tsx` : expérience interactive et espaces Whappy ;
+- `app/globals.css` : design responsive et identité visuelle ;
+- `app/layout.tsx` : métadonnées, icône et carte sociale ;
 - `public/whappy-logo.svg` : logo officiel ;
-- `.vscode/` : configuration prête pour Visual Studio Code ;
-- `tests/` : tests automatiques de l'application.
+- `public/whappy-social.png` : visuel de partage ;
+- `.vscode/` : lancement prêt pour Visual Studio Code ;
+- `tests/` : tests automatiques.
 
-## À propos des données
+## Portée de cette version
 
-Cette première version fonctionne entièrement en local. Les discussions de démonstration sont intégrées à l'interface et le thème est mémorisé dans le navigateur. Pour échanger réellement entre plusieurs personnes, une prochaine version devra ajouter des comptes utilisateurs, un serveur temps réel, une base de données et le stockage sécurisé des fichiers.
+L'interface et ses interactions constituent un prototype produit complet. Le streaming vidéo réel, la synthèse du Double, les paiements, la modération et la mise en relation en production demanderont ensuite des services backend dédiés et des contrôles de sécurité supplémentaires.
