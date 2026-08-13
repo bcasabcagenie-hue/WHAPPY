@@ -31,10 +31,12 @@ export type CloudMessage = {
   id: string;
   text: string;
   senderId: string;
-  kind?: "text" | "image" | "audio";
+  kind?: "text" | "image" | "audio" | "video";
   mediaUrl?: string;
   mediaName?: string;
   duration?: number;
+  effect?: "comic" | "neon" | "ink" | "pop";
+  caption?: string;
   createdAt?: { toDate?: () => Date } | null;
 };
 
@@ -246,18 +248,21 @@ export async function sendDirectMessage(conversationId:string,userId:string,text
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
 }
 
-export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio",duration=0) {
-  const maximum=kind==="image"?20*1024*1024:12*1024*1024;
+export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="") {
+  const maximum=kind==="image"?20*1024*1024:kind==="video"?60*1024*1024:12*1024*1024;
   if(!file.size||file.size>maximum)throw new Error("media-too-large");
   if(kind==="image"&&!file.type.startsWith("image/"))throw new Error("invalid-media");
   if(kind==="audio"&&!file.type.startsWith("audio/"))throw new Error("invalid-media");
+  if(kind==="video"&&!file.type.startsWith("video/"))throw new Error("invalid-media");
   const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-");
   const mediaRef=ref(storage,`conversations/${conversationId}/${userId}/${Date.now()}-${safeName}`);
   await uploadBytes(mediaRef,file,{contentType:file.type});
   const mediaUrl=await getDownloadURL(mediaRef);
-  const label=kind==="image"?"Photo":"Message vocal";
-  await addDoc(collection(db,"conversations",conversationId,"messages"),{text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),duration:Math.max(0,Math.round(duration)),createdAt:serverTimestamp()});
-  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"📷 Photo":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
+  const label=kind==="image"?"Image WHAPPY":kind==="video"?"Vidéo WHAPPY":"Message vocal";
+  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),duration:Math.max(0,Math.round(duration)),createdAt:serverTimestamp()};
+  if(kind==="video"){payload.effect=["comic","neon","ink","pop"].includes(effect)?effect:"pop";payload.caption=caption.trim().slice(0,100);}
+  await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
+  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"🎨 Création WHAPPY":kind==="video"?"🎬 Vidéo WHAPPY":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
 }
 
 export async function setDirectTyping(conversationId:string,userId:string,typing:boolean) {

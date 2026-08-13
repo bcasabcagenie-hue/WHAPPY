@@ -94,19 +94,23 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
         allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.keys().hasOnly(["text", "senderId", "kind", "mediaUrl", "mediaName", "duration", "createdAt"])
+          && request.resource.data.keys().hasOnly(["text", "senderId", "kind", "mediaUrl", "mediaName", "duration", "effect", "caption", "createdAt"])
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 4000
           && (!request.resource.data.keys().hasAny(["kind"])
-            || (request.resource.data.kind in ["image", "audio"]
+            || (request.resource.data.kind in ["image", "audio", "video"]
               && request.resource.data.mediaUrl is string
               && request.resource.data.mediaUrl.matches('https://firebasestorage.googleapis.com/.*')
               && request.resource.data.mediaName is string
               && request.resource.data.mediaName.size() <= 120
               && request.resource.data.duration is number
               && request.resource.data.duration >= 0
-              && request.resource.data.duration <= 600))
+              && request.resource.data.duration <= 600
+              && (request.resource.data.kind != "video"
+                || (request.resource.data.effect in ["comic", "neon", "ink", "pop"]
+                  && request.resource.data.caption is string
+                  && request.resource.data.caption.size() <= 100))))
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
         allow update, delete: if false;
       }

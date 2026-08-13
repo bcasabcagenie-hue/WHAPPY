@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules, expressionHub] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -63,6 +63,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../app/components/TwinEngineStudio.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/whappy-twin.ts", import.meta.url), "utf8"),
     readFile(new URL("../storage.rules", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WhappyExpressionHub.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -163,7 +164,17 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(realTimeInbox, /watchCallHistory/);
   assert.match(realTimeInbox, /embedded/);
   assert.match(dataLayer, /uploadBytes/);
-  assert.match(dataLayer, /kind:"image"\|"audio"/);
+  assert.match(dataLayer, /kind:"image"\|"audio"\|"video"/);
+  assert.match(realTimeInbox, /Entrée pour envoyer/);
+  assert.match(realTimeInbox, /spellCheck/);
+  assert.match(realTimeInbox, /WhappyExpressionHub/);
+  assert.match(expressionHub, /WHAPPY EXPRESSION HUB/);
+  assert.match(expressionHub, /WHAPPIES/);
+  assert.match(expressionHub, /translateTextOnDevice/);
+  assert.match(expressionHub, /SpeechRecognition/);
+  assert.match(expressionHub, /Proofreader/);
+  assert.match(expressionHub, /WHAPPY MEME LAB/);
+  assert.match(storageRules, /contentType\.matches\('video\/\.\*'\)/);
   assert.match(callData, /watchIncomingCalls/);
   assert.match(callData, /watchCallHistory/);
   assert.match(callData, /addCallCandidate/);

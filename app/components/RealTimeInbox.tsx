@@ -1,8 +1,9 @@
 "use client";
 /* eslint-disable jsx-a11y/media-has-caption -- messages vocaux créés par les utilisateurs sans piste de sous-titres */
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { watchCallHistory, type CallSignal } from "@/lib/whappy-calls";
+import { translateTextOnDevice, WhappyExpressionHub } from "@/app/components/WhappyExpressionHub";
 import {
   ensureDirectConversation,
   findWhappyUserByPhone,
@@ -58,6 +59,9 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [expressionOpen, setExpressionOpen] = useState(false);
+  const [messageTranslations, setMessageTranslations] = useState<Record<string, string>>({});
+  const [translatingMessage, setTranslatingMessage] = useState("");
   const typingTimer = useRef<number | null>(null);
   const typingConversation = useRef("");
   const messagesEnd = useRef<HTMLDivElement>(null);
@@ -137,14 +141,14 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     setRecording(false);
   }
 
-  async function uploadAttachment(file: File, kind: "image" | "audio", duration = 0, conversationId = currentId) {
+  async function uploadAttachment(file: File, kind: "image" | "audio" | "video", duration = 0, conversationId = currentId, effect = "", caption = "") {
     if (!conversationId || !userId || busy) return;
     setBusy(true);
     try {
-      await sendDirectAttachment(conversationId, userId, file, kind, duration);
-      notify(kind === "image" ? "Photo envoyée" : "Message vocal envoyé");
+      await sendDirectAttachment(conversationId, userId, file, kind, duration, effect, caption);
+      notify(kind === "image" ? "Image envoyée" : kind === "video" ? "Vidéo WHAPPY envoyée" : "Message vocal envoyé");
     } catch {
-      notify(kind === "image" ? "La photo n’a pas pu être envoyée" : "Le message vocal n’a pas pu être envoyé");
+      notify(kind === "image" ? "L’image n’a pas pu être envoyée" : kind === "video" ? "La vidéo n’a pas pu être envoyée" : "Le message vocal n’a pas pu être envoyé");
     } finally {
       setBusy(false);
     }
@@ -261,6 +265,24 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     typingTimer.current = window.setTimeout(() => stopTyping(current.id), 1200);
   }
 
+  function composerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
+  async function translateMessage(message: CloudMessage) {
+    if (!message.text || translatingMessage) return;
+    if (messageTranslations[message.id]) {
+      setMessageTranslations((current) => { const next = { ...current }; delete next[message.id]; return next; });
+      return;
+    }
+    setTranslatingMessage(message.id);
+    try { const value = await translateTextOnDevice(message.text, "fr"); setMessageTranslations((current) => ({ ...current, [message.id]: value })); }
+    catch { notify("La traduction locale de ce message n’est pas disponible sur cet appareil"); }
+    finally { setTranslatingMessage(""); }
+  }
+
   if (!user) return null;
 
   const answeredCalls = calls.filter((call) => Boolean(call.answer)).length;
@@ -319,11 +341,23 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             {!items.length && <div className="message-empty"><span>✦</span><strong>La conversation commence ici</strong><small>Vos messages apparaîtront instantanément sur les deux comptes.</small></div>}
             {items.map((message) => {
               const read = timestampMillis(current.readBy?.[peer.uid]) >= timestampMillis(message.createdAt);
-              return <article className={`${message.senderId === user.uid ? "mine" : ""} ${message.kind === "image" ? "image" : ""}`} key={message.id}>{message.kind === "image" && message.mediaUrl ? <a className="message-photo" href={message.mediaUrl} target="_blank" rel="noreferrer" style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Ouvrir la photo"/> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <p>{message.text}</p>}<small>{message.createdAt?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "Envoi…"} {message.senderId === user.uid && (read ? "✓✓" : "✓")}</small></article>;
+              return <article className={`${message.senderId === user.uid ? "mine" : ""} ${message.kind === "image" ? "image" : ""} ${message.kind === "video" ? "video" : ""}`} key={message.id}>
+                {message.kind === "image" && message.mediaUrl ? <a className="message-photo" href={message.mediaUrl} target="_blank" rel="noreferrer" style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Ouvrir la photo"/> : message.kind === "video" && message.mediaUrl ? <div className="message-video"><video controls playsInline preload="metadata" src={message.mediaUrl} className={message.effect || "pop"}/>{message.caption && <strong>{message.caption}</strong>}<i>✦ WHAPPY VIDEO</i></div> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <><p>{message.text}</p>{messageTranslations[message.id] && <p className="message-translation"><b>FR</b>{messageTranslations[message.id]}</p>}<button className="message-translate" onClick={() => void translateMessage(message)}>{translatingMessage === message.id ? "Traduction…" : messageTranslations[message.id] ? "Masquer" : "文 Traduire"}</button></>}
+                <small>{message.createdAt?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "Envoi…"} {message.senderId === user.uid && (read ? "✓✓" : "✓")}</small>
+              </article>;
             })}<div ref={messagesEnd}/>
           </div>
           {recording && <div className="recording-strip"><i/><strong>Message vocal · {recordingSeconds}s / 90s</strong><button onClick={() => stopRecording()}>Terminer et envoyer</button></div>}
-          <form onSubmit={send}><input className="message-file" ref={imageInput} type="file" accept="image/*" onChange={chooseImage}/><button type="button" onClick={() => imageInput.current?.click()} disabled={busy || recording} aria-label="Ajouter une photo">＋</button><button type="button" className={recording ? "recording" : ""} onClick={startRecording} disabled={busy} aria-label={recording ? "Terminer le message vocal" : "Enregistrer un message vocal"}>●</button><input value={text} onChange={(event) => change(event.target.value)} onBlur={() => stopTyping(current.id)} maxLength={4000} autoComplete="off" aria-label={`Message à ${peer.displayName}`} placeholder={`Message à ${peer.displayName}`}/><button disabled={busy || recording || !text.trim()} aria-label="Envoyer le message">➤</button></form>
+          {expressionOpen && <WhappyExpressionHub draft={text} onDraftChange={change} notify={notify} onClose={() => setExpressionOpen(false)} onSendMedia={(file, kind, effect, caption) => uploadAttachment(file, kind, 0, current.id, effect, caption)}/>}
+          <form className="direct-composer" onSubmit={send}>
+            <input className="message-file" ref={imageInput} type="file" accept="image/*" onChange={chooseImage}/>
+            <button type="button" onClick={() => setExpressionOpen((value) => !value)} className={expressionOpen ? "active" : ""} disabled={busy || recording} aria-label="Emojis, traduction et créations WHAPPY" title="Emojis, traduction et Meme Lab">☺</button>
+            <button type="button" onClick={() => imageInput.current?.click()} disabled={busy || recording} aria-label="Ajouter une photo" title="Ajouter une photo">＋</button>
+            <button type="button" className={recording ? "recording" : ""} onClick={startRecording} disabled={busy} aria-label={recording ? "Terminer le message vocal" : "Enregistrer un message vocal"} title="Note vocale">●</button>
+            <textarea value={text} onChange={(event) => change(event.target.value)} onKeyDown={composerKeyDown} onBlur={() => stopTyping(current.id)} maxLength={4000} rows={1} spellCheck lang="fr" autoComplete="off" aria-label={`Message à ${peer.displayName}`} placeholder={`Message à ${peer.displayName} · Entrée pour envoyer`}/>
+            <button disabled={busy || recording || !text.trim()} aria-label="Envoyer le message" title="Envoyer">➤</button>
+            <small>Entrée envoie · Maj + Entrée ajoute une ligne · Orthographe activée</small>
+          </form>
         </> : <div className="realtime-welcome">{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}<span>⚡</span><h3>Whappy Direct</h3><p>Échangez instantanément entre deux comptes identifiés par leur numéro.</p><button onClick={() => setAdding(true)}>Commencer une conversation</button></div>}</main>
       </section>
       {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>Entrez son numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Numéro international complet<input name="phone" required inputMode="tel" autoComplete="tel" placeholder="+242 06 000 00 00"/></label><p>Le numéro doit déjà avoir créé un compte Whappy.</p><button disabled={busy}>{busy ? "Recherche…" : "Trouver le compte →"}</button></form>}

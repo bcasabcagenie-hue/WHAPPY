@@ -21,7 +21,9 @@ service firebase.storage {
         && ((request.resource.contentType.matches('image/.*')
               && request.resource.size < 20 * 1024 * 1024)
           || (request.resource.contentType.matches('audio/.*')
-              && request.resource.size < 12 * 1024 * 1024));
+              && request.resource.size < 12 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*')
+              && request.resource.size < 60 * 1024 * 1024));
       allow delete: if conversationMember(conversationId)
         && request.auth.uid == userId;
       allow update: if false;
