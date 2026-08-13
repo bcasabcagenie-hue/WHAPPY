@@ -13,6 +13,10 @@ import { CartPanel, type CartLine, type CheckoutDraft, ProductPanel } from "@/ap
 import { SellerDashboard } from "@/app/components/SellerDashboard";
 import { OrdersPanel } from "@/app/components/OrdersPanel";
 import { ContactsSpace, SuperHub } from "@/app/components/SuperHub";
+import { RealTimeInbox } from "@/app/components/RealTimeInbox";
+import type { CallSignal } from "@/lib/whappy-calls";
+import { watchIncomingCalls } from "@/lib/whappy-calls";
+import type { DirectMember } from "@/lib/whappy-data";
 
 type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "contacts" | "services" | "twin";
 type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; status?: "active" | "reserved" | "sold"; };
@@ -94,7 +98,8 @@ export default function Home() {
   const [orders, setOrders] = useState<CloudOrder[]>([]);
   const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [ordersOpen, setOrdersOpen] = useState(false);
-  const [call, setCall] = useState<{ contact:string; video:boolean } | null>(null);
+  const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
+  const directUser=useMemo<DirectMember|null>(()=>userId?{uid:userId,displayName:auth.currentUser?.displayName||profileName||"Vous",phoneNumber:auth.currentUser?.phoneNumber||""}:null,[userId,profileName]);
 
   useEffect(() => onAuthStateChanged(auth, (user) => {
     const hasPhone = Boolean(user?.phoneNumber);
@@ -125,6 +130,8 @@ export default function Home() {
     if (!userId) return;
     return watchUserGroups(userId, setGroups, () => setSyncStatus("offline"));
   }, [userId]);
+
+  useEffect(()=>{if(!userId)return;return watchIncomingCalls(userId,(incoming)=>setCall((current)=>current||{contact:incoming.callerName,video:incoming.video,incoming}));},[userId]);
 
   const filtered = useMemo(() => [...customListings, ...listings].filter((item) => {
     if (item.status === "sold") return false;
@@ -435,6 +442,7 @@ export default function Home() {
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
       {space === "inbox" && <InboxSpace search={search} userId={userId} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />}
+      {space === "inbox" && <RealTimeInbox user={directUser} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/>}
       {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{go("inbox");notify(`Conversation avec ${contact} ouverte`)}} />}
       {space === "services" && <SuperHub go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}
@@ -448,7 +456,7 @@ export default function Home() {
     {selectedProduct&&<ProductPanel item={selectedProduct} saved={!!saved[String(selectedProduct.id)]} onSave={()=>setSaved(current=>({...current,[selectedProduct.id]:!current[String(selectedProduct.id)]}))} onClose={()=>setSelectedProduct(null)} onContact={()=>{const seller=selectedProduct.seller;setSelectedProduct(null);go("inbox");notify(`Conversation avec ${seller} ouverte`);}} onAdd={(quantity)=>addToCart(selectedProduct,quantity)}/>}
     {cartOpen&&<CartPanel lines={cart} onClose={()=>setCartOpen(false)} onQuantity={(id,quantity)=>setCart(current=>current.map(line=>line.item.id===id?{...line,quantity}:line))} onRemove={(id)=>setCart(current=>current.filter(line=>line.item.id!==id))} onCheckout={checkout} notify={notify}/>}
     {ordersOpen&&<OrdersPanel orders={orders} cloud={Boolean(userId)} onClose={()=>setOrdersOpen(false)} onExplore={()=>{setOrdersOpen(false);go("market")}} onContact={(seller)=>{setOrdersOpen(false);go("inbox");notify(`Conversation avec ${seller} ouverte`)}} onCancel={cancelTrackedOrder} notify={notify}/>}
-    {call&&<CallRoom contact={call.contact} video={call.video} onClose={()=>setCall(null)}/>}
+    {call&&<CallRoom contact={call.contact} video={call.video} currentUser={directUser} peer={call.peer} incoming={call.incoming} onClose={()=>setCall(null)}/>}
     {toast && <div className="nova-toast">✦ {toast}</div>}
   </main>;
 }

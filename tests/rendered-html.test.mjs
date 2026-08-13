@@ -40,7 +40,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -56,6 +56,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../app/components/OrdersPanel.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/SuperHub.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/GroupActivities.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/RealTimeInbox.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-calls.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -112,11 +114,15 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(rules, /match \/orders\/\{orderId\}/);
   assert.match(rules, /match \/groups\/\{groupId\}/);
   assert.match(rules, /match \/activities\/\{activityId\}/);
+  assert.match(rules, /match \/calls\/\{callId\}/);
   assert.match(rules, /match \/responses\/\{responseId\}/);
   assert.match(commerce, /ProductPanel/);
   assert.match(commerce, /CartPanel/);
   assert.match(commerce, /Paiement à la livraison/);
   assert.match(calls, /getUserMedia/);
+  assert.match(calls, /RTCPeerConnection/);
+  assert.match(calls, /createOffer/);
+  assert.match(calls, /createAnswer/);
   assert.match(profile, /setDoc/);
   assert.match(profile, /phoneNumber/);
   assert.match(seller, /Tableau de bord vendeur/);
@@ -139,6 +145,16 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(groupActivities, /Créer un sondage/);
   assert.match(groupActivities, /Planifier un événement/);
   assert.match(groupActivities, /ANNONCE ADMIN/);
+  assert.match(realTimeInbox, /Messages en temps réel/);
+  assert.match(realTimeInbox, /écrit en ce moment/);
+  assert.match(realTimeInbox, /markDirectConversationRead/);
+  assert.match(realTimeInbox, /MediaRecorder/);
+  assert.match(realTimeInbox, /sendDirectAttachment/);
+  assert.match(realTimeInbox, /Message vocal envoyé/);
+  assert.match(dataLayer, /uploadBytes/);
+  assert.match(dataLayer, /kind:"image"\|"audio"/);
+  assert.match(callData, /watchIncomingCalls/);
+  assert.match(callData, /addCallCandidate/);
   assert.match(groupActivities, /Votre vote est enregistré/);
   assert.match(groupActivities, /Votre participation est confirmée/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);

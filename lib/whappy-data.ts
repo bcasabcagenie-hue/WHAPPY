@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
@@ -31,7 +31,24 @@ export type CloudMessage = {
   id: string;
   text: string;
   senderId: string;
+  kind?: "text" | "image" | "audio";
+  mediaUrl?: string;
+  mediaName?: string;
+  duration?: number;
   createdAt?: { toDate?: () => Date } | null;
+};
+
+export type DirectMember = { uid:string; displayName:string; phoneNumber:string };
+type CloudTimestamp = { toDate?: () => Date } | null;
+export type CloudConversation = {
+  id:string;
+  ownerId:string;
+  memberIds:string[];
+  members:DirectMember[];
+  lastMessage?:string;
+  typingBy?:Record<string,boolean>;
+  readBy?:Record<string,CloudTimestamp>;
+  updatedAt?:CloudTimestamp;
 };
 
 export type CloudGroup = {
@@ -179,6 +196,76 @@ export async function sendConversationMessage(userId: string, contactId: string,
   });
   await updateDoc(conversation, { lastMessage: value, updatedAt: serverTimestamp() });
   return message.id;
+}
+
+function normalizeWhappyPhone(phoneNumber:string) {
+  const raw=phoneNumber.trim();
+  const digits=raw.replace(/\D/g,"");
+  if(!digits)return "";
+  if(raw.startsWith("+"))return `+${digits}`;
+  if(digits.startsWith("00"))return `+${digits.slice(2)}`;
+  if(digits.length>10)return `+${digits}`;
+  return `+242${digits}`;
+}
+
+export async function findWhappyUserByPhone(phoneNumber:string) {
+  const normalized=normalizeWhappyPhone(phoneNumber);
+  if(!normalized)return null;
+  const usersQuery=query(collection(db,"users"),where("phoneNumber","==",normalized),limit(1));
+  const snapshot=await getDocs(usersQuery);
+  const found=snapshot.docs[0];
+  return found?({uid:found.id,...found.data()} as DirectMember):null;
+}
+
+export async function ensureDirectConversation(current:DirectMember,peer:DirectMember) {
+  const id=`direct-${[current.uid,peer.uid].sort().join("-")}`;
+  const reference=doc(db,"conversations",id);
+  const existing=await getDoc(reference);
+  if(!existing.exists())await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[current,peer],typingBy:{},readBy:{},updatedAt:serverTimestamp()});
+  return id;
+}
+
+export function watchDirectConversations(userId:string,onItems:(items:CloudConversation[])=>void,onError:()=>void) {
+  const conversationsQuery=query(collection(db,"conversations"),where("memberIds","array-contains",userId));
+  return onSnapshot(conversationsQuery,(snapshot)=>{
+    const items=snapshot.docs.map((item)=>({id:item.id,...item.data()} as CloudConversation)).filter((item)=>item.memberIds.length===2&&Array.isArray(item.members));
+    items.sort((left,right)=>(right.updatedAt?.toDate?.()?.getTime()||0)-(left.updatedAt?.toDate?.()?.getTime()||0));
+    onItems(items);
+  },onError);
+}
+
+export function watchDirectMessages(conversationId:string,onItems:(items:CloudMessage[])=>void,onError:()=>void) {
+  const messagesQuery=query(collection(db,"conversations",conversationId,"messages"),orderBy("createdAt","asc"));
+  return onSnapshot(messagesQuery,(snapshot)=>onItems(snapshot.docs.map((item)=>({id:item.id,...item.data()} as CloudMessage))),onError);
+}
+
+export async function sendDirectMessage(conversationId:string,userId:string,text:string) {
+  const value=text.trim();
+  if(!value||value.length>4000)throw new Error("invalid-message");
+  await addDoc(collection(db,"conversations",conversationId,"messages"),{text:value,senderId:userId,createdAt:serverTimestamp()});
+  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
+}
+
+export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio",duration=0) {
+  const maximum=kind==="image"?20*1024*1024:12*1024*1024;
+  if(!file.size||file.size>maximum)throw new Error("media-too-large");
+  if(kind==="image"&&!file.type.startsWith("image/"))throw new Error("invalid-media");
+  if(kind==="audio"&&!file.type.startsWith("audio/"))throw new Error("invalid-media");
+  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-");
+  const mediaRef=ref(storage,`conversations/${conversationId}/${userId}/${Date.now()}-${safeName}`);
+  await uploadBytes(mediaRef,file,{contentType:file.type});
+  const mediaUrl=await getDownloadURL(mediaRef);
+  const label=kind==="image"?"Photo":"Message vocal";
+  await addDoc(collection(db,"conversations",conversationId,"messages"),{text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),duration:Math.max(0,Math.round(duration)),createdAt:serverTimestamp()});
+  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"📷 Photo":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
+}
+
+export async function setDirectTyping(conversationId:string,userId:string,typing:boolean) {
+  await updateDoc(doc(db,"conversations",conversationId),{[`typingBy.${userId}`]:typing});
+}
+
+export async function markDirectConversationRead(conversationId:string,userId:string) {
+  await updateDoc(doc(db,"conversations",conversationId),{[`readBy.${userId}`]:serverTimestamp()});
 }
 
 export function watchUserGroups(userId: string, onGroups: (items: CloudGroup[]) => void, onError: () => void) {
