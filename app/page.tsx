@@ -98,6 +98,7 @@ export default function Home() {
   const [orders, setOrders] = useState<CloudOrder[]>([]);
   const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [ordersOpen, setOrdersOpen] = useState(false);
+  const [directCompose, setDirectCompose] = useState(0);
   const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
   const directUser=useMemo<DirectMember|null>(()=>userId?{uid:userId,displayName:auth.currentUser?.displayName||profileName||"Vous",phoneNumber:auth.currentUser?.phoneNumber||""}:null,[userId,profileName]);
 
@@ -433,7 +434,7 @@ export default function Home() {
           <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
         </div>
         <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholders[space]} />{search && <button onClick={() => setSearch("")}>×</button>}</label>
-        <div className="top-actions"><span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Démonstration locale"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Local"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => setCall({contact:"Amina M.",video:false})}><span>☎</span><small>Appeler</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
+        <div className="top-actions"><span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Démonstration locale"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Local"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => setDirectCompose((value)=>value+1)}><span>＋</span><small>Nouveau</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
       </header>
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} />}
@@ -441,8 +442,7 @@ export default function Home() {
       {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} shopCount={shopListings.length} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} onOpenShop={() => setShopOpen(true)} onOpen={setSelectedProduct} />}
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
-      {space === "inbox" && <InboxSpace search={search} userId={userId} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />}
-      {space === "inbox" && <RealTimeInbox user={directUser} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/>}
+      {space === "inbox" && (userId ? <RealTimeInbox key={directCompose} embedded composeToken={directCompose} search={search} user={directUser} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <InboxSpace search={search} userId={userId} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />)}
       {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{go("inbox");notify(`Conversation avec ${contact} ouverte`)}} />}
       {space === "services" && <SuperHub go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinSpace step={twinStep} setStep={setTwinStep} consent={consent} setConsent={setConsent} notify={notify} />}

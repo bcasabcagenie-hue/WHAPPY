@@ -151,9 +151,13 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(realTimeInbox, /MediaRecorder/);
   assert.match(realTimeInbox, /sendDirectAttachment/);
   assert.match(realTimeInbox, /Message vocal envoyé/);
+  assert.match(realTimeInbox, /Historique des appels/);
+  assert.match(realTimeInbox, /watchCallHistory/);
+  assert.match(realTimeInbox, /embedded/);
   assert.match(dataLayer, /uploadBytes/);
   assert.match(dataLayer, /kind:"image"\|"audio"/);
   assert.match(callData, /watchIncomingCalls/);
+  assert.match(callData, /watchCallHistory/);
   assert.match(callData, /addCallCandidate/);
   assert.match(groupActivities, /Votre vote est enregistré/);
   assert.match(groupActivities, /Votre participation est confirmée/);
