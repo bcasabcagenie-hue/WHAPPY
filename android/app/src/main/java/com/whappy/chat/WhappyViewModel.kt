@@ -19,6 +19,7 @@ class WhappyViewModel(
     val uiState: StateFlow<WhappyUiState> = _uiState.asStateFlow()
 
     private var conversationsListener: ListenerRegistration? = null
+    private var contactsListener: ListenerRegistration? = null
     private var messagesListener: ListenerRegistration? = null
     private var listingsListener: ListenerRegistration? = null
     private var businessListener: ListenerRegistration? = null
@@ -104,6 +105,7 @@ class WhappyViewModel(
             runCatching {
                 val peer = repository.findUserByPhone(phone) ?: error("not-found")
                 if (peer.uid == user.uid) error("self")
+                repository.saveContact(user.uid, peer)
                 repository.ensureDirectConversation(
                     WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
                     peer,
@@ -113,11 +115,30 @@ class WhappyViewModel(
                 openConversation(conversation)
             }.onFailure { failure ->
                 val message = when (failure.message) {
-                    "not-found" -> "Aucun compte WHAPPY trouvé avec ce numéro"
+                    "not-found" -> "Aucun compte WHAPPY trouvé. Vérifiez le numéro ou demandez à la personne d’ouvrir WHAPPY une première fois."
                     "self" -> "C’est votre propre numéro WHAPPY"
                     else -> "La recherche du contact a échoué"
                 }
                 _uiState.update { it.copy(contactBusy = false, error = message) }
+            }
+        }
+    }
+
+    fun openContact(contact: WhappyContact) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.contactBusy) return
+        _uiState.update { it.copy(contactBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.ensureDirectConversation(
+                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    contact.member,
+                )
+            }.onSuccess { conversation ->
+                _uiState.update { it.copy(contactBusy = false) }
+                openConversation(conversation)
+            }.onFailure {
+                _uiState.update { it.copy(contactBusy = false, error = "La conversation avec ce contact n’a pas pu être ouverte") }
             }
         }
     }
@@ -313,6 +334,7 @@ class WhappyViewModel(
 
     private fun refreshSession(user: com.google.firebase.auth.FirebaseUser?) {
         conversationsListener?.remove()
+        contactsListener?.remove()
         messagesListener?.remove()
         listingsListener?.remove()
         businessListener?.remove()
@@ -324,6 +346,7 @@ class WhappyViewModel(
         twinAutomationsListener?.remove()
         twinRendersListener?.remove()
         conversationsListener = null
+        contactsListener = null
         messagesListener = null
         listingsListener = null
         businessListener = null
@@ -344,6 +367,11 @@ class WhappyViewModel(
             user.uid,
             onChange = { conversations -> _uiState.update { it.copy(conversations = conversations, loading = false, online = true) } },
             onError = { _uiState.update { it.copy(loading = false, online = false, error = "Synchronisation momentanément indisponible") } },
+        )
+        contactsListener = repository.observeContacts(
+            user.uid,
+            onChange = { contacts -> _uiState.update { it.copy(contacts = contacts, online = true) } },
+            onError = { _uiState.update { it.copy(online = false, error = "Les Contacts sont momentanément indisponibles") } },
         )
         listingsListener = repository.observeListings(
             onChange = { listings -> _uiState.update { it.copy(listings = listings, online = true) } },
@@ -402,6 +430,7 @@ class WhappyViewModel(
                 phoneNumber = user.phoneNumber.orEmpty(),
                 creationTimestamp = user.metadata?.creationTimestamp ?: System.currentTimeMillis(),
             )
+            runCatching { repository.syncAccountRecord(user, restoredName) }
             _uiState.update { current ->
                 if (current.user?.uid != user.uid) current
                 else current.copy(accountDisplayName = restoredName, accountPhotoUrl = resolvedPhotoUrl, sessionRestoring = false)
@@ -414,6 +443,7 @@ class WhappyViewModel(
     override fun onCleared() {
         FirebaseAuth.getInstance().removeAuthStateListener(authListener)
         conversationsListener?.remove()
+        contactsListener?.remove()
         messagesListener?.remove()
         listingsListener?.remove()
         businessListener?.remove()

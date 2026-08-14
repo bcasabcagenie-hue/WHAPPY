@@ -25,6 +25,11 @@ data class WhappyConversation(
     val unread: Boolean,
 )
 
+data class WhappyContact(
+    val member: WhappyMember,
+    val addedAt: Long = 0L,
+)
+
 data class WhappyMessage(
     val id: String,
     val text: String,
@@ -163,6 +168,7 @@ data class WhappyUiState(
     val sessionRestoring: Boolean = true,
     val tab: WhappyTab = WhappyTab.MOMENTS,
     val conversations: List<WhappyConversation> = emptyList(),
+    val contacts: List<WhappyContact> = emptyList(),
     val selectedConversation: WhappyConversation? = null,
     val messages: List<WhappyMessage> = emptyList(),
     val listings: List<WhappyListing> = emptyList(),

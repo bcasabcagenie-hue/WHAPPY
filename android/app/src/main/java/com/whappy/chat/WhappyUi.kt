@@ -233,6 +233,7 @@ fun WhappyRoot(
     onSendMessage: (String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
     onAddContact: (String) -> Unit,
+    onOpenContact: (WhappyContact) -> Unit,
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
     onPublishListing: (String, String, String, String) -> Unit,
@@ -280,6 +281,7 @@ fun WhappyRoot(
         onSendMessage = onSendMessage,
         onSendMedia = onSendMedia,
         onAddContact = onAddContact,
+        onOpenContact = onOpenContact,
         onSearchBusinesses = onSearchBusinesses,
         onContactBusiness = onContactBusiness,
         onPublishListing = onPublishListing,
@@ -439,6 +441,7 @@ private fun WhappyMain(
     onSendMessage: (String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
     onAddContact: (String) -> Unit,
+    onOpenContact: (WhappyContact) -> Unit,
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
     onPublishListing: (String, String, String, String) -> Unit,
@@ -545,9 +548,11 @@ private fun WhappyMain(
                             loading = state.loading,
                             preview = preview,
                             contactBusy = state.contactBusy,
+                            contacts = if (preview) demoConversations.map { WhappyContact(it.peer) } else state.contacts,
                             businessResults = if (preview) demoBusinessPages else state.businessSearchResults,
                             businessSearchBusy = state.businessSearchBusy,
                             onAddContact = onAddContact,
+                            onOpenContact = onOpenContact,
                             onSearchBusinesses = onSearchBusinesses,
                             onContactBusiness = onContactBusiness,
                             onOpen = { if (preview) previewConversation = it else onOpenConversation(it) },
@@ -1097,15 +1102,18 @@ private fun MessagesScreen(
     loading: Boolean,
     preview: Boolean,
     contactBusy: Boolean,
+    contacts: List<WhappyContact>,
     businessResults: List<WhappyBusinessPage>,
     businessSearchBusy: Boolean,
     onAddContact: (String) -> Unit,
+    onOpenContact: (WhappyContact) -> Unit,
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
     onOpen: (WhappyConversation) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
     var searchingBusiness by remember { mutableStateOf(false) }
+    var showingContacts by rememberSaveable { mutableStateOf(false) }
     var phone by remember { mutableStateOf("") }
     var scanError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -1136,11 +1144,35 @@ private fun MessagesScreen(
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text("Messages", fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text("Vos conversations instantanées", color = WhappyMuted) }
-            IconButton(onClick = { adding = true }) { Icon(Icons.Rounded.Add, "Nouvelle conversation", tint = WhappyBlue) }
+            Column(Modifier.weight(1f)) { Text(if (showingContacts) "Contacts" else "Messages", fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(if (showingContacts) "Vos personnes sur WHAPPY" else "Vos conversations instantanées", color = WhappyMuted) }
+            IconButton(onClick = { adding = true }) { Icon(Icons.Rounded.Add, "Ajouter un contact", tint = WhappyBlue) }
         }
-        if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-        else if (conversations.isEmpty()) EmptyState("Aucune conversation", "Ajoutez un contact WHAPPY avec son numéro pour commencer.")
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 2.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFFE7F1F5)).padding(4.dp)) {
+            TextButton(onClick = { showingContacts = false }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = if (!showingContacts) WhappyDark else WhappyMuted)) { Text("Discussions", fontWeight = if (!showingContacts) FontWeight.Black else FontWeight.Medium) }
+            TextButton(onClick = { showingContacts = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (showingContacts) Color.White else Color.Transparent, contentColor = if (showingContacts) WhappyDark else WhappyMuted)) { Text("Contacts ${if (contacts.isNotEmpty()) "(${contacts.size})" else ""}", fontWeight = if (showingContacts) FontWeight.Black else FontWeight.Medium) }
+        }
+        if (showingContacts) {
+            val conversationContacts = conversations.map { WhappyContact(it.peer, it.updatedAt) }
+            val visibleContacts = (contacts + conversationContacts).distinctBy { it.member.uid }.sortedBy { it.member.displayName.lowercase() }
+            if (loading && visibleContacts.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
+            else if (visibleContacts.isEmpty()) EmptyState("Votre liste de Contacts est vide", "Ajoutez une personne avec son numéro ou son code WHAPPY.")
+            else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                item { Text("CONTACTS WHAPPY", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+                items(visibleContacts, key = { it.member.uid }) { contact ->
+                    Card(Modifier.fillMaxWidth().clickable(enabled = !contactBusy) { onOpenContact(contact) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(48.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(contact.member.displayName), color = Color.White, fontWeight = FontWeight.Black) }
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(contact.member.displayName, fontWeight = FontWeight.Black, color = WhappyDark)
+                                Text(contact.member.phoneNumber.ifBlank { "Contact WHAPPY" }, color = WhappyMuted, fontSize = 11.sp)
+                            }
+                            Text("Message", color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
+        else if (conversations.isEmpty()) EmptyState("Aucune conversation", "Ouvrez l’onglet Contacts pour ajouter une personne sur WHAPPY.")
         else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)) {
             items(conversations, key = { it.id }) { conversation ->
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(conversation) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {

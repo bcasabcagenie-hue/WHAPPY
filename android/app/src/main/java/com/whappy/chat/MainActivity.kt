@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
                     onSendMessage = model::sendMessage,
                     onSendMedia = model::sendMedia,
                     onAddContact = model::addContact,
+                    onOpenContact = model::openContact,
                     onSearchBusinesses = model::searchBusinesses,
                     onContactBusiness = model::contactBusiness,
                     onPublishListing = model::publishListing,

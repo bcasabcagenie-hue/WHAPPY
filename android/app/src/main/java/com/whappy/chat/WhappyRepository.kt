@@ -22,6 +22,22 @@ class WhappyRepository(
 ) {
     fun currentUser() = auth.currentUser
 
+    suspend fun syncAccountRecord(user: FirebaseUser, displayName: String = user.displayName.orEmpty()) {
+        val phone = user.phoneNumber.orEmpty()
+        val normalized = PhoneNumberFormatter.normalize("+242", phone).orEmpty()
+        db.collection("users").document(user.uid).set(
+            mapOf(
+                "uid" to user.uid,
+                "displayName" to displayName.trim(),
+                "phoneNumber" to phone,
+                "phoneLookup" to normalized,
+                "phoneDigits" to phone.filter(Char::isDigit),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            com.google.firebase.firestore.SetOptions.merge(),
+        ).await()
+    }
+
     suspend fun restoreAccountDisplayName(user: FirebaseUser): String {
         val reference = db.collection("users").document(user.uid)
         val storedName = runCatching { reference.get().await().getString("displayName").orEmpty().trim() }
@@ -106,6 +122,27 @@ class WhappyRepository(
                 .mapNotNull { it.toConversation(userId) }
                 .sortedByDescending { it.updatedAt }
             onChange(conversations)
+        }
+
+    fun observeContacts(
+        userId: String,
+        onChange: (List<WhappyContact>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("users").document(userId)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            @Suppress("UNCHECKED_CAST")
+            val contacts = snapshot?.get("contacts") as? Map<String, Map<String, Any?>> ?: emptyMap()
+            onChange(contacts.mapNotNull { (uid, value) ->
+                val name = value["displayName"]?.toString()?.trim().orEmpty()
+                if (uid.isBlank() || name.isBlank()) null else WhappyContact(
+                    member = WhappyMember(uid, name, value["phoneNumber"]?.toString().orEmpty()),
+                    addedAt = (value["addedAt"] as? Timestamp)?.toDate()?.time ?: 0L,
+                )
+            }.sortedBy { it.member.displayName.lowercase() })
         }
 
     fun observeMessages(
@@ -694,16 +731,41 @@ class WhappyRepository(
         val candidates = PhoneNumberFormatter.lookupCandidates(phone)
         if (candidates.isEmpty()) return null
         for (candidate in candidates) {
-            val document = db.collection("users")
-                .whereEqualTo("phoneNumber", candidate)
-                .limit(1)
-                .get()
-                .await()
-                .documents
-                .firstOrNull()
-            if (document != null) return document.toMember()
+            listOf("phoneNumber", "phoneLookup").forEach { field ->
+                val document = db.collection("users")
+                    .whereEqualTo(field, candidate)
+                    .limit(1)
+                    .get()
+                    .await()
+                    .documents
+                    .firstOrNull()
+                if (document != null) return document.toMember()
+            }
         }
+        val candidateSet = candidates.toSet()
+        val fallback = db.collection("users").limit(250).get().await().documents.firstOrNull { document ->
+            val stored = document.getString("phoneNumber").orEmpty()
+            PhoneNumberFormatter.lookupCandidates(stored).any(candidateSet::contains)
+                || document.getString("phoneDigits").orEmpty() in candidateSet.map { it.filter(Char::isDigit) }.toSet()
+        }
+        if (fallback != null) return fallback.toMember()
         return null
+    }
+
+    suspend fun saveContact(userId: String, peer: WhappyMember) {
+        db.collection("users").document(userId).set(
+            mapOf(
+                "contacts" to mapOf(
+                    peer.uid to mapOf(
+                        "displayName" to peer.displayName,
+                        "phoneNumber" to peer.phoneNumber,
+                        "addedAt" to FieldValue.serverTimestamp(),
+                    ),
+                ),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            com.google.firebase.firestore.SetOptions.merge(),
+        ).await()
     }
 
     suspend fun findUserById(userId: String): WhappyMember? {
