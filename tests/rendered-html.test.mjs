@@ -107,7 +107,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules, expressionHub] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules, expressionHub, pulse] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -131,6 +131,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../lib/whappy-twin.ts", import.meta.url), "utf8"),
     readFile(new URL("../storage.rules", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WhappyExpressionHub.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WhappyPulse.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -253,6 +254,12 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(businessData, /recordAdEvent/);
   assert.match(businessData, /createAdCampaign/);
   assert.match(page, /TwinEngineStudio/);
+  assert.match(page, /WhappyPulse/);
+  assert.match(page, /metaKey \|\| event\.ctrlKey/);
+  assert.match(pulse, /WHAPPY PULSE/);
+  assert.match(pulse, /Vos priorités/);
+  assert.match(pulse, /MESSAGERIE PRIORITAIRE/);
+  assert.match(pulse, /TOUT WHAPPY/);
   assert.match(page, /userId\|\|"local-preview"/);
   assert.match(page, /cloud=\{Boolean\(userId\)\}/);
   assert.match(twinEngine, /MOTION CORE 2\.0/);

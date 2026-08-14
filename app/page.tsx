@@ -16,6 +16,7 @@ import { OrdersPanel } from "@/app/components/OrdersPanel";
 import { ContactsSpace, SuperHub } from "@/app/components/SuperHub";
 import { RealTimeInbox } from "@/app/components/RealTimeInbox";
 import { BusinessStudio } from "@/app/components/BusinessStudio";
+import { WhappyPulse } from "@/app/components/WhappyPulse";
 import type { CallSignal } from "@/lib/whappy-calls";
 import { watchIncomingCalls } from "@/lib/whappy-calls";
 import { recordAdEvent, watchActiveCampaigns, type AdCampaign } from "@/lib/whappy-business";
@@ -109,6 +110,7 @@ export default function Home() {
   const [orders, setOrders] = useState<CloudOrder[]>([]);
   const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [ordersOpen, setOrdersOpen] = useState(false);
+  const [pulseOpen, setPulseOpen] = useState(false);
   const [directCompose, setDirectCompose] = useState(0);
   const [activeAds, setActiveAds] = useState<AdCampaign[]>([]);
   const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
@@ -125,6 +127,14 @@ export default function Home() {
   }), []);
 
   useEffect(() => () => recaptchaRef.current?.clear(), []);
+
+  useEffect(() => {
+    function openPulse(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPulseOpen(true); }
+    }
+    window.addEventListener("keydown", openPulse);
+    return () => window.removeEventListener("keydown", openPulse);
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -438,6 +448,7 @@ export default function Home() {
         <Rail active={space === "business"} icon="▥" label="Business" onClick={() => go("business")} />
       </nav>
       <div className="rail-tools">
+        <button className="pulse-rail" onClick={() => setPulseOpen(true)}><span>✦</span><small>Pulse</small><b>{messages.reduce((sum,item)=>sum+item.unread,0)}</b></button>
         <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
         <button className="me" onClick={() => setProfileOpen(true)} aria-label="Ouvrir mon profil">CB<i /></button>
       </div>
@@ -476,6 +487,7 @@ export default function Home() {
     {cartOpen&&<CartPanel lines={cart} onClose={()=>setCartOpen(false)} onQuantity={(id,quantity)=>setCart(current=>current.map(line=>line.item.id===id?{...line,quantity}:line))} onRemove={(id)=>setCart(current=>current.filter(line=>line.item.id!==id))} onCheckout={checkout} notify={notify}/>}
     {ordersOpen&&<OrdersPanel orders={orders} cloud={Boolean(userId)} onClose={()=>setOrdersOpen(false)} onExplore={()=>{setOrdersOpen(false);go("market")}} onContact={(seller)=>{setOrdersOpen(false);go("inbox");notify(`Conversation avec ${seller} ouverte`)}} onCancel={cancelTrackedOrder} notify={notify}/>}
     {call&&<CallRoom contact={call.contact} video={call.video} currentUser={directUser} peer={call.peer} incoming={call.incoming} onClose={()=>setCall(null)}/>}
+    <WhappyPulse open={pulseOpen} onClose={()=>setPulseOpen(false)} onNavigate={go} unread={messages.reduce((sum,item)=>sum+item.unread,0)} orderCount={orders.length} cartCount={cart.reduce((sum,line)=>sum+line.quantity,0)} groupCount={groups.length} syncStatus={syncStatus} userName={auth.currentUser?.displayName||profileName||"Vous"} demo={demoMode}/>
     {toast && <div className="nova-toast">✦ {toast}</div>}
   </main>;
 }
