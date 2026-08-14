@@ -40,7 +40,7 @@ export type CloudMessage = {
   createdAt?: { toDate?: () => Date } | null;
 };
 
-export type DirectMember = { uid:string; displayName:string; phoneNumber:string; whappyId?:string };
+export type DirectMember = { uid:string; displayName:string; phoneNumber:string };
 type CloudTimestamp = { toDate?: () => Date } | null;
 export type CloudConversation = {
   id:string;
@@ -211,12 +211,6 @@ function normalizeWhappyPhone(phoneNumber:string) {
 }
 
 export async function findWhappyUserByPhone(phoneNumber:string) {
-  const whappyId=phoneNumber.trim().toUpperCase();
-  if(/^WH-[A-Z0-9]{6,12}$/.test(whappyId)){
-    const idQuery=query(collection(db,"users"),where("whappyId","==",whappyId),limit(1));
-    const idSnapshot=await getDocs(idQuery);const idFound=idSnapshot.docs[0];
-    return idFound?({uid:idFound.id,...idFound.data()} as DirectMember):null;
-  }
   const normalized=normalizeWhappyPhone(phoneNumber);
   if(!normalized)return null;
   const usersQuery=query(collection(db,"users"),where("phoneNumber","==",normalized),limit(1));
