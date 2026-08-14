@@ -13,6 +13,7 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "check": "npm run lint && npm test",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "android:apk": "cd android && ./gradlew assembleDebug",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
