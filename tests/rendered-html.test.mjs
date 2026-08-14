@@ -36,16 +36,55 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Congo \(\+242\)/);
   assert.match(html, /Continuer par SMS/);
   assert.match(html, /Un numéro = un compte Whappy/);
-  assert.match(html, /Télécharger WHAPPY Android native 1\.2\.2/);
-  assert.match(html, /WHAPPY-Android-1\.2\.2-native\.apk/);
+  assert.match(html, /Télécharger WHAPPY Android native 1\.2\.4/);
+  assert.match(html, /WHAPPY-Android-1\.2\.4-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
-test("garde la zone centrale de l’accueil Android visible", async () => {
-  const source = await readFile(new URL("../android/app/src/main/java/com/whappy/chat/MainActivity.java", import.meta.url), "utf8");
-  assert.match(source, /page\.addView\(scroll, weightedVertical\(1\)\)/);
-  assert.match(source, /page\.addView\(messagesScroll, weightedVertical\(1\)\)/);
-  assert.doesNotMatch(source, /page\.addView\((?:scroll|messagesScroll), weighted\(1\)\)/);
+test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
+  const [activity, ui, repository, viewModel, models, manifest] = await Promise.all([
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/MainActivity.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyUi.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyRepository.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyViewModel.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyModels.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/AndroidManifest.xml", import.meta.url), "utf8"),
+  ]);
+  assert.match(activity, /setContent/);
+  assert.match(activity, /PhoneNumberFormatter\.normalize/);
+  assert.match(activity, /resendCode/);
+  assert.match(activity, /onProfileSaved/);
+  assert.match(ui, /Jetpack|WhappyBottomBar|LazyColumn|BrandHeader/);
+  assert.match(ui, /Spacer\(Modifier\.width\(14\.dp\)\)/);
+  assert.match(repository, /addSnapshotListener/);
+  assert.match(repository, /collection\("messages"\)/);
+  assert.match(repository, /sendMediaMessage/);
+  assert.match(repository, /FirebaseStorage/);
+  assert.match(ui, /EmojiTray/);
+  assert.match(ui, /createVoiceRecorder/);
+  assert.match(ui, /autoCorrectEnabled = true/);
+  assert.match(ui, /WhappyStudioScreen/);
+  assert.match(ui, /WHAPPY DOUBLE ENGINE/);
+  assert.match(ui, /IDENTITÉ SOUVERAINE/);
+  assert.match(ui, /VOICE DNA/);
+  assert.match(ui, /MOTION CORE 2\.0/);
+  assert.match(ui, /ORCHESTRATEUR/);
+  assert.match(ui, /Créé avec le Double IA/);
+  assert.match(repository, /observeTwinProfile/);
+  assert.match(repository, /uploadTwinAsset/);
+  assert.match(repository, /createTwinAutomation/);
+  assert.match(repository, /createTwinRender/);
+  assert.match(repository, /restoreAccountDisplayName/);
+  assert.match(viewModel, /refreshSession/);
+  assert.match(viewModel, /observeTwinProfile/);
+  assert.match(viewModel, /observeTwinAutomations/);
+  assert.match(viewModel, /observeTwinRenders/);
+  assert.match(models, /WhappyTwinProfile/);
+  assert.match(models, /WhappyTwinAutomation/);
+  assert.match(models, /WhappyTwinRender/);
+  assert.match(models, /sessionRestoring/);
+  assert.match(models, /accountDisplayName/);
+  assert.match(manifest, /androidx\.core\.content\.FileProvider/);
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
@@ -100,7 +139,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);
   assert.match(readme, /prêt à être développé dans Visual Studio Code/i);
-  assert.match(logo, /#13d713/i);
+  assert.match(logo, /#00a2e6/i);
   assert.match(firebase, /getFirestore/);
   assert.match(firebase, /getAuth/);
   assert.match(rules, /request\.auth\.uid/);
