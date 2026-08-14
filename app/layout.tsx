@@ -45,7 +45,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="fr">
-      <body className={geist.variable}>{children}</body>
+      <body className={geist.variable} spellCheck autoCorrect="on" autoCapitalize="sentences">{children}</body>
     </html>
   );
 }
