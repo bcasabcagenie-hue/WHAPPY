@@ -51,6 +51,46 @@ class WhappyRepository(
         return resolvedName
     }
 
+    suspend fun restoreAccountPhotoUrl(user: FirebaseUser): String {
+        val reference = db.collection("users").document(user.uid)
+        val storedUrl = runCatching { reference.get().await().getString("photoUrl").orEmpty().trim() }
+            .getOrDefault("")
+        val firebaseUrl = user.photoUrl?.toString().orEmpty().trim()
+        val resolvedUrl = storedUrl.ifBlank { firebaseUrl }
+        if (resolvedUrl.isNotBlank() && resolvedUrl != firebaseUrl) {
+            val update = UserProfileChangeRequest.Builder().setPhotoUri(Uri.parse(resolvedUrl)).build()
+            runCatching { user.updateProfile(update).await() }
+        }
+        return resolvedUrl
+    }
+
+    suspend fun updateProfilePhoto(userId: String, uri: Uri, contentType: String): String {
+        require(auth.currentUser?.uid == userId)
+        require(contentType in setOf("image/jpeg", "image/png", "image/webp"))
+        val extension = when (contentType) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> "jpg"
+        }
+        val objectRef = storage.reference.child("profiles/$userId/avatar-${UUID.randomUUID()}.$extension")
+        val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(contentType).build()
+        objectRef.putFile(uri, metadata).await()
+        val downloadUrl = objectRef.downloadUrl.await().toString()
+        db.collection("users").document(userId).set(
+            mapOf(
+                "uid" to userId,
+                "photoUrl" to downloadUrl,
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            com.google.firebase.firestore.SetOptions.merge(),
+        ).await()
+        auth.currentUser?.let { user ->
+            val update = UserProfileChangeRequest.Builder().setPhotoUri(Uri.parse(downloadUrl)).build()
+            runCatching { user.updateProfile(update).await() }
+        }
+        return downloadUrl
+    }
+
     fun observeConversations(
         userId: String,
         onChange: (List<WhappyConversation>) -> Unit,
@@ -480,7 +520,7 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String) {
+    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean) {
         require(title.trim().length in 2..120)
         db.collection("liveSessions").add(
             mapOf(
@@ -489,7 +529,7 @@ class WhappyRepository(
                 "title" to title.trim(),
                 "category" to category.trim().take(60),
                 "productTitle" to productTitle.trim().take(120),
-                "status" to "scheduled",
+                "status" to if (startNow) "live" else "scheduled",
                 "viewerCount" to 0,
                 "streamProvider" to "unconfigured",
                 "createdAt" to FieldValue.serverTimestamp(),

@@ -27,8 +27,8 @@ type Listing = { id: string | number; title: string; price: string; place: strin
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const ANDROID_APP = {
-  url: "/WHAPPY-Android-1.3.1-native.apk",
-  version: "1.3.1",
+  url: "/WHAPPY-Android-1.3.2-native.apk",
+  version: "1.3.2",
   size: "16 Mo",
   minimum: "Android 8.0+",
 } as const;

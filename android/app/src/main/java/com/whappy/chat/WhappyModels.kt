@@ -157,6 +157,7 @@ data class WhappyTwinRender(
 data class WhappyUiState(
     val user: FirebaseUser? = null,
     val accountDisplayName: String = "",
+    val accountPhotoUrl: String = "",
     val sessionRestoring: Boolean = true,
     val tab: WhappyTab = WhappyTab.MOMENTS,
     val conversations: List<WhappyConversation> = emptyList(),

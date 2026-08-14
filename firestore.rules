@@ -282,7 +282,7 @@ service cloud.firestore {
         && request.resource.data.category.size() <= 60
         && request.resource.data.productTitle is string
         && request.resource.data.productTitle.size() <= 120
-        && request.resource.data.status == "scheduled"
+        && request.resource.data.status in ["scheduled", "live"]
         && request.resource.data.viewerCount == 0
         && request.resource.data.streamProvider == "unconfigured";
       allow update: if signedIn()

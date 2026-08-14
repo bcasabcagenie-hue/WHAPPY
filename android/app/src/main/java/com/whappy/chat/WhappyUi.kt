@@ -5,6 +5,7 @@ package com.whappy.chat
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -111,6 +112,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,6 +122,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
@@ -139,6 +142,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 private val WhappyBlue = Color(0xFF00A2E6)
 private val WhappyDark = Color(0xFF102E3B)
@@ -220,7 +226,7 @@ fun WhappyRoot(
     onCreateBusinessPage: (String, String, String, String) -> Unit,
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
-    onCreateLive: (String, String, String) -> Unit,
+    onCreateLive: (String, String, String, Boolean) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
@@ -235,6 +241,7 @@ fun WhappyRoot(
     onCreateTwinRender: (String, String, String, List<String>) -> Unit,
     onDismissError: () -> Unit,
     onSignOut: () -> Unit,
+    onUpdateProfilePhoto: (Uri, String) -> Unit,
     onProfileSaved: () -> Unit,
 ) {
     val user = state.user
@@ -279,6 +286,7 @@ fun WhappyRoot(
         onCreateTwinRender = onCreateTwinRender,
         onDismissError = onDismissError,
         onSignOut = onSignOut,
+        onUpdateProfilePhoto = onUpdateProfilePhoto,
     )
 }
 
@@ -420,7 +428,7 @@ private fun WhappyMain(
     onCreateBusinessPage: (String, String, String, String) -> Unit,
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
-    onCreateLive: (String, String, String) -> Unit,
+    onCreateLive: (String, String, String, Boolean) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
@@ -435,6 +443,7 @@ private fun WhappyMain(
     onCreateTwinRender: (String, String, String, List<String>) -> Unit,
     onDismissError: () -> Unit,
     onSignOut: () -> Unit,
+    onUpdateProfilePhoto: (Uri, String) -> Unit,
 ) {
     var previewConversation by remember { mutableStateOf<WhappyConversation?>(null) }
     var previewMessages by remember { mutableStateOf(emptyList<WhappyMessage>()) }
@@ -506,6 +515,7 @@ private fun WhappyMain(
                     subtitle = if (preview) "Mode démonstration" else if (state.online) "Synchronisé en temps réel" else "Connexion limitée",
                     avatar = true,
                     name = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                    photoUrl = state.accountPhotoUrl,
                     unread = unreadActivity,
                     onActivity = { showActivityCenter = true },
                     onProfile = { onTab(WhappyTab.PROFILE) },
@@ -541,7 +551,17 @@ private fun WhappyMain(
                             onEnableNotifications = onEnableNotifications,
                             onOpenTwin = { showTwinStudio = true },
                         )
-                        WhappyTab.PROFILE -> ProfileScreen(state.accountDisplayName.ifBlank { "Cyril Bokilo" }, state.user?.phoneNumber.orEmpty(), state.twinProfile?.readiness ?: 0, preview, { showTwinStudio = true }, onSignOut)
+                        WhappyTab.PROFILE -> ProfileScreen(
+                            name = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                            phone = state.user?.phoneNumber.orEmpty(),
+                            photoUrl = state.accountPhotoUrl,
+                            twinReadiness = state.twinProfile?.readiness ?: 0,
+                            preview = preview,
+                            busy = state.actionBusy,
+                            onUpdatePhoto = onUpdateProfilePhoto,
+                            onOpenWhappies = { showTwinStudio = true },
+                            onSignOut = onSignOut,
+                        )
                     }
                 }
             }
@@ -550,7 +570,7 @@ private fun WhappyMain(
 }
 
 @Composable
-private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", unread: Int = 0, onActivity: () -> Unit = {}, onProfile: () -> Unit = {}) {
+private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", photoUrl: String = "", unread: Int = 0, onActivity: () -> Unit = {}, onProfile: () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -562,9 +582,7 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", un
             Text(subtitle, color = WhappyMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = WhappyDark); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(Color(0xFFFF3B5C)), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
-        if (avatar) Box(Modifier.size(44.dp).clip(CircleShape).background(WhappyBlue).clickable(onClick = onProfile), contentAlignment = Alignment.Center) {
-            Text(initials(name), color = Color.White, fontWeight = FontWeight.Black)
-        }
+        if (avatar) UserAvatar(photoUrl, name, 44.dp, Modifier.clickable(onClick = onProfile))
     }
 }
 
@@ -1333,7 +1351,7 @@ private fun LiveScreen(
     currentUserId: String,
     preview: Boolean,
     busy: Boolean,
-    onCreateLive: (String, String, String) -> Unit,
+    onCreateLive: (String, String, String, Boolean) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
     onOpenTwin: () -> Unit,
@@ -1342,8 +1360,34 @@ private fun LiveScreen(
     var localLives by remember { mutableStateOf(emptyList<WhappyLive>()) }
     var selectedLive by remember { mutableStateOf<WhappyLive?>(null) }
     var previewStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
+    var pendingStudioTitle by remember { mutableStateOf<String?>(null) }
+    var pendingLiveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var permissionError by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val livePermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val granted = result[Manifest.permission.CAMERA] == true && result[Manifest.permission.RECORD_AUDIO] == true
+        if (granted) pendingLiveAction?.invoke() else permissionError = true
+        pendingLiveAction = null
+    }
+    val startWithPermissions: (() -> Unit) -> Unit = { action ->
+        val alreadyGranted = preview || (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+        if (alreadyGranted) action()
+        else {
+            permissionError = false
+            pendingLiveAction = action
+            livePermissions.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+        }
+    }
     val visibleLives = (localLives + lives).map { live -> previewStatuses[live.id]?.let { live.copy(status = it) } ?: live }.filter { it.status != "ended" }
     val liveNow = visibleLives.count { it.status == "live" }
+    LaunchedEffect(visibleLives, pendingStudioTitle) {
+        val title = pendingStudioTitle ?: return@LaunchedEffect
+        visibleLives.firstOrNull { it.hostId == currentUserId && it.status == "live" && it.title == title }?.let {
+            selectedLive = it
+            pendingStudioTitle = null
+        }
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
@@ -1354,7 +1398,8 @@ private fun LiveScreen(
                     }
                     Text("Vivez, vendez et créez\nen direct.", Modifier.padding(top = 13.dp), color = Color.White, fontSize = 29.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
                     Text("Lancez un salon pour votre communauté, vos produits ou vos événements.", Modifier.padding(top = 9.dp), color = Color(0xFFBECED5), lineHeight = 19.sp)
-                    Button(onClick = { creating = true }, Modifier.fillMaxWidth().padding(top = 17.dp).height(52.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Rounded.Videocam, null); Text("Préparer mon Live", Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold) }
+                    Button(onClick = { creating = true }, Modifier.fillMaxWidth().padding(top = 17.dp).height(52.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Rounded.Videocam, null); Text("Démarrer mon Live", Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold) }
+                    if (permissionError) Text("Autorisez la caméra et le micro pour démarrer le direct.", Modifier.padding(top = 10.dp), color = Color(0xFFFFB9C5), fontSize = 11.sp)
                 }
             }
         }
@@ -1382,7 +1427,7 @@ private fun LiveScreen(
                         Text("${live.hostName} · ${live.category}", Modifier.padding(top = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         if (live.productTitle.isNotBlank()) Text("Deal présenté : ${live.productTitle}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp)
                         if (live.hostId == currentUserId && live.status == "scheduled") Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "live") else onUpdateLiveStatus(live.id, "live") }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
+                            Button(onClick = { startWithPermissions { pendingStudioTitle = live.title; if (preview) previewStatuses = previewStatuses + (live.id to "live") else onUpdateLiveStatus(live.id, "live") } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
                             OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Annuler") }
                         }
                         else if (live.hostId == currentUserId) OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onUpdateLiveStatus(live.id, "ended") }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Text("Terminer le direct") }
@@ -1393,24 +1438,29 @@ private fun LiveScreen(
         }
         item { Text("Les salons et leur audience sont synchronisés en temps réel. La diffusion vidéo nécessite la connexion d’un fournisseur média au compte Business.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp) }
     }
-    if (creating) LiveDialog(busy, onDismiss = { creating = false }) { title, category, product ->
-        if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, "Cyril Bokilo", title, category, product, "scheduled", 0, System.currentTimeMillis() + 3_600_000)) + localLives
-        else onCreateLive(title, category, product)
+    if (creating) LiveDialog(busy, onDismiss = { creating = false }) { title, category, product, startNow ->
+        val createAction = {
+            val status = if (startNow) "live" else "scheduled"
+            if (startNow) pendingStudioTitle = title
+            if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, "Cyril Bokilo", title, category, product, status, 0, System.currentTimeMillis())) + localLives
+            else onCreateLive(title, category, product, startNow)
+        }
+        if (startNow) startWithPermissions(createAction) else createAction()
         creating = false
     }
-    selectedLive?.let { live -> LiveRoomDialog(live, onDismiss = { selectedLive = null }, onOpenTwin = { selectedLive = null; onOpenTwin() }) }
+    selectedLive?.let { live -> LiveRoomDialog(live, isOwner = live.hostId == currentUserId, onDismiss = { selectedLive = null }, onOpenTwin = { selectedLive = null; onOpenTwin() }) }
 }
 
 @Composable
-private fun LiveRoomDialog(live: WhappyLive, onDismiss: () -> Unit, onOpenTwin: () -> Unit) {
+private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, onDismiss: () -> Unit, onOpenTwin: () -> Unit) {
     var reactionCount by remember(live.id) { mutableStateOf(live.viewerCount + 24) }
     var message by remember(live.id) { mutableStateOf("") }
     var comments by remember(live.id) { mutableStateOf(listOf("Amina : Très belle présentation 👏", "Junior : Le Deal est encore disponible ?")) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Column { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(7.dp)).background(if (live.status == "live") Color(0xFFFF3B5C) else WhappyBlue).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(if (live.status == "live") "● LIVE" else "PROGRAMMÉ", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(" ${live.hostName}", color = WhappyDark, fontWeight = FontWeight.Black) }; Text(live.title, Modifier.padding(top = 7.dp), color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Black) } },
+        title = { Column { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(7.dp)).background(if (live.status == "live") Color(0xFFFF3B5C) else WhappyBlue).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(if (live.status == "live") "● LIVE" else "PROGRAMMÉ", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(if (isOwner) " Studio créateur" else " ${live.hostName}", color = WhappyDark, fontWeight = FontWeight.Black) }; Text(live.title, Modifier.padding(top = 7.dp), color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Black) } },
         text = { Column {
-            Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(20.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(54.dp)); Text(if (live.status == "live") "Flux vidéo sécurisé" else "Direct à venir", Modifier.align(Alignment.BottomCenter).padding(15.dp), color = Color.White, fontWeight = FontWeight.Bold) }
+            Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(20.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(54.dp)); Text(if (isOwner && live.status == "live") "Studio ouvert · vous êtes en direct" else if (live.status == "live") "Salon Live ouvert" else "Direct à venir", Modifier.align(Alignment.BottomCenter).padding(15.dp), color = Color.White, fontWeight = FontWeight.Bold) }
             Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) { Text("👀 ${live.viewerCount}", color = WhappyMuted, fontSize = 11.sp); Spacer(Modifier.weight(1f)); TextButton(onClick = { reactionCount += 1 }) { Text("💙 $reactionCount") } }
             if (live.productTitle.isNotBlank()) Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC)), shape = RoundedCornerShape(14.dp)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue); Column(Modifier.padding(start = 9.dp)) { Text("DEAL DU LIVE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(live.productTitle, color = WhappyDark, fontWeight = FontWeight.Bold) } } }
             LazyColumn(Modifier.fillMaxWidth().height(90.dp).padding(top = 8.dp)) { items(comments) { comment -> Text(comment, Modifier.padding(vertical = 3.dp), color = WhappyMuted, fontSize = 11.sp) } }
@@ -1422,14 +1472,15 @@ private fun LiveRoomDialog(live: WhappyLive, onDismiss: () -> Unit, onOpenTwin: 
 }
 
 @Composable
-private fun LiveDialog(busy: Boolean, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+private fun LiveDialog(busy: Boolean, onDismiss: () -> Unit, onSave: (String, String, String, Boolean) -> Unit) {
     var title by remember { mutableStateOf("") }; var category by remember { mutableStateOf("Business") }; var product by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Préparer un Live") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val valid = title.trim().length >= 3 && category.isNotBlank() && !busy
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Créer un Live") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Titre du direct") }, singleLine = true)
         OutlinedTextField(category, { category = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Catégorie") }, singleLine = true)
         OutlinedTextField(product, { product = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Produit ou Deal (facultatif)") }, singleLine = true)
-        Text("Le salon sera créé et synchronisé. Vous pourrez connecter le flux vidéo depuis votre configuration Business.", color = WhappyMuted, fontSize = 11.sp)
-    } }, confirmButton = { Button(enabled = title.trim().length >= 3 && category.isNotBlank() && !busy, onClick = { onSave(title.trim(), category.trim(), product.trim()) }) { Text(if (busy) "Création…" else "Programmer") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
+        Text("Démarrer maintenant ouvre le studio après autorisation de la caméra et du micro. Programmer conserve le direct pour plus tard.", color = WhappyMuted, fontSize = 11.sp)
+    } }, confirmButton = { Button(enabled = valid, onClick = { onSave(title.trim(), category.trim(), product.trim(), true) }) { Text(if (busy) "Ouverture…" else "Démarrer maintenant") } }, dismissButton = { Row { TextButton(onClick = onDismiss) { Text("Annuler") }; TextButton(enabled = valid, onClick = { onSave(title.trim(), category.trim(), product.trim(), false) }) { Text("Programmer") } } })
 }
 
 private enum class BusinessSection(val label: String) { DASHBOARD("Aperçu"), PAGES("Pages"), DEALS("Deals"), PAYMENTS("Paiements"), ADS("Publicité") }
@@ -1658,12 +1709,41 @@ private fun MetricCard(label: String, value: String, modifier: Modifier) {
 }
 
 @Composable
-private fun ProfileScreen(name: String, phone: String, twinReadiness: Int, preview: Boolean, onOpenWhappies: () -> Unit, onSignOut: () -> Unit) {
+private fun ProfileScreen(
+    name: String,
+    phone: String,
+    photoUrl: String,
+    twinReadiness: Int,
+    preview: Boolean,
+    busy: Boolean,
+    onUpdatePhoto: (Uri, String) -> Unit,
+    onOpenWhappies: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    val context = LocalContext.current
+    var localPhoto by remember(photoUrl) { mutableStateOf(photoUrl) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        localPhoto = uri.toString()
+        if (!preview) onUpdatePhoto(uri, context.contentResolver.getType(uri) ?: "image/jpeg")
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(82.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(name), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black) }
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        UserAvatar(localPhoto, name, 92.dp)
+                        IconButton(
+                            onClick = { photoPicker.launch("image/*") },
+                            enabled = !busy,
+                            modifier = Modifier.size(36.dp).clip(CircleShape).background(WhappyDark),
+                        ) { Icon(Icons.Rounded.Photo, "Changer la photo", tint = Color.White, modifier = Modifier.size(19.dp)) }
+                    }
+                    TextButton(onClick = { photoPicker.launch("image/*") }, enabled = !busy) {
+                        if (busy) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Photo, null, Modifier.size(18.dp))
+                        Text(if (busy) " Enregistrement…" else " Changer ma photo", fontWeight = FontWeight.Bold)
+                    }
                     Text(name, Modifier.padding(top = 14.dp), fontSize = 23.sp, fontWeight = FontWeight.Black, color = WhappyDark)
                     Text(if (preview) "Mode démonstration" else phone, Modifier.padding(top = 4.dp), color = WhappyMuted)
                     Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.size(17.dp)); Text("Compte WHAPPY vérifié", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
@@ -1677,6 +1757,27 @@ private fun ProfileScreen(name: String, phone: String, twinReadiness: Int, previ
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
+    }
+}
+
+@Composable
+private fun UserAvatar(photoUrl: String, name: String, size: Dp, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, photoUrl) {
+        value = if (photoUrl.isBlank()) null else withContext(Dispatchers.IO) {
+            runCatching {
+                val stream = if (photoUrl.startsWith("http://") || photoUrl.startsWith("https://")) {
+                    URL(photoUrl).openStream()
+                } else {
+                    context.contentResolver.openInputStream(Uri.parse(photoUrl))
+                }
+                stream?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+            }.getOrNull()
+        }
+    }
+    Box(modifier.size(size).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
+        if (bitmap != null) Image(bitmap = bitmap!!, contentDescription = "Photo de profil de $name", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        else Text(initials(name), color = Color.White, fontSize = (size.value * 0.31f).sp, fontWeight = FontWeight.Black)
     }
 }
 

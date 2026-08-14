@@ -166,8 +166,19 @@ class WhappyViewModel(
         repository.updateBusinessPage(user.uid, page, name, category, bio, city, phone, website)
     }
 
-    fun createLive(title: String, category: String, productTitle: String) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
-        repository.createLive(user.uid, accountName(), title, category, productTitle)
+    fun createLive(title: String, category: String, productTitle: String, startNow: Boolean) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
+        repository.createLive(user.uid, accountName(), title, category, productTitle, startNow)
+    }
+
+    fun updateProfilePhoto(uri: Uri, contentType: String) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.updateProfilePhoto(user.uid, uri, contentType) }
+                .onSuccess { url -> _uiState.update { it.copy(accountPhotoUrl = url, actionBusy = false, online = true) } }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La photo de profil n’a pas été enregistrée") } }
+        }
     }
 
     fun endLive(liveId: String) = runBusinessAction("Le direct n’a pas pu être terminé") { user ->
@@ -348,6 +359,8 @@ class WhappyViewModel(
         viewModelScope.launch {
             val resolvedName = runCatching { repository.restoreAccountDisplayName(user) }
                 .getOrDefault(user.displayName.orEmpty().trim())
+            val resolvedPhotoUrl = runCatching { repository.restoreAccountPhotoUrl(user) }
+                .getOrDefault(user.photoUrl?.toString().orEmpty())
             val restoredName = AccountSessionPolicy.displayName(
                 resolvedName = resolvedName,
                 phoneNumber = user.phoneNumber.orEmpty(),
@@ -355,7 +368,7 @@ class WhappyViewModel(
             )
             _uiState.update { current ->
                 if (current.user?.uid != user.uid) current
-                else current.copy(accountDisplayName = restoredName, sessionRestoring = false)
+                else current.copy(accountDisplayName = restoredName, accountPhotoUrl = resolvedPhotoUrl, sessionRestoring = false)
             }
         }
     }

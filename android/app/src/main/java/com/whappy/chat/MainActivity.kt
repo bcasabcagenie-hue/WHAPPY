@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
                     onUpdateBusinessPage = model::updateBusinessPage,
                     onCreateCampaign = model::createCampaign,
                     onCreateLive = model::createLive,
+                    onUpdateProfilePhoto = model::updateProfilePhoto,
                     onEndLive = model::endLive,
                     onUpdateLiveStatus = model::updateLiveStatus,
                     onCreateDeal = model::createDeal,
