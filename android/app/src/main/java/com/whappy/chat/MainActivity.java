@@ -17,6 +17,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -83,6 +84,11 @@ public final class MainActivity extends Activity {
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
         showLaunchScreen();
+        boolean debugBuild = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (debugBuild && getIntent().getBooleanExtra("preview_home", false)) {
+            showHome(null, "Cyril BOKILO");
+            return;
+        }
         FirebaseUser user = auth.getCurrentUser();
         if (user == null) showPhoneScreen();
         else routeSignedInUser(user);
@@ -321,7 +327,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showHome(FirebaseUser user, String displayName) {
-        requestNotificationPermission();
+        if (user != null) requestNotificationPermission();
         clearLiveListener();
         backAction = null;
         LinearLayout page = page(Gravity.TOP);
@@ -341,27 +347,42 @@ public final class MainActivity extends Activity {
         avatar.setGravity(Gravity.CENTER);
         avatar.setBackground(rounded(GREEN, GREEN, 22));
         header.addView(avatar, sized(44, 44));
-        avatar.setOnClickListener(view -> showNativeProfile(user, displayName));
+        if (user != null) avatar.setOnClickListener(view -> showNativeProfile(user, displayName));
         page.addView(header, matchWrap());
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         LinearLayout hero = card();
         hero.setBackground(rounded(Color.rgb(232, 255, 233), GREEN, 22));
-        hero.addView(text("Tout WHAPPY est ici", 23, TEXT, true));
-        hero.addView(text("Messages, groupes, appels, directs, marché et activité professionnelle dans une seule application.", 14, MUTED, false), topMargin(matchWrap(), 6));
+        TextView heroSignal = text("AUJOURD’HUI · BRAZZAVILLE", 11, GREEN, true);
+        heroSignal.setLetterSpacing(.08f);
+        hero.addView(heroSignal);
+        hero.addView(text("Tout peut devenir\nune opportunité.", 25, TEXT, true), topMargin(matchWrap(), 8));
+        hero.addView(text("Personnes, messages, directs, services, ventes et projets réunis dans votre WHAPPY.", 14, MUTED, false), topMargin(matchWrap(), 7));
+        Button openMoments = primaryButton("Explorer ce qui se passe →");
+        hero.addView(openMoments, topMargin(matchHeight(50), 15));
+        openMoments.setOnClickListener(view -> showMoments(user, displayName));
         content.addView(hero, topMargin(matchWrap(), 20));
 
         content.addView(text("Espaces", 20, TEXT, true), topMargin(matchWrap(), 22));
         content.addView(actionRow(
-                actionButton("✉\nMessages", view -> showFindContact(user, displayName)),
-                actionButton("◉\nGroupes", view -> showGroups(user, displayName))), topMargin(matchHeight(86), 10));
+                actionButton("▦\nMoments", view -> showMoments(user, displayName)),
+                actionButton("✉\nMessages", view -> showFindContact(user, displayName))), topMargin(matchHeight(86), 10));
         content.addView(actionRow(
-                actionButton("☎\nAppels", view -> showCallsInfo(user, displayName)),
-                actionButton("●\nDirects", view -> showDirects(user, displayName))), topMargin(matchHeight(86), 9));
+                actionButton("◎\nContacts", view -> showCallsInfo(user, displayName)),
+                actionButton("◉\nGroupes", view -> showGroups(user, displayName))), topMargin(matchHeight(86), 9));
         content.addView(actionRow(
-                actionButton("▦\nMarché", view -> showMarket(user, displayName)),
+                actionButton("●\nDirects", view -> showDirects(user, displayName)),
+                actionButton("◇\nMarketplace", view -> showMarket(user, displayName))), topMargin(matchHeight(86), 9));
+        content.addView(actionRow(
+                actionButton("⇄\nTroc", view -> showMarket(user, displayName)),
+                actionButton("⌖\nRecherches", view -> showRequests(user, displayName))), topMargin(matchHeight(86), 9));
+        content.addView(actionRow(
+                actionButton("⌗\nServices", view -> showServicesHub(user, displayName)),
                 actionButton("▣\nBusiness", view -> showBusiness(user, displayName))), topMargin(matchHeight(86), 9));
+        content.addView(actionRow(
+                actionButton("◎\nMon Double", view -> showTwinStudio(user, displayName)),
+                actionButton("▤\nCommandes", view -> showOrders(user, displayName))), topMargin(matchHeight(86), 9));
 
         LinearLayout messageHeader = new LinearLayout(this);
         messageHeader.setGravity(Gravity.CENTER_VERTICAL);
@@ -379,22 +400,33 @@ public final class MainActivity extends Activity {
         content.addView(conversations, matchWrap());
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content, matchWrap());
-        page.addView(scroll, weighted(1));
+        page.addView(scroll, weightedVertical(1));
 
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
         nav.setBackground(rounded(Color.WHITE, BORDER, 18));
-        String[] tabs = {"⌂ Accueil", "✉ Message", "▣ Business", "◎ Profil"};
+        String[] tabs = {"▦ Moments", "✉ Messages", "◇ Marché", "▣ Business", "◎ Profil"};
         for (String tab : tabs) {
             Button item = smallButton(tab);
-            if (!tab.contains("Accueil")) item.setTextColor(MUTED);
+            if (!tab.contains("Moments")) item.setTextColor(MUTED);
             nav.addView(item, weighted(1));
+            if (tab.contains("Moments")) item.setOnClickListener(view -> showMoments(user, displayName));
             if (tab.contains("Message")) item.setOnClickListener(view -> showFindContact(user, displayName));
+            if (tab.contains("Marché")) item.setOnClickListener(view -> showMarket(user, displayName));
             if (tab.contains("Business")) item.setOnClickListener(view -> showBusiness(user, displayName));
             if (tab.contains("Profil")) item.setOnClickListener(view -> showNativeProfile(user, displayName));
         }
         page.addView(nav, topMargin(matchHeight(58), 10));
         setResponsiveContent(page);
+
+        if (user == null) {
+            conversations.removeAllViews();
+            LinearLayout preview = card();
+            preview.addView(text("Amina M.", 17, TEXT, true));
+            preview.addView(text("Bienvenue dans votre espace WHAPPY", 13, MUTED, false), topMargin(matchWrap(), 4));
+            conversations.addView(preview, topMargin(matchWrap(), 10));
+            return;
+        }
 
         liveListener = db.collection("conversations").whereArrayContains("memberIds", user.getUid())
                 .addSnapshotListener((snapshot, error) -> {
@@ -554,7 +586,7 @@ public final class MainActivity extends Activity {
         ScrollView messagesScroll = new ScrollView(this);
         messagesScroll.setFillViewport(true);
         messagesScroll.addView(messageList, matchWrap());
-        page.addView(messagesScroll, weighted(1));
+        page.addView(messagesScroll, weightedVertical(1));
 
         LinearLayout composer = new LinearLayout(this);
         composer.setGravity(Gravity.BOTTOM);
@@ -668,6 +700,275 @@ public final class MainActivity extends Activity {
                 });
     }
 
+    private void showMoments(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(18), dp(16), dp(18), dp(28));
+        addBackHeader(content, "Moments", backAction);
+
+        LinearLayout intro = card();
+        intro.setBackground(rounded(Color.rgb(19, 51, 26), Color.rgb(19, 51, 26), 22));
+        intro.addView(text("AUJOURD’HUI · BRAZZAVILLE", 11, GREEN, true));
+        intro.addView(text("Ce qui se passe\nmaintenant.", 26, Color.WHITE, true), topMargin(matchWrap(), 9));
+        intro.addView(text("Des personnes, des idées, des directs et des opportunités dans un fil vivant.", 14, Color.rgb(211, 230, 215), false), topMargin(matchWrap(), 7));
+        Button live = primaryButton("● Passer en direct");
+        intro.addView(live, topMargin(matchHeight(52), 16));
+        live.setOnClickListener(view -> showDirects(user, displayName));
+        content.addView(intro, topMargin(matchWrap(), 18));
+
+        LinearLayout sponsored = card();
+        sponsored.addView(text("MS  Mokabi Studio  ✓", 16, TEXT, true));
+        sponsored.addView(text("PUBLICATION SPONSORISÉE · WHAPPY ADS", 10, MUTED, true), topMargin(matchWrap(), 4));
+        sponsored.addView(text("Porter son histoire.\nVivre son style.", 23, TEXT, true), topMargin(matchWrap(), 18));
+        sponsored.addView(text("Nouvelle collection N’Tela · Découvrez chaque pièce et commandez pendant le direct.", 14, MUTED, false), topMargin(matchWrap(), 8));
+        Button join = secondaryButton("Rejoindre le direct →");
+        sponsored.addView(join, topMargin(matchHeight(50), 14));
+        join.setOnClickListener(view -> showDirects(user, displayName));
+        content.addView(sponsored, topMargin(matchWrap(), 14));
+
+        LinearLayout request = card();
+        request.addView(text("AM  Amina M.  ✓", 16, TEXT, true));
+        request.addView(text("Poto-Poto · il y a 24 min", 12, MUTED, false), topMargin(matchWrap(), 3));
+        request.addView(text("Je cherche une table artisanale locale. Budget raisonnable ou échange possible.", 16, TEXT, false), topMargin(matchWrap(), 15));
+        TextView active = text("⌖  RECHERCHE ACTIVE · BRAZZAVILLE", 12, GREEN, true);
+        active.setPadding(dp(12), dp(10), dp(12), dp(10));
+        active.setBackground(rounded(Color.rgb(232, 255, 233), GREEN, 12));
+        request.addView(active, topMargin(matchWrap(), 14));
+        Button help = secondaryButton("Je peux aider");
+        request.addView(help, topMargin(matchHeight(48), 12));
+        help.setOnClickListener(view -> showRequests(user, displayName));
+        content.addView(request, topMargin(matchWrap(), 14));
+        setScrollableContent(content);
+    }
+
+    private void showRequests(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Recherches", backAction);
+        LinearLayout hero = card();
+        hero.setBackground(rounded(Color.rgb(232, 255, 233), GREEN, 22));
+        hero.addView(text("Trouvez ce qu’il vous faut", 22, TEXT, true));
+        hero.addView(text("Produit, service, compétence ou situation urgente : publiez votre besoin à la communauté.", 14, MUTED, false), topMargin(matchWrap(), 6));
+        Button create = primaryButton("＋ Publier une recherche");
+        hero.addView(create, topMargin(matchHeight(52), 14));
+        content.addView(hero, topMargin(matchWrap(), 18));
+        LinearLayout requests = new LinearLayout(this);
+        requests.setOrientation(LinearLayout.VERTICAL);
+        requests.addView(text("Chargement des recherches…", 14, MUTED, false), topMargin(matchWrap(), 18));
+        content.addView(requests, matchWrap());
+        create.setOnClickListener(view -> showCreateRequest(user, displayName));
+        setScrollableContent(content);
+
+        liveListener = db.collection("requests").addSnapshotListener((snapshot, error) -> {
+            requests.removeAllViews();
+            if (error != null || snapshot == null) {
+                requests.addView(text("Recherches indisponibles.", 14, Color.rgb(180, 36, 36), false));
+                return;
+            }
+            List<DocumentSnapshot> documents = new ArrayList<>(snapshot.getDocuments());
+            documents.sort((left, right) -> Long.compare(timestampMillis(right), timestampMillis(left)));
+            if (documents.isEmpty()) requests.addView(text("Aucune recherche active.", 14, MUTED, false), topMargin(matchWrap(), 18));
+            for (DocumentSnapshot document : documents) {
+                LinearLayout item = card();
+                boolean urgent = Boolean.TRUE.equals(document.getBoolean("urgent"));
+                item.addView(text((urgent ? "URGENT · " : "") + stringValue(document.get("category"), "BESOIN"), 11, urgent ? Color.rgb(190, 43, 43) : GREEN, true));
+                item.addView(text(stringValue(document.get("title"), "Recherche WHAPPY"), 18, TEXT, true), topMargin(matchWrap(), 7));
+                item.addView(text(stringValue(document.get("details"), "La communauté peut proposer une solution."), 14, MUTED, false), topMargin(matchWrap(), 5));
+                item.addView(text("⌖ " + stringValue(document.get("place"), "Brazzaville") + " · " + stringValue(document.get("reward"), "À discuter"), 13, GREEN, true), topMargin(matchWrap(), 10));
+                requests.addView(item, topMargin(matchWrap(), 10));
+            }
+        });
+    }
+
+    private void showCreateRequest(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showRequests(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Nouvelle recherche", backAction);
+        EditText title = input("Que recherchez-vous ?");
+        EditText details = input("Décrivez précisément votre besoin");
+        details.setSingleLine(false);
+        details.setMinLines(3);
+        EditText place = input("Quartier, ville ou à distance");
+        EditText reward = input("Budget ou échange proposé");
+        Spinner category = new Spinner(this);
+        category.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"Produits", "Services", "Situations"}));
+        category.setBackground(rounded(Color.WHITE, BORDER, 14));
+        CheckBox urgent = new CheckBox(this);
+        urgent.setText("Besoin urgent");
+        urgent.setTextColor(TEXT);
+        content.addView(title, topMargin(matchHeight(56), 20));
+        content.addView(details, topMargin(matchHeight(100), 12));
+        content.addView(category, topMargin(matchHeight(56), 12));
+        content.addView(place, topMargin(matchHeight(56), 12));
+        content.addView(reward, topMargin(matchHeight(56), 12));
+        content.addView(urgent, topMargin(matchHeight(48), 8));
+        TextView status = text("", 13, MUTED, false);
+        content.addView(status, matchWrap());
+        Button publish = primaryButton("Activer ma recherche");
+        content.addView(publish, topMargin(matchHeight(56), 12));
+        publish.setOnClickListener(view -> {
+            String value = title.getText().toString().trim();
+            if (value.length() < 2 || value.length() > 160) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Ajoutez un titre clair de 2 à 160 caractères.");
+                return;
+            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("ownerId", user.getUid());
+            data.put("title", value);
+            data.put("details", details.getText().toString().trim());
+            data.put("place", stringValue(place.getText(), "Brazzaville"));
+            data.put("reward", stringValue(reward.getText(), "À discuter"));
+            data.put("category", String.valueOf(category.getSelectedItem()));
+            data.put("urgent", urgent.isChecked());
+            data.put("createdAt", FieldValue.serverTimestamp());
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            publish.setEnabled(false);
+            db.collection("requests").add(data)
+                    .addOnSuccessListener(reference -> showRequests(user, displayName))
+                    .addOnFailureListener(error -> {
+                        publish.setEnabled(true);
+                        status.setTextColor(Color.rgb(180, 36, 36));
+                        status.setText("Publication impossible.");
+                    });
+        });
+        setScrollableContent(content);
+    }
+
+    private void showServicesHub(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Services", backAction);
+        LinearLayout pay = card();
+        pay.setBackground(rounded(Color.rgb(19, 51, 26), Color.rgb(19, 51, 26), 22));
+        pay.addView(text("◆ WHAPPY PAY", 12, GREEN, true));
+        pay.addView(text("Payez et encaissez\nen toute confiance.", 23, Color.WHITE, true), topMargin(matchWrap(), 8));
+        pay.addView(text("Mobile Money, carte bancaire, paiement à la livraison et suivi des commandes dans un seul espace.", 14, Color.rgb(211, 230, 215), false), topMargin(matchWrap(), 7));
+        content.addView(pay, topMargin(matchWrap(), 18));
+        content.addView(actionRow(
+                actionButton("▤\nMes commandes", view -> showOrders(user, displayName)),
+                actionButton("◇\nAcheter", view -> showMarket(user, displayName))), topMargin(matchHeight(86), 14));
+        content.addView(actionRow(
+                actionButton("⌖\nTrouver un service", view -> showRequests(user, displayName)),
+                actionButton("⇄\nProposer un troc", view -> showMarket(user, displayName))), topMargin(matchHeight(86), 9));
+        LinearLayout mini = card();
+        mini.addView(text("MINI-SERVICES WHAPPY", 11, GREEN, true));
+        mini.addView(text("Tout gérer sans quitter la conversation", 19, TEXT, true), topMargin(matchWrap(), 7));
+        mini.addView(text("• Livraison et points de remise\n• Offres et négociation\n• Prestataires locaux\n• Suivi des achats", 14, MUTED, false), topMargin(matchWrap(), 9));
+        content.addView(mini, topMargin(matchWrap(), 14));
+        setScrollableContent(content);
+    }
+
+    private void showTwinStudio(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Mon Double", backAction);
+        LinearLayout hero = card();
+        hero.setBackground(rounded(Color.rgb(19, 51, 26), Color.rgb(19, 51, 26), 22));
+        hero.addView(text("STUDIO DOUBLE · VOTRE IMAGE, VOTRE CONTRÔLE", 10, GREEN, true));
+        hero.addView(text("Vous créez une fois.\nVotre Double continue.", 23, Color.WHITE, true), topMargin(matchWrap(), 9));
+        hero.addView(text("Préparez un présentateur numérique pour vos produits, langues et formats autorisés.", 14, Color.rgb(211, 230, 215), false), topMargin(matchWrap(), 7));
+        content.addView(hero, topMargin(matchWrap(), 18));
+        EditText product = input("Produit présenté");
+        EditText price = input("Prix ou offre");
+        Spinner tone = new Spinner(this);
+        tone.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"Chaleureux", "Expert", "Énergique", "Élégant"}));
+        tone.setBackground(rounded(Color.WHITE, BORDER, 14));
+        CheckBox consent = new CheckBox(this);
+        consent.setText("Je confirme utiliser uniquement ma propre image, ma voix et mes mouvements.");
+        consent.setTextColor(TEXT);
+        Button record = secondaryButton("🎥 Enregistrer ma capsule vidéo");
+        content.addView(product, topMargin(matchHeight(56), 16));
+        content.addView(price, topMargin(matchHeight(56), 10));
+        content.addView(tone, topMargin(matchHeight(56), 10));
+        content.addView(consent, topMargin(matchWrap(), 12));
+        content.addView(record, topMargin(matchHeight(52), 10));
+        TextView status = text("", 13, MUTED, false);
+        content.addView(status, topMargin(matchWrap(), 9));
+        Button save = primaryButton("Enregistrer mon Double");
+        content.addView(save, topMargin(matchHeight(56), 12));
+        record.setOnClickListener(view -> {
+            Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
+            if (intent.resolveActivity(getPackageManager()) == null) Toast.makeText(this, "Caméra indisponible", Toast.LENGTH_SHORT).show();
+            else startActivity(intent);
+        });
+        save.setOnClickListener(view -> {
+            if (!consent.isChecked()) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Votre consentement est obligatoire.");
+                return;
+            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("userId", user.getUid());
+            data.put("identityConsent", true);
+            data.put("voiceConsent", true);
+            data.put("movementConsent", true);
+            data.put("product", product.getText().toString().trim());
+            data.put("price", price.getText().toString().trim());
+            data.put("tone", String.valueOf(tone.getSelectedItem()));
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            save.setEnabled(false);
+            db.collection("users").document(user.getUid()).collection("twinProfiles").document("main")
+                    .set(data, com.google.firebase.firestore.SetOptions.merge())
+                    .addOnSuccessListener(unused -> {
+                        save.setEnabled(true);
+                        status.setTextColor(GREEN);
+                        status.setText("Votre brouillon de Double est enregistré.");
+                    }).addOnFailureListener(error -> {
+                        save.setEnabled(true);
+                        status.setTextColor(Color.rgb(180, 36, 36));
+                        status.setText("Enregistrement impossible.");
+                    });
+        });
+        setScrollableContent(content);
+    }
+
+    private void showOrders(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Mes commandes", backAction);
+        LinearLayout orders = new LinearLayout(this);
+        orders.setOrientation(LinearLayout.VERTICAL);
+        orders.addView(text("Chargement de vos commandes…", 14, MUTED, false), topMargin(matchWrap(), 18));
+        content.addView(orders, matchWrap());
+        setScrollableContent(content);
+        liveListener = db.collection("orders").whereEqualTo("buyerId", user.getUid())
+                .addSnapshotListener((snapshot, error) -> {
+                    orders.removeAllViews();
+                    if (error != null || snapshot == null) {
+                        orders.addView(text("Commandes indisponibles.", 14, Color.rgb(180, 36, 36), false));
+                        return;
+                    }
+                    if (snapshot.isEmpty()) {
+                        LinearLayout empty = card();
+                        empty.addView(text("Aucune commande", 19, TEXT, true));
+                        empty.addView(text("Vos achats Marketplace apparaîtront ici avec leur suivi.", 14, MUTED, false), topMargin(matchWrap(), 6));
+                        Button explore = primaryButton("Explorer le Marketplace");
+                        empty.addView(explore, topMargin(matchHeight(50), 14));
+                        explore.setOnClickListener(view -> showMarket(user, displayName));
+                        orders.addView(empty, topMargin(matchWrap(), 18));
+                        return;
+                    }
+                    for (DocumentSnapshot document : snapshot.getDocuments()) {
+                        LinearLayout item = card();
+                        item.addView(text("Commande " + stringValue(document.get("reference"), document.getId()), 17, TEXT, true));
+                        item.addView(text(stringValue(document.get("status"), "pending").toUpperCase(Locale.ROOT) + " · " + stringValue(document.get("total"), "Montant à confirmer"), 13, GREEN, true), topMargin(matchWrap(), 6));
+                        orders.addView(item, topMargin(matchWrap(), 10));
+                    }
+                });
+    }
+
     private void showBusiness(FirebaseUser user, String displayName) {
         clearLiveListener();
         backAction = () -> showHome(user, displayName);
@@ -680,6 +981,8 @@ public final class MainActivity extends Activity {
         intro.addView(text("Créez une page professionnelle ou créateur. Elle est synchronisée avec votre compte.", 14, MUTED, false), topMargin(matchWrap(), 6));
         Button create = primaryButton("＋ Créer une page");
         intro.addView(create, topMargin(matchHeight(52), 14));
+        Button ads = secondaryButton("✦ Campagnes publicitaires");
+        intro.addView(ads, topMargin(matchHeight(50), 9));
         content.addView(intro, topMargin(matchWrap(), 20));
         content.addView(text("Mes pages", 20, TEXT, true), topMargin(matchWrap(), 22));
         LinearLayout pages = new LinearLayout(this);
@@ -687,6 +990,7 @@ public final class MainActivity extends Activity {
         pages.addView(text("Chargement…", 14, MUTED, false), topMargin(matchWrap(), 12));
         content.addView(pages, matchWrap());
         create.setOnClickListener(view -> showCreateBusinessPage(user, displayName));
+        ads.setOnClickListener(view -> showAds(user, displayName));
         setScrollableContent(content);
 
         liveListener = db.collection("businessPages").whereEqualTo("ownerId", user.getUid())
@@ -759,6 +1063,116 @@ public final class MainActivity extends Activity {
                         publish.setEnabled(true);
                         status.setTextColor(Color.rgb(180, 36, 36));
                         status.setText("La page n’a pas pu être créée.");
+                    });
+        });
+        setScrollableContent(content);
+    }
+
+    private void showAds(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showBusiness(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Publicités", backAction);
+        LinearLayout hero = card();
+        hero.setBackground(rounded(Color.rgb(19, 51, 26), Color.rgb(19, 51, 26), 22));
+        hero.addView(text("WHAPPY ADS", 12, GREEN, true));
+        hero.addView(text("Transformez une publication\nen opportunité.", 23, Color.WHITE, true), topMargin(matchWrap(), 8));
+        hero.addView(text("Créez une campagne liée à votre page et suivez son statut depuis Android.", 14, Color.rgb(211, 230, 215), false), topMargin(matchWrap(), 7));
+        Button create = primaryButton("＋ Nouvelle campagne");
+        hero.addView(create, topMargin(matchHeight(52), 15));
+        content.addView(hero, topMargin(matchWrap(), 18));
+        LinearLayout campaigns = new LinearLayout(this);
+        campaigns.setOrientation(LinearLayout.VERTICAL);
+        campaigns.addView(text("Chargement des campagnes…", 14, MUTED, false), topMargin(matchWrap(), 18));
+        content.addView(campaigns, matchWrap());
+        create.setOnClickListener(view -> db.collection("businessPages").whereEqualTo("ownerId", user.getUid()).limit(1).get()
+                .addOnSuccessListener(result -> {
+                    if (result.isEmpty()) Toast.makeText(this, "Créez d’abord une page Business", Toast.LENGTH_LONG).show();
+                    else showCreateAdCampaign(user, displayName, result.getDocuments().get(0));
+                }).addOnFailureListener(error -> Toast.makeText(this, "Pages indisponibles", Toast.LENGTH_SHORT).show()));
+        setScrollableContent(content);
+        liveListener = db.collection("adCampaigns").whereEqualTo("ownerId", user.getUid())
+                .addSnapshotListener((snapshot, error) -> {
+                    campaigns.removeAllViews();
+                    if (error != null || snapshot == null) {
+                        campaigns.addView(text("Campagnes indisponibles.", 14, Color.rgb(180, 36, 36), false));
+                        return;
+                    }
+                    if (snapshot.isEmpty()) campaigns.addView(text("Aucune campagne active.", 14, MUTED, false), topMargin(matchWrap(), 18));
+                    for (DocumentSnapshot document : snapshot.getDocuments()) {
+                        LinearLayout item = card();
+                        item.addView(text(stringValue(document.get("title"), "Campagne WHAPPY"), 18, TEXT, true));
+                        item.addView(text(stringValue(document.get("pageName"), "Page Business") + " · " + stringValue(document.get("status"), "active").toUpperCase(Locale.ROOT), 12, GREEN, true), topMargin(matchWrap(), 5));
+                        item.addView(text(stringValue(document.get("creative"), "Contenu sponsorisé"), 14, MUTED, false), topMargin(matchWrap(), 8));
+                        campaigns.addView(item, topMargin(matchWrap(), 10));
+                    }
+                });
+    }
+
+    private void showCreateAdCampaign(FirebaseUser user, String displayName, DocumentSnapshot pageDocument) {
+        clearLiveListener();
+        backAction = () -> showAds(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
+        addBackHeader(content, "Nouvelle campagne", backAction);
+        content.addView(text("Page : " + stringValue(pageDocument.get("name"), "WHAPPY Business"), 14, GREEN, true), topMargin(matchWrap(), 20));
+        EditText title = input("Titre de la campagne");
+        EditText creative = input("Message publicitaire");
+        creative.setSingleLine(false);
+        creative.setMinLines(3);
+        EditText budget = input("Budget quotidien · minimum 500 FCFA");
+        budget.setInputType(InputType.TYPE_CLASS_NUMBER);
+        EditText days = input("Nombre de jours · 1 à 90");
+        days.setInputType(InputType.TYPE_CLASS_NUMBER);
+        content.addView(title, topMargin(matchHeight(56), 14));
+        content.addView(creative, topMargin(matchHeight(100), 10));
+        content.addView(budget, topMargin(matchHeight(56), 10));
+        content.addView(days, topMargin(matchHeight(56), 10));
+        TextView status = text("", 13, MUTED, false);
+        content.addView(status, topMargin(matchWrap(), 9));
+        Button publish = primaryButton("Lancer la campagne");
+        content.addView(publish, topMargin(matchHeight(56), 12));
+        publish.setOnClickListener(view -> {
+            String campaignTitle = title.getText().toString().trim();
+            String campaignCreative = creative.getText().toString().trim();
+            long dailyBudget;
+            long numberOfDays;
+            try {
+                dailyBudget = Long.parseLong(budget.getText().toString().trim());
+                numberOfDays = Long.parseLong(days.getText().toString().trim());
+            } catch (NumberFormatException error) {
+                dailyBudget = 0;
+                numberOfDays = 0;
+            }
+            if (campaignTitle.length() < 2 || campaignCreative.length() < 2 || dailyBudget < 500 || numberOfDays < 1 || numberOfDays > 90) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Vérifiez le titre, le message, le budget et la durée.");
+                return;
+            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("ownerId", user.getUid());
+            data.put("pageId", pageDocument.getId());
+            data.put("pageName", stringValue(pageDocument.get("name"), "WHAPPY Business"));
+            data.put("objective", "reach");
+            data.put("title", campaignTitle);
+            data.put("creative", campaignCreative);
+            data.put("cta", "Découvrir");
+            data.put("audience", "Communauté WHAPPY");
+            data.put("city", "Brazzaville");
+            data.put("dailyBudget", dailyBudget);
+            data.put("days", numberOfDays);
+            data.put("totalBudget", dailyBudget * numberOfDays);
+            data.put("status", "active");
+            data.put("createdAt", FieldValue.serverTimestamp());
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            publish.setEnabled(false);
+            db.collection("adCampaigns").add(data)
+                    .addOnSuccessListener(reference -> showAds(user, displayName))
+                    .addOnFailureListener(error -> {
+                        publish.setEnabled(true);
+                        status.setTextColor(Color.rgb(180, 36, 36));
+                        status.setText("Campagne non créée.");
                     });
         });
         setScrollableContent(content);
@@ -855,7 +1269,7 @@ public final class MainActivity extends Activity {
         messageList.setOrientation(LinearLayout.VERTICAL);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(messageList, matchWrap());
-        page.addView(scroll, weighted(1));
+        page.addView(scroll, weightedVertical(1));
         LinearLayout composer = new LinearLayout(this);
         EditText input = input("Message au groupe…");
         composer.addView(input, weightedHeight(1, 54));
@@ -951,8 +1365,16 @@ public final class MainActivity extends Activity {
         EditText title = input("Que proposez-vous ?");
         EditText price = input("Prix · ex. 25 000 FCFA");
         EditText place = input("Lieu · ex. Brazzaville");
+        Spinner mode = new Spinner(this);
+        mode.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"Vendre", "Troquer", "Vendre ou troquer"}));
+        mode.setBackground(rounded(Color.WHITE, BORDER, 14));
+        Spinner category = new Spinner(this);
+        category.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"Tech", "Mode", "Maison", "Services", "Créations"}));
+        category.setBackground(rounded(Color.WHITE, BORDER, 14));
         content.addView(title, topMargin(matchHeight(56), 22));
         content.addView(price, topMargin(matchHeight(56), 12));
+        content.addView(mode, topMargin(matchHeight(56), 12));
+        content.addView(category, topMargin(matchHeight(56), 12));
         content.addView(place, topMargin(matchHeight(56), 12));
         TextView status = text("", 13, MUTED, false);
         content.addView(status, topMargin(matchWrap(), 10));
@@ -971,8 +1393,8 @@ public final class MainActivity extends Activity {
             data.put("price", stringValue(price.getText(), "Prix à discuter"));
             data.put("place", stringValue(place.getText(), "Brazzaville"));
             data.put("seller", displayName);
-            data.put("category", "Communauté");
-            data.put("mode", "vente");
+            data.put("category", String.valueOf(category.getSelectedItem()));
+            data.put("mode", mode.getSelectedItemPosition() == 1 ? "troc" : mode.getSelectedItemPosition() == 2 ? "both" : "vente");
             data.put("status", "active");
             data.put("createdAt", FieldValue.serverTimestamp());
             data.put("updatedAt", FieldValue.serverTimestamp());
@@ -1302,6 +1724,10 @@ public final class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams weighted(float weight) {
         return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight);
+    }
+
+    private LinearLayout.LayoutParams weightedVertical(float weight) {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, weight);
     }
 
     private LinearLayout.LayoutParams weightedHeight(float weight, int height) {

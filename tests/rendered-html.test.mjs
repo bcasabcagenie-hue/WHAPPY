@@ -36,9 +36,16 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Congo \(\+242\)/);
   assert.match(html, /Continuer par SMS/);
   assert.match(html, /Un numéro = un compte Whappy/);
-  assert.match(html, /Télécharger WHAPPY Android native 1\.2\.1/);
-  assert.match(html, /WHAPPY-Android-1\.2\.1-native\.apk/);
+  assert.match(html, /Télécharger WHAPPY Android native 1\.2\.2/);
+  assert.match(html, /WHAPPY-Android-1\.2\.2-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
+});
+
+test("garde la zone centrale de l’accueil Android visible", async () => {
+  const source = await readFile(new URL("../android/app/src/main/java/com/whappy/chat/MainActivity.java", import.meta.url), "utf8");
+  assert.match(source, /page\.addView\(scroll, weightedVertical\(1\)\)/);
+  assert.match(source, /page\.addView\(messagesScroll, weightedVertical\(1\)\)/);
+  assert.doesNotMatch(source, /page\.addView\((?:scroll|messagesScroll), weighted\(1\)\)/);
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
