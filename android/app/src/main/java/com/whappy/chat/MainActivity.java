@@ -77,9 +77,11 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(GREEN);
         getWindow().setNavigationBarColor(Color.WHITE);
+        if (Build.VERSION.SDK_INT >= 26) {
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
-        requestNotificationPermission();
         showLaunchScreen();
         FirebaseUser user = auth.getCurrentUser();
         if (user == null) showPhoneScreen();
@@ -96,7 +98,7 @@ public final class MainActivity extends Activity {
         page.addView(title, topMargin(wrap(), 18));
         ProgressBar progress = new ProgressBar(this);
         page.addView(progress, topMargin(sized(40, 40), 24));
-        setContentView(page);
+        setResponsiveContent(page);
     }
 
     private void showPhoneScreen() {
@@ -107,14 +109,18 @@ public final class MainActivity extends Activity {
         }
         clearLiveListener();
         backAction = null;
+        boolean compact = isCompactScreen();
         LinearLayout content = page(Gravity.CENTER_HORIZONTAL);
-        content.setPadding(dp(24), dp(38), dp(24), dp(28));
+        content.setPadding(dp(24), dp(compact ? 16 : 28), dp(24), dp(28));
         addBrand(content);
-        content.addView(text("Votre numéro, votre compte", 27, TEXT, true), topMargin(wrap(), 26));
-        content.addView(text("Connectez-vous une seule fois avec votre téléphone. Ensuite, WHAPPY conserve votre session sur cet appareil.", 15, MUTED, false), topMargin(matchWrap(), 8));
+        TextView step = text("INSCRIPTION OU CONNEXION", 12, GREEN, true);
+        step.setLetterSpacing(.08f);
+        content.addView(step, topMargin(wrap(), compact ? 16 : 26));
+        content.addView(text("Saisissez votre numéro", 28, TEXT, true), topMargin(wrap(), 9));
+        content.addView(text("WHAPPY vous enverra un SMS pour vérifier votre numéro, comme WhatsApp. Un compte existant sera restauré automatiquement; sinon, votre inscription continuera.", 15, MUTED, false), topMargin(matchWrap(), 9));
 
         LinearLayout card = card();
-        content.addView(card, topMargin(matchWrap(), 24));
+        content.addView(card, topMargin(matchWrap(), compact ? 16 : 24));
         card.addView(label("Pays"));
         Spinner country = new Spinner(this);
         country.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, countryLabels));
@@ -129,9 +135,9 @@ public final class MainActivity extends Activity {
 
         TextView status = text("", 13, MUTED, false);
         card.addView(status, topMargin(matchWrap(), 10));
-        Button send = primaryButton("Recevoir mon code SMS");
+        Button send = primaryButton("Continuer");
         card.addView(send, topMargin(matchHeight(56), 14));
-        card.addView(text("La vérification est protégée par Firebase et Play Integrity sur les appareils compatibles.", 12, MUTED, false), topMargin(matchWrap(), 14));
+        card.addView(text("Votre opérateur peut appliquer les frais SMS habituels. Aucun mot de passe n’est nécessaire.", 12, MUTED, false), topMargin(matchWrap(), 14));
 
         send.setOnClickListener(view -> {
             String countryCode = countryCodes[country.getSelectedItemPosition()];
@@ -143,16 +149,24 @@ public final class MainActivity extends Activity {
                 status.setTextColor(Color.rgb(180, 36, 36));
                 return;
             }
-            pendingPhone = formatted;
-            send.setEnabled(false);
-            send.setText("Vérification Android…");
-            status.setText("Connexion sécurisée en cours…");
-            startPhoneVerification(pendingPhone, status, send);
+            new AlertDialog.Builder(this)
+                    .setTitle("Votre numéro est-il correct ?")
+                    .setMessage(formatted + "\n\nWHAPPY va envoyer un code de vérification par SMS.")
+                    .setNegativeButton("Modifier", null)
+                    .setPositiveButton("Oui, continuer", (dialog, which) -> {
+                        pendingPhone = formatted;
+                        send.setEnabled(false);
+                        send.setText("Envoi du SMS…");
+                        status.setTextColor(MUTED);
+                        status.setText("Vérification sécurisée en cours…");
+                        startPhoneVerification(pendingPhone, status, send, null);
+                    })
+                    .show();
         });
         setScrollableContent(content);
     }
 
-    private void startPhoneVerification(String phoneNumber, TextView status, Button button) {
+    private void startPhoneVerification(String phoneNumber, TextView status, Button button, PhoneAuthProvider.ForceResendingToken forceToken) {
         PhoneAuthProvider.OnVerificationStateChangedCallbacks callbacks = new PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
             @Override
             public void onVerificationCompleted(PhoneAuthCredential credential) {
@@ -177,13 +191,13 @@ public final class MainActivity extends Activity {
                 showCodeScreen();
             }
         };
-        PhoneAuthOptions options = PhoneAuthOptions.newBuilder(auth)
+        PhoneAuthOptions.Builder options = PhoneAuthOptions.newBuilder(auth)
                 .setPhoneNumber(phoneNumber)
                 .setTimeout(60L, TimeUnit.SECONDS)
                 .setActivity(this)
-                .setCallbacks(callbacks)
-                .build();
-        PhoneAuthProvider.verifyPhoneNumber(options);
+                .setCallbacks(callbacks);
+        if (forceToken != null) options.setForceResendingToken(forceToken);
+        PhoneAuthProvider.verifyPhoneNumber(options.build());
     }
 
     private void showCodeScreen() {
@@ -191,8 +205,8 @@ public final class MainActivity extends Activity {
         LinearLayout content = page(Gravity.CENTER_HORIZONTAL);
         content.setPadding(dp(24), dp(38), dp(24), dp(28));
         addBrand(content);
-        content.addView(text("Code de confirmation", 27, TEXT, true), topMargin(wrap(), 28));
-        content.addView(text("Saisissez le code envoyé au " + pendingPhone + ".", 15, MUTED, false), topMargin(matchWrap(), 8));
+        content.addView(text("Vérifiez votre numéro", 27, TEXT, true), topMargin(wrap(), 28));
+        content.addView(text("Saisissez les 6 chiffres envoyés par SMS au " + pendingPhone + ".", 15, MUTED, false), topMargin(matchWrap(), 8));
 
         LinearLayout card = card();
         content.addView(card, topMargin(matchWrap(), 24));
@@ -207,7 +221,22 @@ public final class MainActivity extends Activity {
         card.addView(verify, topMargin(matchHeight(56), 14));
         Button change = secondaryButton("Modifier le numéro");
         card.addView(change, topMargin(matchHeight(50), 10));
+        Button resend = smallButton("Vous n’avez rien reçu ? Renvoyer le SMS");
+        resend.setTextSize(13);
+        card.addView(resend, topMargin(matchHeight(46), 8));
         change.setOnClickListener(view -> showPhoneScreen());
+        resend.setOnClickListener(view -> {
+            if (pendingPhone == null || resendToken == null) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Patientez quelques secondes avant de renvoyer le code.");
+                return;
+            }
+            resend.setEnabled(false);
+            resend.setText("Nouvel envoi…");
+            status.setTextColor(MUTED);
+            status.setText("Envoi d’un nouveau code SMS…");
+            startPhoneVerification(pendingPhone, status, resend, resendToken);
+        });
         verify.setOnClickListener(view -> {
             String value = code.getText().toString().replaceAll("\\D", "");
             if (verificationId == null || value.length() != 6) {
@@ -254,8 +283,8 @@ public final class MainActivity extends Activity {
         LinearLayout content = page(Gravity.CENTER_HORIZONTAL);
         content.setPadding(dp(24), dp(38), dp(24), dp(28));
         addBrand(content);
-        content.addView(text("Créez votre profil", 27, TEXT, true), topMargin(wrap(), 28));
-        content.addView(text("Ce nom sera visible par vos contacts WHAPPY.", 15, MUTED, false), topMargin(matchWrap(), 8));
+        content.addView(text("Finalisez votre inscription", 27, TEXT, true), topMargin(wrap(), 28));
+        content.addView(text("Votre numéro est vérifié. Ajoutez le nom que vos contacts verront dans WHAPPY.", 15, MUTED, false), topMargin(matchWrap(), 8));
         LinearLayout card = card();
         content.addView(card, topMargin(matchWrap(), 24));
         EditText name = input("Votre nom complet");
@@ -263,7 +292,7 @@ public final class MainActivity extends Activity {
         card.addView(name, matchHeight(56));
         TextView status = text("", 13, MUTED, false);
         card.addView(status, topMargin(matchWrap(), 10));
-        Button save = primaryButton("Créer mon profil");
+        Button save = primaryButton("Entrer dans WHAPPY");
         card.addView(save, topMargin(matchHeight(56), 14));
         save.setOnClickListener(view -> {
             String value = name.getText().toString().trim();
@@ -292,6 +321,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showHome(FirebaseUser user, String displayName) {
+        requestNotificationPermission();
         clearLiveListener();
         backAction = null;
         LinearLayout page = page(Gravity.TOP);
@@ -324,13 +354,13 @@ public final class MainActivity extends Activity {
 
         content.addView(text("Espaces", 20, TEXT, true), topMargin(matchWrap(), 22));
         content.addView(actionRow(
-                actionButton("💬\nMessages", view -> showFindContact(user, displayName)),
-                actionButton("👥\nGroupes", view -> showGroups(user, displayName))), topMargin(matchHeight(86), 10));
+                actionButton("✉\nMessages", view -> showFindContact(user, displayName)),
+                actionButton("◉\nGroupes", view -> showGroups(user, displayName))), topMargin(matchHeight(86), 10));
         content.addView(actionRow(
                 actionButton("☎\nAppels", view -> showCallsInfo(user, displayName)),
                 actionButton("●\nDirects", view -> showDirects(user, displayName))), topMargin(matchHeight(86), 9));
         content.addView(actionRow(
-                actionButton("🛍\nMarché", view -> showMarket(user, displayName)),
+                actionButton("▦\nMarché", view -> showMarket(user, displayName)),
                 actionButton("▣\nBusiness", view -> showBusiness(user, displayName))), topMargin(matchHeight(86), 9));
 
         LinearLayout messageHeader = new LinearLayout(this);
@@ -354,7 +384,7 @@ public final class MainActivity extends Activity {
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
         nav.setBackground(rounded(Color.WHITE, BORDER, 18));
-        String[] tabs = {"⌂ Accueil", "💬 Message", "▣ Business", "☺ Profil"};
+        String[] tabs = {"⌂ Accueil", "✉ Message", "▣ Business", "◎ Profil"};
         for (String tab : tabs) {
             Button item = smallButton(tab);
             if (!tab.contains("Accueil")) item.setTextColor(MUTED);
@@ -364,7 +394,7 @@ public final class MainActivity extends Activity {
             if (tab.contains("Profil")) item.setOnClickListener(view -> showNativeProfile(user, displayName));
         }
         page.addView(nav, topMargin(matchHeight(58), 10));
-        setContentView(page);
+        setResponsiveContent(page);
 
         liveListener = db.collection("conversations").whereArrayContains("memberIds", user.getUid())
                 .addSnapshotListener((snapshot, error) -> {
@@ -537,7 +567,7 @@ public final class MainActivity extends Activity {
         send.setTextSize(20);
         composer.addView(send, leftSized(56, 54, 8));
         page.addView(composer, matchWrap());
-        setContentView(page);
+        setResponsiveContent(page);
 
         liveListener = db.collection("conversations").document(conversationId).collection("messages")
                 .orderBy("createdAt", Query.Direction.ASCENDING)
@@ -605,7 +635,7 @@ public final class MainActivity extends Activity {
         calls.setOrientation(LinearLayout.VERTICAL);
         calls.addView(text("Chargement des contacts…", 14, MUTED, false), topMargin(matchWrap(), 18));
         content.addView(calls, matchWrap());
-        setContentView(content);
+        setScrollableContent(content);
 
         liveListener = db.collection("conversations").whereArrayContains("memberIds", user.getUid())
                 .addSnapshotListener((snapshot, error) -> {
@@ -657,7 +687,7 @@ public final class MainActivity extends Activity {
         pages.addView(text("Chargement…", 14, MUTED, false), topMargin(matchWrap(), 12));
         content.addView(pages, matchWrap());
         create.setOnClickListener(view -> showCreateBusinessPage(user, displayName));
-        setContentView(content);
+        setScrollableContent(content);
 
         liveListener = db.collection("businessPages").whereEqualTo("ownerId", user.getUid())
                 .addSnapshotListener((snapshot, error) -> {
@@ -747,7 +777,7 @@ public final class MainActivity extends Activity {
         groups.addView(text("Chargement des groupes…", 14, MUTED, false), topMargin(matchWrap(), 18));
         content.addView(groups, matchWrap());
         create.setOnClickListener(view -> showCreateGroup(user, displayName));
-        setContentView(content);
+        setScrollableContent(content);
 
         liveListener = db.collection("groups").whereArrayContains("memberIds", user.getUid())
                 .addSnapshotListener((snapshot, error) -> {
@@ -812,7 +842,7 @@ public final class MainActivity extends Activity {
                         status.setText("Création impossible.");
                     });
         });
-        setContentView(content);
+        setScrollableContent(content);
     }
 
     private void openGroupChat(String groupId, String groupName, FirebaseUser user, String displayName) {
@@ -832,7 +862,7 @@ public final class MainActivity extends Activity {
         Button send = primaryButton("➤");
         composer.addView(send, leftSized(56, 54, 8));
         page.addView(composer, matchWrap());
-        setContentView(page);
+        setResponsiveContent(page);
 
         liveListener = db.collection("groups").document(groupId).collection("messages")
                 .orderBy("createdAt", Query.Direction.ASCENDING)
@@ -891,7 +921,7 @@ public final class MainActivity extends Activity {
         listings.addView(text("Chargement du marché…", 14, MUTED, false), topMargin(matchWrap(), 18));
         content.addView(listings, matchWrap());
         publish.setOnClickListener(view -> showCreateListing(user, displayName));
-        setContentView(content);
+        setScrollableContent(content);
 
         liveListener = db.collection("listings").addSnapshotListener((snapshot, error) -> {
             listings.removeAllViews();
@@ -985,7 +1015,7 @@ public final class MainActivity extends Activity {
             intent.putExtra(Intent.EXTRA_TEXT, displayName + " vous invite sur WHAPPY.");
             startActivity(Intent.createChooser(intent, "Partager avec…"));
         });
-        setContentView(content);
+        setScrollableContent(content);
     }
 
     private void showNativeProfile(FirebaseUser user, String displayName) {
@@ -1020,7 +1050,7 @@ public final class MainActivity extends Activity {
                     showPhoneScreen();
                 })
                 .show());
-        setContentView(content);
+        setScrollableContent(content);
     }
 
     @SuppressWarnings("unchecked")
@@ -1074,12 +1104,30 @@ public final class MainActivity extends Activity {
     }
 
     private void addBrand(LinearLayout parent) {
+        if (isCompactScreen()) {
+            LinearLayout compactBrand = new LinearLayout(this);
+            compactBrand.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView compactLogo = new ImageView(this);
+            compactLogo.setImageResource(R.drawable.whappy_icon);
+            compactBrand.addView(compactLogo, sized(52, 52));
+            TextView compactWordmark = text("WHAPPY", 22, GREEN, true);
+            LinearLayout.LayoutParams compactWordmarkParams = wrap();
+            compactWordmarkParams.leftMargin = dp(12);
+            compactBrand.addView(compactWordmark, compactWordmarkParams);
+            parent.addView(compactBrand, wrap());
+            return;
+        }
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.whappy_icon);
         parent.addView(logo, sized(76, 76));
         TextView wordmark = text("WHAPPY", 21, GREEN, true);
         wordmark.setGravity(Gravity.CENTER);
         parent.addView(wordmark, topMargin(wrap(), 10));
+    }
+
+    private boolean isCompactScreen() {
+        float density = getResources().getDisplayMetrics().density;
+        return getResources().getDisplayMetrics().heightPixels / density < 700f;
     }
 
     private void addBackHeader(LinearLayout parent, String title, Runnable action) {
@@ -1106,6 +1154,7 @@ public final class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(20), dp(20), dp(20), dp(20));
         card.setBackground(rounded(Color.WHITE, BORDER, 22));
+        card.setElevation(dp(1));
         return card;
     }
 
@@ -1115,7 +1164,7 @@ public final class MainActivity extends Activity {
         text.setTextSize(size);
         text.setTextColor(color);
         text.setLineSpacing(0f, 1.12f);
-        if (bold) text.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        text.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));
         return text;
     }
 
@@ -1140,8 +1189,10 @@ public final class MainActivity extends Activity {
         button.setText(value);
         button.setTextSize(15);
         button.setTextColor(Color.WHITE);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        button.setLetterSpacing(.015f);
         button.setAllCaps(false);
+        button.setElevation(0);
         button.setBackground(rounded(GREEN, GREEN, 15));
         return button;
     }
@@ -1159,8 +1210,8 @@ public final class MainActivity extends Activity {
         button.setTextSize(12);
         button.setTextColor(GREEN);
         button.setAllCaps(false);
-        button.setMinWidth(0);
-        button.setMinHeight(0);
+        button.setMinWidth(dp(48));
+        button.setMinHeight(dp(44));
         button.setPadding(dp(8), 0, dp(8), 0);
         button.setBackgroundColor(Color.TRANSPARENT);
         return button;
@@ -1178,7 +1229,19 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+        setResponsiveContent(scroll);
+    }
+
+    private void setResponsiveContent(View content) {
+        FrameLayout shell = new FrameLayout(this);
+        shell.setBackgroundColor(SURFACE);
+        shell.setFitsSystemWindows(true);
+        int availableWidth = getResources().getDisplayMetrics().widthPixels;
+        int contentWidth = Math.min(availableWidth, dp(720));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(contentWidth, ViewGroup.LayoutParams.MATCH_PARENT);
+        params.gravity = Gravity.CENTER_HORIZONTAL;
+        shell.addView(content, params);
+        setContentView(shell);
     }
 
     private String initials(String name) {
