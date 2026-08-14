@@ -49,8 +49,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public final class MainActivity extends Activity {
-    private static final int GREEN = Color.rgb(18, 210, 41);
-    private static final int GREEN_DARK = Color.rgb(7, 92, 22);
+    private static final int GREEN = Color.rgb(19, 215, 19);
     private static final int TEXT = Color.rgb(19, 51, 26);
     private static final int MUTED = Color.rgb(102, 126, 107);
     private static final int SURFACE = Color.rgb(245, 250, 246);
@@ -73,7 +72,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(GREEN_DARK);
+        getWindow().setStatusBarColor(GREEN);
         getWindow().setNavigationBarColor(Color.WHITE);
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
@@ -89,7 +88,7 @@ public final class MainActivity extends Activity {
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.whappy_icon);
         page.addView(logo, sized(118, 118));
-        TextView title = text("WHAPPY", 28, GREEN_DARK, true);
+        TextView title = text("WHAPPY", 28, GREEN, true);
         title.setGravity(Gravity.CENTER);
         page.addView(title, topMargin(wrap(), 18));
         ProgressBar progress = new ProgressBar(this);
@@ -127,13 +126,16 @@ public final class MainActivity extends Activity {
         card.addView(text("La vérification est protégée par Firebase et Play Integrity sur les appareils compatibles.", 12, MUTED, false), topMargin(matchWrap(), 14));
 
         send.setOnClickListener(view -> {
-            String digits = phone.getText().toString().replaceAll("\\D", "").replaceFirst("^0+", "");
-            if (digits.length() < 6) {
-                status.setText("Entrez un numéro valide.");
+            String countryCode = countryCodes[country.getSelectedItemPosition()];
+            String formatted = PhoneNumberFormatter.normalize(countryCode, phone.getText().toString());
+            if (formatted == null) {
+                status.setText(countryCode.equals("+242")
+                        ? "Le numéro congolais doit contenir 9 chiffres, par exemple 06 123 45 67."
+                        : "Vérifiez le nombre de chiffres et l’indicatif du pays.");
                 status.setTextColor(Color.rgb(180, 36, 36));
                 return;
             }
-            pendingPhone = countryCodes[country.getSelectedItemPosition()] + digits;
+            pendingPhone = formatted;
             send.setEnabled(false);
             send.setText("Vérification Android…");
             status.setText("Connexion sécurisée en cours…");
@@ -285,7 +287,7 @@ public final class MainActivity extends Activity {
         header.addView(logo, sized(48, 48));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        titles.addView(text("WHAPPY", 21, GREEN_DARK, true));
+        titles.addView(text("WHAPPY", 21, GREEN, true));
         titles.addView(text("Bonjour " + displayName, 13, MUTED, false));
         header.addView(titles, weighted(1));
         Button logout = smallButton("Quitter");
@@ -357,7 +359,7 @@ public final class MainActivity extends Activity {
             row.setPadding(dp(16), dp(15), dp(16), dp(15));
             TextView avatar = text(initials(peerName), 17, Color.WHITE, true);
             avatar.setGravity(Gravity.CENTER);
-            avatar.setBackground(rounded(GREEN_DARK, GREEN_DARK, 24));
+            avatar.setBackground(rounded(GREEN, GREEN, 24));
             LinearLayout body = new LinearLayout(this);
             body.setOrientation(LinearLayout.VERTICAL);
             body.addView(text(peerName, 17, TEXT, true));
@@ -366,7 +368,7 @@ public final class MainActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.addView(avatar, sized(48, 48));
             row.addView(body, leftWeighted(1, 13));
-            row.addView(text("›", 28, GREEN_DARK, false));
+            row.addView(text("›", 28, GREEN, false));
             row.setOnClickListener(view -> openChat(document.getId(), peerName, peerPhone, user, displayName));
             container.addView(row, topMargin(matchWrap(), 10));
         }
@@ -387,8 +389,8 @@ public final class MainActivity extends Activity {
         Button find = primaryButton("Trouver ce contact");
         content.addView(find, topMargin(matchHeight(54), 12));
         find.setOnClickListener(view -> {
-            String normalized = normalizePhone(phone.getText().toString());
-            if (normalized.length() < 8) {
+            String normalized = PhoneNumberFormatter.normalize("+242", phone.getText().toString());
+            if (normalized == null) {
                 status.setTextColor(Color.rgb(180, 36, 36));
                 status.setText("Entrez le numéro avec l’indicatif du pays.");
                 return;
@@ -511,7 +513,7 @@ public final class MainActivity extends Activity {
                         boolean mine = user.getUid().equals(message.getString("senderId"));
                         TextView bubble = text(stringValue(message.get("text"), ""), 15, mine ? Color.WHITE : TEXT, false);
                         bubble.setPadding(dp(14), dp(10), dp(14), dp(10));
-                        bubble.setBackground(rounded(mine ? GREEN_DARK : Color.WHITE, mine ? GREEN_DARK : BORDER, 18));
+                        bubble.setBackground(rounded(mine ? GREEN : Color.WHITE, mine ? GREEN : BORDER, 18));
                         LinearLayout line = new LinearLayout(this);
                         line.setGravity(mine ? Gravity.END : Gravity.START);
                         line.addView(bubble, new LinearLayout.LayoutParams((int) (getResources().getDisplayMetrics().widthPixels * .76f), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -588,7 +590,7 @@ public final class MainActivity extends Activity {
         LinearLayout card = card();
         TextView avatar = text(initials(displayName), 28, Color.WHITE, true);
         avatar.setGravity(Gravity.CENTER);
-        avatar.setBackground(rounded(GREEN_DARK, GREEN_DARK, 40));
+        avatar.setBackground(rounded(GREEN, GREEN, 40));
         card.addView(avatar, sized(80, 80));
         card.addView(text(displayName, 22, TEXT, true), topMargin(matchWrap(), 16));
         card.addView(text(user.getPhoneNumber() == null ? "Compte WHAPPY" : user.getPhoneNumber(), 14, MUTED, false), topMargin(matchWrap(), 4));
@@ -613,20 +615,11 @@ public final class MainActivity extends Activity {
         return value == null ? 0L : value.toDate().getTime();
     }
 
-    private String normalizePhone(String value) {
-        String trimmed = value.trim();
-        String digits = trimmed.replaceAll("\\D", "");
-        if (trimmed.startsWith("+")) return "+" + digits;
-        if (digits.startsWith("00")) return "+" + digits.substring(2);
-        if (digits.length() > 10) return "+" + digits;
-        return "+242" + digits.replaceFirst("^0+", "");
-    }
-
     private void addBrand(LinearLayout parent) {
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.whappy_icon);
         parent.addView(logo, sized(76, 76));
-        TextView wordmark = text("WHAPPY", 21, GREEN_DARK, true);
+        TextView wordmark = text("WHAPPY", 21, GREEN, true);
         wordmark.setGravity(Gravity.CENTER);
         parent.addView(wordmark, topMargin(wrap(), 10));
     }
@@ -691,13 +684,13 @@ public final class MainActivity extends Activity {
         button.setTextColor(Color.WHITE);
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setAllCaps(false);
-        button.setBackground(rounded(GREEN_DARK, GREEN_DARK, 15));
+        button.setBackground(rounded(GREEN, GREEN, 15));
         return button;
     }
 
     private Button secondaryButton(String value) {
         Button button = primaryButton(value);
-        button.setTextColor(GREEN_DARK);
+        button.setTextColor(GREEN);
         button.setBackground(rounded(Color.WHITE, BORDER, 15));
         return button;
     }
@@ -706,7 +699,7 @@ public final class MainActivity extends Activity {
         Button button = new Button(this);
         button.setText(value);
         button.setTextSize(12);
-        button.setTextColor(GREEN_DARK);
+        button.setTextColor(GREEN);
         button.setAllCaps(false);
         button.setMinWidth(0);
         button.setMinHeight(0);
