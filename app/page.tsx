@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { cancelOrder, createGroup, createOrder, publishListing, publishRequest, removeListing, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
@@ -45,16 +45,6 @@ const lives = [
   { host: "Tech House", title: "Test sans filtre : les meilleurs smartphones", viewers: "963", product: "Galaxy S26", price: "490 000", tone: "tech", badge: "DÉMO LIVE" },
 ];
 
-function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject({ code: "auth/verification-timeout" }), milliseconds);
-    promise.then(
-      (value) => { window.clearTimeout(timeout); resolve(value); },
-      (error) => { window.clearTimeout(timeout); reject(error); },
-    );
-  });
-}
-
 const messages = [
   { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#13d713", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
   { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#13d713", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
@@ -68,16 +58,10 @@ function Mark({ children, color, small = false }: { children: React.ReactNode; c
 
 export default function Home() {
   const [authenticated, setAuthenticated] = useState(false);
-  const [authStep, setAuthStep] = useState<"phone" | "code" | "profile">("phone");
-  const [countryCode, setCountryCode] = useState("+242");
-  const [phone, setPhone] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
+  const [authReady, setAuthReady] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
-  const [authStatus, setAuthStatus] = useState("");
   const [authError, setAuthError] = useState("");
-  const confirmationRef = useRef<ConfirmationResult | null>(null);
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
   const recordedAdsRef = useRef(new Set<string>());
   const [space, setSpace] = useState<Space>("inbox");
   const [search, setSearch] = useState("");
@@ -105,18 +89,38 @@ export default function Home() {
   const [directCompose, setDirectCompose] = useState(0);
   const [activeAds, setActiveAds] = useState<AdCampaign[]>([]);
   const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
-  const directUser=useMemo<DirectMember|null>(()=>userId?{uid:userId,displayName:auth.currentUser?.displayName||profileName||"Vous",phoneNumber:auth.currentUser?.phoneNumber||""}:null,[userId,profileName]);
+  const directUser=useMemo<DirectMember|null>(()=>userId?{uid:userId,displayName:auth.currentUser?.displayName||profileName||"Vous",phoneNumber:auth.currentUser?.phoneNumber||"",whappyId:`WH-${userId.slice(0,8).toUpperCase()}`}:null,[userId,profileName]);
 
-  useEffect(() => onAuthStateChanged(auth, (user) => {
-    const hasPhone = Boolean(user?.phoneNumber);
-    const hasProfile = Boolean(user?.displayName?.trim());
-    if (hasPhone && !hasProfile) setAuthStep("profile");
-    setAuthenticated(hasPhone && hasProfile);
-    setUserId(user?.uid || "");
-    setSyncStatus(user?.uid ? "syncing" : "local");
-  }), []);
-
-  useEffect(() => () => recaptchaRef.current?.clear(), []);
+  useEffect(() => {
+    let attempted = false;
+    const stop = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const displayName = user.displayName?.trim() || "Mon compte WHAPPY";
+        const whappyId = `WH-${user.uid.slice(0, 8).toUpperCase()}`;
+        setProfileName(displayName);
+        setAuthenticated(true);
+        setUserId(user.uid);
+        setSyncStatus("syncing");
+        setAuthReady(true);
+        if (!user.displayName) {
+          void updateProfile(user, { displayName }).then(() => saveWhappyProfile({ uid: user.uid, displayName, phoneNumber: user.phoneNumber || "", whappyId })).catch(() => setSyncStatus("offline"));
+        }
+        return;
+      }
+      setAuthenticated(false);
+      setUserId("");
+      if (attempted) { setAuthReady(true); return; }
+      attempted = true;
+      setAuthBusy(true);
+      setAuthError("");
+      void signInAnonymously(auth).catch((error) => {
+        const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+        setAuthError(code.includes("operation-not-allowed") ? "L’accès direct doit être activé pour WHAPPY." : "L’accès direct n’a pas pu démarrer. Vérifiez votre connexion.");
+        setAuthReady(true);
+      }).finally(() => setAuthBusy(false));
+    });
+    return stop;
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -297,99 +301,13 @@ export default function Home() {
     setModal(null);
   }
 
-  async function requestSms(event: FormEvent) {
-    event.preventDefault();
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 8) {
-      setAuthError("Entrez un numéro de téléphone complet.");
-      return;
-    }
-    setAuthBusy(true);
-    setAuthError("");
-    setAuthStatus("Préparation de l’envoi sécurisé…");
-    try {
-      const e164Phone = `${countryCode}${digits}`;
-      auth.settings.appVerificationDisabledForTesting =
-        process.env.NODE_ENV !== "production" && e164Phone === "+242060000099";
-      recaptchaRef.current?.clear();
-      auth.languageCode = "fr";
-      const verifier = new RecaptchaVerifier(auth, "whappy-recaptcha", {
-        size: "invisible",
-        callback: () => setAuthStatus("Vérification réussie. Envoi du SMS…"),
-        "expired-callback": () => setAuthStatus("La vérification a expiré. Relancez l’envoi."),
-      });
-      recaptchaRef.current = verifier;
-      await verifier.render();
-      setAuthStatus("Envoi du code SMS en cours…");
-      confirmationRef.current = await withTimeout(
-        signInWithPhoneNumber(auth, e164Phone, verifier),
-        90_000,
-      );
-      setAuthStatus("");
-      setAuthStep("code");
-    } catch (error) {
-      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
-      setAuthError(
-        code.includes("operation-not-allowed") ? "La connexion par téléphone doit être activée dans Firebase Authentication."
-          : code.includes("billing") || code.includes("payment-required") ? "Les SMS réels nécessitent le forfait Firebase Blaze avec un compte de facturation."
-          : code.includes("too-many-requests") || code.includes("quota-exceeded") ? "Trop de tentatives ou quota SMS atteint. Patientez quelques minutes."
-            : code.includes("invalid-phone-number") ? "Ce numéro n'est pas reconnu. Vérifiez le pays et les chiffres saisis."
-              : code.includes("unauthorized-domain") || code.includes("app-not-authorized") ? "Ce domaine n'est pas autorisé dans Firebase Authentication."
-                : code.includes("captcha-check-failed") || code.includes("invalid-app-credential") ? "La vérification anti-robot a échoué. Rechargez la page puis réessayez."
-                  : code.includes("network-request-failed") ? "Connexion internet interrompue. Vérifiez votre réseau puis réessayez."
-                    : code.includes("verification-timeout") ? "La vérification a pris trop de temps. Relancez l’envoi du SMS."
-                    : `Le SMS n'a pas pu être envoyé${code ? ` (${code.replace("auth/", "")})` : ""}. Réessayez.`,
-      );
-      setAuthStatus("");
-      recaptchaRef.current?.clear();
-      recaptchaRef.current = null;
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function verifySms(event: FormEvent) {
-    event.preventDefault();
-    if (verificationCode.replace(/\D/g, "").length !== 6 || !confirmationRef.current) {
-      setAuthError("Entrez le code à 6 chiffres reçu par SMS.");
-      return;
-    }
+  async function retryDirectAccess() {
     setAuthBusy(true);
     setAuthError("");
     try {
-      await confirmationRef.current.confirm(verificationCode);
-      recaptchaRef.current?.clear();
-      recaptchaRef.current = null;
-      setAuthStep("profile");
-    } catch {
-      setAuthError("Ce code est incorrect ou a expiré.");
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function finishProfile(event: FormEvent) {
-    event.preventDefault();
-    if (profileName.trim().length < 2) {
-      setAuthError("Indiquez le nom qui sera visible par vos contacts.");
-      return;
-    }
-    setAuthBusy(true);
-    setAuthError("");
-    try {
-      if (!auth.currentUser) throw new Error("missing-user");
-      await updateProfile(auth.currentUser, { displayName: profileName.trim() });
-      await saveWhappyProfile({
-        uid: auth.currentUser.uid,
-        displayName: profileName.trim(),
-        phoneNumber: auth.currentUser.phoneNumber || `${countryCode}${phone.replace(/\D/g, "")}`,
-      });
-      setAuthenticated(true);
-    } catch {
-      setAuthError("Le profil n'a pas pu être créé. Vérifiez votre connexion puis réessayez.");
-    } finally {
-      setAuthBusy(false);
-    }
+      await signInAnonymously(auth);
+    } catch { setAuthError("L’accès direct n’a pas pu démarrer. Vérifiez votre connexion."); }
+    finally { setAuthBusy(false); }
   }
 
   const titles: Record<Space, [string, string]> = {
@@ -417,7 +335,7 @@ export default function Home() {
     business: "Rechercher une page ou une campagne…",
   };
 
-  if (!authenticated) return <PhoneAccess step={authStep} countryCode={countryCode} setCountryCode={setCountryCode} phone={phone} setPhone={setPhone} code={verificationCode} setCode={setVerificationCode} profileName={profileName} setProfileName={setProfileName} busy={authBusy} status={authStatus} error={authError} requestSms={requestSms} verifySms={verifySms} finishProfile={finishProfile} back={()=>{setAuthError("");setAuthStatus("");setAuthStep("phone")}} preview={()=>setAuthenticated(true)} />;
+  if (!authenticated) return <DirectAccess ready={authReady} busy={authBusy} error={authError} retry={retryDirectAccess}/>;
 
   return <main className="nova-shell white-green">
     <aside className="nova-rail">
@@ -463,7 +381,7 @@ export default function Home() {
     {liveIndex !== null && <LiveViewer live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Whappy",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
     {modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
-    {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Cyril Bokilo"} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
+    {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Mon compte WHAPPY"} phone={auth.currentUser?.phoneNumber || (auth.currentUser ? `ID ${`WH-${auth.currentUser.uid.slice(0, 8).toUpperCase()}`}` : "Accès direct sécurisé")} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
     {shopOpen && <SellerDashboard items={shopListings} cloud={Boolean(userId)} onClose={() => setShopOpen(false)} onCreate={() => { setShopOpen(false); setModal("sell"); }} onUpdate={manageListing} onDelete={deleteShopListing} notify={notify} />}
     {selectedProduct&&<ProductPanel item={selectedProduct} saved={!!saved[String(selectedProduct.id)]} onSave={()=>setSaved(current=>({...current,[selectedProduct.id]:!current[String(selectedProduct.id)]}))} onClose={()=>setSelectedProduct(null)} onContact={()=>{const seller=selectedProduct.seller;setSelectedProduct(null);go("inbox");notify(`Conversation avec ${seller} ouverte`);}} onAdd={(quantity)=>addToCart(selectedProduct,quantity)}/>}
     {cartOpen&&<CartPanel lines={cart} onClose={()=>setCartOpen(false)} onQuantity={(id,quantity)=>setCart(current=>current.map(line=>line.item.id===id?{...line,quantity}:line))} onRemove={(id)=>setCart(current=>current.filter(line=>line.item.id!==id))} onCheckout={checkout} notify={notify}/>}
@@ -473,9 +391,8 @@ export default function Home() {
   </main>;
 }
 
-function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,status,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;status:string;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
-  const fullNumber=`${countryCode} ${phone || "—"}`;
-  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={70} height={70} priority/><strong>WHAPPY</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>numéro.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Renvoyer le code dans 00:42</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Cyril Bokilo"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy →"}</button></form>}{error&&<p className="access-error">! {error}</p>}{process.env.NODE_ENV!=="production"&&<button className="access-demo" type="button" onClick={preview}>Voir la démonstration locale</button>}<small className="access-legal">En continuant, vous acceptez les conditions Whappy et confirmez être propriétaire de ce numéro.</small></div></section></main>;
+function DirectAccess({ ready,busy,error,retry }: { ready:boolean;busy:boolean;error:string;retry:()=>void }) {
+  return <main className="phone-access direct-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={70} height={70} priority/><strong>WHAPPY</strong></div><div className="access-promise"><span>ACCÈS DIRECT. ZÉRO CAPTCHA.</span><h1>Votre monde,<br/>s&apos;ouvre <em>directement.</em></h1><p>WHAPPY crée une identité sécurisée sur cet appareil et reconnecte automatiquement votre session aux prochaines visites.</p></div><div className="access-flow direct"><span className="done"><b>✓</b> Appareil reconnu</span><i/><span className="active"><b>⚡</b> Connexion directe</span><i/><span><b>→</b> WHAPPY</span></div><small className="access-secure">◆ Aucun CAPTCHA · Aucun SMS · Session Firebase sécurisée</small></section><section className="access-panel"><div className="access-card direct-card"><span className="direct-access-icon">⚡</span><span className="access-step">ACCÈS PRIVÉ WHAPPY</span><h2>{error ? "Connexion interrompue" : ready ? "Ouverture de votre compte" : "Connexion à votre compte"}</h2><p>{error || "Votre identité locale sécurisée est en cours de connexion. Vous n’avez rien à remplir."}</p><div className="direct-loader"><i/><i/><i/></div>{error&&<button className="access-primary" disabled={busy} onClick={retry}>{busy?"Connexion…":"Réessayer l’accès direct →"}</button>}<div className="one-account"><span>✓</span><div><strong>Votre session reste connectée</strong><small>WHAPPY conserve uniquement l’identifiant technique nécessaire sur cet appareil.</small></div></div><small className="access-legal">Vous pourrez ajouter un numéro de récupération plus tard depuis votre profil.</small></div></section></main>;
 }
 
 function Rail({ active, icon, label, count, live, onClick }: { active: boolean; icon: string; label: string; count?: number; live?: boolean; onClick: () => void }) {
@@ -560,5 +477,5 @@ function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep
 }
 
 function ProfilePanel({ name,phone,onClose,go,onOpenShop,onOpenOrders,onSignOut }: { name:string;phone:string;onClose:()=>void;go:(space:Space)=>void;onOpenShop:()=>void;onOpenOrders:()=>void;onSignOut:()=>void }) {
-  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>COMPTE WHAPPY</small><strong>{name}</strong><p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("business")}><span>▥</span><div><strong>Business Suite</strong><small>Pages professionnelles et publicités</small></div><b>→</b></button><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={onOpenOrders}><span>▤</span><div><strong>Mes commandes</strong><small>Suivi, reçus et points de remise</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>Identité protégée</strong><small>Un numéro unique pour votre compte</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
+  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>COMPTE WHAPPY</small><strong>{name}</strong><p>{phone} · Actif</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("business")}><span>▥</span><div><strong>Business Suite</strong><small>Pages professionnelles et publicités</small></div><b>→</b></button><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={onOpenOrders}><span>▤</span><div><strong>Mes commandes</strong><small>Suivi, reçus et points de remise</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>Accès direct protégé</strong><small>Votre ID WHAPPY remplace le CAPTCHA et le SMS</small></div></div><button className="profile-signout" onClick={onSignOut}>Réinitialiser cet accès</button></aside></div>;
 }

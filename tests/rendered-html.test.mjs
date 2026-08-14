@@ -23,7 +23,7 @@ async function render() {
   );
 }
 
-test("affiche la connexion téléphonique Whappy côté serveur", async () => {
+test("affiche l’accès direct Whappy côté serveur", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -31,11 +31,11 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   const html = await response.text();
   assert.match(html, /<title>Whappy — Tout peut devenir une opportunité<\/title>/i);
   assert.match(html, /Logo Whappy/);
-  assert.match(html, /UN NUMÉRO\. UN COMPTE\./);
-  assert.match(html, /Entrez votre numéro/);
-  assert.match(html, /Congo \(\+242\)/);
-  assert.match(html, /Continuer par SMS/);
-  assert.match(html, /Un numéro = un compte Whappy/);
+  assert.match(html, /ACCÈS DIRECT\. ZÉRO CAPTCHA\./);
+  assert.match(html, /Connexion à votre compte/);
+  assert.match(html, /Aucun CAPTCHA/);
+  assert.match(html, /Votre session reste connectée/);
+  assert.doesNotMatch(html, /recaptcha|Continuer par SMS/i);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -82,11 +82,10 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(page, /Whappy Marketplace/i);
   assert.match(page, /ACHETEUSE FIABLE/);
   assert.match(page, /ÉCHANGES RÉUSSIS/);
-  assert.match(page, /UN NUMÉRO\. UN COMPTE/);
-  assert.match(page, /signInWithPhoneNumber/);
-  assert.match(page, /RecaptchaVerifier/);
-  assert.match(page, /appVerificationDisabledForTesting/);
-  assert.match(page, /hasPhone && hasProfile/);
+  assert.match(page, /signInAnonymously/);
+  assert.match(page, /ACCÈS DIRECT\. ZÉRO CAPTCHA/);
+  assert.match(page, /WH-\$\{user\.uid\.slice/);
+  assert.doesNotMatch(page, /RecaptchaVerifier|signInWithPhoneNumber|appVerificationDisabledForTesting/);
   assert.match(layout, /title:\s*"Whappy — Tout peut devenir une opportunité"/);
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);

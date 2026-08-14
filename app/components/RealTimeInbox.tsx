@@ -208,16 +208,16 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     event.preventDefault();
     if (!user) return;
     const form = new FormData(event.currentTarget);
-    const phone = String(form.get("phone") || "");
+      const phone = String(form.get("phone") || "");
     setBusy(true);
     try {
       const found = await findWhappyUserByPhone(phone);
       if (!found) {
-        notify("Aucun compte Whappy trouvé avec ce numéro");
+        notify("Aucun compte trouvé avec cet ID ou ce numéro Whappy");
         return;
       }
       if (found.uid === user.uid) {
-        notify("C’est votre propre numéro Whappy");
+        notify("C’est votre propre compte Whappy");
         return;
       }
       const id = await ensureDirectConversation(user, found);
@@ -360,7 +360,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
           </form>
         </> : <div className="realtime-welcome">{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}<span>⚡</span><h3>Whappy Direct</h3><p>Échangez instantanément entre deux comptes identifiés par leur numéro.</p><button onClick={() => setAdding(true)}>Commencer une conversation</button></div>}</main>
       </section>
-      {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>Entrez son numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Numéro international complet<input name="phone" required inputMode="tel" autoComplete="tel" placeholder="+242 06 000 00 00"/></label><p>Le numéro doit déjà avoir créé un compte Whappy.</p><button disabled={busy}>{busy ? "Recherche…" : "Trouver le compte →"}</button></form>}
+      {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>ID ou numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Identifiant du contact<input name="phone" required autoComplete="off" placeholder="WH-12AB34CD ou +242…"/></label><p>Chaque accès direct possède un ID visible dans le profil. Le numéro reste accepté pour les anciens comptes.</p><button disabled={busy}>{busy ? "Recherche…" : "Trouver le compte →"}</button></form>}
     </div>}
   </>;
 }
