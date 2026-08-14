@@ -2,6 +2,7 @@ package com.whappy.chat;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -10,6 +11,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -49,6 +51,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public final class MainActivity extends Activity {
+    private static final String SESSION_PREFS = "whappy_session";
     private static final int GREEN = Color.rgb(19, 215, 19);
     private static final int TEXT = Color.rgb(19, 51, 26);
     private static final int MUTED = Color.rgb(102, 126, 107);
@@ -97,13 +100,18 @@ public final class MainActivity extends Activity {
     }
 
     private void showPhoneScreen() {
+        FirebaseUser signedInUser = auth.getCurrentUser();
+        if (signedInUser != null) {
+            routeSignedInUser(signedInUser);
+            return;
+        }
         clearLiveListener();
         backAction = null;
         LinearLayout content = page(Gravity.CENTER_HORIZONTAL);
         content.setPadding(dp(24), dp(38), dp(24), dp(28));
         addBrand(content);
         content.addView(text("Votre numéro, votre compte", 27, TEXT, true), topMargin(wrap(), 26));
-        content.addView(text("Connectez-vous avec votre téléphone. WHAPPY utilise la vérification native Android et n’ouvre plus le site web.", 15, MUTED, false), topMargin(matchWrap(), 8));
+        content.addView(text("Connectez-vous une seule fois avec votre téléphone. Ensuite, WHAPPY conserve votre session sur cet appareil.", 15, MUTED, false), topMargin(matchWrap(), 8));
 
         LinearLayout card = card();
         content.addView(card, topMargin(matchWrap(), 24));
@@ -229,10 +237,16 @@ public final class MainActivity extends Activity {
 
     private void routeSignedInUser(FirebaseUser user) {
         db.collection("users").document(user.getUid()).get().addOnSuccessListener(snapshot -> {
-            String displayName = snapshot.getString("displayName");
-            if (displayName == null || displayName.trim().length() < 2) showProfileScreen(user);
-            else showHome(user, displayName);
-        }).addOnFailureListener(error -> showProfileScreen(user));
+            String displayName = stringValue(snapshot.get("displayName"), stringValue(user.getDisplayName(), ""));
+            if (displayName.length() < 2) {
+                String cached = cachedDisplayName(user);
+                if (cached.length() >= 2) showHome(user, cached);
+                else showProfileScreen(user);
+                return;
+            }
+            cacheDisplayName(user, displayName);
+            showHome(user, displayName);
+        }).addOnFailureListener(error -> showHome(user, cachedDisplayName(user)));
     }
 
     private void showProfileScreen(FirebaseUser user) {
@@ -264,7 +278,10 @@ public final class MainActivity extends Activity {
             profile.put("phoneNumber", user.getPhoneNumber() == null ? pendingPhone : user.getPhoneNumber());
             profile.put("updatedAt", FieldValue.serverTimestamp());
             db.collection("users").document(user.getUid()).set(profile, com.google.firebase.firestore.SetOptions.merge())
-                    .addOnSuccessListener(unused -> showHome(user, value))
+                    .addOnSuccessListener(unused -> {
+                        cacheDisplayName(user, value);
+                        showHome(user, value);
+                    })
                     .addOnFailureListener(error -> {
                         save.setEnabled(true);
                         status.setTextColor(Color.rgb(180, 36, 36));
@@ -278,7 +295,7 @@ public final class MainActivity extends Activity {
         clearLiveListener();
         backAction = null;
         LinearLayout page = page(Gravity.TOP);
-        page.setPadding(dp(18), dp(18), dp(18), dp(16));
+        page.setPadding(dp(18), dp(14), dp(18), dp(12));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -288,40 +305,61 @@ public final class MainActivity extends Activity {
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.addView(text("WHAPPY", 21, GREEN, true));
-        titles.addView(text("Bonjour " + displayName, 13, MUTED, false));
+        titles.addView(text("Bonjour " + displayName + " · session active", 12, MUTED, false));
         header.addView(titles, weighted(1));
-        Button logout = smallButton("Quitter");
-        header.addView(logout, wrap());
-        logout.setOnClickListener(view -> {
-            auth.signOut();
-            showPhoneScreen();
-        });
+        TextView avatar = text(initials(displayName), 15, Color.WHITE, true);
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setBackground(rounded(GREEN, GREEN, 22));
+        header.addView(avatar, sized(44, 44));
+        avatar.setOnClickListener(view -> showNativeProfile(user, displayName));
         page.addView(header, matchWrap());
 
-        TextView section = text("Messages", 29, TEXT, true);
-        page.addView(section, topMargin(matchWrap(), 24));
-        page.addView(text("Vos conversations synchronisées en temps réel", 14, MUTED, false), topMargin(matchWrap(), 4));
-        Button newChat = primaryButton("＋ Nouvelle discussion");
-        page.addView(newChat, topMargin(matchHeight(52), 18));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout hero = card();
+        hero.setBackground(rounded(Color.rgb(232, 255, 233), GREEN, 22));
+        hero.addView(text("Tout WHAPPY est ici", 23, TEXT, true));
+        hero.addView(text("Messages, groupes, appels, directs, marché et activité professionnelle dans une seule application.", 14, MUTED, false), topMargin(matchWrap(), 6));
+        content.addView(hero, topMargin(matchWrap(), 20));
+
+        content.addView(text("Espaces", 20, TEXT, true), topMargin(matchWrap(), 22));
+        content.addView(actionRow(
+                actionButton("💬\nMessages", view -> showFindContact(user, displayName)),
+                actionButton("👥\nGroupes", view -> showGroups(user, displayName))), topMargin(matchHeight(86), 10));
+        content.addView(actionRow(
+                actionButton("☎\nAppels", view -> showCallsInfo(user, displayName)),
+                actionButton("●\nDirects", view -> showDirects(user, displayName))), topMargin(matchHeight(86), 9));
+        content.addView(actionRow(
+                actionButton("🛍\nMarché", view -> showMarket(user, displayName)),
+                actionButton("▣\nBusiness", view -> showBusiness(user, displayName))), topMargin(matchHeight(86), 9));
+
+        LinearLayout messageHeader = new LinearLayout(this);
+        messageHeader.setGravity(Gravity.CENTER_VERTICAL);
+        messageHeader.addView(text("Conversations", 20, TEXT, true), weighted(1));
+        Button newChat = smallButton("＋ Nouveau");
+        newChat.setTextSize(14);
+        messageHeader.addView(newChat, wrap());
+        content.addView(messageHeader, topMargin(matchWrap(), 24));
+        content.addView(text("Synchronisées en temps réel", 13, MUTED, false), topMargin(matchWrap(), 3));
         newChat.setOnClickListener(view -> showFindContact(user, displayName));
 
         LinearLayout conversations = new LinearLayout(this);
         conversations.setOrientation(LinearLayout.VERTICAL);
-        TextView loading = text("Chargement des conversations…", 14, MUTED, false);
-        conversations.addView(loading, topMargin(matchWrap(), 22));
+        conversations.addView(text("Chargement des conversations…", 14, MUTED, false), topMargin(matchWrap(), 14));
+        content.addView(conversations, matchWrap());
         ScrollView scroll = new ScrollView(this);
-        scroll.addView(conversations, matchWrap());
+        scroll.addView(content, matchWrap());
         page.addView(scroll, weighted(1));
 
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
         nav.setBackground(rounded(Color.WHITE, BORDER, 18));
-        String[] tabs = {"● Messages", "☎ Appels", "▣ Business", "☺ Profil"};
+        String[] tabs = {"⌂ Accueil", "💬 Message", "▣ Business", "☺ Profil"};
         for (String tab : tabs) {
             Button item = smallButton(tab);
-            if (!tab.contains("Messages")) item.setTextColor(MUTED);
+            if (!tab.contains("Accueil")) item.setTextColor(MUTED);
             nav.addView(item, weighted(1));
-            if (tab.contains("Appels")) item.setOnClickListener(view -> showCallsInfo(user, displayName));
+            if (tab.contains("Message")) item.setOnClickListener(view -> showFindContact(user, displayName));
             if (tab.contains("Business")) item.setOnClickListener(view -> showBusiness(user, displayName));
             if (tab.contains("Profil")) item.setOnClickListener(view -> showNativeProfile(user, displayName));
         }
@@ -561,11 +599,43 @@ public final class MainActivity extends Activity {
         LinearLayout content = page(Gravity.TOP);
         content.setPadding(dp(20), dp(20), dp(20), dp(24));
         addBackHeader(content, "Appels", backAction);
-        LinearLayout card = card();
-        card.addView(text("Appels Android natifs", 21, TEXT, true));
-        card.addView(text("Depuis une conversation, utilisez le bouton téléphone pour lancer un appel avec le numéro réel du contact.", 14, MUTED, false), topMargin(matchWrap(), 8));
-        content.addView(card, topMargin(matchWrap(), 24));
+        content.addView(text("Appelez vos contacts", 22, TEXT, true), topMargin(matchWrap(), 22));
+        content.addView(text("WHAPPY ouvre directement le composeur Android avec le bon numéro.", 14, MUTED, false), topMargin(matchWrap(), 5));
+        LinearLayout calls = new LinearLayout(this);
+        calls.setOrientation(LinearLayout.VERTICAL);
+        calls.addView(text("Chargement des contacts…", 14, MUTED, false), topMargin(matchWrap(), 18));
+        content.addView(calls, matchWrap());
         setContentView(content);
+
+        liveListener = db.collection("conversations").whereArrayContains("memberIds", user.getUid())
+                .addSnapshotListener((snapshot, error) -> {
+                    calls.removeAllViews();
+                    if (error != null || snapshot == null) {
+                        calls.addView(text("Contacts indisponibles pour le moment.", 14, Color.rgb(180, 36, 36), false));
+                        return;
+                    }
+                    if (snapshot.isEmpty()) {
+                        LinearLayout empty = card();
+                        empty.addView(text("Aucun contact récent", 18, TEXT, true));
+                        empty.addView(text("Créez d’abord une discussion depuis l’accueil.", 14, MUTED, false), topMargin(matchWrap(), 6));
+                        calls.addView(empty, topMargin(matchWrap(), 18));
+                        return;
+                    }
+                    for (DocumentSnapshot conversation : snapshot.getDocuments()) {
+                        Map<String, Object> peer = peerFrom(conversation, user.getUid());
+                        if (peer == null) continue;
+                        String name = stringValue(peer.get("displayName"), "Contact WHAPPY");
+                        String phone = stringValue(peer.get("phoneNumber"), "");
+                        LinearLayout item = card();
+                        item.addView(text("☎  " + name, 18, TEXT, true));
+                        item.addView(text(phone.isEmpty() ? "Numéro indisponible" : phone, 13, MUTED, false), topMargin(matchWrap(), 4));
+                        item.setOnClickListener(view -> {
+                            if (phone.isEmpty()) Toast.makeText(this, "Numéro indisponible", Toast.LENGTH_SHORT).show();
+                            else startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + phone)));
+                        });
+                        calls.addView(item, topMargin(matchWrap(), 10));
+                    }
+                });
     }
 
     private void showBusiness(FirebaseUser user, String displayName) {
@@ -574,10 +644,347 @@ public final class MainActivity extends Activity {
         LinearLayout content = page(Gravity.TOP);
         content.setPadding(dp(20), dp(20), dp(20), dp(24));
         addBackHeader(content, "Business", backAction);
-        LinearLayout card = card();
-        card.addView(text("Espace professionnel", 21, TEXT, true));
-        card.addView(text("Vos pages et campagnes WHAPPY seront synchronisées ici dans la prochaine version native.", 14, MUTED, false), topMargin(matchWrap(), 8));
-        content.addView(card, topMargin(matchWrap(), 24));
+        LinearLayout intro = card();
+        intro.setBackground(rounded(Color.rgb(232, 255, 233), GREEN, 22));
+        intro.addView(text("WHAPPY Business", 22, TEXT, true));
+        intro.addView(text("Créez une page professionnelle ou créateur. Elle est synchronisée avec votre compte.", 14, MUTED, false), topMargin(matchWrap(), 6));
+        Button create = primaryButton("＋ Créer une page");
+        intro.addView(create, topMargin(matchHeight(52), 14));
+        content.addView(intro, topMargin(matchWrap(), 20));
+        content.addView(text("Mes pages", 20, TEXT, true), topMargin(matchWrap(), 22));
+        LinearLayout pages = new LinearLayout(this);
+        pages.setOrientation(LinearLayout.VERTICAL);
+        pages.addView(text("Chargement…", 14, MUTED, false), topMargin(matchWrap(), 12));
+        content.addView(pages, matchWrap());
+        create.setOnClickListener(view -> showCreateBusinessPage(user, displayName));
+        setContentView(content);
+
+        liveListener = db.collection("businessPages").whereEqualTo("ownerId", user.getUid())
+                .addSnapshotListener((snapshot, error) -> {
+                    pages.removeAllViews();
+                    if (error != null || snapshot == null) {
+                        pages.addView(text("Pages indisponibles.", 14, Color.rgb(180, 36, 36), false));
+                        return;
+                    }
+                    if (snapshot.isEmpty()) {
+                        pages.addView(text("Vous n’avez pas encore créé de page.", 14, MUTED, false), topMargin(matchWrap(), 12));
+                        return;
+                    }
+                    for (DocumentSnapshot document : snapshot.getDocuments()) {
+                        LinearLayout item = card();
+                        item.addView(text("▣  " + stringValue(document.get("name"), "Page WHAPPY"), 18, TEXT, true));
+                        item.addView(text("@" + stringValue(document.get("handle"), "whappy") + " · " + stringValue(document.get("category"), "Professionnel"), 13, MUTED, false), topMargin(matchWrap(), 5));
+                        item.addView(text("● Page active", 12, GREEN, true), topMargin(matchWrap(), 9));
+                        pages.addView(item, topMargin(matchWrap(), 10));
+                    }
+                });
+    }
+
+    private void showCreateBusinessPage(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showBusiness(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(20), dp(20), dp(24));
+        addBackHeader(content, "Nouvelle page", backAction);
+        EditText name = input("Nom de la page");
+        EditText category = input("Catégorie · ex. Mode, Média, Restaurant");
+        EditText bio = input("Présentation courte");
+        content.addView(label("Nom public"), topMargin(matchWrap(), 22));
+        content.addView(name, topMargin(matchHeight(56), 7));
+        content.addView(label("Catégorie"), topMargin(matchWrap(), 16));
+        content.addView(category, topMargin(matchHeight(56), 7));
+        content.addView(label("Bio"), topMargin(matchWrap(), 16));
+        content.addView(bio, topMargin(matchHeight(56), 7));
+        TextView status = text("", 13, MUTED, false);
+        content.addView(status, topMargin(matchWrap(), 10));
+        Button publish = primaryButton("Créer ma page Business");
+        content.addView(publish, topMargin(matchHeight(56), 14));
+        publish.setOnClickListener(view -> {
+            String pageName = name.getText().toString().trim();
+            String pageCategory = category.getText().toString().trim();
+            String pageBio = bio.getText().toString().trim();
+            if (pageName.length() < 2 || pageBio.length() > 400) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Ajoutez un nom valide et une bio de 400 caractères maximum.");
+                return;
+            }
+            String handle = pageName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+            if (handle.length() < 3) handle = "whappy" + System.currentTimeMillis() % 100000;
+            if (handle.length() > 50) handle = handle.substring(0, 50);
+            Map<String, Object> data = new HashMap<>();
+            data.put("ownerId", user.getUid());
+            data.put("name", pageName);
+            data.put("handle", handle);
+            data.put("type", "business");
+            data.put("category", pageCategory.isEmpty() ? "Professionnel" : pageCategory);
+            data.put("bio", pageBio);
+            data.put("status", "active");
+            data.put("followers", 0);
+            data.put("createdAt", FieldValue.serverTimestamp());
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            publish.setEnabled(false);
+            db.collection("businessPages").add(data)
+                    .addOnSuccessListener(reference -> showBusiness(user, displayName))
+                    .addOnFailureListener(error -> {
+                        publish.setEnabled(true);
+                        status.setTextColor(Color.rgb(180, 36, 36));
+                        status.setText("La page n’a pas pu être créée.");
+                    });
+        });
+        setScrollableContent(content);
+    }
+
+    private void showGroups(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(20), dp(20), dp(24));
+        addBackHeader(content, "Groupes", backAction);
+        Button create = primaryButton("＋ Créer un groupe");
+        content.addView(create, topMargin(matchHeight(54), 20));
+        LinearLayout groups = new LinearLayout(this);
+        groups.setOrientation(LinearLayout.VERTICAL);
+        groups.addView(text("Chargement des groupes…", 14, MUTED, false), topMargin(matchWrap(), 18));
+        content.addView(groups, matchWrap());
+        create.setOnClickListener(view -> showCreateGroup(user, displayName));
+        setContentView(content);
+
+        liveListener = db.collection("groups").whereArrayContains("memberIds", user.getUid())
+                .addSnapshotListener((snapshot, error) -> {
+                    groups.removeAllViews();
+                    if (error != null || snapshot == null) {
+                        groups.addView(text("Groupes indisponibles.", 14, Color.rgb(180, 36, 36), false));
+                        return;
+                    }
+                    if (snapshot.isEmpty()) {
+                        LinearLayout empty = card();
+                        empty.addView(text("Créez votre premier groupe", 18, TEXT, true));
+                        empty.addView(text("Famille, équipe, communauté ou projet.", 14, MUTED, false), topMargin(matchWrap(), 6));
+                        groups.addView(empty, topMargin(matchWrap(), 18));
+                        return;
+                    }
+                    for (DocumentSnapshot document : snapshot.getDocuments()) {
+                        String groupName = stringValue(document.get("name"), "Groupe WHAPPY");
+                        LinearLayout item = card();
+                        item.addView(text("👥  " + groupName, 18, TEXT, true));
+                        Object rawMembers = document.get("memberIds");
+                        int members = rawMembers instanceof List ? ((List<?>) rawMembers).size() : 1;
+                        item.addView(text(members + (members > 1 ? " membres" : " membre") + " · " + stringValue(document.get("lastMessage"), "Nouvelle communauté"), 13, MUTED, false), topMargin(matchWrap(), 5));
+                        item.setOnClickListener(view -> openGroupChat(document.getId(), groupName, user, displayName));
+                        groups.addView(item, topMargin(matchWrap(), 10));
+                    }
+                });
+    }
+
+    private void showCreateGroup(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showGroups(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(20), dp(20), dp(24));
+        addBackHeader(content, "Créer un groupe", backAction);
+        content.addView(text("Votre communauté WHAPPY", 22, TEXT, true), topMargin(matchWrap(), 24));
+        EditText name = input("Nom du groupe");
+        content.addView(name, topMargin(matchHeight(58), 14));
+        TextView status = text("", 13, MUTED, false);
+        content.addView(status, topMargin(matchWrap(), 10));
+        Button create = primaryButton("Créer et ouvrir le groupe");
+        content.addView(create, topMargin(matchHeight(56), 14));
+        create.setOnClickListener(view -> {
+            String groupName = name.getText().toString().trim();
+            if (groupName.length() < 2 || groupName.length() > 80) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Le nom doit contenir entre 2 et 80 caractères.");
+                return;
+            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("ownerId", user.getUid());
+            data.put("name", groupName);
+            data.put("memberIds", Collections.singletonList(user.getUid()));
+            data.put("memberNames", Collections.singletonList(displayName));
+            data.put("createdAt", FieldValue.serverTimestamp());
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            create.setEnabled(false);
+            db.collection("groups").add(data)
+                    .addOnSuccessListener(reference -> openGroupChat(reference.getId(), groupName, user, displayName))
+                    .addOnFailureListener(error -> {
+                        create.setEnabled(true);
+                        status.setTextColor(Color.rgb(180, 36, 36));
+                        status.setText("Création impossible.");
+                    });
+        });
+        setContentView(content);
+    }
+
+    private void openGroupChat(String groupId, String groupName, FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showGroups(user, displayName);
+        LinearLayout page = page(Gravity.TOP);
+        page.setPadding(dp(14), dp(12), dp(14), dp(12));
+        addBackHeader(page, groupName, backAction);
+        LinearLayout messageList = new LinearLayout(this);
+        messageList.setOrientation(LinearLayout.VERTICAL);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(messageList, matchWrap());
+        page.addView(scroll, weighted(1));
+        LinearLayout composer = new LinearLayout(this);
+        EditText input = input("Message au groupe…");
+        composer.addView(input, weightedHeight(1, 54));
+        Button send = primaryButton("➤");
+        composer.addView(send, leftSized(56, 54, 8));
+        page.addView(composer, matchWrap());
+        setContentView(page);
+
+        liveListener = db.collection("groups").document(groupId).collection("messages")
+                .orderBy("createdAt", Query.Direction.ASCENDING)
+                .addSnapshotListener((snapshot, error) -> {
+                    messageList.removeAllViews();
+                    if (error != null || snapshot == null) {
+                        messageList.addView(text("Messages indisponibles.", 14, Color.rgb(180, 36, 36), false));
+                        return;
+                    }
+                    for (DocumentSnapshot message : snapshot.getDocuments()) {
+                        boolean mine = user.getUid().equals(message.getString("senderId"));
+                        LinearLayout bubble = card();
+                        bubble.setBackground(rounded(mine ? Color.rgb(232, 255, 233) : Color.WHITE, mine ? GREEN : BORDER, 18));
+                        bubble.addView(text(stringValue(message.get("senderName"), "Membre"), 12, GREEN, true));
+                        bubble.addView(text(stringValue(message.get("text"), ""), 15, TEXT, false), topMargin(matchWrap(), 4));
+                        messageList.addView(bubble, topMargin(matchWrap(), 8));
+                    }
+                    scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+                });
+        View.OnClickListener sendAction = view -> {
+            String value = input.getText().toString().trim();
+            if (value.isEmpty() || value.length() > 4000) return;
+            Map<String, Object> message = new HashMap<>();
+            message.put("senderId", user.getUid());
+            message.put("senderName", displayName);
+            message.put("text", value);
+            message.put("createdAt", FieldValue.serverTimestamp());
+            send.setEnabled(false);
+            db.collection("groups").document(groupId).collection("messages").add(message)
+                    .addOnSuccessListener(reference -> {
+                        Map<String, Object> update = new HashMap<>();
+                        update.put("lastMessage", value);
+                        update.put("updatedAt", FieldValue.serverTimestamp());
+                        db.collection("groups").document(groupId).update(update);
+                        input.setText("");
+                        send.setEnabled(true);
+                    }).addOnFailureListener(error -> {
+                        send.setEnabled(true);
+                        Toast.makeText(this, "Envoi impossible", Toast.LENGTH_SHORT).show();
+                    });
+        };
+        send.setOnClickListener(sendAction);
+        input.setOnEditorActionListener((view, actionId, event) -> { sendAction.onClick(view); return true; });
+    }
+
+    private void showMarket(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(20), dp(20), dp(24));
+        addBackHeader(content, "Marché WHAPPY", backAction);
+        Button publish = primaryButton("＋ Publier une annonce");
+        content.addView(publish, topMargin(matchHeight(54), 20));
+        LinearLayout listings = new LinearLayout(this);
+        listings.setOrientation(LinearLayout.VERTICAL);
+        listings.addView(text("Chargement du marché…", 14, MUTED, false), topMargin(matchWrap(), 18));
+        content.addView(listings, matchWrap());
+        publish.setOnClickListener(view -> showCreateListing(user, displayName));
+        setContentView(content);
+
+        liveListener = db.collection("listings").addSnapshotListener((snapshot, error) -> {
+            listings.removeAllViews();
+            if (error != null || snapshot == null) {
+                listings.addView(text("Marché indisponible.", 14, Color.rgb(180, 36, 36), false));
+                return;
+            }
+            List<DocumentSnapshot> documents = new ArrayList<>(snapshot.getDocuments());
+            documents.sort((left, right) -> Long.compare(timestampMillis(right), timestampMillis(left)));
+            if (documents.isEmpty()) listings.addView(text("Soyez le premier à publier une annonce.", 14, MUTED, false), topMargin(matchWrap(), 18));
+            for (DocumentSnapshot document : documents) {
+                LinearLayout item = card();
+                item.addView(text(stringValue(document.get("title"), "Annonce WHAPPY"), 18, TEXT, true));
+                item.addView(text(stringValue(document.get("price"), "Prix à discuter") + " · " + stringValue(document.get("place"), "WHAPPY"), 14, GREEN, true), topMargin(matchWrap(), 6));
+                item.addView(text(user.getUid().equals(document.getString("ownerId")) ? "Votre annonce" : "Annonce de la communauté", 12, MUTED, false), topMargin(matchWrap(), 7));
+                listings.addView(item, topMargin(matchWrap(), 10));
+            }
+        });
+    }
+
+    private void showCreateListing(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showMarket(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(20), dp(20), dp(24));
+        addBackHeader(content, "Nouvelle annonce", backAction);
+        EditText title = input("Que proposez-vous ?");
+        EditText price = input("Prix · ex. 25 000 FCFA");
+        EditText place = input("Lieu · ex. Brazzaville");
+        content.addView(title, topMargin(matchHeight(56), 22));
+        content.addView(price, topMargin(matchHeight(56), 12));
+        content.addView(place, topMargin(matchHeight(56), 12));
+        TextView status = text("", 13, MUTED, false);
+        content.addView(status, topMargin(matchWrap(), 10));
+        Button publish = primaryButton("Publier sur WHAPPY");
+        content.addView(publish, topMargin(matchHeight(56), 14));
+        publish.setOnClickListener(view -> {
+            String itemTitle = title.getText().toString().trim();
+            if (itemTitle.length() < 2 || itemTitle.length() > 120) {
+                status.setTextColor(Color.rgb(180, 36, 36));
+                status.setText("Le titre doit contenir entre 2 et 120 caractères.");
+                return;
+            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("ownerId", user.getUid());
+            data.put("title", itemTitle);
+            data.put("price", stringValue(price.getText(), "Prix à discuter"));
+            data.put("place", stringValue(place.getText(), "Brazzaville"));
+            data.put("seller", displayName);
+            data.put("category", "Communauté");
+            data.put("mode", "vente");
+            data.put("status", "active");
+            data.put("createdAt", FieldValue.serverTimestamp());
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            publish.setEnabled(false);
+            db.collection("listings").add(data)
+                    .addOnSuccessListener(reference -> showMarket(user, displayName))
+                    .addOnFailureListener(error -> {
+                        publish.setEnabled(true);
+                        status.setTextColor(Color.rgb(180, 36, 36));
+                        status.setText("Publication impossible.");
+                    });
+        });
+        setScrollableContent(content);
+    }
+
+    private void showDirects(FirebaseUser user, String displayName) {
+        clearLiveListener();
+        backAction = () -> showHome(user, displayName);
+        LinearLayout content = page(Gravity.TOP);
+        content.setPadding(dp(20), dp(20), dp(20), dp(24));
+        addBackHeader(content, "Studio Direct", backAction);
+        LinearLayout studio = card();
+        studio.setBackground(rounded(Color.rgb(19, 51, 26), Color.rgb(19, 51, 26), 22));
+        studio.addView(text("●  WHAPPY DIRECT", 13, GREEN, true));
+        studio.addView(text("Créez votre contenu depuis Android", 23, Color.WHITE, true), topMargin(matchWrap(), 10));
+        studio.addView(text("Enregistrez une vidéo avec la caméra native, puis partagez-la avec votre communauté.", 14, Color.rgb(211, 230, 215), false), topMargin(matchWrap(), 7));
+        Button camera = primaryButton("🎥 Ouvrir la caméra");
+        studio.addView(camera, topMargin(matchHeight(54), 18));
+        content.addView(studio, topMargin(matchWrap(), 22));
+        Button share = secondaryButton("Partager une invitation WHAPPY");
+        content.addView(share, topMargin(matchHeight(54), 14));
+        camera.setOnClickListener(view -> {
+            Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
+            if (intent.resolveActivity(getPackageManager()) == null) Toast.makeText(this, "Caméra indisponible", Toast.LENGTH_SHORT).show();
+            else startActivity(intent);
+        });
+        share.setOnClickListener(view -> {
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(Intent.EXTRA_TEXT, displayName + " vous invite sur WHAPPY.");
+            startActivity(Intent.createChooser(intent, "Partager avec…"));
+        });
         setContentView(content);
     }
 
@@ -594,7 +1001,25 @@ public final class MainActivity extends Activity {
         card.addView(avatar, sized(80, 80));
         card.addView(text(displayName, 22, TEXT, true), topMargin(matchWrap(), 16));
         card.addView(text(user.getPhoneNumber() == null ? "Compte WHAPPY" : user.getPhoneNumber(), 14, MUTED, false), topMargin(matchWrap(), 4));
+        card.addView(text("● Session conservée sur cet appareil", 13, GREEN, true), topMargin(matchWrap(), 14));
         content.addView(card, topMargin(matchWrap(), 24));
+        LinearLayout security = card();
+        security.addView(text("Compte et sécurité", 18, TEXT, true));
+        security.addView(text("WHAPPY vous reconnecte automatiquement. Vous ne ressaisissez le numéro qu’après une déconnexion volontaire.", 14, MUTED, false), topMargin(matchWrap(), 7));
+        Button logout = secondaryButton("Se déconnecter de cet appareil");
+        logout.setTextColor(Color.rgb(170, 32, 32));
+        security.addView(logout, topMargin(matchHeight(52), 16));
+        content.addView(security, topMargin(matchWrap(), 14));
+        logout.setOnClickListener(view -> new AlertDialog.Builder(this)
+                .setTitle("Se déconnecter ?")
+                .setMessage("Votre numéro sera redemandé uniquement si vous confirmez cette déconnexion.")
+                .setNegativeButton("Annuler", null)
+                .setPositiveButton("Se déconnecter", (dialog, which) -> {
+                    clearLiveListener();
+                    auth.signOut();
+                    showPhoneScreen();
+                })
+                .show());
         setContentView(content);
     }
 
@@ -613,6 +1038,39 @@ public final class MainActivity extends Activity {
     private long timestampMillis(DocumentSnapshot document) {
         Timestamp value = document.getTimestamp("updatedAt");
         return value == null ? 0L : value.toDate().getTime();
+    }
+
+    private void cacheDisplayName(FirebaseUser user, String displayName) {
+        getSharedPreferences(SESSION_PREFS, MODE_PRIVATE).edit()
+                .putString("display_name_" + user.getUid(), displayName.trim())
+                .apply();
+    }
+
+    private String cachedDisplayName(FirebaseUser user) {
+        String firebaseName = stringValue(user.getDisplayName(), "");
+        if (firebaseName.length() >= 2) return firebaseName;
+        String cached = getSharedPreferences(SESSION_PREFS, MODE_PRIVATE)
+                .getString("display_name_" + user.getUid(), "");
+        if (cached != null && cached.trim().length() >= 2) return cached.trim();
+        String phone = stringValue(user.getPhoneNumber(), "");
+        return phone.isEmpty() ? "Membre WHAPPY" : "Membre " + phone.substring(Math.max(0, phone.length() - 4));
+    }
+
+    private LinearLayout actionRow(Button left, Button right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(left, weightedHeight(1, 86));
+        row.addView(right, leftWeightedHeight(1, 86, 9));
+        return row;
+    }
+
+    private Button actionButton(String value, View.OnClickListener listener) {
+        Button button = secondaryButton(value);
+        button.setTextColor(TEXT);
+        button.setTextSize(15);
+        button.setGravity(Gravity.CENTER);
+        button.setOnClickListener(listener);
+        return button;
     }
 
     private void addBrand(LinearLayout parent) {
@@ -795,6 +1253,12 @@ public final class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams leftSized(int width, int height, int margin) {
         LinearLayout.LayoutParams params = sized(width, height);
+        params.leftMargin = dp(margin);
+        return params;
+    }
+
+    private LinearLayout.LayoutParams leftWeightedHeight(float weight, int height, int margin) {
+        LinearLayout.LayoutParams params = weightedHeight(weight, height);
         params.leftMargin = dp(margin);
         return params;
     }
