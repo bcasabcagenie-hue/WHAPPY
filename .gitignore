@@ -42,7 +42,10 @@ yarn-error.log*
 /android/build/
 /android/local.properties
 /android/app/build/
+/android/keystore.properties
+/android/*.jks
 /releases/*.apk
+/releases/*.aab
 /releases/*.apk.idsig
 /outputs/
 /work/

@@ -37,7 +37,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Continuer par SMS/);
   assert.match(html, /Un numéro = un compte Whappy/);
   assert.match(html, /Télécharger WHAPPY Android native 1\.1/);
-  assert.match(html, /WHAPPY-Android-1\.1\.0-native-test\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.1\.0-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
