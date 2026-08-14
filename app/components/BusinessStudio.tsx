@@ -7,7 +7,7 @@ const pageTypes = { business: "Entreprise", creator: "Créateur", organization: 
 const objectives = { reach: "Notoriété", messages: "Messages", traffic: "Visites", sales: "Ventes" } as const;
 const campaignStatuses = { draft: "Brouillon", active: "En diffusion", paused: "En pause", completed: "Terminée" } as const;
 
-export function BusinessStudio({ userId, userName, search, notify }: { userId: string; userName: string; search: string; notify: (text: string) => void }) {
+export function BusinessStudio({ userId, userName, search, notify, demo = false }: { userId: string; userName: string; search: string; notify: (text: string) => void; demo?: boolean }) {
   const [tab, setTab] = useState<"overview" | "pages" | "ads">("overview");
   const [pages, setPages] = useState<BusinessPage[]>([]);
   const [campaigns, setCampaigns] = useState<AdCampaign[]>([]);
@@ -19,9 +19,9 @@ export function BusinessStudio({ userId, userName, search, notify }: { userId: s
   const notifyRef = useRef(notify);
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
-  useEffect(() => watchBusinessPages(userId, setPages, () => notifyRef.current("Vos pages sont momentanément indisponibles")), [userId]);
-  useEffect(() => watchOwnerCampaigns(userId, setCampaigns, () => notifyRef.current("Vos campagnes sont momentanément indisponibles")), [userId]);
-  useEffect(() => watchOwnerAdEvents(userId, setEvents, () => notifyRef.current("Les statistiques sont momentanément indisponibles")), [userId]);
+  useEffect(() => demo ? undefined : watchBusinessPages(userId, setPages, () => notifyRef.current("Vos pages sont momentanément indisponibles")), [demo,userId]);
+  useEffect(() => demo ? undefined : watchOwnerCampaigns(userId, setCampaigns, () => notifyRef.current("Vos campagnes sont momentanément indisponibles")), [demo,userId]);
+  useEffect(() => demo ? undefined : watchOwnerAdEvents(userId, setEvents, () => notifyRef.current("Les statistiques sont momentanément indisponibles")), [demo,userId]);
 
   const metrics = useMemo(() => {
     const impressions = events.filter((event) => event.type === "impression").length;

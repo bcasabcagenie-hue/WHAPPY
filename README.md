@@ -1,6 +1,6 @@
 # Whappy
 
-Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, chercher, négocier et présenter ses produits en direct. Le projet est prêt à être développé dans Visual Studio Code et utilise l'identité noire et vert néon du logo officiel.
+Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, chercher, négocier et présenter ses produits en direct. Le projet est prêt à être développé dans Visual Studio Code et utilise la nouvelle identité bleue `#00A2E6` de Whappy.
 
 ## Expérience disponible
 
@@ -61,6 +61,7 @@ Les clés Firebase Web identifient l'application ; les autorisations réelles re
 - `app/globals.css` : design responsive et identité visuelle ;
 - `app/layout.tsx` : métadonnées, icône et carte sociale ;
 - `public/whappy-logo.svg` : logo officiel ;
+- `public/whappy-app-icon.svg` : icône officielle de l’application ;
 - `public/whappy-social.png` : visuel de partage ;
 - `.vscode/` : lancement prêt pour Visual Studio Code ;
 - `tests/` : tests automatiques.

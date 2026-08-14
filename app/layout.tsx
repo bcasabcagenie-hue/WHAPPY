@@ -1,7 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import "./white-green.css";
+import "./blue-brand.css";
 import "./studio.css";
 
 const geist = Geist({
@@ -14,8 +14,9 @@ export const metadata: Metadata = {
   title: "Whappy — Tout peut devenir une opportunité",
   description: "Trouvez, vendez, troquez et diffusez en direct dans le réseau d'opportunités qui rapproche les besoins des solutions.",
   icons: {
-    icon: "/whappy-logo.svg",
-    shortcut: "/whappy-logo.svg",
+    icon: "/whappy-app-icon.svg",
+    shortcut: "/whappy-app-icon.svg",
+    apple: "/whappy-app-icon.svg",
   },
   openGraph: {
     title: "Whappy — Tout peut devenir une opportunité",
@@ -30,6 +31,10 @@ export const metadata: Metadata = {
     description: "Directs marchands, vente, troc, recherche et Double vidéo consentant.",
     images: ["/whappy-social.png"],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#00A2E6",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
