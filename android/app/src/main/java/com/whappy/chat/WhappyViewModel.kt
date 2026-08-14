@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +23,9 @@ class WhappyViewModel(
     private var listingsListener: ListenerRegistration? = null
     private var businessListener: ListenerRegistration? = null
     private var campaignsListener: ListenerRegistration? = null
+    private var livesListener: ListenerRegistration? = null
+    private var dealsListener: ListenerRegistration? = null
+    private var paymentNoticesListener: ListenerRegistration? = null
     private var twinProfileListener: ListenerRegistration? = null
     private var twinAutomationsListener: ListenerRegistration? = null
     private var twinRendersListener: ListenerRegistration? = null
@@ -158,6 +162,44 @@ class WhappyViewModel(
         }
     }
 
+    fun createLive(title: String, category: String, productTitle: String) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
+        repository.createLive(user.uid, accountName(), title, category, productTitle)
+    }
+
+    fun endLive(liveId: String) = runBusinessAction("Le direct n’a pas pu être terminé") { user ->
+        repository.endLive(user.uid, liveId)
+    }
+
+    fun createDeal(page: WhappyBusinessPage, title: String, description: String, originalPrice: Long, dealPrice: Long, stock: Int, durationDays: Int) = runBusinessAction("Le Deal n’a pas été publié") { user ->
+        repository.createDeal(user.uid, page, title, description, originalPrice, dealPrice, stock, durationDays)
+    }
+
+    fun markPaymentNoticeRead(noticeId: String) {
+        val user = _uiState.value.user ?: return
+        viewModelScope.launch {
+            runCatching { repository.markPaymentNoticeRead(user.uid, noticeId) }
+                .onFailure { _uiState.update { it.copy(error = "La notification n’a pas été mise à jour") } }
+        }
+    }
+
+    fun registerPushNotifications() {
+        val user = _uiState.value.user ?: return
+        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+            viewModelScope.launch { runCatching { repository.registerDeviceToken(user.uid, token) } }
+        }
+    }
+
+    private fun runBusinessAction(errorMessage: String, action: suspend (com.google.firebase.auth.FirebaseUser) -> Unit) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { action(user) }
+                .onSuccess { _uiState.update { it.copy(actionBusy = false, online = true) } }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = errorMessage) } }
+        }
+    }
+
     fun saveTwinConsent(consent: Boolean) = runTwinAction("Les autorisations du WHAPPY n’ont pas été synchronisées") { user ->
         repository.saveTwinConsent(user.uid, accountName(), consent)
     }
@@ -216,6 +258,9 @@ class WhappyViewModel(
         listingsListener?.remove()
         businessListener?.remove()
         campaignsListener?.remove()
+        livesListener?.remove()
+        dealsListener?.remove()
+        paymentNoticesListener?.remove()
         twinProfileListener?.remove()
         twinAutomationsListener?.remove()
         twinRendersListener?.remove()
@@ -224,6 +269,9 @@ class WhappyViewModel(
         listingsListener = null
         businessListener = null
         campaignsListener = null
+        livesListener = null
+        dealsListener = null
+        paymentNoticesListener = null
         twinProfileListener = null
         twinAutomationsListener = null
         twinRendersListener = null
@@ -252,6 +300,21 @@ class WhappyViewModel(
             onChange = { campaigns -> _uiState.update { it.copy(campaigns = campaigns, online = true) } },
             onError = { _uiState.update { it.copy(online = false) } },
         )
+        livesListener = repository.observeLives(
+            onChange = { items -> _uiState.update { it.copy(lives = items, online = true) } },
+            onError = { _uiState.update { it.copy(online = false) } },
+        )
+        dealsListener = repository.observeDeals(
+            user.uid,
+            onChange = { items -> _uiState.update { it.copy(deals = items, online = true) } },
+            onError = { _uiState.update { it.copy(online = false) } },
+        )
+        paymentNoticesListener = repository.observePaymentNotices(
+            user.uid,
+            onChange = { items -> _uiState.update { it.copy(paymentNotices = items, online = true) } },
+            onError = { _uiState.update { it.copy(online = false) } },
+        )
+        registerPushNotifications()
         twinProfileListener = repository.observeTwinProfile(
             user.uid,
             onChange = { profile -> _uiState.update { it.copy(twinProfile = profile, online = true) } },
@@ -294,6 +357,9 @@ class WhappyViewModel(
         listingsListener?.remove()
         businessListener?.remove()
         campaignsListener?.remove()
+        livesListener?.remove()
+        dealsListener?.remove()
+        paymentNoticesListener?.remove()
         twinProfileListener?.remove()
         twinAutomationsListener?.remove()
         twinRendersListener?.remove()

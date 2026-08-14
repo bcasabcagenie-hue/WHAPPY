@@ -1,10 +1,14 @@
 package com.whappy.chat
 
+import android.Manifest
 import android.app.Activity
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -28,6 +32,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             val model: WhappyViewModel = viewModel()
             val state by model.uiState.collectAsStateWithLifecycle()
+            val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                if (granted) {
+                    WhappyNotifications.ensureChannel(this)
+                    model.registerPushNotifications()
+                }
+            }
             WhappyTheme {
                 WhappyRoot(
                     state = state,
@@ -42,6 +52,15 @@ class MainActivity : ComponentActivity() {
                     onPublishListing = model::publishListing,
                     onCreateBusinessPage = model::createBusinessPage,
                     onCreateCampaign = model::createCampaign,
+                    onCreateLive = model::createLive,
+                    onEndLive = model::endLive,
+                    onCreateDeal = model::createDeal,
+                    onMarkPaymentRead = model::markPaymentNoticeRead,
+                    onEnableNotifications = {
+                        WhappyNotifications.ensureChannel(this)
+                        if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        else model.registerPushNotifications()
+                    },
                     onSaveTwinConsent = model::saveTwinConsent,
                     onUploadTwinAsset = model::uploadTwinAsset,
                     onCreateTwinAutomation = model::createTwinAutomation,

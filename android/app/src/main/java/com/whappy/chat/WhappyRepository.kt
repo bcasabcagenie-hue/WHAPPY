@@ -12,6 +12,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 import java.util.UUID
 
 class WhappyRepository(
@@ -162,6 +163,87 @@ class WhappyRepository(
                     status = document.getString("status") ?: "active",
                 )
             })
+        }
+
+    fun observeLives(
+        onChange: (List<WhappyLive>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("liveSessions")
+        .whereIn("status", listOf("scheduled", "live"))
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().map { document ->
+                WhappyLive(
+                    id = document.id,
+                    hostId = document.getString("hostId").orEmpty(),
+                    hostName = document.getString("hostName") ?: "Créateur WHAPPY",
+                    title = document.getString("title") ?: "Direct WHAPPY",
+                    category = document.getString("category") ?: "Communauté",
+                    productTitle = document.getString("productTitle").orEmpty(),
+                    status = document.getString("status") ?: "scheduled",
+                    viewerCount = document.getLong("viewerCount")?.toInt() ?: 0,
+                    startedAt = document.timestampMillis("startedAt"),
+                )
+            }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt }))
+        }
+
+    fun observeDeals(
+        ownerId: String,
+        onChange: (List<WhappyDeal>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("businessDeals")
+        .whereEqualTo("ownerId", ownerId)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().map { document ->
+                WhappyDeal(
+                    id = document.id,
+                    pageId = document.getString("pageId").orEmpty(),
+                    pageName = document.getString("pageName") ?: "Page WHAPPY",
+                    ownerId = document.getString("ownerId").orEmpty(),
+                    title = document.getString("title") ?: "Deal WHAPPY",
+                    description = document.getString("description").orEmpty(),
+                    originalPrice = document.getLong("originalPrice") ?: 0L,
+                    dealPrice = document.getLong("dealPrice") ?: 0L,
+                    stock = document.getLong("stock")?.toInt() ?: 0,
+                    sold = document.getLong("sold")?.toInt() ?: 0,
+                    endsAt = document.timestampMillis("endsAt"),
+                    status = document.getString("status") ?: "active",
+                )
+            }.sortedByDescending { it.endsAt })
+        }
+
+    fun observePaymentNotices(
+        ownerId: String,
+        onChange: (List<WhappyPaymentNotice>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("paymentNotifications")
+        .whereEqualTo("ownerId", ownerId)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().map { document ->
+                WhappyPaymentNotice(
+                    id = document.id,
+                    pageId = document.getString("pageId").orEmpty(),
+                    dealId = document.getString("dealId").orEmpty(),
+                    buyerName = document.getString("buyerName") ?: "Client WHAPPY",
+                    amount = document.getLong("amount") ?: 0L,
+                    currency = document.getString("currency") ?: "XAF",
+                    provider = document.getString("provider") ?: "Paiement WHAPPY",
+                    status = document.getString("status") ?: "pending",
+                    createdAt = document.timestampMillis("createdAt"),
+                    read = document.getBoolean("read") ?: false,
+                )
+            }.sortedByDescending { it.createdAt })
         }
 
     fun observeTwinProfile(
@@ -375,6 +457,72 @@ class WhappyRepository(
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
+        ).await()
+    }
+
+    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String) {
+        require(title.trim().length in 2..120)
+        db.collection("liveSessions").add(
+            mapOf(
+                "hostId" to userId,
+                "hostName" to hostName.trim().take(80),
+                "title" to title.trim(),
+                "category" to category.trim().take(60),
+                "productTitle" to productTitle.trim().take(120),
+                "status" to "scheduled",
+                "viewerCount" to 0,
+                "streamProvider" to "unconfigured",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "startedAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
+    suspend fun endLive(userId: String, liveId: String) {
+        val reference = db.collection("liveSessions").document(liveId)
+        val document = reference.get().await()
+        require(document.getString("hostId") == userId)
+        reference.update(mapOf("status" to "ended", "updatedAt" to FieldValue.serverTimestamp())).await()
+    }
+
+    suspend fun createDeal(userId: String, page: WhappyBusinessPage, title: String, description: String, originalPrice: Long, dealPrice: Long, stock: Int, durationDays: Int) {
+        require(title.trim().length in 2..120)
+        require(dealPrice > 0 && originalPrice >= dealPrice)
+        require(stock in 1..100_000 && durationDays in 1..90)
+        val endsAt = com.google.firebase.Timestamp(Date(System.currentTimeMillis() + durationDays * 86_400_000L))
+        db.collection("businessDeals").add(
+            mapOf(
+                "ownerId" to userId,
+                "pageId" to page.id,
+                "pageName" to page.name,
+                "title" to title.trim(),
+                "description" to description.trim().take(600),
+                "originalPrice" to originalPrice,
+                "dealPrice" to dealPrice,
+                "stock" to stock,
+                "sold" to 0,
+                "endsAt" to endsAt,
+                "status" to "active",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
+    suspend fun markPaymentNoticeRead(userId: String, noticeId: String) {
+        val reference = db.collection("paymentNotifications").document(noticeId)
+        val document = reference.get().await()
+        require(document.getString("ownerId") == userId)
+        reference.update(mapOf("read" to true, "readAt" to FieldValue.serverTimestamp())).await()
+    }
+
+    suspend fun registerDeviceToken(userId: String, token: String) {
+        if (token.isBlank()) return
+        val deviceId = token.takeLast(32).replace(Regex("[^A-Za-z0-9_-]"), "_")
+        db.collection("users").document(userId).collection("devices").document(deviceId).set(
+            mapOf("token" to token, "platform" to "android", "enabled" to true, "updatedAt" to FieldValue.serverTimestamp()),
+            com.google.firebase.firestore.SetOptions.merge(),
         ).await()
     }
 

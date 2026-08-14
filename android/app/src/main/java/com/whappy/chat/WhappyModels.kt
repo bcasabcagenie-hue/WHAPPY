@@ -6,6 +6,7 @@ enum class WhappyTab(val label: String) {
     MOMENTS("Moments"),
     MESSAGES("Messages"),
     MARKET("Marché"),
+    LIVE("Live"),
     BUSINESS("Business"),
     PROFILE("Profil"),
 }
@@ -79,6 +80,46 @@ data class WhappyCampaignDraft(
     val days: Int,
 )
 
+data class WhappyLive(
+    val id: String,
+    val hostId: String,
+    val hostName: String,
+    val title: String,
+    val category: String,
+    val productTitle: String,
+    val status: String,
+    val viewerCount: Int,
+    val startedAt: Long,
+)
+
+data class WhappyDeal(
+    val id: String,
+    val pageId: String,
+    val pageName: String,
+    val ownerId: String,
+    val title: String,
+    val description: String,
+    val originalPrice: Long,
+    val dealPrice: Long,
+    val stock: Int,
+    val sold: Int,
+    val endsAt: Long,
+    val status: String,
+)
+
+data class WhappyPaymentNotice(
+    val id: String,
+    val pageId: String,
+    val dealId: String,
+    val buyerName: String,
+    val amount: Long,
+    val currency: String,
+    val provider: String,
+    val status: String,
+    val createdAt: Long,
+    val read: Boolean,
+)
+
 data class WhappyTwinProfile(
     val displayName: String = "",
     val identityConsent: Boolean = false,
@@ -122,6 +163,9 @@ data class WhappyUiState(
     val listings: List<WhappyListing> = emptyList(),
     val businessPages: List<WhappyBusinessPage> = emptyList(),
     val campaigns: List<WhappyCampaign> = emptyList(),
+    val lives: List<WhappyLive> = emptyList(),
+    val deals: List<WhappyDeal> = emptyList(),
+    val paymentNotices: List<WhappyPaymentNotice> = emptyList(),
     val twinProfile: WhappyTwinProfile? = null,
     val twinAutomations: List<WhappyTwinAutomation> = emptyList(),
     val twinRenders: List<WhappyTwinRender> = emptyList(),
