@@ -122,6 +122,42 @@ class WhappyViewModel(
         }
     }
 
+    fun searchBusinesses(query: String) {
+        if (_uiState.value.businessSearchBusy) return
+        _uiState.update { it.copy(businessSearchBusy = true, businessSearchResults = emptyList(), error = null) }
+        viewModelScope.launch {
+            runCatching { repository.searchBusinessPages(query) }
+                .onSuccess { pages -> _uiState.update { it.copy(businessSearchBusy = false, businessSearchResults = pages, online = true) } }
+                .onFailure { _uiState.update { it.copy(businessSearchBusy = false, error = "La recherche Business est momentanément indisponible") } }
+        }
+    }
+
+    fun contactBusiness(page: WhappyBusinessPage) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.contactBusy) return
+        _uiState.update { it.copy(contactBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val peer = repository.findUserById(page.ownerId) ?: error("not-found")
+                if (peer.uid == user.uid) error("self")
+                repository.ensureDirectConversation(
+                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    peer,
+                )
+            }.onSuccess { conversation ->
+                _uiState.update { it.copy(contactBusy = false) }
+                openConversation(conversation)
+            }.onFailure { failure ->
+                val message = when (failure.message) {
+                    "not-found" -> "Ce Business n’est pas encore joignable sur WHAPPY"
+                    "self" -> "Cette page Business vous appartient"
+                    else -> "La conversation Business n’a pas pu être ouverte"
+                }
+                _uiState.update { it.copy(contactBusy = false, error = message) }
+            }
+        }
+    }
+
     fun publishListing(title: String, price: String, place: String, mode: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.actionBusy) return

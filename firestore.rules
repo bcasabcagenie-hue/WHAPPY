@@ -267,7 +267,7 @@ service cloud.firestore {
           || request.resource.data.coverUrl is string)
         && request.resource.data.type in ["business", "creator", "organization"]
         && request.resource.data.status in ["active", "hidden"]
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "type", "category", "bio", "city", "phone", "website", "logoUrl", "coverUrl", "status", "updatedAt"]);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "searchName", "type", "category", "bio", "city", "phone", "website", "logoUrl", "coverUrl", "status", "updatedAt"]);
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
     }
 

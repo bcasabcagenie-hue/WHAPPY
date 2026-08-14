@@ -167,19 +167,7 @@ class WhappyRepository(
                 onError(error)
                 return@addSnapshotListener
             }
-            onChange(snapshot?.documents.orEmpty().map { document ->
-                WhappyBusinessPage(
-                    id = document.id,
-                    name = document.getString("name") ?: "Page WHAPPY",
-                    handle = document.getString("handle").orEmpty(),
-                    category = document.getString("category").orEmpty(),
-                    bio = document.getString("bio").orEmpty(),
-                    city = document.getString("city") ?: "Brazzaville",
-                    ownerId = document.getString("ownerId").orEmpty(),
-                    phone = document.getString("phone").orEmpty(),
-                    website = document.getString("website").orEmpty(),
-                )
-            })
+            onChange(snapshot?.documents.orEmpty().map { it.toBusinessPage() })
         }
 
     fun observeCampaigns(
@@ -463,6 +451,7 @@ class WhappyRepository(
             mapOf(
                 "ownerId" to userId,
                 "name" to value,
+                "searchName" to value.lowercase(),
                 "handle" to handle,
                 "type" to "business",
                 "category" to category.trim(),
@@ -484,6 +473,7 @@ class WhappyRepository(
         db.collection("businessPages").document(page.id).update(
             mapOf(
                 "name" to name.trim(),
+                "searchName" to name.trim().lowercase(),
                 "type" to "business",
                 "category" to category.trim().take(80),
                 "bio" to bio.trim().take(400),
@@ -701,19 +691,41 @@ class WhappyRepository(
     }
 
     suspend fun findUserByPhone(phone: String): WhappyMember? {
-        val normalized = normalizePhone(phone)
-        if (normalized.isBlank()) return null
-        val snapshot = db.collection("users")
-            .whereEqualTo("phoneNumber", normalized)
-            .limit(1)
+        val candidates = PhoneNumberFormatter.lookupCandidates(phone)
+        if (candidates.isEmpty()) return null
+        for (candidate in candidates) {
+            val document = db.collection("users")
+                .whereEqualTo("phoneNumber", candidate)
+                .limit(1)
+                .get()
+                .await()
+                .documents
+                .firstOrNull()
+            if (document != null) return document.toMember()
+        }
+        return null
+    }
+
+    suspend fun findUserById(userId: String): WhappyMember? {
+        val document = db.collection("users").document(userId).get().await()
+        return document.takeIf { it.exists() }?.toMember()
+    }
+
+    suspend fun searchBusinessPages(query: String): List<WhappyBusinessPage> {
+        val needle = query.trim().lowercase()
+        if (needle.length < 2) return emptyList()
+        return db.collection("businessPages")
+            .limit(100)
             .get()
             .await()
-        val document = snapshot.documents.firstOrNull() ?: return null
-        return WhappyMember(
-            uid = document.id,
-            displayName = document.getString("displayName")?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
-            phoneNumber = document.getString("phoneNumber").orEmpty(),
-        )
+            .documents
+            .map { it.toBusinessPage() }
+            .filter { page ->
+                listOf(page.name, page.handle, page.category, page.city, page.bio)
+                    .any { value -> value.lowercase().contains(needle) }
+            }
+            .sortedWith(compareBy<WhappyBusinessPage> { !it.name.lowercase().startsWith(needle) }.thenBy { it.name.lowercase() })
+            .take(20)
     }
 
     suspend fun ensureDirectConversation(current: WhappyMember, peer: WhappyMember): WhappyConversation {
@@ -772,6 +784,24 @@ class WhappyRepository(
 
     private fun DocumentSnapshot.timestampMillis(field: String): Long =
         getTimestamp(field)?.toDate()?.time ?: 0L
+
+    private fun DocumentSnapshot.toMember(): WhappyMember = WhappyMember(
+        uid = id,
+        displayName = getString("displayName")?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
+        phoneNumber = getString("phoneNumber").orEmpty(),
+    )
+
+    private fun DocumentSnapshot.toBusinessPage(): WhappyBusinessPage = WhappyBusinessPage(
+        id = id,
+        name = getString("name") ?: "Page WHAPPY",
+        handle = getString("handle").orEmpty(),
+        category = getString("category").orEmpty(),
+        bio = getString("bio").orEmpty(),
+        city = getString("city") ?: "Brazzaville",
+        ownerId = getString("ownerId").orEmpty(),
+        phone = getString("phone").orEmpty(),
+        website = getString("website").orEmpty(),
+    )
 
     private fun normalizePhone(value: String): String {
         return PhoneNumberFormatter.normalize("+242", value).orEmpty()

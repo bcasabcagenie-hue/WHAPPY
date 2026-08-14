@@ -1,6 +1,9 @@
 package com.whappy.chat;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 final class PhoneNumberFormatter {
@@ -46,6 +49,25 @@ final class PhoneNumberFormatter {
             return nationalLength == entry.getValue() ? candidate : null;
         }
         return candidate;
+    }
+
+    static List<String> lookupCandidates(String rawValue) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        String normalized = normalize("+242", rawValue);
+        if (normalized != null) candidates.add(normalized);
+        if (rawValue == null) return new ArrayList<>(candidates);
+
+        String digits = rawValue.replaceAll("\\D", "");
+        if (digits.startsWith("00")) digits = digits.substring(2);
+        if (digits.startsWith("242") && digits.length() > 3) {
+            String withCountry = "+" + digits;
+            if (normalize("+242", withCountry) != null) candidates.add(withCountry);
+        }
+        if (digits.length() == 9) {
+            String local = "+242" + digits;
+            if (normalize("+242", local) != null) candidates.add(local);
+        }
+        return new ArrayList<>(candidates);
     }
 
     private static boolean dropsDomesticZero(String countryCode) {

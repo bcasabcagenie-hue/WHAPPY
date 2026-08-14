@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.3\.3-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.3\.4-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 

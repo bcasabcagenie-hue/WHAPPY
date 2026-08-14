@@ -3,7 +3,10 @@
 package com.whappy.chat
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.Bitmap
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
@@ -138,6 +141,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -225,6 +233,8 @@ fun WhappyRoot(
     onSendMessage: (String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
     onAddContact: (String) -> Unit,
+    onSearchBusinesses: (String) -> Unit,
+    onContactBusiness: (WhappyBusinessPage) -> Unit,
     onPublishListing: (String, String, String, String) -> Unit,
     onCreateBusinessPage: (String, String, String, String) -> Unit,
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
@@ -270,6 +280,8 @@ fun WhappyRoot(
         onSendMessage = onSendMessage,
         onSendMedia = onSendMedia,
         onAddContact = onAddContact,
+        onSearchBusinesses = onSearchBusinesses,
+        onContactBusiness = onContactBusiness,
         onPublishListing = onPublishListing,
         onCreateBusinessPage = onCreateBusinessPage,
         onUpdateBusinessPage = onUpdateBusinessPage,
@@ -427,6 +439,8 @@ private fun WhappyMain(
     onSendMessage: (String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
     onAddContact: (String) -> Unit,
+    onSearchBusinesses: (String) -> Unit,
+    onContactBusiness: (WhappyBusinessPage) -> Unit,
     onPublishListing: (String, String, String, String) -> Unit,
     onCreateBusinessPage: (String, String, String, String) -> Unit,
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
@@ -526,7 +540,18 @@ private fun WhappyMain(
                 AnimatedContent(currentTab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "whappy-tab") { tab ->
                     when (tab) {
                         WhappyTab.MOMENTS -> MomentsScreen(state.twinProfile?.readiness ?: 0, onTab, onOpenWhappies = { showTwinStudio = true })
-                        WhappyTab.MESSAGES -> MessagesScreen(if (preview) demoConversations else state.conversations, state.loading, preview, state.contactBusy, onAddContact) { if (preview) previewConversation = it else onOpenConversation(it) }
+                        WhappyTab.MESSAGES -> MessagesScreen(
+                            conversations = if (preview) demoConversations else state.conversations,
+                            loading = state.loading,
+                            preview = preview,
+                            contactBusy = state.contactBusy,
+                            businessResults = if (preview) demoBusinessPages else state.businessSearchResults,
+                            businessSearchBusy = state.businessSearchBusy,
+                            onAddContact = onAddContact,
+                            onSearchBusinesses = onSearchBusinesses,
+                            onContactBusiness = onContactBusiness,
+                            onOpen = { if (preview) previewConversation = it else onOpenConversation(it) },
+                        )
                         WhappyTab.MARKET -> MarketScreen(if (preview) demoListings else state.listings, preview, state.actionBusy, onPublishListing)
                         WhappyTab.LIVE -> LiveScreen(
                             lives = if (preview) demoLives else state.lives,
@@ -1072,11 +1097,43 @@ private fun MessagesScreen(
     loading: Boolean,
     preview: Boolean,
     contactBusy: Boolean,
+    businessResults: List<WhappyBusinessPage>,
+    businessSearchBusy: Boolean,
     onAddContact: (String) -> Unit,
+    onSearchBusinesses: (String) -> Unit,
+    onContactBusiness: (WhappyBusinessPage) -> Unit,
     onOpen: (WhappyConversation) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
+    var searchingBusiness by remember { mutableStateOf(false) }
     var phone by remember { mutableStateOf("") }
+    var scanError by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    fun scanWhappyCode() {
+        val activity = context.findActivity()
+        if (activity == null) {
+            scanError = "Le scanner n’est pas disponible sur cet appareil"
+            return
+        }
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .enableAutoZoom()
+            .build()
+        GmsBarcodeScanning.getClient(activity, options).startScan()
+            .addOnSuccessListener { barcode ->
+                val number = phoneFromWhappyCode(barcode.rawValue.orEmpty())
+                if (number == null) {
+                    scanError = "Ce code n’est pas un code contact WHAPPY valide"
+                } else {
+                    phone = number
+                    adding = false
+                    if (!preview) onAddContact(number)
+                }
+            }
+            .addOnFailureListener { scanError = "Le scanner n’a pas pu démarrer. Vérifiez Google Play services." }
+    }
+
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text("Messages", fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text("Vos conversations instantanées", color = WhappyMuted) }
@@ -1099,10 +1156,10 @@ private fun MessagesScreen(
         }
         if (adding) AlertDialog(
             onDismissRequest = { adding = false },
-            title = { Text("Nouveau contact WHAPPY") },
+            title = { Text("Ajouter sur WHAPPY") },
             text = {
-                Column {
-                    Text("Entrez le numéro complet du contact.", color = WhappyMuted)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Saisissez le numéro avec ou sans +242, ou scannez le code personnel de votre contact.", color = WhappyMuted)
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { phone = it },
@@ -1111,6 +1168,11 @@ private fun MessagesScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         singleLine = true,
                     )
+                    OutlinedButton(onClick = { if (preview) scanError = "Le scan est disponible dans l’application connectée" else scanWhappyCode() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp))
+                        Text("  Scanner un code WHAPPY", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = { adding = false; searchingBusiness = true }, modifier = Modifier.fillMaxWidth()) { Text("Trouver un Business à la place") }
                 }
             },
             confirmButton = {
@@ -1124,7 +1186,77 @@ private fun MessagesScreen(
             },
             dismissButton = { TextButton(onClick = { adding = false }) { Text("Annuler") } },
         )
+        if (searchingBusiness) BusinessSearchDialog(
+            results = businessResults,
+            busy = businessSearchBusy,
+            contactBusy = contactBusy,
+            onSearch = onSearchBusinesses,
+            onContact = { page ->
+                searchingBusiness = false
+                if (!preview) onContactBusiness(page)
+            },
+            onDismiss = { searchingBusiness = false },
+        )
+        if (scanError != null) AlertDialog(
+            onDismissRequest = { scanError = null },
+            title = { Text("Scanner WHAPPY") },
+            text = { Text(scanError.orEmpty()) },
+            confirmButton = { TextButton(onClick = { scanError = null }) { Text("Compris") } },
+        )
     }
+}
+
+@Composable
+private fun BusinessSearchDialog(
+    results: List<WhappyBusinessPage>,
+    busy: Boolean,
+    contactBusy: Boolean,
+    onSearch: (String) -> Unit,
+    onContact: (WhappyBusinessPage) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val hasSearched = query.trim().length >= 2
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Trouver un Business") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Cherchez une marque, une activité, un @handle ou une ville.", color = WhappyMuted)
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it.take(80) },
+                    label = { Text("Ex. Mokabi, mode, Brazzaville") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    singleLine = true,
+                    keyboardActions = KeyboardActions(onSearch = { if (hasSearched) onSearch(query) }),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(enabled = hasSearched && !busy, onClick = { onSearch(query) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                    if (busy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text("Rechercher", fontWeight = FontWeight.Bold)
+                }
+                if (hasSearched && !busy && results.isEmpty()) Text("Aucun Business trouvé. Essayez un nom, une catégorie ou une ville.", color = WhappyMuted, fontSize = 12.sp)
+                if (results.isNotEmpty()) LazyColumn(Modifier.height(230.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(results, key = { it.id }) { page ->
+                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC))) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = WhappyBlue, modifier = Modifier.size(20.dp)) }
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark)
+                                    Text(listOf(page.category, page.city).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Business WHAPPY" }, color = WhappyMuted, fontSize = 11.sp)
+                                    if (page.handle.isNotBlank()) Text("@${page.handle}", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(enabled = !contactBusy, onClick = { onContact(page) }) { Text("Contacter") }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
 }
 
 @Composable
@@ -1860,6 +1992,7 @@ private fun ProfileScreen(
 ) {
     val context = LocalContext.current
     var localPhoto by remember(photoUrl) { mutableStateOf(photoUrl) }
+    var showingMyCode by remember { mutableStateOf(false) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         localPhoto = uri.toString()
@@ -1885,6 +2018,10 @@ private fun ProfileScreen(
                     Text(name, Modifier.padding(top = 14.dp), fontSize = 23.sp, fontWeight = FontWeight.Black, color = WhappyDark)
                     Text(if (preview) "Mode démonstration" else phone, Modifier.padding(top = 4.dp), color = WhappyMuted)
                     Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.size(17.dp)); Text("Compte WHAPPY vérifié", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    OutlinedButton(onClick = { showingMyCode = true }, Modifier.padding(top = 14.dp), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Rounded.Person, null, modifier = Modifier.size(18.dp))
+                        Text("  Mon code WHAPPY", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -1896,6 +2033,60 @@ private fun ProfileScreen(
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
     }
+    if (showingMyCode) WhappyCodeDialog(name = name, phone = phone, onDismiss = { showingMyCode = false })
+}
+
+@Composable
+private fun WhappyCodeDialog(name: String, phone: String, onDismiss: () -> Unit) {
+    val normalized = remember(phone) { PhoneNumberFormatter.normalize("+242", phone).orEmpty() }
+    val qrCode = remember(normalized) { normalized.takeIf { it.isNotBlank() }?.let(::createWhappyQr) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mon code WHAPPY") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Présentez ce code à ${name.ifBlank { "votre contact" }} pour être ajouté instantanément.", color = WhappyMuted)
+                if (qrCode != null) {
+                    Image(
+                        bitmap = qrCode.asImageBitmap(),
+                        contentDescription = "Code QR WHAPPY de $name",
+                        modifier = Modifier.padding(top = 18.dp).size(210.dp).clip(RoundedCornerShape(18.dp)),
+                    )
+                    Text(normalized, Modifier.padding(top = 11.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
+                } else {
+                    Text("Votre numéro sécurisé sera disponible ici dès que votre profil sera synchronisé.", Modifier.padding(top = 16.dp), color = WhappyMuted)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Terminé") } },
+    )
+}
+
+private fun createWhappyQr(phone: String): Bitmap = QRCodeWriter().encode(
+    "whappy://contact/$phone",
+    BarcodeFormat.QR_CODE,
+    600,
+    600,
+).let { matrix ->
+    Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888).apply {
+        for (x in 0 until matrix.width) for (y in 0 until matrix.height) {
+            setPixel(x, y, if (matrix[x, y]) android.graphics.Color.rgb(16, 46, 59) else android.graphics.Color.WHITE)
+        }
+    }
+}
+
+private fun phoneFromWhappyCode(value: String): String? {
+    val raw = value.trim()
+        .removePrefix("whappy://contact/")
+        .removePrefix("WHAPPY:CONTACT:")
+        .removePrefix("whappy:contact:")
+    return PhoneNumberFormatter.normalize("+242", raw)
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable
