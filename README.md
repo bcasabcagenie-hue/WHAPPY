@@ -12,6 +12,7 @@ Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, cherch
 - **Messages** : négociation contextualisée autour d'une transaction ;
 - **Mon Double** : parcours de création d'un présentateur vidéo numérique pour ses propres produits.
 - **Connexion téléphone** : inscription sans mot de passe, code SMS et règle « un numéro = un compte » avec Firebase Phone Auth.
+- **Services locaux utilisables** : portefeuille de démonstration persistant, paiements fictifs, QR de réception, coupons et demandes de transport, livraison ou santé sans écran mort.
 
 Le Double vidéo exige un consentement explicite, reste révocable, affiche son caractère artificiel et ne doit utiliser que l'image ou la voix dont la personne contrôle les droits.
 
@@ -44,6 +45,19 @@ npm run check
 
 Cette commande vérifie le code, produit la version finale et exécute les tests.
 
+## iOS
+
+Le projet natif SwiftUI se trouve dans `ios/Whappy.xcodeproj`. Il cible iOS 17 et utilise le bundle identifier `com.whappy.chat`.
+
+```bash
+cd ios
+ruby generate_project.rb
+xcodebuild -project Whappy.xcodeproj -scheme Whappy -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+```
+
+La signature d’un iPhone et la publication TestFlight nécessitent de sélectionner l’équipe Apple Developer de WHAPPY dans Xcode.
+
 ## Firebase
 
 Whappy est relié au projet Firebase indépendant `whappy-d97e7`.
@@ -68,4 +82,4 @@ Les clés Firebase Web identifient l'application ; les autorisations réelles re
 
 ## Portée de cette version
 
-L'interface et ses interactions constituent un prototype produit complet. Le streaming vidéo réel, la synthèse du Double, les paiements, la modération et la mise en relation en production demanderont ensuite des services backend dédiés et des contrôles de sécurité supplémentaires.
+L'interface et ses interactions constituent un prototype produit complet. Les parcours qui exigent un partenaire externe disposent d’un bac à sable local clairement signalé afin de rester testables de bout en bout. Le streaming vidéo public, la synthèse finale du Double, les débits monétaires réels, la modération et la mise en relation en production demanderont ensuite des services backend dédiés et des contrôles de sécurité supplémentaires.

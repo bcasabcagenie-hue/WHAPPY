@@ -731,9 +731,11 @@ class WhappyRepository(
         val candidates = PhoneNumberFormatter.lookupCandidates(phone)
         if (candidates.isEmpty()) return null
         for (candidate in candidates) {
-            listOf("phoneNumber", "phoneLookup").forEach { field ->
+            val candidateDigits = candidate.filter(Char::isDigit)
+            listOf("phoneNumber", "phoneLookup", "phoneDigits").forEach { field ->
+                val value = if (field == "phoneDigits") candidateDigits else candidate
                 val document = db.collection("users")
-                    .whereEqualTo(field, candidate)
+                    .whereEqualTo(field, value)
                     .limit(1)
                     .get()
                     .await()
@@ -742,13 +744,6 @@ class WhappyRepository(
                 if (document != null) return document.toMember()
             }
         }
-        val candidateSet = candidates.toSet()
-        val fallback = db.collection("users").limit(250).get().await().documents.firstOrNull { document ->
-            val stored = document.getString("phoneNumber").orEmpty()
-            PhoneNumberFormatter.lookupCandidates(stored).any(candidateSet::contains)
-                || document.getString("phoneDigits").orEmpty() in candidateSet.map { it.filter(Char::isDigit) }.toSet()
-        }
-        if (fallback != null) return fallback.toMember()
         return null
     }
 
@@ -766,6 +761,46 @@ class WhappyRepository(
             ),
             com.google.firebase.firestore.SetOptions.merge(),
         ).await()
+    }
+
+    suspend fun addContactAndEnsureConversation(current: WhappyMember, peer: WhappyMember): WhappyConversation {
+        require(current.uid != peer.uid)
+        val conversationId = "direct-${listOf(current.uid, peer.uid).sorted().joinToString("-")}"
+        val conversation = db.collection("conversations").document(conversationId)
+        val user = db.collection("users").document(current.uid)
+        db.runTransaction { transaction ->
+            if (!transaction.get(conversation).exists()) {
+                transaction.set(
+                    conversation,
+                    mapOf(
+                        "ownerId" to current.uid,
+                        "memberIds" to listOf(current.uid, peer.uid).sorted(),
+                        "members" to listOf(
+                            mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
+                            mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
+                        ),
+                        "typingBy" to emptyMap<String, Boolean>(),
+                        "readBy" to emptyMap<String, Any>(),
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    ),
+                )
+            }
+            transaction.set(
+                user,
+                mapOf(
+                    "contacts" to mapOf(
+                        peer.uid to mapOf(
+                            "displayName" to peer.displayName,
+                            "phoneNumber" to peer.phoneNumber,
+                            "addedAt" to FieldValue.serverTimestamp(),
+                        ),
+                    ),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+                com.google.firebase.firestore.SetOptions.merge(),
+            )
+        }.await()
+        return WhappyConversation(conversationId, peer, "Nouvelle conversation", System.currentTimeMillis(), false)
     }
 
     suspend fun findUserById(userId: String): WhappyMember? {

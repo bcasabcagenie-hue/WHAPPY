@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
@@ -61,6 +61,30 @@ export type CloudGroup = {
   ownerId: string;
   memberIds: string[];
   memberNames: string[];
+  inviteToken?: string;
+  createdAt?: { toDate?: () => Date } | null;
+};
+
+export type CloudGroupJoinRequest = {
+  id: string;
+  groupId: string;
+  ownerId: string;
+  userId: string;
+  userName: string;
+  inviteToken: string;
+  status: "pending" | "approved" | "declined";
+  createdAt?: { toDate?: () => Date } | null;
+  updatedAt?: { toDate?: () => Date } | null;
+};
+
+export type WhapTextTone = "hope" | "action" | "community" | "warning";
+export type CloudWhapText = {
+  id: string;
+  authorId: string;
+  authorName: string;
+  text: string;
+  tone: WhapTextTone;
+  kind: "status" | "whaptext";
   createdAt?: { toDate?: () => Date } | null;
 };
 
@@ -294,11 +318,80 @@ export async function createGroup(userId: string, name: string, description: str
     ownerId: userId,
     memberIds: [userId],
     memberNames: uniqueMembers,
+    inviteToken: newInviteToken(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
   const document = await addDoc(collection(db, "groups"), payload);
   return { ...payload, id: document.id, createdAt: null } satisfies CloudGroup;
+}
+
+function newInviteToken() {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+export async function ensureGroupInvite(groupId: string, _ownerId: string, currentToken?: string) {
+  if (currentToken) return currentToken;
+  const inviteToken = newInviteToken();
+  await updateDoc(doc(db, "groups", groupId), { inviteToken, updatedAt: serverTimestamp() });
+  return inviteToken;
+}
+
+export async function requestGroupJoin(groupId: string, inviteToken: string, ownerId: string, userId: string, userName: string) {
+  const token = inviteToken.trim();
+  if (!/^[a-f0-9]{32}$/i.test(token)) throw new Error("invalid-invite");
+  const requestId = groupId + "-" + userId;
+  await setDoc(doc(db, "groupJoinRequests", requestId), {
+    groupId,
+    inviteToken: token,
+    ownerId,
+    userId,
+    userName: userName.trim().slice(0, 80) || "Membre WHAPPY",
+    status: "pending",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  return requestId;
+}
+
+export function watchGroupJoinRequests(ownerId: string, onItems: (items: CloudGroupJoinRequest[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "groupJoinRequests"), where("ownerId", "==", ownerId)), (snapshot) => {
+    onItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudGroupJoinRequest)).filter((item) => item.status === "pending"));
+  }, onError);
+}
+
+export async function approveGroupJoinRequest(request: CloudGroupJoinRequest, ownerId: string) {
+  if (request.ownerId !== ownerId) throw new Error("not-owner");
+  const groupRef = doc(db, "groups", request.groupId);
+  const requestRef = doc(db, "groupJoinRequests", request.id);
+  const batch = writeBatch(db);
+  batch.update(groupRef, { memberIds: arrayUnion(request.userId), memberNames: arrayUnion(request.userName), updatedAt: serverTimestamp() });
+  batch.update(requestRef, { status: "approved", reviewedAt: serverTimestamp() });
+  await batch.commit();
+}
+
+export async function declineGroupJoinRequest(requestId: string) {
+  await updateDoc(doc(db, "groupJoinRequests", requestId), { status: "declined", reviewedAt: serverTimestamp() });
+}
+
+export function watchWhapTexts(onItems: (items: CloudWhapText[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "whaptexts"), orderBy("createdAt", "desc"), limit(40)), (snapshot) => {
+    onItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudWhapText)));
+  }, onError);
+}
+
+export async function publishWhapText(authorId: string, authorName: string, text: string, tone: WhapTextTone, kind: CloudWhapText["kind"]) {
+  const value = text.trim();
+  if (value.length < 3 || value.length > 600) throw new Error("invalid-whaptext");
+  const document = await addDoc(collection(db, "whaptexts"), {
+    authorId,
+    authorName: authorName.trim().slice(0, 80) || "Membre WHAPPY",
+    text: value,
+    tone,
+    kind,
+    createdAt: serverTimestamp(),
+  });
+  return document.id;
 }
 
 export function watchGroupMessages(groupId: string, onMessages: (items: CloudGroupMessage[]) => void, onError: () => void) {

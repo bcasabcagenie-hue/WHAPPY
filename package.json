@@ -17,8 +17,10 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@types/qrcode": "^1.5.5",
     "drizzle-orm": "0.45.2",
     "firebase": "^12.17.1",
+    "qrcode": "^1.5.4",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

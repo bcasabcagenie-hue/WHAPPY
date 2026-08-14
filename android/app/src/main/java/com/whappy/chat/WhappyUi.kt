@@ -97,9 +97,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -232,7 +234,9 @@ fun WhappyRoot(
     onCloseConversation: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
-    onAddContact: (String) -> Unit,
+    onSearchContact: (String) -> Unit,
+    onAddSearchedContact: () -> Unit,
+    onClearContactSearch: () -> Unit,
     onOpenContact: (WhappyContact) -> Unit,
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
@@ -280,7 +284,9 @@ fun WhappyRoot(
         onCloseConversation = onCloseConversation,
         onSendMessage = onSendMessage,
         onSendMedia = onSendMedia,
-        onAddContact = onAddContact,
+        onSearchContact = onSearchContact,
+        onAddSearchedContact = onAddSearchedContact,
+        onClearContactSearch = onClearContactSearch,
         onOpenContact = onOpenContact,
         onSearchBusinesses = onSearchBusinesses,
         onContactBusiness = onContactBusiness,
@@ -440,7 +446,9 @@ private fun WhappyMain(
     onCloseConversation: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
-    onAddContact: (String) -> Unit,
+    onSearchContact: (String) -> Unit,
+    onAddSearchedContact: () -> Unit,
+    onClearContactSearch: () -> Unit,
     onOpenContact: (WhappyContact) -> Unit,
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
@@ -549,13 +557,22 @@ private fun WhappyMain(
                             preview = preview,
                             contactBusy = state.contactBusy,
                             contacts = if (preview) demoConversations.map { WhappyContact(it.peer) } else state.contacts,
+                            contactSearchResult = state.contactSearchResult,
+                            contactSearchPhone = state.contactSearchPhone,
+                            contactSearchMessage = state.contactSearchMessage,
                             businessResults = if (preview) demoBusinessPages else state.businessSearchResults,
                             businessSearchBusy = state.businessSearchBusy,
-                            onAddContact = onAddContact,
+                            onSearchContact = onSearchContact,
+                            onAddSearchedContact = onAddSearchedContact,
+                            onClearContactSearch = onClearContactSearch,
                             onOpenContact = onOpenContact,
                             onSearchBusinesses = onSearchBusinesses,
                             onContactBusiness = onContactBusiness,
                             onOpen = { if (preview) previewConversation = it else onOpenConversation(it) },
+                        )
+                        WhappyTab.CALLS -> CallsScreen(
+                            conversations = if (preview) demoConversations else state.conversations,
+                            onOpenConversation = { if (preview) previewConversation = it else onOpenConversation(it) },
                         )
                         WhappyTab.MARKET -> MarketScreen(if (preview) demoListings else state.listings, preview, state.actionBusy, onPublishListing)
                         WhappyTab.LIVE -> LiveScreen(
@@ -659,19 +676,20 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
     val icons = mapOf(
         WhappyTab.MOMENTS to Icons.Rounded.Home,
         WhappyTab.MESSAGES to Icons.Rounded.ChatBubble,
+        WhappyTab.CALLS to Icons.Rounded.Phone,
         WhappyTab.MARKET to Icons.Rounded.Storefront,
         WhappyTab.LIVE to Icons.Rounded.LiveTv,
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.MESSAGES, WhappyTab.LIVE, WhappyTab.BUSINESS, WhappyTab.PROFILE)
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.LIVE, WhappyTab.BUSINESS, WhappyTab.PROFILE)
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
                 selected = selected == tab,
                 onClick = { onTab(tab) },
                 icon = { Icon(icons.getValue(tab), tab.label) },
-                label = { Text(tab.label, fontSize = 10.sp) },
+                label = { Text(tab.label, fontSize = 9.sp, maxLines = 1) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, indicatorColor = Color(0xFFE1F3FB)),
             )
         }
@@ -1097,15 +1115,69 @@ private fun MomentCard(author: String, badge: String, title: String, body: Strin
 }
 
 @Composable
+private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversation: (WhappyConversation) -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+                Column(Modifier.padding(23.dp)) {
+                    Text("WHAPPY CALLS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("Appelez vos contacts\nen un seul geste.", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
+                    Text("Vos contacts vérifiés et vos conversations restent réunis dans Whappy.", Modifier.padding(top = 8.dp), color = Color(0xFFBECED5), fontSize = 12.sp, lineHeight = 18.sp)
+                    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        CallMetric("Contacts", conversations.size.toString(), Modifier.weight(1f))
+                        CallMetric("Disponibilité", "En ligne", Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+        item { Text("Appels récents", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 5.dp)) }
+        if (conversations.isEmpty()) {
+            item { EmptyState("Aucun appel", "Démarrez une conversation pour appeler un contact Whappy.") }
+        } else {
+            items(conversations, key = { "call-${it.id}" }) { conversation ->
+                val callable = conversation.peer.phoneNumber.isNotBlank()
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                    Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFFE1F3FB)), contentAlignment = Alignment.Center) { Text(initials(conversation.peer.displayName), color = WhappyBlue, fontWeight = FontWeight.Black) }
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(conversation.peer.displayName, color = WhappyDark, fontWeight = FontWeight.Black)
+                            Text(if (callable) "☎ ${conversation.peer.phoneNumber}" else "Numéro protégé", color = WhappyMuted, fontSize = 11.sp)
+                            Text(formatTime(conversation.updatedAt), color = WhappyMuted, fontSize = 10.sp)
+                        }
+                        IconButton(onClick = { onOpenConversation(conversation) }) { Icon(Icons.Rounded.ChatBubble, "Écrire à ${conversation.peer.displayName}", tint = WhappyBlue) }
+                        FilledIconButton(enabled = callable, onClick = { uriHandler.openUri("tel:${conversation.peer.phoneNumber}") }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
+                    }
+                }
+            }
+        }
+        item { Text("Les appels téléphoniques utilisent le réseau de votre opérateur. Les appels Whappy audio et vidéo sécurisés seront regroupés ici.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)) }
+    }
+}
+
+@Composable
+private fun CallMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.clip(RoundedCornerShape(15.dp)).background(Color.White.copy(alpha = .08f)).padding(12.dp)) {
+        Text(label.uppercase(), color = Color(0xFF9EC9DB), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(value, Modifier.padding(top = 4.dp), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
 private fun MessagesScreen(
     conversations: List<WhappyConversation>,
     loading: Boolean,
     preview: Boolean,
     contactBusy: Boolean,
     contacts: List<WhappyContact>,
+    contactSearchResult: WhappyMember?,
+    contactSearchPhone: String,
+    contactSearchMessage: String?,
     businessResults: List<WhappyBusinessPage>,
     businessSearchBusy: Boolean,
-    onAddContact: (String) -> Unit,
+    onSearchContact: (String) -> Unit,
+    onAddSearchedContact: () -> Unit,
+    onClearContactSearch: () -> Unit,
     onOpenContact: (WhappyContact) -> Unit,
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
@@ -1117,6 +1189,11 @@ private fun MessagesScreen(
     var phone by remember { mutableStateOf("") }
     var scanError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val isPhoneComplete = PhoneNumberFormatter.normalize("+242", phone) != null
+
+    fun resetContactSearch() {
+        if (!preview) onClearContactSearch()
+    }
 
     fun scanWhappyCode() {
         val activity = context.findActivity()
@@ -1135,27 +1212,42 @@ private fun MessagesScreen(
                     scanError = "Ce code n’est pas un code contact WHAPPY valide"
                 } else {
                     phone = number
-                    adding = false
-                    if (!preview) onAddContact(number)
+                    if (!preview) {
+                        onClearContactSearch()
+                        onSearchContact(number)
+                    }
                 }
             }
-            .addOnFailureListener { scanError = "Le scanner n’a pas pu démarrer. Vérifiez Google Play services." }
+            .addOnCanceledListener { scanError = "Scan annulé. Vous pouvez aussi saisir le numéro du contact." }
+            .addOnFailureListener { scanError = "Le scanner n’a pas pu démarrer sur cet appareil. Saisissez le numéro ou utilisez un appareil avec Google Play services." }
     }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(if (showingContacts) "Contacts" else "Messages", fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(if (showingContacts) "Vos personnes sur WHAPPY" else "Vos conversations instantanées", color = WhappyMuted) }
-            IconButton(onClick = { adding = true }) { Icon(Icons.Rounded.Add, "Ajouter un contact", tint = WhappyBlue) }
+            TextButton(onClick = { phone = ""; resetContactSearch(); adding = true }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.textButtonColors(contentColor = WhappyBlue)) {
+                Icon(Icons.Rounded.Add, "Ajouter un contact", modifier = Modifier.size(18.dp))
+                Text(" Ajouter", fontWeight = FontWeight.Black)
+            }
         }
         Row(Modifier.padding(horizontal = 18.dp, vertical = 2.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFFE7F1F5)).padding(4.dp)) {
             TextButton(onClick = { showingContacts = false }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = if (!showingContacts) WhappyDark else WhappyMuted)) { Text("Discussions", fontWeight = if (!showingContacts) FontWeight.Black else FontWeight.Medium) }
-            TextButton(onClick = { showingContacts = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (showingContacts) Color.White else Color.Transparent, contentColor = if (showingContacts) WhappyDark else WhappyMuted)) { Text("Contacts ${if (contacts.isNotEmpty()) "(${contacts.size})" else ""}", fontWeight = if (showingContacts) FontWeight.Black else FontWeight.Medium) }
+            TextButton(onClick = { showingContacts = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (showingContacts) Color.White else Color.Transparent, contentColor = if (showingContacts) WhappyDark else WhappyMuted)) { Text("CONTACTS ${if (contacts.isNotEmpty()) "(${contacts.size})" else ""}", fontWeight = if (showingContacts) FontWeight.Black else FontWeight.Medium) }
         }
         if (showingContacts) {
             val conversationContacts = conversations.map { WhappyContact(it.peer, it.updatedAt) }
             val visibleContacts = (contacts + conversationContacts).distinctBy { it.member.uid }.sortedBy { it.member.displayName.lowercase() }
             if (loading && visibleContacts.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-            else if (visibleContacts.isEmpty()) EmptyState("Votre liste de Contacts est vide", "Ajoutez une personne avec son numéro ou son code WHAPPY.")
+            else if (visibleContacts.isEmpty()) {
+                Card(Modifier.padding(18.dp).fillMaxWidth().clickable { phone = ""; resetContactSearch(); adding = true }, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFFE1F3FB)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = WhappyBlue) }
+                        Text("Ajoutez votre premier contact", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                        Text("Avec son numéro ou son code QR WHAPPY. Vous le retrouverez ici à tout moment.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                        Text("AJOUTER UN CONTACT", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
             else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 item { Text("CONTACTS WHAPPY", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
                 items(visibleContacts, key = { it.member.uid }) { contact ->
@@ -1187,36 +1279,48 @@ private fun MessagesScreen(
             }
         }
         if (adding) AlertDialog(
-            onDismissRequest = { adding = false },
-            title = { Text("Ajouter sur WHAPPY") },
+            onDismissRequest = { if (!contactBusy) { adding = false; resetContactSearch() } },
+            title = { Text(if (contactSearchResult == null) "Ajouter sur WHAPPY" else "Compte WHAPPY trouvé") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Saisissez le numéro avec ou sans +242, ou scannez le code personnel de votre contact.", color = WhappyMuted)
+                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact." else "Vérifiez la personne avant de l’ajouter à vos Contacts.", color = WhappyMuted)
                     OutlinedTextField(
                         value = phone,
-                        onValueChange = { phone = it },
+                        onValueChange = { phone = it; resetContactSearch() },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        label = { Text("Téléphone") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        label = { Text("Téléphone (+242 ou numéro local)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { if (isPhoneComplete && !contactBusy && !preview) onSearchContact(phone) }),
                         singleLine = true,
                     )
-                    OutlinedButton(onClick = { if (preview) scanError = "Le scan est disponible dans l’application connectée" else scanWhappyCode() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                    if (phone.isNotBlank() && !isPhoneComplete) Text("Indiquez un numéro complet. Au Congo : 9 chiffres après +242.", color = WhappyMuted, fontSize = 11.sp)
+                    OutlinedButton(enabled = !contactBusy, onClick = { if (preview) scanError = "Le scan est disponible dans l’application connectée" else scanWhappyCode() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                         Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp))
                         Text("  Scanner un code WHAPPY", fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = { adding = false; searchingBusiness = true }, modifier = Modifier.fillMaxWidth()) { Text("Trouver un Business à la place") }
+                    if (contactBusy) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { CircularProgressIndicator(Modifier.size(18.dp), color = WhappyBlue, strokeWidth = 2.dp); Text(if (contactSearchResult == null) "Recherche du compte WHAPPY…" else "Ajout du contact…", color = WhappyMuted, fontSize = 12.sp) }
+                    if (contactSearchResult != null) Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC))) {
+                        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(44.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(contactSearchResult.displayName), color = Color.White, fontWeight = FontWeight.Black) }
+                            Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) { Text(contactSearchResult.displayName, color = WhappyDark, fontWeight = FontWeight.Black); Icon(Icons.Rounded.Verified, null, modifier = Modifier.padding(start = 4.dp).size(15.dp), tint = WhappyBlue) }
+                                Text(contactSearchResult.phoneNumber.ifBlank { contactSearchPhone }, color = WhappyMuted, fontSize = 11.sp)
+                                Text("Compte WHAPPY vérifié", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (contactSearchMessage != null) Text(contactSearchMessage, color = if (contactSearchResult == null) WhappyMuted else WhappyBlue, fontSize = 12.sp, lineHeight = 17.sp)
+                    TextButton(onClick = { adding = false; resetContactSearch(); searchingBusiness = true }, modifier = Modifier.fillMaxWidth()) { Text("Trouver un Business à la place") }
                 }
             },
             confirmButton = {
-                Button(
-                    enabled = phone.filter(Char::isDigit).length >= 7 && !contactBusy,
-                    onClick = {
-                        if (!preview) onAddContact(phone)
-                        adding = false
-                    },
-                ) { Text(if (preview) "Disponible après connexion" else "Rechercher") }
+                if (contactSearchResult != null) Button(enabled = !contactBusy, onClick = { if (!preview) onAddSearchedContact() }) {
+                    if (contactBusy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp) else Text(if (preview) "Disponible après connexion" else "Ajouter et écrire")
+                } else Button(enabled = isPhoneComplete && !contactBusy, onClick = { if (!preview) onSearchContact(phone) }) {
+                    if (contactBusy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp) else Text(if (preview) "Disponible après connexion" else "Rechercher")
+                }
             },
-            dismissButton = { TextButton(onClick = { adding = false }) { Text("Annuler") } },
+            dismissButton = { TextButton(enabled = !contactBusy, onClick = { adding = false; resetContactSearch() }) { Text("Annuler") } },
         )
         if (searchingBusiness) BusinessSearchDialog(
             results = businessResults,

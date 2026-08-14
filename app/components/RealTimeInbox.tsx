@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- aperçu d'une URL Firebase dynamique */
 /* eslint-disable jsx-a11y/media-has-caption -- messages vocaux créés par les utilisateurs sans piste de sous-titres */
 
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +25,9 @@ type RealTimeInboxProps = {
   notify: (text: string) => void;
   embedded?: boolean;
   composeToken?: number;
+  composePhone?: string;
   search?: string;
+  initialView?: "messages" | "calls";
 };
 
 function timestampMillis(value: { toDate?: () => Date } | null | undefined) {
@@ -47,24 +50,28 @@ function callLabel(call: CallSignal, userId: string) {
   return call.calleeId === userId ? "Manqué" : "Annulé";
 }
 
-export function RealTimeInbox({ user, onCall, notify, embedded = false, composeToken = 0, search = "" }: RealTimeInboxProps) {
+export function RealTimeInbox({ user, onCall, notify, embedded = false, composeToken = 0, composePhone = "", search = "", initialView = "messages" }: RealTimeInboxProps) {
   const [open, setOpen] = useState(embedded);
-  const [view, setView] = useState<"messages" | "calls">("messages");
+  const [view, setView] = useState<"messages" | "calls">(composeToken ? "messages" : initialView);
   const [conversations, setConversations] = useState<CloudConversation[]>([]);
   const [calls, setCalls] = useState<CallSignal[]>([]);
   const [selected, setSelected] = useState("");
   const [items, setItems] = useState<CloudMessage[]>([]);
   const [text, setText] = useState("");
-  const [adding, setAdding] = useState(composeToken > 0);
+  const [adding, setAdding] = useState(composeToken > 0 && !composePhone.trim());
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [expressionOpen, setExpressionOpen] = useState(false);
   const [messageTranslations, setMessageTranslations] = useState<Record<string, string>>({});
   const [translatingMessage, setTranslatingMessage] = useState("");
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoZoom, setPhotoZoom] = useState(1);
   const typingTimer = useRef<number | null>(null);
   const typingConversation = useRef("");
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const openPhoneRef = useRef<(phone: string) => Promise<void>>(async () => undefined);
   const imageInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const recorderStream = useRef<MediaStream | null>(null);
@@ -108,6 +115,18 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   useEffect(() => {
     if (open) messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [items, open]);
+
+  useEffect(() => {
+    if (!currentId || view !== "messages" || adding) return;
+    const timer = window.setTimeout(() => composer.current?.focus(), 80);
+    return () => window.clearTimeout(timer);
+  }, [currentId, view, adding]);
+
+  useEffect(() => {
+    if (!composeToken || !composePhone.trim()) return;
+    const timer = window.setTimeout(() => void openPhoneRef.current(composePhone), 0);
+    return () => window.clearTimeout(timer);
+  }, [composeToken, composePhone]);
 
   useEffect(() => () => {
     if (typingTimer.current) window.clearTimeout(typingTimer.current);
@@ -204,11 +223,8 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     }
   }
 
-  async function addContact(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function openConversationWithPhone(phone: string) {
     if (!user) return;
-    const form = new FormData(event.currentTarget);
-    const phone = String(form.get("phone") || "");
     setBusy(true);
     try {
       const found = await findWhappyUserByPhone(phone);
@@ -222,6 +238,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       }
       const id = await ensureDirectConversation(user, found);
       setSelected(id);
+      setView("messages");
       setAdding(false);
       setOpen(true);
       notify(`Conversation en temps réel avec ${found.displayName} ouverte`);
@@ -230,6 +247,18 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     } finally {
       setBusy(false);
     }
+  }
+  useEffect(() => { openPhoneRef.current = openConversationWithPhone; });
+
+  async function addContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await openConversationWithPhone(String(form.get("phone") || ""));
+  }
+
+  function closePhotoPreview() {
+    setPhotoPreview("");
+    setPhotoZoom(1);
   }
 
   async function send(event: FormEvent) {
@@ -311,7 +340,12 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
                 <i className={unread ? "unread" : ""}>{unread ? "●" : ""}</i>
               </button>;
             })}
-            {!visibleConversations.length && <div className="realtime-empty"><span>⚡</span><strong>{searchValue ? "Aucun résultat" : "Aucune conversation réelle"}</strong><small>{searchValue ? "Essayez un autre nom ou numéro." : "Ajoutez le numéro d’un autre compte Whappy."}</small>{!searchValue && <button onClick={() => setAdding(true)}>＋ Nouveau message</button>}</div>}
+            {!visibleConversations.length && <div className={`realtime-empty ${searchValue ? "search-empty" : "ready-empty"}`}>
+              <span>{searchValue ? "⌕" : "◫"}</span>
+              <strong>{searchValue ? "Aucun résultat" : "Boîte de réception prête"}</strong>
+              <small>{searchValue ? "Essayez un autre nom ou numéro." : "Vos prochains échanges apparaîtront ici, synchronisés sur tous vos appareils."}</small>
+              {!searchValue && <><div className="empty-readiness"><i/><span>Compte vérifié</span><i/><span>Cloud actif</span></div><button onClick={() => setAdding(true)}>＋ Écrire un message</button></>}
+            </div>}
           </> : <div className="call-summary">
             <span>☎</span><strong>{calls.length} appel{calls.length > 1 ? "s" : ""}</strong><small>Historique synchronisé entre vos appareils</small>
             <div><p><b>{answeredCalls}</b> aboutis</p><p><b>{missedCalls}</b> manqués</p></div>
@@ -342,7 +376,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             {items.map((message) => {
               const read = timestampMillis(current.readBy?.[peer.uid]) >= timestampMillis(message.createdAt);
               return <article className={`${message.senderId === user.uid ? "mine" : ""} ${message.kind === "image" ? "image" : ""} ${message.kind === "video" ? "video" : ""}`} key={message.id}>
-                {message.kind === "image" && message.mediaUrl ? <a className="message-photo" href={message.mediaUrl} target="_blank" rel="noreferrer" style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Ouvrir la photo"/> : message.kind === "video" && message.mediaUrl ? <div className="message-video"><video controls playsInline preload="metadata" src={message.mediaUrl} className={message.effect || "pop"}/>{message.caption && <strong>{message.caption}</strong>}<i>✦ WHAPPY VIDEO</i></div> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <><p>{message.text}</p>{messageTranslations[message.id] && <p className="message-translation"><b>FR</b>{messageTranslations[message.id]}</p>}<button className="message-translate" onClick={() => void translateMessage(message)}>{translatingMessage === message.id ? "Traduction…" : messageTranslations[message.id] ? "Masquer" : "文 Traduire"}</button></>}
+                {message.kind === "image" && message.mediaUrl ? <button type="button" className="message-photo" onClick={() => { setPhotoPreview(message.mediaUrl || ""); setPhotoZoom(1); }} style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Agrandir la photo"/> : message.kind === "video" && message.mediaUrl ? <div className="message-video"><video controls playsInline preload="metadata" src={message.mediaUrl} className={message.effect || "pop"}/>{message.caption && <strong>{message.caption}</strong>}<i>✦ WHAPPY VIDEO</i></div> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <><p>{message.text}</p>{messageTranslations[message.id] && <p className="message-translation"><b>FR</b>{messageTranslations[message.id]}</p>}<button className="message-translate" onClick={() => void translateMessage(message)}>{translatingMessage === message.id ? "Traduction…" : messageTranslations[message.id] ? "Masquer" : "文 Traduire"}</button></>}
                 <small>{message.createdAt?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "Envoi…"} {message.senderId === user.uid && (read ? "✓✓" : "✓")}</small>
               </article>;
             })}<div ref={messagesEnd}/>
@@ -354,13 +388,42 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             <button type="button" onClick={() => setExpressionOpen((value) => !value)} className={expressionOpen ? "active" : ""} disabled={busy || recording} aria-label="Emojis, traduction et créations WHAPPY" title="Emojis, traduction et Meme Lab">☺</button>
             <button type="button" onClick={() => imageInput.current?.click()} disabled={busy || recording} aria-label="Ajouter une photo" title="Ajouter une photo">＋</button>
             <button type="button" className={recording ? "recording" : ""} onClick={startRecording} disabled={busy} aria-label={recording ? "Terminer le message vocal" : "Enregistrer un message vocal"} title="Note vocale">●</button>
-            <textarea value={text} onChange={(event) => change(event.target.value)} onKeyDown={composerKeyDown} onBlur={() => stopTyping(current.id)} maxLength={4000} rows={1} spellCheck lang="fr" autoComplete="off" aria-label={`Message à ${peer.displayName}`} placeholder={`Message à ${peer.displayName} · Entrée pour envoyer`}/>
+            <textarea ref={composer} value={text} onChange={(event) => change(event.target.value)} onKeyDown={composerKeyDown} onBlur={() => stopTyping(current.id)} maxLength={4000} rows={1} spellCheck lang="fr" autoComplete="off" aria-label={`Message à ${peer.displayName}`} placeholder={`Message à ${peer.displayName} · Entrée pour envoyer`}/>
             <button disabled={busy || recording || !text.trim()} aria-label="Envoyer le message" title="Envoyer">➤</button>
             <small>Entrée envoie · Maj + Entrée ajoute une ligne · Orthographe activée</small>
           </form>
-        </> : <div className="realtime-welcome">{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}<span>⚡</span><h3>Whappy Direct</h3><p>Échangez instantanément entre deux comptes identifiés par leur numéro.</p><button onClick={() => setAdding(true)}>Commencer une conversation</button></div>}</main>
+        </> : <div className="direct-onboarding">
+          {!embedded && <button className="direct-onboarding-close" onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
+          <header className="direct-welcome-head">
+            <div><small>VOTRE ESPACE DE COMMUNICATION</small><h2>Bonjour {user.displayName.split(/\s+/)[0]},<br/><em>tout est prêt.</em></h2><p>Lancez votre première conversation avec un numéro Whappy. Messages, médias et appels resteront regroupés ici.</p></div>
+            <div className="direct-account-card"><span>{initials(user.displayName)}</span><div><small>COMPTE WHAPPY VÉRIFIÉ</small><strong>{user.displayName}</strong><p>{user.phoneNumber ? `${user.phoneNumber.slice(0, 4)} ••• •• ${user.phoneNumber.slice(-2)}` : "Identité téléphonique active"}</p></div><b>✓</b></div>
+          </header>
+          <section className="direct-overview">
+            <article><span>◫</span><div><small>DISCUSSIONS</small><strong>{conversations.length}</strong><p>Synchronisées en direct</p></div></article>
+            <article><span>☎</span><div><small>APPELS</small><strong>{calls.length}</strong><p>Audio et vidéo HD</p></div></article>
+            <article className="online"><span>◆</span><div><small>DISPONIBILITÉ</small><strong>En ligne</strong><p>Cloud opérationnel</p></div></article>
+          </section>
+          <section className="direct-start-grid">
+            <article className="direct-start-card">
+              <div className="start-card-mark">＋</div><small>PREMIÈRE ÉTAPE</small><h3>Démarrez une conversation</h3><p>Entrez le numéro international d’un contact déjà inscrit sur Whappy. La discussion sera créée instantanément.</p>
+              <button onClick={() => setAdding(true)}>Nouveau message <span>→</span></button>
+              <div className="direct-trust-note"><span>◆</span><p><strong>Identité téléphonique protégée</strong><small>Seuls les comptes Whappy vérifiés peuvent vous contacter.</small></p></div>
+            </article>
+            <article className="direct-capabilities">
+              <header><div><small>INCLUS DANS WHAPPY DIRECT</small><h3>Une conversation complète</h3></div><span>PRÊT</span></header>
+              <div><span>01</span><p><strong>Messages instantanés</strong><small>Accusés de lecture et saisie en direct</small></p><b>✓</b></div>
+              <div><span>02</span><p><strong>Photos, vidéos et vocaux</strong><small>Partage fluide depuis le même fil</small></p><b>✓</b></div>
+              <div><span>03</span><p><strong>Appels audio et vidéo</strong><small>Passez de l’écrit à l’appel en un geste</small></p><b>✓</b></div>
+            </article>
+          </section>
+          <footer className="direct-onboarding-foot"><span><i/> Whappy Direct est opérationnel</span><p>Vos communications sont liées à votre compte vérifié et disponibles sur vos appareils connectés.</p><button onClick={() => setView("calls")}>Voir les appels →</button></footer>
+        </div>}</main>
       </section>
-      {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>Entrez son numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Numéro international complet<input name="phone" required inputMode="tel" autoComplete="tel" placeholder="+242 06 000 00 00"/></label><p>Le numéro doit déjà avoir créé un compte Whappy.</p><button disabled={busy}>{busy ? "Recherche…" : "Trouver le compte →"}</button></form>}
+      {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>Entrez son numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Numéro international complet<input name="phone" defaultValue={composePhone} required inputMode="tel" autoComplete="tel" placeholder="+242 06 000 00 00"/></label><p>Le numéro doit déjà avoir créé un compte Whappy.</p><button disabled={busy}>{busy ? "Recherche…" : "Trouver le compte →"}</button></form>}
+    </div>}
+    {photoPreview && <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="Photo agrandie">
+      <header><span>PHOTO WHAPPY</span><div><button type="button" onClick={() => setPhotoZoom((value) => Math.max(1, value - .5))} disabled={photoZoom <= 1} aria-label="Réduire">−</button><b>{Math.round(photoZoom * 100)}%</b><button type="button" onClick={() => setPhotoZoom((value) => Math.min(3, value + .5))} disabled={photoZoom >= 3} aria-label="Agrandir">＋</button><a href={photoPreview} target="_blank" rel="noreferrer">Original ↗</a><button type="button" onClick={closePhotoPreview} aria-label="Fermer">×</button></div></header>
+      <button type="button" className="photo-lightbox-stage" onClick={() => setPhotoZoom((value) => value === 1 ? 2 : 1)} aria-label={photoZoom === 1 ? "Agrandir davantage" : "Revenir à la taille normale"}><img src={photoPreview} alt="Agrandissement partagé" style={{ transform: `scale(${photoZoom})` }}/></button>
     </div>}
   </>;
 }

@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.3\.5-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.3\.6-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -71,6 +71,8 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(ui, /Notifications de paiement/);
   assert.match(ui, /Créer un Deal/);
   assert.match(ui, /Centre d’activité/);
+  assert.match(ui, /CallsScreen/);
+  assert.match(ui, /WhappyTab\.CALLS/);
   assert.match(ui, /LiveRoomDialog/);
   assert.match(ui, /EditBusinessPageDialog/);
   assert.match(ui, /Suspendre/);
@@ -224,6 +226,13 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(superHub, /WHAPPY PAY/);
   assert.match(superHub, /Mobile Money/);
   assert.match(superHub, /MINI-SERVICES WHAPPY/);
+  assert.match(superHub, /QRCode\.toDataURL/);
+  assert.match(superHub, /whappy-services/);
+  assert.match(superHub, /Paiement test/);
+  assert.match(superHub, /createServiceRequest/);
+  assert.match(superHub, /Aucun service trouvé/);
+  assert.match(page, /whappy-demo-workspace/);
+  assert.match(page, /demoOffer/);
   assert.match(superHub, /Salon sécurisé/);
   assert.match(superHub, /Appel de groupe/);
   assert.match(superHub, /Créateur du groupe/);
@@ -239,6 +248,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(realTimeInbox, /sendDirectAttachment/);
   assert.match(realTimeInbox, /Message vocal envoyé/);
   assert.match(realTimeInbox, /Historique des appels/);
+  assert.match(realTimeInbox, /initialView/);
   assert.match(realTimeInbox, /watchCallHistory/);
   assert.match(realTimeInbox, /embedded/);
   assert.match(dataLayer, /uploadBytes/);
@@ -265,6 +275,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(businessData, /createAdCampaign/);
   assert.match(page, /TwinEngineStudio/);
   assert.match(page, /WhappyPulse/);
+  assert.match(page, /label="Appels"/);
+  assert.match(page, /CallsPreviewSpace/);
   assert.match(page, /metaKey \|\| event\.ctrlKey/);
   assert.match(pulse, /WHAPPY PULSE/);
   assert.match(pulse, /Vos priorités/);

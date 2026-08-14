@@ -34,6 +34,8 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
   const [viewers, setViewers] = useState(0);
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState(["Bienvenue dans votre studio Whappy."]);
+  const [panel, setPanel] = useState<"conversation" | "stats">("conversation");
+  const [productVisible, setProductVisible] = useState(true);
 
   function stopStream() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -141,13 +143,13 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
           {mode === "human" && !hasStream && <div className="camera-empty"><span>▣</span><strong>Votre caméra est fermée</strong><button onClick={openCamera}>Ouvrir la caméra</button></div>}
           {mode === "human" && hasStream && !cameraOn && <div className="camera-empty"><span>CB</span><strong>Caméra coupée</strong></div>}
           <div className="stage-pills"><span>{mode === "human" ? "CAMÉRA RÉELLE" : "DOUBLE · IA"}</span><span>{micOn ? "Micro actif" : "Micro coupé"}</span></div>
-          <div className="pinned-product"><span>◇</span><div><small>PRODUIT ÉPINGLÉ</small><strong>{config.product}</strong></div><button onClick={() => notify("Fiche produit affichée aux spectateurs")}>Afficher</button></div>
+          {productVisible && <div className="pinned-product"><span>◇</span><div><small>PRODUIT ÉPINGLÉ</small><strong>{config.product}</strong></div><button onClick={() => setProductVisible(false)}>Masquer</button></div>}
+          {!productVisible && <button className="restore-product" onClick={() => setProductVisible(true)}>◇ Réafficher le produit</button>}
         </div>
 
         <aside className="studio-panel">
-          <div className="studio-tabs"><button className="active">Conversation</button><button onClick={() => notify("Statistiques disponibles après le démarrage")}>Statistiques</button></div>
-          <div className="studio-comments">{comments.map((message, index) => <p key={`${message}-${index}`}><b>{index === 0 ? "Whappy" : "Vous"}</b>{message}</p>)}</div>
-          <form onSubmit={sendComment}><input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Écrire dans le direct…"/><button>➤</button></form>
+          <div className="studio-tabs"><button className={panel === "conversation" ? "active" : ""} onClick={() => setPanel("conversation")}>Conversation</button><button className={panel === "stats" ? "active" : ""} onClick={() => setPanel("stats")}>Statistiques</button></div>
+          {panel === "conversation" ? <><div className="studio-comments">{comments.map((message, index) => <p key={`${message}-${index}`}><b>{index === 0 ? "Whappy" : "Vous"}</b>{message}</p>)}</div><form onSubmit={sendComment}><input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Écrire dans le direct…"/><button>➤</button></form></> : <div className="studio-live-stats"><article><small>SPECTATEURS</small><strong>{viewers}</strong><span>Pic actuel</span></article><article><small>DURÉE</small><strong>{formatDuration(elapsed)}</strong><span>Session en cours</span></article><article><small>INTERACTIONS</small><strong>{Math.max(0, comments.length - 1)}</strong><span>Messages envoyés</span></article><article><small>PRODUIT</small><strong>{productVisible ? "Visible" : "Masqué"}</strong><span>{config.product}</span></article><p>{status === "live" ? "Les indicateurs se mettent à jour pendant cette session." : status === "ended" ? "Résumé final de votre session locale." : "Démarrez le direct pour alimenter les statistiques."}</p></div>}
         </aside>
       </div>
 

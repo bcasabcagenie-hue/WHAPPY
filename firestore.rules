@@ -134,13 +134,24 @@ service cloud.firestore {
         && request.resource.data.name.size() >= 2
         && request.resource.data.name.size() <= 80
         && request.resource.data.memberNames is list
-        && request.resource.data.memberNames.size() <= 999;
+        && request.resource.data.memberNames.size() <= 999
+        && (!request.resource.data.keys().hasAny(["inviteToken"])
+          || (request.resource.data.inviteToken is string
+            && request.resource.data.inviteToken.size() == 32));
       allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
-      allow update: if signedIn()
-        && request.auth.uid in resource.data.memberIds
-        && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.memberIds == resource.data.memberIds
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastMessage", "updatedAt"]);
+      allow update: if signedIn() && (
+          (request.auth.uid in resource.data.memberIds
+            && request.resource.data.ownerId == resource.data.ownerId
+            && request.resource.data.memberIds == resource.data.memberIds
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastMessage", "updatedAt"]))
+          || (request.auth.uid == resource.data.ownerId
+            && request.resource.data.ownerId == resource.data.ownerId
+            && request.resource.data.memberIds.size() <= 999
+            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.resource.data.memberNames.size() <= 999
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["inviteToken"])
+              || (request.resource.data.inviteToken is string && request.resource.data.inviteToken.size() == 32))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["memberIds", "memberNames", "lastMessage", "inviteToken", "updatedAt"])));
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /messages/{messageId} {
@@ -191,6 +202,79 @@ service cloud.firestore {
           allow delete: if signedIn() && responseId == request.auth.uid;
         }
       }
+    }
+
+    match /groupJoinRequests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.groupId is string
+        && request.resource.data.ownerId is string
+        && request.resource.data.inviteToken is string
+        && request.resource.data.inviteToken.size() == 32
+        && request.resource.data.userName is string
+        && request.resource.data.userName.size() >= 2
+        && request.resource.data.userName.size() <= 80
+        && request.resource.data.status == "pending"
+        && get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.ownerId == request.resource.data.ownerId
+        && get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.inviteToken == request.resource.data.inviteToken;
+      allow read: if signedIn()
+        && (resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.groupId == resource.data.groupId
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.inviteToken == resource.data.inviteToken
+        && request.resource.data.status in ["approved", "declined"]
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "reviewedAt"]);
+      allow delete: if false;
+    }
+
+    match /whaptexts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.authorName is string
+        && request.resource.data.authorName.size() >= 2
+        && request.resource.data.authorName.size() <= 80
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 3
+        && request.resource.data.text.size() <= 600
+        && request.resource.data.tone in ["hope", "action", "community", "warning"]
+        && request.resource.data.kind in ["status", "whaptext"];
+      allow update: if signedIn()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.authorName is string
+        && request.resource.data.authorName.size() >= 2
+        && request.resource.data.authorName.size() <= 80
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 3
+        && request.resource.data.text.size() <= 600
+        && request.resource.data.tone in ["hope", "action", "community", "warning"]
+        && request.resource.data.kind in ["status", "whaptext"];
+      allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+    }
+
+    match /stories/{storyId} {
+      allow read: if signedIn() && resource.data.expiresAt > request.time;
+      allow create: if signedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.authorName is string
+        && request.resource.data.authorName.size() >= 2
+        && request.resource.data.authorName.size() <= 80
+        && request.resource.data.mediaUrl is string
+        && request.resource.data.mediaType in ["image", "video"]
+        && request.resource.data.caption is string
+        && request.resource.data.caption.size() <= 180
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches('stories/' + request.auth.uid + '/.*')
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(25, 'h')
+        && request.resource.data.keys().hasOnly(["authorId", "authorName", "mediaUrl", "mediaType", "caption", "storagePath", "createdAt", "expiresAt"]);
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
     }
 
     match /calls/{callId} {

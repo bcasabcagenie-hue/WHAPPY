@@ -30,6 +30,7 @@ class WhappyViewModel(
     private var twinProfileListener: ListenerRegistration? = null
     private var twinAutomationsListener: ListenerRegistration? = null
     private var twinRendersListener: ListenerRegistration? = null
+    private var contactSearchRequest = 0
     private val authListener = FirebaseAuth.AuthStateListener { refreshSession(it.currentUser) }
 
     init {
@@ -97,29 +98,88 @@ class WhappyViewModel(
         }
     }
 
-    fun addContact(phone: String) {
+    fun searchContact(phone: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.contactBusy) return
-        _uiState.update { it.copy(contactBusy = true, error = null) }
+        val normalizedPhone = PhoneNumberFormatter.normalize("+242", phone)
+        if (normalizedPhone == null) {
+            _uiState.update {
+                it.copy(
+                    contactSearchResult = null,
+                    contactSearchPhone = "",
+                    contactSearchMessage = "Saisissez un numéro complet, par exemple +242 06 123 45 67.",
+                )
+            }
+            return
+        }
+        val request = ++contactSearchRequest
+        _uiState.update {
+            it.copy(
+                contactBusy = true,
+                contactSearchResult = null,
+                contactSearchPhone = normalizedPhone,
+                contactSearchMessage = null,
+                error = null,
+            )
+        }
         viewModelScope.launch {
             runCatching {
-                val peer = repository.findUserByPhone(phone) ?: error("not-found")
+                val peer = repository.findUserByPhone(normalizedPhone) ?: error("not-found")
                 if (peer.uid == user.uid) error("self")
-                repository.saveContact(user.uid, peer)
-                repository.ensureDirectConversation(
-                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
-                    peer,
-                )
-            }.onSuccess { conversation ->
-                _uiState.update { it.copy(contactBusy = false) }
-                openConversation(conversation)
+                peer
+            }.onSuccess { peer ->
+                if (request == contactSearchRequest) {
+                    _uiState.update {
+                        it.copy(
+                            contactBusy = false,
+                            contactSearchResult = peer,
+                            contactSearchMessage = null,
+                            online = true,
+                        )
+                    }
+                }
             }.onFailure { failure ->
+                if (request != contactSearchRequest) return@onFailure
                 val message = when (failure.message) {
                     "not-found" -> "Aucun compte WHAPPY trouvé. Vérifiez le numéro ou demandez à la personne d’ouvrir WHAPPY une première fois."
                     "self" -> "C’est votre propre numéro WHAPPY"
                     else -> "La recherche du contact a échoué"
                 }
-                _uiState.update { it.copy(contactBusy = false, error = message) }
+                _uiState.update { it.copy(contactBusy = false, contactSearchResult = null, contactSearchMessage = message) }
+            }
+        }
+    }
+
+    fun clearContactSearch() {
+        contactSearchRequest += 1
+        _uiState.update { it.copy(contactSearchResult = null, contactSearchPhone = "", contactSearchMessage = null) }
+    }
+
+    fun addSearchedContact() {
+        val state = _uiState.value
+        val user = state.user ?: return
+        val peer = state.contactSearchResult ?: return
+        if (state.contactBusy) return
+        _uiState.update { it.copy(contactBusy = true, contactSearchMessage = null, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.addContactAndEnsureConversation(
+                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    peer,
+                )
+            }.onSuccess { conversation ->
+                _uiState.update {
+                    it.copy(
+                        contactBusy = false,
+                        contactSearchResult = null,
+                        contactSearchPhone = "",
+                        contactSearchMessage = null,
+                        online = true,
+                    )
+                }
+                openConversation(conversation)
+            }.onFailure {
+                _uiState.update { it.copy(contactBusy = false, contactSearchMessage = "Le contact n’a pas pu être ajouté. Réessayez dans un instant.") }
             }
         }
     }

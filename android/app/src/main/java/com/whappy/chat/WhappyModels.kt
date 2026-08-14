@@ -5,6 +5,7 @@ import com.google.firebase.auth.FirebaseUser
 enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
     MESSAGES("Messages"),
+    CALLS("Appels"),
     MARKET("Marché"),
     LIVE("Live"),
     BUSINESS("Business"),
@@ -169,6 +170,9 @@ data class WhappyUiState(
     val tab: WhappyTab = WhappyTab.MOMENTS,
     val conversations: List<WhappyConversation> = emptyList(),
     val contacts: List<WhappyContact> = emptyList(),
+    val contactSearchResult: WhappyMember? = null,
+    val contactSearchPhone: String = "",
+    val contactSearchMessage: String? = null,
     val selectedConversation: WhappyConversation? = null,
     val messages: List<WhappyMessage> = emptyList(),
     val listings: List<WhappyListing> = emptyList(),

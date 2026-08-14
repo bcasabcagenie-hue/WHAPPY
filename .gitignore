@@ -49,3 +49,4 @@ yarn-error.log*
 /releases/*.apk.idsig
 /outputs/
 /work/
+*.tsbuildinfo
