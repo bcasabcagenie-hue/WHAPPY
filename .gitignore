@@ -39,6 +39,7 @@ yarn-error.log*
 /.wrangler/
 /.firebase/
 /android/.gradle/
+/android/build/
 /android/local.properties
 /android/app/build/
 /releases/*.apk
