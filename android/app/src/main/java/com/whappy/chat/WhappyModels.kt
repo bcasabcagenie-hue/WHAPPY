@@ -92,6 +92,8 @@ data class WhappyLive(
     val status: String,
     val viewerCount: Int,
     val startedAt: Long,
+    val hostMode: String = "personal",
+    val visibility: String = "public",
 )
 
 data class WhappyDeal(

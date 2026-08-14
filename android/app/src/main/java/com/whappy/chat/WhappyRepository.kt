@@ -228,6 +228,8 @@ class WhappyRepository(
                     status = document.getString("status") ?: "scheduled",
                     viewerCount = document.getLong("viewerCount")?.toInt() ?: 0,
                     startedAt = document.timestampMillis("startedAt"),
+                    hostMode = document.getString("hostMode") ?: "personal",
+                    visibility = document.getString("visibility") ?: "public",
                 )
             }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt }))
         }
@@ -520,8 +522,10 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean) {
+    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) {
         require(title.trim().length in 2..120)
+        require(hostMode in setOf("personal", "creator", "business"))
+        require(visibility in setOf("public", "contacts", "private"))
         db.collection("liveSessions").add(
             mapOf(
                 "hostId" to userId,
@@ -532,6 +536,8 @@ class WhappyRepository(
                 "status" to if (startNow) "live" else "scheduled",
                 "viewerCount" to 0,
                 "streamProvider" to "unconfigured",
+                "hostMode" to hostMode,
+                "visibility" to visibility,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "startedAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),

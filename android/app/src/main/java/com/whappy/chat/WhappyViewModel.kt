@@ -166,8 +166,8 @@ class WhappyViewModel(
         repository.updateBusinessPage(user.uid, page, name, category, bio, city, phone, website)
     }
 
-    fun createLive(title: String, category: String, productTitle: String, startNow: Boolean) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
-        repository.createLive(user.uid, accountName(), title, category, productTitle, startNow)
+    fun createLive(title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
+        repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
     }
 
     fun updateProfilePhoto(uri: Uri, contentType: String) {

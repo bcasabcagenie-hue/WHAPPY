@@ -6,6 +6,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -96,6 +97,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -112,7 +114,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -145,6 +146,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
+import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentHashMap
 
 private val WhappyBlue = Color(0xFF00A2E6)
 private val WhappyDark = Color(0xFF102E3B)
@@ -226,7 +229,7 @@ fun WhappyRoot(
     onCreateBusinessPage: (String, String, String, String) -> Unit,
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
-    onCreateLive: (String, String, String, Boolean) -> Unit,
+    onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
@@ -428,7 +431,7 @@ private fun WhappyMain(
     onCreateBusinessPage: (String, String, String, String) -> Unit,
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
-    onCreateLive: (String, String, String, Boolean) -> Unit,
+    onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
@@ -1351,7 +1354,7 @@ private fun LiveScreen(
     currentUserId: String,
     preview: Boolean,
     busy: Boolean,
-    onCreateLive: (String, String, String, Boolean) -> Unit,
+    onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
     onOpenTwin: () -> Unit,
@@ -1424,7 +1427,10 @@ private fun LiveScreen(
                     }
                     Column(Modifier.padding(16.dp)) {
                         Text(live.title, color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                        Text("${live.hostName} · ${live.category}", Modifier.padding(top = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${live.hostName} · ${live.category}", Modifier.weight(1f), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFEAF7FC)).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(liveModeLabel(live.hostMode), color = WhappyDark, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                        }
                         if (live.productTitle.isNotBlank()) Text("Deal présenté : ${live.productTitle}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp)
                         if (live.hostId == currentUserId && live.status == "scheduled") Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { startWithPermissions { pendingStudioTitle = live.title; if (preview) previewStatuses = previewStatuses + (live.id to "live") else onUpdateLiveStatus(live.id, "live") } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
@@ -1436,14 +1442,14 @@ private fun LiveScreen(
                 }
             }
         }
-        item { Text("Les salons et leur audience sont synchronisés en temps réel. La diffusion vidéo nécessite la connexion d’un fournisseur média au compte Business.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp) }
+        item { Text("Chaque profil peut créer un salon. Le statut, l’audience et les réactions sont synchronisés en temps réel; la vidéo multi-appareils utilise l’infrastructure média WHAPPY.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp) }
     }
-    if (creating) LiveDialog(busy, onDismiss = { creating = false }) { title, category, product, startNow ->
+    if (creating) LiveDialog(busy, onDismiss = { creating = false }) { title, category, product, startNow, hostMode, visibility ->
         val createAction = {
             val status = if (startNow) "live" else "scheduled"
             if (startNow) pendingStudioTitle = title
-            if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, "Cyril Bokilo", title, category, product, status, 0, System.currentTimeMillis())) + localLives
-            else onCreateLive(title, category, product, startNow)
+            if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, "Cyril Bokilo", title, category, product, status, 0, System.currentTimeMillis(), hostMode, visibility)) + localLives
+            else onCreateLive(title, category, product, startNow, hostMode, visibility)
         }
         if (startNow) startWithPermissions(createAction) else createAction()
         creating = false
@@ -1472,18 +1478,25 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, onDismiss: () -> 
 }
 
 @Composable
-private fun LiveDialog(busy: Boolean, onDismiss: () -> Unit, onSave: (String, String, String, Boolean) -> Unit) {
-    var title by remember { mutableStateOf("") }; var category by remember { mutableStateOf("Business") }; var product by remember { mutableStateOf("") }
+private fun LiveDialog(busy: Boolean, onDismiss: () -> Unit, onSave: (String, String, String, Boolean, String, String) -> Unit) {
+    var title by remember { mutableStateOf("") }; var category by remember { mutableStateOf("Communauté") }; var product by remember { mutableStateOf("") }; var hostMode by remember { mutableStateOf("personal") }; var visibility by remember { mutableStateOf("public") }
     val valid = title.trim().length >= 3 && category.isNotBlank() && !busy
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Créer un Live") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Titre du direct") }, singleLine = true)
-        OutlinedTextField(category, { category = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Catégorie") }, singleLine = true)
-        OutlinedTextField(product, { product = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Produit ou Deal (facultatif)") }, singleLine = true)
-        Text("Démarrer maintenant ouvre le studio après autorisation de la caméra et du micro. Programmer conserve le direct pour plus tard.", color = WhappyMuted, fontSize = 11.sp)
-    } }, confirmButton = { Button(enabled = valid, onClick = { onSave(title.trim(), category.trim(), product.trim(), true) }) { Text(if (busy) "Ouverture…" else "Démarrer maintenant") } }, dismissButton = { Row { TextButton(onClick = onDismiss) { Text("Annuler") }; TextButton(enabled = valid, onClick = { onSave(title.trim(), category.trim(), product.trim(), false) }) { Text("Programmer") } } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Column { Text("Créer un Live", fontWeight = FontWeight.Black); Text("Tout le monde peut passer en direct", color = WhappyBlue, fontSize = 11.sp) } }, text = { LazyColumn(Modifier.fillMaxWidth().height(470.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        item { Text("Je passe en direct comme", color = WhappyDark, fontWeight = FontWeight.Black) }
+        item { FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) { listOf("personal" to "👤 Personnel", "creator" to "✦ Créateur", "business" to "▣ Business").forEach { option -> OutlinedButton(onClick = { hostMode = option.first }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (hostMode == option.first) WhappyDark else Color.White, contentColor = if (hostMode == option.first) Color.White else WhappyDark), shape = RoundedCornerShape(13.dp)) { Text(option.second, fontWeight = FontWeight.Bold) } } } }
+        item { Text(when (hostMode) { "business" -> "Vendez, présentez un Deal et recevez des commandes."; "creator" -> "Animez votre communauté et utilisez votre WHAPPY."; else -> "Discutez, partagez un moment ou organisez un événement." }, color = WhappyMuted, fontSize = 11.sp) }
+        item { OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Titre du direct") }, singleLine = true) }
+        item { OutlinedTextField(category, { category = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Catégorie") }, singleLine = true) }
+        if (hostMode == "business") item { OutlinedTextField(product, { product = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Produit ou Deal (facultatif)") }, singleLine = true) }
+        item { Text("Audience", color = WhappyDark, fontWeight = FontWeight.Black) }
+        item { FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) { listOf("public" to "🌍 Public", "contacts" to "👥 Contacts", "private" to "🔒 Privé").forEach { option -> OutlinedButton(onClick = { visibility = option.first }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (visibility == option.first) Color(0xFFE1F3FB) else Color.White), shape = RoundedCornerShape(13.dp)) { Text(option.second) } } } }
+        item { Text("Démarrer maintenant ouvre le studio après autorisation de la caméra et du micro. Programmer conserve le direct pour plus tard.", color = WhappyMuted, fontSize = 11.sp) }
+    } }, confirmButton = { Button(enabled = valid, onClick = { onSave(title.trim(), category.trim(), product.trim(), true, hostMode, visibility) }) { Text(if (busy) "Ouverture…" else "Démarrer maintenant") } }, dismissButton = { Row { TextButton(onClick = onDismiss) { Text("Annuler") }; TextButton(enabled = valid, onClick = { onSave(title.trim(), category.trim(), product.trim(), false, hostMode, visibility) }) { Text("Programmer") } } })
 }
 
-private enum class BusinessSection(val label: String) { DASHBOARD("Aperçu"), PAGES("Pages"), DEALS("Deals"), PAYMENTS("Paiements"), ADS("Publicité") }
+private fun liveModeLabel(mode: String): String = when (mode) { "business" -> "BUSINESS"; "creator" -> "CRÉATEUR"; else -> "PERSONNEL" }
+
+private enum class BusinessSection(val label: String) { DASHBOARD("Aperçu"), PAGES("Pages"), CATALOG("Catalogue"), DEALS("Deals"), ORDERS("Commandes"), PAYMENTS("Paiements"), ADS("Publicité"), INSIGHTS("Performances") }
 
 @Composable
 private fun BusinessScreen(
@@ -1518,13 +1531,16 @@ private fun BusinessScreen(
     val visibleDeals = (localDeals + deals).map { deal -> previewDealStatuses[deal.id]?.let { deal.copy(status = it) } ?: deal }
     val unread = paymentNotices.count { !it.read && it.id !in locallyRead }
     val paidTotal = paymentNotices.filter { it.status == "paid" }.sumOf { it.amount }
+    val soldUnits = visibleDeals.sumOf { it.sold }
+    val availableStock = visibleDeals.sumOf { (it.stock - it.sold).coerceAtLeast(0) }
+    val advertisingBudget = visibleCampaigns.filter { it.status == "active" }.sumOf { it.dailyBudget * it.days }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
                 Column(Modifier.padding(24.dp)) {
                     Text("WHAPPY BUSINESS SUITE", color = WhappyBlue, fontWeight = FontWeight.Black, fontSize = 11.sp)
-                    Text("Pilotez vos pages, Deals\net paiements.", Modifier.padding(top = 9.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
-                    Text("Une vitrine professionnelle complète pour vendre, créer et suivre votre activité.", Modifier.padding(top = 9.dp), color = Color(0xFFBECED5), lineHeight = 20.sp)
+                    Text("Tout votre Business,\ndans une seule app.", Modifier.padding(top = 9.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
+                    Text("Catalogue, commandes, Deals, publicité, paiements et performances en temps réel.", Modifier.padding(top = 9.dp), color = Color(0xFFBECED5), lineHeight = 20.sp)
                     Button(onClick = { if (visiblePages.isEmpty()) creatingPage = true else creatingDeal = true }, Modifier.fillMaxWidth().padding(top = 16.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) { Icon(if (visiblePages.isEmpty()) Icons.Rounded.Add else Icons.Rounded.LocalOffer, null); Text(if (visiblePages.isEmpty()) "Créer ma page Business" else "Créer un Deal", Modifier.padding(start = 7.dp), fontWeight = FontWeight.Bold) }
                     OutlinedButton(onClick = onEnableNotifications, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(48.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), shape = RoundedCornerShape(15.dp)) { Icon(Icons.Rounded.Notifications, null); Text(if (unread > 0) "$unread paiement(s) à consulter" else "Activer les alertes de paiement", Modifier.padding(start = 7.dp), fontWeight = FontWeight.Bold) }
                 }
@@ -1546,8 +1562,11 @@ private fun BusinessScreen(
             BusinessSection.DASHBOARD -> {
                 item { Text("Centre Business", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
                 item { BusinessFeatureCard(Icons.Rounded.Storefront, "Profil Business", if (visiblePages.isEmpty()) "Créez une page publique professionnelle" else "${visiblePages.first().name} · @${visiblePages.first().handle}") { section = BusinessSection.PAGES } }
+                item { BusinessFeatureCard(Icons.Rounded.ReceiptLong, "Catalogue", if (visibleDeals.isEmpty()) "Ajoutez vos produits et services" else "${visibleDeals.size} offre(s) · $availableStock unité(s) disponibles") { section = BusinessSection.CATALOG } }
                 item { BusinessFeatureCard(Icons.Rounded.LocalOffer, "Deals", "Offres limitées, stock et ventes en un coup d’œil") { section = BusinessSection.DEALS } }
+                item { BusinessFeatureCard(Icons.Rounded.BusinessCenter, "Commandes", if (paymentNotices.isEmpty()) "Centralisez vos prochaines ventes" else "${paymentNotices.size} commande(s) à suivre") { section = BusinessSection.ORDERS } }
                 item { BusinessFeatureCard(Icons.Rounded.Payments, "Paiements", if (unread > 0) "$unread nouvelle(s) notification(s)" else "Historique et alertes de transactions") { section = BusinessSection.PAYMENTS } }
+                item { BusinessFeatureCard(Icons.Rounded.Visibility, "Performances", "Revenus, stock, ventes et budget publicitaire") { section = BusinessSection.INSIGHTS } }
                 item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Mon WHAPPY pour Business", "Créez des contenus et préparez vos directs") { onOpenTwin() } }
             }
             BusinessSection.PAGES -> {
@@ -1561,6 +1580,18 @@ private fun BusinessScreen(
                 else if (visibleDeals.isEmpty()) item { EmptyState("Aucun Deal", "Publiez une offre limitée pour activer vos ventes.") }
                 items(visibleDeals, key = { it.id }) { deal -> DealCard(deal) { status -> if (preview) previewDealStatuses = previewDealStatuses + (deal.id to status) else onUpdateDealStatus(deal.id, status) } }
             }
+            BusinessSection.CATALOG -> {
+                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Catalogue", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text("Produits, services et offres vendables", color = WhappyMuted, fontSize = 11.sp) }; if (visiblePages.isNotEmpty()) Button(onClick = { creatingDeal = true }, shape = RoundedCornerShape(13.dp)) { Text("+ Ajouter") } } }
+                if (visiblePages.isEmpty()) item { EmptyState("Page requise", "Créez votre page Business avant de composer le catalogue.") }
+                else if (visibleDeals.isEmpty()) item { EmptyState("Catalogue vide", "Ajoutez votre premier produit ou service avec une offre attractive.") }
+                items(visibleDeals, key = { "catalog-${it.id}" }) { deal -> CatalogCard(deal) { creatingDeal = true } }
+            }
+            BusinessSection.ORDERS -> {
+                item { Text("Centre de commandes", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
+                item { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = WhappyDark), shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("COMMANDES CONFIRMÉES", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(paymentNotices.size.toString(), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("$soldUnits article(s) vendu(s)", color = Color(0xFFBECED5), fontSize = 11.sp) }; Icon(Icons.Rounded.ReceiptLong, null, tint = WhappyBlue, modifier = Modifier.size(42.dp)) } } }
+                if (paymentNotices.isEmpty()) item { EmptyState("Aucune commande", "Les commandes confirmées par paiement apparaîtront ici.") }
+                items(paymentNotices, key = { "order-${it.id}" }) { notice -> OrderCard(notice) }
+            }
             BusinessSection.PAYMENTS -> {
                 item { Text("Notifications de paiement", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
                 item { OutlinedButton(onClick = onEnableNotifications, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Notifications, null); Text("Recevoir les alertes sur ce téléphone", Modifier.padding(start = 7.dp), fontWeight = FontWeight.Bold) } }
@@ -1573,6 +1604,14 @@ private fun BusinessScreen(
                 if (visiblePages.isEmpty()) item { EmptyState("Page requise", "Créez une page Business avant de lancer une publicité.") }
                 else if (visibleCampaigns.isEmpty()) item { EmptyState("Aucune campagne", "Développez votre audience avec une campagne ciblée.") }
                 items(visibleCampaigns, key = { it.id }) { campaign -> CampaignCard(campaign) }
+            }
+            BusinessSection.INSIGHTS -> {
+                item { Text("Performances Business", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
+                item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { MetricCard("Revenus", formatMoney(paidTotal), Modifier.weight(1f)); MetricCard("Ventes", soldUnits.toString(), Modifier.weight(1f)) } }
+                item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { MetricCard("Stock", availableStock.toString(), Modifier.weight(1f)); MetricCard("Publicité", formatMoney(advertisingBudget), Modifier.weight(1f)) } }
+                item { InsightCard("Objectif mensuel", paidTotal, 500_000L, "Continuez avec des Lives et Deals réguliers") }
+                item { InsightCard("Écoulement du stock", soldUnits.toLong(), (soldUnits + availableStock).coerceAtLeast(1).toLong(), "Produits vendus sur le catalogue actif") }
+                item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Créer avec mon WHAPPY", "Préparez une vidéo, un Live ou une campagne") { onOpenTwin() } }
             }
         }
     }
@@ -1604,6 +1643,45 @@ private fun BusinessFeatureCard(icon: androidx.compose.ui.graphics.vector.ImageV
 }
 
 @Composable
+private fun CatalogCard(deal: WhappyDeal, onAddVariant: () -> Unit) {
+    val remaining = (deal.stock - deal.sold).coerceAtLeast(0)
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
+            Column(Modifier.weight(1f).padding(horizontal = 13.dp)) {
+                Text(deal.title, color = WhappyDark, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(formatMoney(deal.dealPrice), color = WhappyBlue, fontWeight = FontWeight.Black)
+                Text("$remaining disponible(s) · ${deal.sold} vendu(s)", color = WhappyMuted, fontSize = 10.sp)
+            }
+            TextButton(onClick = onAddVariant) { Text("Ajouter +") }
+        }
+    }
+}
+
+@Composable
+private fun OrderCard(notice: WhappyPaymentNotice) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFFDFF6EA)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.CheckCircle, null, tint = Color(0xFF12824B)) }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Commande de ${notice.buyerName}", color = WhappyDark, fontWeight = FontWeight.Black); Text("${notice.provider} · ${formatTime(notice.createdAt)}", color = WhappyMuted, fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.End) { Text(formatMoney(notice.amount), color = Color(0xFF12824B), fontWeight = FontWeight.Black); Text(if (notice.status == "paid") "PAYÉE" else notice.status.uppercase(), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+        }
+    }
+}
+
+@Composable
+private fun InsightCard(title: String, value: Long, target: Long, body: String) {
+    val progress = if (target <= 0) 0f else (value.toFloat() / target.toFloat()).coerceIn(0f, 1f)
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(21.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+        Column(Modifier.padding(17.dp)) {
+            Row { Text(title, Modifier.weight(1f), color = WhappyDark, fontWeight = FontWeight.Black); Text("${(progress * 100).toInt()} %", color = WhappyBlue, fontWeight = FontWeight.Black) }
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(8.dp).clip(CircleShape), color = WhappyBlue, trackColor = Color(0xFFE1F3FB))
+            Text(body, Modifier.padding(top = 9.dp), color = WhappyMuted, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
 private fun BusinessPageCard(page: WhappyBusinessPage, onEdit: () -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WhappyBlue) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }; TextButton(onClick = onEdit) { Text("Modifier") } }; FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("📍 ${page.city}", color = WhappyMuted, fontSize = 10.sp); if (page.phone.isNotBlank()) Text("☎ ${page.phone}", color = WhappyMuted, fontSize = 10.sp); if (page.website.isNotBlank()) Text("↗ ${page.website}", color = WhappyBlue, fontSize = 10.sp) } } } }
 
 @Composable
@@ -1617,9 +1695,69 @@ private fun CampaignCard(campaign: WhappyCampaign) { Card(Modifier.fillMaxWidth(
 
 @Composable
 private fun DealDialog(pages: List<WhappyBusinessPage>, busy: Boolean, onDismiss: () -> Unit, onSave: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit) {
-    var page by remember { mutableStateOf(pages.first()) }; var title by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var original by remember { mutableStateOf("") }; var price by remember { mutableStateOf("") }; var stock by remember { mutableStateOf("10") }; var days by remember { mutableStateOf("3") }
-    val originalValue = original.toLongOrNull() ?: 0; val priceValue = price.toLongOrNull() ?: 0; val stockValue = stock.toIntOrNull() ?: 0; val daysValue = days.toIntOrNull() ?: 0
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Créer un Deal") }, text = { LazyColumn(Modifier.fillMaxWidth().height(440.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("Page", color = WhappyMuted, fontWeight = FontWeight.Bold); FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { pages.forEach { candidate -> OutlinedButton(onClick = { page = candidate }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (page.id == candidate.id) Color(0xFFE1F3FB) else Color.Transparent)) { Text(candidate.name) } } } }; item { OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Titre de l’offre") }, singleLine = true) }; item { OutlinedTextField(description, { description = it.take(400) }, Modifier.fillMaxWidth(), label = { Text("Description") }, minLines = 3) }; item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(original, { original = it.filter(Char::isDigit).take(9) }, Modifier.weight(1f), label = { Text("Prix normal") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); OutlinedTextField(price, { price = it.filter(Char::isDigit).take(9) }, Modifier.weight(1f), label = { Text("Prix Deal") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) } }; item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(stock, { stock = it.filter(Char::isDigit).take(5) }, Modifier.weight(1f), label = { Text("Stock") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); OutlinedTextField(days, { days = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text("Jours") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) } } } }, confirmButton = { Button(enabled = title.trim().length >= 3 && description.isNotBlank() && originalValue > 0 && priceValue in 1..originalValue && stockValue > 0 && daysValue in 1..30 && !busy, onClick = { onSave(page, title.trim(), description.trim(), originalValue, priceValue, stockValue, daysValue) }) { Text(if (busy) "Publication…" else "Publier") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
+    var step by remember { mutableStateOf(0) }
+    var page by remember { mutableStateOf(pages.first()) }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var original by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    var stock by remember { mutableStateOf("10") }
+    var days by remember { mutableStateOf("3") }
+    val originalValue = original.toLongOrNull() ?: 0
+    val priceValue = price.toLongOrNull() ?: 0
+    val stockValue = stock.toIntOrNull() ?: 0
+    val daysValue = days.toIntOrNull() ?: 0
+    val identityValid = title.trim().length >= 3 && description.trim().length >= 3
+    val offerValid = originalValue > 0 && priceValue in 1..originalValue && stockValue > 0 && daysValue in 1..30
+    val currentValid = when (step) { 0 -> identityValid; 1 -> offerValid; else -> identityValid && offerValid }
+    val discount = if (originalValue > 0 && priceValue in 1..originalValue) (((originalValue - priceValue) * 100) / originalValue).toInt() else 0
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue) }; Column(Modifier.padding(start = 11.dp)) { Text("Créer un Deal", fontWeight = FontWeight.Black, fontSize = 22.sp); Text(listOf("Identité de l’offre", "Prix et disponibilité", "Aperçu avant publication")[step], color = WhappyBlue, fontSize = 11.sp) } }
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { repeat(3) { index -> Box(Modifier.weight(1f).height(6.dp).clip(CircleShape).background(if (index <= step) WhappyBlue else Color(0xFFE0E8EC))) } }
+            }
+        },
+        text = {
+            AnimatedContent(targetState = step, label = "deal-creator") { current ->
+                when (current) {
+                    0 -> Column(Modifier.fillMaxWidth().height(380.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                        Text("Publié par", color = WhappyDark, fontWeight = FontWeight.Black)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) { pages.forEach { candidate -> OutlinedButton(onClick = { page = candidate }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (page.id == candidate.id) WhappyDark else Color.White, contentColor = if (page.id == candidate.id) Color.White else WhappyDark), shape = RoundedCornerShape(13.dp)) { Text(candidate.name) } } }
+                        OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Nom du Deal") }, supportingText = { Text("Ex. Pack rentrée · 48 heures") }, singleLine = true)
+                        OutlinedTextField(description, { description = it.take(400) }, Modifier.fillMaxWidth(), label = { Text("Pourquoi cette offre est exceptionnelle ?") }, minLines = 4)
+                    }
+                    1 -> Column(Modifier.fillMaxWidth().height(380.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC)), shape = RoundedCornerShape(18.dp)) { Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) { Text("RÉDUCTION", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Spacer(Modifier.weight(1f)); Text(if (discount > 0) "-$discount %" else "À calculer", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black) } }
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) { OutlinedTextField(original, { original = it.filter(Char::isDigit).take(9) }, Modifier.weight(1f), label = { Text("Prix normal") }, suffix = { Text("F") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); OutlinedTextField(price, { price = it.filter(Char::isDigit).take(9) }, Modifier.weight(1f), label = { Text("Prix Deal") }, suffix = { Text("F") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) { OutlinedTextField(stock, { stock = it.filter(Char::isDigit).take(5) }, Modifier.weight(1f), label = { Text("Stock") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); OutlinedTextField(days, { days = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text("Durée") }, suffix = { Text("j") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) }
+                        Text("WHAPPY affichera automatiquement le stock restant et la date de fin pour créer un sentiment d’urgence.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                    }
+                    else -> Column(Modifier.fillMaxWidth().height(380.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Voici ce que vos clients verront", color = WhappyDark, fontWeight = FontWeight.Black)
+                        DealPreviewCard(page.name, title, description, originalValue, priceValue, stockValue, daysValue, discount)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("⚡ Urgence", "✓ Stock réel", "🔔 Alertes").forEach { tag -> Box(Modifier.clip(RoundedCornerShape(10.dp)).background(Color(0xFFEAF7FC)).padding(horizontal = 9.dp, vertical = 6.dp)) { Text(tag, color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Bold) } } }
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(enabled = currentValid && !busy, onClick = { if (step < 2) step += 1 else onSave(page, title.trim(), description.trim(), originalValue, priceValue, stockValue, daysValue) }, shape = RoundedCornerShape(14.dp)) { Text(if (busy) "Publication…" else if (step < 2) "Continuer →" else "Publier le Deal", fontWeight = FontWeight.Bold) } },
+        dismissButton = { Row { TextButton(onClick = onDismiss) { Text("Annuler") }; if (step > 0) TextButton(onClick = { step -= 1 }) { Text("← Retour") } } },
+    )
+}
+
+@Composable
+private fun DealPreviewCard(pageName: String, title: String, description: String, original: Long, price: Long, stock: Int, days: Int, discount: Int) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFFFF3B5C)).padding(horizontal = 9.dp, vertical = 5.dp)) { Text("DEAL · -$discount %", color = Color.White, fontWeight = FontWeight.Black, fontSize = 10.sp) }; Spacer(Modifier.weight(1f)); Text("$days JOURS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black) }
+            Text(title.ifBlank { "Votre Deal exceptionnel" }, Modifier.padding(top = 14.dp), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+            Text(description.ifBlank { "Une description claire qui donne envie d’acheter maintenant." }, Modifier.padding(top = 6.dp), color = Color(0xFFBECED5), fontSize = 11.sp, maxLines = 3)
+            Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.Bottom) { Text(formatMoney(price), color = WhappyBlue, fontSize = 22.sp, fontWeight = FontWeight.Black); Text("  ${formatMoney(original)}", color = Color(0xFFBECED5), fontSize = 11.sp); Spacer(Modifier.weight(1f)); Text("$stock restant(s)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+            Text(pageName, Modifier.padding(top = 10.dp), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+        }
+    }
 }
 
 @Composable
@@ -1763,22 +1901,38 @@ private fun ProfileScreen(
 @Composable
 private fun UserAvatar(photoUrl: String, name: String, size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, photoUrl) {
-        value = if (photoUrl.isBlank()) null else withContext(Dispatchers.IO) {
+    var bitmap by remember { mutableStateOf(AvatarMemoryCache.items[photoUrl]) }
+    LaunchedEffect(photoUrl) {
+        if (photoUrl.isBlank()) return@LaunchedEffect
+        AvatarMemoryCache.items[photoUrl]?.let { cached -> bitmap = cached; return@LaunchedEffect }
+        val loaded = withContext(Dispatchers.IO) {
             runCatching {
-                val stream = if (photoUrl.startsWith("http://") || photoUrl.startsWith("https://")) {
-                    URL(photoUrl).openStream()
+                val bytes = if (photoUrl.startsWith("http://") || photoUrl.startsWith("https://")) {
+                    URL(photoUrl).openStream().use { it.readBytes() }
                 } else {
-                    context.contentResolver.openInputStream(Uri.parse(photoUrl))
-                }
-                stream?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+                    context.contentResolver.openInputStream(Uri.parse(photoUrl))?.use { it.readBytes() }
+                } ?: return@runCatching null
+                val decoded = if (Build.VERSION.SDK_INT >= 28) {
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, _, _ ->
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+                } else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                decoded?.asImageBitmap()
             }.getOrNull()
+        }
+        if (loaded != null) {
+            AvatarMemoryCache.items[photoUrl] = loaded
+            bitmap = loaded
         }
     }
     Box(modifier.size(size).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap = bitmap!!, contentDescription = "Photo de profil de $name", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Text(initials(name), color = Color.White, fontSize = (size.value * 0.31f).sp, fontWeight = FontWeight.Black)
     }
+}
+
+private object AvatarMemoryCache {
+    val items = ConcurrentHashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
 }
 
 @Composable

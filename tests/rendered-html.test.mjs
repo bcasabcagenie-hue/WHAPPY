@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.3\.2-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.3\.3-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -89,6 +89,12 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(repository, /profiles\/\$userId\/avatar-/);
   assert.match(ui, /Changer ma photo/);
   assert.match(ui, /Démarrer maintenant/);
+  assert.match(ui, /Tout le monde peut passer en direct/);
+  assert.match(ui, /deal-creator/);
+  assert.match(ui, /Catalogue/);
+  assert.match(ui, /Centre de commandes/);
+  assert.match(ui, /Performances Business/);
+  assert.match(ui, /AvatarMemoryCache/);
   assert.match(repository, /createDeal/);
   assert.match(repository, /registerDeviceToken/);
   assert.match(repository, /updateBusinessPage/);
