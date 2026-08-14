@@ -21,7 +21,12 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Whappy — Tout peut devenir une opportunité",
     description: "Directs marchands, vente, troc, recherche et Double vidéo consentant.",
-    images: ["/whappy-social.png"],
+    images: [{
+      url: "/og.png",
+      width: 1200,
+      height: 630,
+      alt: "Whappy — Messages, appels et marketplace sur Android",
+    }],
     locale: "fr_FR",
     type: "website",
   },
@@ -29,7 +34,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Whappy — Tout peut devenir une opportunité",
     description: "Directs marchands, vente, troc, recherche et Double vidéo consentant.",
-    images: ["/whappy-social.png"],
+    images: ["/og.png"],
   },
 };
 
