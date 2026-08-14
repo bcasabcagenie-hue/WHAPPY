@@ -51,10 +51,13 @@ class MainActivity : ComponentActivity() {
                     onAddContact = model::addContact,
                     onPublishListing = model::publishListing,
                     onCreateBusinessPage = model::createBusinessPage,
+                    onUpdateBusinessPage = model::updateBusinessPage,
                     onCreateCampaign = model::createCampaign,
                     onCreateLive = model::createLive,
                     onEndLive = model::endLive,
+                    onUpdateLiveStatus = model::updateLiveStatus,
                     onCreateDeal = model::createDeal,
+                    onUpdateDealStatus = model::updateDealStatus,
                     onMarkPaymentRead = model::markPaymentNoticeRead,
                     onEnableNotifications = {
                         WhappyNotifications.ensureChannel(this)

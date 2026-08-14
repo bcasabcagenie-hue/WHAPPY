@@ -136,6 +136,8 @@ class WhappyRepository(
                     bio = document.getString("bio").orEmpty(),
                     city = document.getString("city") ?: "Brazzaville",
                     ownerId = document.getString("ownerId").orEmpty(),
+                    phone = document.getString("phone").orEmpty(),
+                    website = document.getString("website").orEmpty(),
                 )
             })
         }
@@ -434,6 +436,24 @@ class WhappyRepository(
         ).await()
     }
 
+    suspend fun updateBusinessPage(userId: String, page: WhappyBusinessPage, name: String, category: String, bio: String, city: String, phone: String, website: String) {
+        require(page.ownerId == userId)
+        require(name.trim().length in 2..80)
+        db.collection("businessPages").document(page.id).update(
+            mapOf(
+                "name" to name.trim(),
+                "type" to "business",
+                "category" to category.trim().take(80),
+                "bio" to bio.trim().take(400),
+                "city" to city.trim().take(80).ifBlank { "Brazzaville" },
+                "phone" to phone.trim().take(30),
+                "website" to website.trim().take(180),
+                "status" to "active",
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
     suspend fun createCampaign(userId: String, draft: WhappyCampaignDraft) {
         require(draft.title.trim().length in 2..120)
         require(draft.creative.trim().length in 2..600)
@@ -486,6 +506,17 @@ class WhappyRepository(
         reference.update(mapOf("status" to "ended", "updatedAt" to FieldValue.serverTimestamp())).await()
     }
 
+    suspend fun updateLiveStatus(userId: String, liveId: String, status: String) {
+        require(status in setOf("live", "ended"))
+        val reference = db.collection("liveSessions").document(liveId)
+        val document = reference.get().await()
+        require(document.getString("hostId") == userId)
+        val values = mutableMapOf<String, Any>("status" to status, "updatedAt" to FieldValue.serverTimestamp())
+        if (status == "live") values["startedAt"] = FieldValue.serverTimestamp()
+        else values["endedAt"] = FieldValue.serverTimestamp()
+        reference.update(values).await()
+    }
+
     suspend fun createDeal(userId: String, page: WhappyBusinessPage, title: String, description: String, originalPrice: Long, dealPrice: Long, stock: Int, durationDays: Int) {
         require(title.trim().length in 2..120)
         require(dealPrice > 0 && originalPrice >= dealPrice)
@@ -508,6 +539,14 @@ class WhappyRepository(
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
+    }
+
+    suspend fun updateDealStatus(userId: String, dealId: String, status: String) {
+        require(status in setOf("active", "paused", "ended"))
+        val reference = db.collection("businessDeals").document(dealId)
+        val document = reference.get().await()
+        require(document.getString("ownerId") == userId)
+        reference.update(mapOf("status" to status, "updatedAt" to FieldValue.serverTimestamp())).await()
     }
 
     suspend fun markPaymentNoticeRead(userId: String, noticeId: String) {

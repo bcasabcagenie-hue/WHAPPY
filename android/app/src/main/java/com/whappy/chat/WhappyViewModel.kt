@@ -162,6 +162,10 @@ class WhappyViewModel(
         }
     }
 
+    fun updateBusinessPage(page: WhappyBusinessPage, name: String, category: String, bio: String, city: String, phone: String, website: String) = runBusinessAction("La page Business n’a pas été mise à jour") { user ->
+        repository.updateBusinessPage(user.uid, page, name, category, bio, city, phone, website)
+    }
+
     fun createLive(title: String, category: String, productTitle: String) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
         repository.createLive(user.uid, accountName(), title, category, productTitle)
     }
@@ -170,8 +174,16 @@ class WhappyViewModel(
         repository.endLive(user.uid, liveId)
     }
 
+    fun updateLiveStatus(liveId: String, status: String) = runBusinessAction("Le statut du Live n’a pas été mis à jour") { user ->
+        repository.updateLiveStatus(user.uid, liveId, status)
+    }
+
     fun createDeal(page: WhappyBusinessPage, title: String, description: String, originalPrice: Long, dealPrice: Long, stock: Int, durationDays: Int) = runBusinessAction("Le Deal n’a pas été publié") { user ->
         repository.createDeal(user.uid, page, title, description, originalPrice, dealPrice, stock, durationDays)
+    }
+
+    fun updateDealStatus(dealId: String, status: String) = runBusinessAction("Le Deal n’a pas été mis à jour") { user ->
+        repository.updateDealStatus(user.uid, dealId, status)
     }
 
     fun markPaymentNoticeRead(noticeId: String) {

@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.3\.0-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.3\.1-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -70,6 +70,10 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(ui, /BusinessSection/);
   assert.match(ui, /Notifications de paiement/);
   assert.match(ui, /Créer un Deal/);
+  assert.match(ui, /Centre d’activité/);
+  assert.match(ui, /LiveRoomDialog/);
+  assert.match(ui, /EditBusinessPageDialog/);
+  assert.match(ui, /Suspendre/);
   assert.match(ui, /WHAPPY DOUBLE ENGINE/);
   assert.match(ui, /IDENTITÉ SOUVERAINE/);
   assert.match(ui, /VOICE DNA/);
@@ -83,6 +87,9 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(repository, /createLive/);
   assert.match(repository, /createDeal/);
   assert.match(repository, /registerDeviceToken/);
+  assert.match(repository, /updateBusinessPage/);
+  assert.match(repository, /updateLiveStatus/);
+  assert.match(repository, /updateDealStatus/);
   assert.match(repository, /restoreAccountDisplayName/);
   assert.match(viewModel, /refreshSession/);
   assert.match(viewModel, /observeTwinProfile/);
@@ -246,6 +253,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(businessData, /recordAdEvent/);
   assert.match(businessData, /createAdCampaign/);
   assert.match(page, /TwinEngineStudio/);
+  assert.match(page, /userId\|\|"local-preview"/);
+  assert.match(page, /cloud=\{Boolean\(userId\)\}/);
   assert.match(twinEngine, /MOTION CORE 2\.0/);
   assert.match(twinEngine, /Ma voix IA/);
   assert.match(twinEngine, /Signature de mouvements/);

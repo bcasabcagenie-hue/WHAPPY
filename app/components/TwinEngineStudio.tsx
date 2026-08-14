@@ -45,7 +45,7 @@ const automationPresets = [
 
 function clock(seconds: number) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 
-export function TwinEngineStudio({ userId, userName, consent, setConsent, notify }: { userId: string; userName: string; consent: boolean; setConsent: (value: boolean) => void; notify: (text: string) => void }) {
+export function TwinEngineStudio({ userId, userName, consent, setConsent, notify, cloud = true }: { userId: string; userName: string; consent: boolean; setConsent: (value: boolean) => void; notify: (text: string) => void; cloud?: boolean }) {
   const [tab, setTab] = useState<Tab>("engine");
   const [profile, setProfile] = useState<TwinProfile | null>(null);
   const [automations, setAutomations] = useState<TwinAutomation[]>([]);
@@ -75,8 +75,8 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
   const notifyRef = useRef(notify);
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
-  useEffect(() => watchTwinProfile(userId, setProfile, () => notifyRef.current("Profil du Double momentanément hors ligne")), [userId]);
-  useEffect(() => watchTwinAutomations(userId, setAutomations, () => notifyRef.current("Automatisations momentanément hors ligne")), [userId]);
+  useEffect(() => { if (!cloud) return; return watchTwinProfile(userId, setProfile, () => notifyRef.current("Profil du Double momentanément hors ligne")); }, [cloud, userId]);
+  useEffect(() => { if (!cloud) return; return watchTwinAutomations(userId, setAutomations, () => notifyRef.current("Automatisations momentanément hors ligne")); }, [cloud, userId]);
   useEffect(() => {
     if (!recording) return;
     const timer = window.setInterval(() => setRecordSeconds(Math.floor((Date.now() - startedRef.current) / 1000)), 300);
@@ -89,6 +89,10 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
   const totalDuration = sequence.reduce((sum, item) => sum + item.duration, 0);
   const readiness = [consent, Boolean(profile?.videoUrl), Boolean(profile?.voiceUrl), Boolean(profile?.movementUrl), automations.length > 0].filter(Boolean).length;
   const signatureUrl = profile?.movementUrl || profile?.videoUrl;
+
+  function updateLocalProfile(changes: Partial<TwinProfile>) {
+    setProfile((current) => ({ id: "local", userId, displayName: userName, identityConsent: consent, voiceConsent: consent, movementConsent: consent, voiceStatus: "empty", movementStatus: "empty", ...current, ...changes }));
+  }
 
   function clearTimers() { timersRef.current.forEach(window.clearTimeout); timersRef.current = []; }
   function stopMotion() { clearTimers(); setPlaying(false); setProgress(0); setGesture("neutral"); window.speechSynthesis?.cancel(); }
@@ -120,6 +124,7 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
   }
   async function persistConsent(value: boolean) {
     setConsent(value);
+    if (!cloud) { updateLocalProfile({ identityConsent: value, voiceConsent: value, movementConsent: value }); notify(value ? "Mode aperçu du Double activé" : "Autorisations locales révoquées"); return; }
     try {
       await saveTwinProfile(userId, { displayName: userName, identityConsent: value, voiceConsent: value, movementConsent: value, voiceStatus: profile?.voiceStatus || "empty", movementStatus: profile?.movementStatus || "empty" });
       notify(value ? "Consentement du Double enregistré" : "Autorisations du Double révoquées");
@@ -129,7 +134,7 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
     if (!consent) { notify("Confirmez d’abord que l’image et la voix sont les vôtres"); return; }
     if (typeof MediaRecorder === "undefined") { notify("Ce navigateur ne prend pas en charge l’enregistrement"); return; }
     try {
-      await saveTwinProfile(userId, { displayName: userName, identityConsent: true, voiceConsent: true, movementConsent: true, voiceStatus: profile?.voiceStatus || "empty", movementStatus: profile?.movementStatus || "empty" });
+      if (cloud) await saveTwinProfile(userId, { displayName: userName, identityConsent: true, voiceConsent: true, movementConsent: true, voiceStatus: profile?.voiceStatus || "empty", movementStatus: profile?.movementStatus || "empty" });
       const stream = await navigator.mediaDevices.getUserMedia(kind === "voice" ? { audio: { echoCancellation: true, noiseSuppression: true } } : { audio: true, video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } });
       streamRef.current = stream;
       if (kind !== "voice" && videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
@@ -141,10 +146,11 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
         const blob = new Blob(chunksRef.current, { type: preferred });
         const file = new File([blob], `${kind}-${Date.now()}.webm`, { type: preferred });
         stream.getTracks().forEach((track) => track.stop()); setRecording(null);
-        setPreviewUrl(URL.createObjectURL(blob)); setBusy(true);
+        const localUrl = URL.createObjectURL(blob); setPreviewUrl(localUrl); setBusy(true);
         try {
-          await uploadTwinAsset(userId, file, kind);
-          notify(kind === "voice" ? "Empreinte vocale sécurisée" : kind === "video" ? "Portrait vidéo sécurisé" : "Signature de mouvements enregistrée");
+          if (cloud) await uploadTwinAsset(userId, file, kind);
+          else updateLocalProfile(kind === "voice" ? { voiceUrl: localUrl, voiceStatus: "sampled" } : kind === "video" ? { videoUrl: localUrl } : { movementUrl: localUrl, movementStatus: "sampled" });
+          notify(kind === "voice" ? (cloud ? "Empreinte vocale sécurisée" : "Voix prête pour l’aperçu local") : kind === "video" ? (cloud ? "Portrait vidéo sécurisé" : "Portrait prêt pour l’aperçu local") : (cloud ? "Signature de mouvements enregistrée" : "Mouvements prêts pour l’aperçu local"));
         } catch (error) { notify(error instanceof Error && error.message === "asset-too-large" ? "La capture dépasse la taille autorisée" : "La capture n’a pas été synchronisée"); }
         finally { setBusy(false); }
       };
@@ -158,7 +164,11 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
   async function createAutomation(data: { name: string; trigger: string; channel: string; action: string }) {
     if (!consent) { setTab("capture"); notify("Validez votre identité avant d’activer le Double"); return; }
     setBusy(true);
-    try { await createTwinAutomation(userId, { ...data, script: script.slice(0, 4000), enabled: true }); notify(`${data.name} est activé`); }
+    try {
+      if (cloud) await createTwinAutomation(userId, { ...data, script: script.slice(0, 4000), enabled: true });
+      else setAutomations((current) => [{ id: `local-${current.length + 1}`, userId, ...data, script: script.slice(0, 4000), enabled: true }, ...current]);
+      notify(`${data.name} est activé${cloud ? "" : " en aperçu"}`);
+    }
     catch { notify("L’automatisation n’a pas été créée"); }
     finally { setBusy(false); }
   }
@@ -170,14 +180,14 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
   async function prepareRender() {
     if (!consent) { notify("Le consentement est obligatoire avant toute production"); return; }
     setBusy(true);
-    try { await createTwinRenderJob(userId, { title: "Séquence commerciale Whappy", script, language, voiceMode: profile?.voiceUrl ? "owner-voice-sample" : "system-preview", sequence }); notify("Production ajoutée à la file sécurisée"); }
+    try { if (cloud) await createTwinRenderJob(userId, { title: "Séquence commerciale Whappy", script, language, voiceMode: profile?.voiceUrl ? "owner-voice-sample" : "system-preview", sequence }); notify(cloud ? "Production ajoutée à la file sécurisée" : "Aperçu de production prêt — connectez votre compte pour le synchroniser"); }
     catch { notify("Le plan de production n’a pas été enregistré"); }
     finally { setBusy(false); }
   }
 
   return <div className="twin-engine">
     <header className="twin-engine-hero">
-      <div><span><i /> WHAPPY DOUBLE ENGINE / VOTRE IDENTITÉ</span><h2>Votre présence,<br /><em>multipliée.</em></h2><p>Un studio vivant pour chorégraphier votre Double, préparer votre voix et automatiser vos interventions commerciales — toujours sous votre contrôle.</p><div><b>✓ Votre image uniquement</b><b>✓ Voix révocable</b><b>✓ Label IA permanent</b></div></div>
+      <div><span><i /> WHAPPY DOUBLE ENGINE / VOTRE IDENTITÉ</span><h2>Votre présence,<br /><em>multipliée.</em></h2><p>Un studio vivant pour chorégraphier votre Double, préparer votre voix et automatiser vos interventions commerciales — toujours sous votre contrôle.</p><div><b>✓ Votre image uniquement</b><b>✓ Voix révocable</b><b>✓ Label IA permanent</b>{!cloud && <b className="local-mode">◎ APERÇU LOCAL IMMÉDIAT</b>}</div></div>
       <aside><div className="twin-ready-ring" style={{ "--ready": `${readiness * 20}%` } as CSSProperties}><strong>{readiness * 20}%</strong></div><div><small>DOUBLE STATUS</small><b>{readiness >= 4 ? "PRÊT À PRODUIRE" : "EN APPRENTISSAGE"}</b><span>{profile?.voiceUrl ? "Voix capturée" : "Voix à enregistrer"} · {profile?.movementUrl ? "Gestuelle capturée" : "Gestuelle à filmer"}</span></div></aside>
     </header>
 
@@ -207,7 +217,7 @@ export function TwinEngineStudio({ userId, userName, consent, setConsent, notify
 
     {tab === "voice" && <section className="twin-module voice-module"><div className="voice-orb"><div className={recording === "voice" ? "listening" : ""}>{Array.from({ length: 36 }, (_, index) => <i style={{ '--i': index } as CSSProperties} key={index} />)}</div><span>{recording === "voice" ? clock(recordSeconds) : profile?.voiceUrl ? "✓" : "◖"}</span></div><div className="module-copy"><span>02 / VOICE DNA</span><h3>Votre ton, même quand vous n’êtes pas devant la caméra.</h3><p>Lisez l’échantillon dans un endroit calme. Whappy prépare votre empreinte vocale ; l’aperçu de travail reste volontairement une voix système jusqu’à la connexion du moteur neuronal.</p><blockquote>« Bonjour, je suis {userName}. Cette voix est la mienne et j’autorise son utilisation uniquement par mon Double Whappy pour les contenus que je valide. »</blockquote><div className="voice-quality"><span className={recordSeconds >= 15 ? "done" : ""}>✓ Environnement calme</span><span className={recordSeconds >= 20 ? "done" : ""}>✓ Échantillon suffisant</span><span className={profile?.voiceUrl ? "done" : ""}>✓ Stockage sécurisé</span></div><button className={recording === "voice" ? "stop" : ""} disabled={busy} onClick={recording === "voice" ? stopCapture : () => startCapture("voice")}>{recording === "voice" ? "■ Terminer et sécuriser" : profile?.voiceUrl ? "↻ Réenregistrer ma voix" : "● Enregistrer mon empreinte vocale"}</button>{previewUrl && <audio src={previewUrl} controls />}<small className="voice-safety">◆ Toute production future est bloquée dès que vous révoquez votre autorisation.</small></div></section>}
 
-    {tab === "automation" && <section className="automation-lab improved"><div className="automation-builder"><span>03 / ORCHESTRATEUR</span><h3>Choisissez une mission pour votre Double.</h3><div className="auto-presets">{automationPresets.map((item) => <article key={item.name}><span>{item.icon}</span><div><strong>{item.name}</strong><p>{item.text}</p></div><button disabled={busy} onClick={() => void createAutomation(item)}>Activer</button></article>)}</div><details><summary>Créer une règle personnalisée</summary><form onSubmit={addAutomation}><div className="auto-grid"><label>Nom<input name="name" required placeholder="Ex. Présenter chaque nouvelle annonce" /></label><label>Déclencheur<select name="trigger"><option value="new-listing">Nouvelle annonce publiée</option><option value="incoming-message">Question client reçue</option><option value="live-start">Démarrage d’un direct</option><option value="schedule">Horaire programmé</option><option value="cart-abandoned">Panier abandonné</option></select></label><label>Destination<select name="channel"><option value="market">Marketplace</option><option value="inbox">Message privé</option><option value="live">Direct Whappy</option><option value="moments">Fil Moments</option></select></label><label>Action<select name="action"><option value="prepare-video">Préparer une vidéo</option><option value="reply-video">Préparer une réponse vidéo</option><option value="publish-moment">Créer un Moment</option><option value="notify-owner">Demander ma validation</option></select></label></div><button disabled={busy || !consent}>＋ Activer cette automatisation</button></form></details></div><div className="automation-list"><header><small>MISSIONS DU DOUBLE</small><strong>{automations.filter((item) => item.enabled).length} active(s)</strong></header>{automations.map((item) => <article key={item.id}><span className={item.enabled ? "on" : ""}>⌘</span><div><strong>{item.name}</strong><small>{item.trigger} → {item.channel}</small></div><button onClick={() => void toggleTwinAutomation(userId, item.id, !item.enabled)}>{item.enabled ? "Actif" : "Pause"}</button><button className="danger" aria-label={`Supprimer ${item.name}`} onClick={() => void removeTwinAutomation(userId, item.id)}>×</button></article>)}{!automations.length && <p>Votre Double attend sa première mission.</p>}</div></section>}
+    {tab === "automation" && <section className="automation-lab improved"><div className="automation-builder"><span>03 / ORCHESTRATEUR</span><h3>Choisissez une mission pour votre Double.</h3><div className="auto-presets">{automationPresets.map((item) => <article key={item.name}><span>{item.icon}</span><div><strong>{item.name}</strong><p>{item.text}</p></div><button disabled={busy} onClick={() => void createAutomation(item)}>Activer</button></article>)}</div><details><summary>Créer une règle personnalisée</summary><form onSubmit={addAutomation}><div className="auto-grid"><label>Nom<input name="name" required placeholder="Ex. Présenter chaque nouvelle annonce" /></label><label>Déclencheur<select name="trigger"><option value="new-listing">Nouvelle annonce publiée</option><option value="incoming-message">Question client reçue</option><option value="live-start">Démarrage d’un direct</option><option value="schedule">Horaire programmé</option><option value="cart-abandoned">Panier abandonné</option></select></label><label>Destination<select name="channel"><option value="market">Marketplace</option><option value="inbox">Message privé</option><option value="live">Direct Whappy</option><option value="moments">Fil Moments</option></select></label><label>Action<select name="action"><option value="prepare-video">Préparer une vidéo</option><option value="reply-video">Préparer une réponse vidéo</option><option value="publish-moment">Créer un Moment</option><option value="notify-owner">Demander ma validation</option></select></label></div><button disabled={busy || !consent}>＋ Activer cette automatisation</button></form></details></div><div className="automation-list"><header><small>MISSIONS DU DOUBLE</small><strong>{automations.filter((item) => item.enabled).length} active(s)</strong></header>{automations.map((item) => <article key={item.id}><span className={item.enabled ? "on" : ""}>⌘</span><div><strong>{item.name}</strong><small>{item.trigger} → {item.channel}</small></div><button onClick={() => cloud ? void toggleTwinAutomation(userId, item.id, !item.enabled) : setAutomations((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, enabled: !candidate.enabled } : candidate))}>{item.enabled ? "Actif" : "Pause"}</button><button className="danger" aria-label={`Supprimer ${item.name}`} onClick={() => cloud ? void removeTwinAutomation(userId, item.id) : setAutomations((current) => current.filter((candidate) => candidate.id !== item.id))}>×</button></article>)}{!automations.length && <p>Votre Double attend sa première mission.</p>}</div></section>}
 
     {tab === "produce" && <section className="production-lab"><div className="production-script"><span>04 / DIRECTOR</span><h3>Écrivez. Chorégraphiez. Lancez.</h3><label>Langue<select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="fr-FR">Français</option><option value="ln-CD">Lingala</option><option value="en-US">Anglais</option></select></label><label>Scénario <small>{script.length}/4000</small><textarea value={script} onChange={(event) => setScript(event.target.value)} maxLength={4000} /></label><div><button onClick={speak}>▶ Aperçu complet</button><button className="primary" disabled={busy || !consent} onClick={prepareRender}>✦ Préparer la vidéo</button></div><small>Aperçu immédiat avec voix système. Le rendu photoréaliste utilisera votre empreinte seulement après connexion du fournisseur neuronal.</small></div><div className="sequence-board"><header><div><small>TIMELINE MOUVEMENT</small><strong>{totalDuration} secondes · {sequence.length} gestes</strong></div><button onClick={() => setSequence(presets.vente)}>Réinitialiser</button></header><div className="sequence-track">{sequence.map((item, index) => <article className={playing && activeStep === index ? "active" : ""} style={{ flex: item.duration }} key={`${item.label}-${index}`}><button className="sequence-select" onClick={() => previewGesture(item.gesture)}><span>{gestures.find((candidate) => candidate.id === item.gesture)?.icon}</span><strong>{item.label}</strong></button><div><button aria-label="Réduire la durée" onClick={() => updateDuration(index, -1)}>−</button><small>{item.duration}s</small><button aria-label="Augmenter la durée" onClick={() => updateDuration(index, 1)}>＋</button></div><button className="sequence-remove" aria-label={`Retirer ${item.label}`} onClick={() => setSequence((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></article>)}</div><div className="sequence-library">{gestures.slice(1).map((item) => <button onClick={() => addGesture(item.id)} key={item.id}>＋ {item.label}</button>)}</div><footer><span>DIVULGATION AUTOMATIQUE</span><strong>Créé avec le Double IA de {userName}</strong><i>✓ Toujours activée</i></footer></div></section>}
   </div>;

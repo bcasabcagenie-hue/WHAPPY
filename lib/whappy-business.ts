@@ -1,5 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
 
 type CloudDate = { toDate?: () => Date } | null;
 
@@ -14,6 +15,8 @@ export type BusinessPage = {
   city: string;
   phone: string;
   website: string;
+  logoUrl: string;
+  coverUrl: string;
   status: "active" | "hidden";
   followers: number;
   createdAt?: CloudDate;
@@ -75,6 +78,8 @@ export async function createBusinessPage(ownerId: string, page: NewBusinessPage)
     city: page.city.trim().slice(0, 80),
     phone: page.phone.trim().slice(0, 30),
     website: page.website.trim().slice(0, 180),
+    logoUrl: "",
+    coverUrl: "",
     status: "active",
     followers: 0,
     createdAt: serverTimestamp(),
@@ -85,6 +90,26 @@ export async function createBusinessPage(ownerId: string, page: NewBusinessPage)
 
 export async function updateBusinessPage(pageId: string, changes: Partial<Pick<BusinessPage, "name" | "type" | "category" | "bio" | "city" | "phone" | "website" | "status">>) {
   await updateDoc(doc(db, "businessPages", pageId), { ...changes, updatedAt: serverTimestamp() });
+}
+
+export async function updateBusinessBranding(ownerId: string, pageId: string, assets: { logo?: File; cover?: File }) {
+  const entries = Object.entries(assets).filter((entry): entry is ["logo" | "cover", File] => Boolean(entry[1]));
+  if (!entries.length) throw new Error("missing-brand-asset");
+
+  const uploaded = await Promise.all(entries.map(async ([kind, file]) => {
+    const maximum = kind === "logo" ? 5 * 1024 * 1024 : 8 * 1024 * 1024;
+    const extensionByType: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    if (!extensionByType[file.type]) throw new Error("invalid-brand-asset");
+    if (!file.size || file.size > maximum) throw new Error("brand-asset-too-large");
+    const extension = extensionByType[file.type];
+    const assetRef = ref(storage, `business/${ownerId}/${pageId}/${kind}-${Date.now()}.${extension}`);
+    await uploadBytes(assetRef, file, { contentType: file.type, customMetadata: { ownerId, pageId, kind } });
+    return [`${kind}Url`, await getDownloadURL(assetRef)] as const;
+  }));
+
+  const changes = Object.fromEntries(uploaded) as Partial<Pick<BusinessPage, "logoUrl" | "coverUrl">>;
+  await updateDoc(doc(db, "businessPages", pageId), { ...changes, updatedAt: serverTimestamp() });
+  return changes;
 }
 
 export async function deleteBusinessPage(pageId: string) {

@@ -166,7 +166,7 @@ private val demoListings = listOf(
 )
 
 private val demoBusinessPages = listOf(
-    WhappyBusinessPage("demo-page", "Mokabi Studio", "mokabi-studio", "Mode & création", "Création contemporaine inspirée de Brazzaville.", "Brazzaville", "demo-user"),
+    WhappyBusinessPage("demo-page", "Mokabi Studio", "mokabi-studio", "Mode & création", "Création contemporaine inspirée de Brazzaville.", "Brazzaville", "demo-user", "+242 06 555 01 01", "mokabi.studio"),
 )
 
 private val demoCampaigns = listOf(
@@ -218,10 +218,13 @@ fun WhappyRoot(
     onAddContact: (String) -> Unit,
     onPublishListing: (String, String, String, String) -> Unit,
     onCreateBusinessPage: (String, String, String, String) -> Unit,
+    onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String) -> Unit,
     onEndLive: (String) -> Unit,
+    onUpdateLiveStatus: (String, String) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
+    onUpdateDealStatus: (String, String) -> Unit,
     onMarkPaymentRead: (String) -> Unit,
     onEnableNotifications: () -> Unit,
     onSaveTwinConsent: (Boolean) -> Unit,
@@ -259,10 +262,13 @@ fun WhappyRoot(
         onAddContact = onAddContact,
         onPublishListing = onPublishListing,
         onCreateBusinessPage = onCreateBusinessPage,
+        onUpdateBusinessPage = onUpdateBusinessPage,
         onCreateCampaign = onCreateCampaign,
         onCreateLive = onCreateLive,
         onEndLive = onEndLive,
+        onUpdateLiveStatus = onUpdateLiveStatus,
         onCreateDeal = onCreateDeal,
+        onUpdateDealStatus = onUpdateDealStatus,
         onMarkPaymentRead = onMarkPaymentRead,
         onEnableNotifications = onEnableNotifications,
         onSaveTwinConsent = onSaveTwinConsent,
@@ -412,10 +418,13 @@ private fun WhappyMain(
     onAddContact: (String) -> Unit,
     onPublishListing: (String, String, String, String) -> Unit,
     onCreateBusinessPage: (String, String, String, String) -> Unit,
+    onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String) -> Unit,
     onEndLive: (String) -> Unit,
+    onUpdateLiveStatus: (String, String) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
+    onUpdateDealStatus: (String, String) -> Unit,
     onMarkPaymentRead: (String) -> Unit,
     onEnableNotifications: () -> Unit,
     onSaveTwinConsent: (Boolean) -> Unit,
@@ -430,14 +439,29 @@ private fun WhappyMain(
     var previewConversation by remember { mutableStateOf<WhappyConversation?>(null) }
     var previewMessages by remember { mutableStateOf(emptyList<WhappyMessage>()) }
     var showTwinStudio by remember { mutableStateOf(false) }
+    var showActivityCenter by remember { mutableStateOf(false) }
+    var locallyReadNotices by remember { mutableStateOf(emptySet<String>()) }
     val selected = if (preview) previewConversation else state.selectedConversation
     val currentTab = state.tab
-    BackHandler(enabled = selected != null || showTwinStudio) {
-        if (showTwinStudio) showTwinStudio = false
+    val activityNotices = if (preview) demoPaymentNotices else state.paymentNotices
+    val activityLives = if (preview) demoLives else state.lives
+    val unreadActivity = activityNotices.count { !it.read && it.id !in locallyReadNotices }
+    BackHandler(enabled = selected != null || showTwinStudio || showActivityCenter) {
+        if (showActivityCenter) showActivityCenter = false
+        else if (showTwinStudio) showTwinStudio = false
         else if (preview) previewConversation = null
         else onCloseConversation()
     }
     if (state.error != null) AlertDialog(onDismissRequest = onDismissError, confirmButton = { TextButton(onClick = onDismissError) { Text("Fermer") } }, title = { Text("WHAPPY") }, text = { Text(state.error) })
+    if (showActivityCenter) ActivityCenterDialog(
+        notices = activityNotices,
+        lives = activityLives,
+        locallyRead = locallyReadNotices,
+        onRead = { id -> locallyReadNotices = locallyReadNotices + id; if (!preview) onMarkPaymentRead(id) },
+        onOpenBusiness = { showActivityCenter = false; onTab(WhappyTab.BUSINESS) },
+        onOpenLive = { showActivityCenter = false; onTab(WhappyTab.LIVE) },
+        onDismiss = { showActivityCenter = false },
+    )
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = WhappyBackground,
@@ -482,6 +506,9 @@ private fun WhappyMain(
                     subtitle = if (preview) "Mode démonstration" else if (state.online) "Synchronisé en temps réel" else "Connexion limitée",
                     avatar = true,
                     name = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                    unread = unreadActivity,
+                    onActivity = { showActivityCenter = true },
+                    onProfile = { onTab(WhappyTab.PROFILE) },
                 )
                 AnimatedContent(currentTab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "whappy-tab") { tab ->
                     when (tab) {
@@ -495,6 +522,7 @@ private fun WhappyMain(
                             busy = state.actionBusy,
                             onCreateLive = onCreateLive,
                             onEndLive = onEndLive,
+                            onUpdateLiveStatus = onUpdateLiveStatus,
                             onOpenTwin = { showTwinStudio = true },
                         )
                         WhappyTab.BUSINESS -> BusinessScreen(
@@ -505,8 +533,10 @@ private fun WhappyMain(
                             preview = preview,
                             busy = state.actionBusy,
                             onCreatePage = onCreateBusinessPage,
+                            onUpdatePage = onUpdateBusinessPage,
                             onCreateCampaign = onCreateCampaign,
                             onCreateDeal = onCreateDeal,
+                            onUpdateDealStatus = onUpdateDealStatus,
                             onMarkPaymentRead = onMarkPaymentRead,
                             onEnableNotifications = onEnableNotifications,
                             onOpenTwin = { showTwinStudio = true },
@@ -520,7 +550,7 @@ private fun WhappyMain(
 }
 
 @Composable
-private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "") {
+private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", unread: Int = 0, onActivity: () -> Unit = {}, onProfile: () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -531,10 +561,46 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "") {
             Text("WHAPPY", color = WhappyBlue, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
             Text(subtitle, color = WhappyMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (avatar) Box(Modifier.size(44.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
+        IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = WhappyDark); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(Color(0xFFFF3B5C)), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
+        if (avatar) Box(Modifier.size(44.dp).clip(CircleShape).background(WhappyBlue).clickable(onClick = onProfile), contentAlignment = Alignment.Center) {
             Text(initials(name), color = Color.White, fontWeight = FontWeight.Black)
         }
     }
+}
+
+@Composable
+private fun ActivityCenterDialog(
+    notices: List<WhappyPaymentNotice>,
+    lives: List<WhappyLive>,
+    locallyRead: Set<String>,
+    onRead: (String) -> Unit,
+    onOpenBusiness: () -> Unit,
+    onOpenLive: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Column { Text("Centre d’activité", fontWeight = FontWeight.Black); Text("Paiements, Deals et directs", color = WhappyMuted, fontSize = 11.sp) } },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().height(430.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val liveNow = lives.filter { it.status == "live" }.take(2)
+                if (liveNow.isNotEmpty()) {
+                    item { Text("EN DIRECT", color = Color(0xFFFF3B5C), fontSize = 10.sp, fontWeight = FontWeight.Black) }
+                    items(liveNow, key = { "activity-live-${it.id}" }) { live ->
+                        Card(Modifier.fillMaxWidth().clickable(onClick = onOpenLive), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF0F3))) { Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LiveTv, null, tint = Color(0xFFFF3B5C)); Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(live.title, color = WhappyDark, fontWeight = FontWeight.Bold, maxLines = 1); Text("${live.hostName} · ${live.viewerCount} spectateurs", color = WhappyMuted, fontSize = 10.sp) }; Text("›", color = Color(0xFFFF3B5C), fontSize = 22.sp) } }
+                    }
+                }
+                item { Text("PAIEMENTS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 4.dp)) }
+                if (notices.isEmpty()) item { Text("Aucune nouvelle transaction.", color = WhappyMuted, fontSize = 12.sp) }
+                items(notices.take(8), key = { "activity-payment-${it.id}" }) { notice ->
+                    val unread = !notice.read && notice.id !in locallyRead
+                    Card(Modifier.fillMaxWidth().clickable { if (unread) onRead(notice.id) else onOpenBusiness() }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (unread) Color(0xFFEAF7FC) else Color.White), border = CardDefaults.outlinedCardBorder()) { Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Payments, null, tint = Color(0xFF12824B)); Column(Modifier.weight(1f).padding(horizontal = 10.dp)) { Text("Paiement de ${notice.buyerName}", color = WhappyDark, fontWeight = FontWeight.Bold); Text(notice.provider, color = WhappyMuted, fontSize = 10.sp) }; Text("+${formatMoney(notice.amount)}", color = Color(0xFF12824B), fontSize = 11.sp, fontWeight = FontWeight.Black) } }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onOpenBusiness) { Text("Ouvrir Business") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
 }
 
 @Composable
@@ -1269,11 +1335,14 @@ private fun LiveScreen(
     busy: Boolean,
     onCreateLive: (String, String, String) -> Unit,
     onEndLive: (String) -> Unit,
+    onUpdateLiveStatus: (String, String) -> Unit,
     onOpenTwin: () -> Unit,
 ) {
     var creating by remember { mutableStateOf(false) }
     var localLives by remember { mutableStateOf(emptyList<WhappyLive>()) }
-    val visibleLives = localLives + lives
+    var selectedLive by remember { mutableStateOf<WhappyLive?>(null) }
+    var previewStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
+    val visibleLives = (localLives + lives).map { live -> previewStatuses[live.id]?.let { live.copy(status = it) } ?: live }.filter { it.status != "ended" }
     val liveNow = visibleLives.count { it.status == "live" }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -1301,7 +1370,7 @@ private fun LiveScreen(
         item { Text("En direct et programmés", fontSize = 22.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
         if (visibleLives.isEmpty()) item { EmptyState("Aucun Live en cours", "Préparez le premier direct de votre communauté.") }
         items(visibleLives, key = { it.id }) { live ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(23.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+            Card(Modifier.fillMaxWidth().clickable { selectedLive = live }, shape = RoundedCornerShape(23.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column {
                     Box(Modifier.fillMaxWidth().height(128.dp).background(if (live.status == "live") WhappyDark else Color(0xFFE2F1F8)), contentAlignment = Alignment.Center) {
                         Icon(if (live.status == "live") Icons.Rounded.PlayArrow else Icons.Rounded.Schedule, null, tint = if (live.status == "live") Color.White else WhappyBlue, modifier = Modifier.size(46.dp))
@@ -1312,7 +1381,12 @@ private fun LiveScreen(
                         Text(live.title, color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black)
                         Text("${live.hostName} · ${live.category}", Modifier.padding(top = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         if (live.productTitle.isNotBlank()) Text("Deal présenté : ${live.productTitle}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp)
-                        if (live.hostId == currentUserId) OutlinedButton(onClick = { if (preview) localLives = localLives.filterNot { it.id == live.id } else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Text(if (live.status == "live") "Terminer le direct" else "Annuler la programmation") }
+                        if (live.hostId == currentUserId && live.status == "scheduled") Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "live") else onUpdateLiveStatus(live.id, "live") }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
+                            OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Annuler") }
+                        }
+                        else if (live.hostId == currentUserId) OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onUpdateLiveStatus(live.id, "ended") }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Text("Terminer le direct") }
+                        else Button(onClick = { selectedLive = live }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text(if (live.status == "live") "Rejoindre le Live" else "Voir le programme", Modifier.padding(start = 6.dp)) }
                     }
                 }
             }
@@ -1324,6 +1398,27 @@ private fun LiveScreen(
         else onCreateLive(title, category, product)
         creating = false
     }
+    selectedLive?.let { live -> LiveRoomDialog(live, onDismiss = { selectedLive = null }, onOpenTwin = { selectedLive = null; onOpenTwin() }) }
+}
+
+@Composable
+private fun LiveRoomDialog(live: WhappyLive, onDismiss: () -> Unit, onOpenTwin: () -> Unit) {
+    var reactionCount by remember(live.id) { mutableStateOf(live.viewerCount + 24) }
+    var message by remember(live.id) { mutableStateOf("") }
+    var comments by remember(live.id) { mutableStateOf(listOf("Amina : Très belle présentation 👏", "Junior : Le Deal est encore disponible ?")) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Column { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(7.dp)).background(if (live.status == "live") Color(0xFFFF3B5C) else WhappyBlue).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(if (live.status == "live") "● LIVE" else "PROGRAMMÉ", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(" ${live.hostName}", color = WhappyDark, fontWeight = FontWeight.Black) }; Text(live.title, Modifier.padding(top = 7.dp), color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Black) } },
+        text = { Column {
+            Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(20.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(54.dp)); Text(if (live.status == "live") "Flux vidéo sécurisé" else "Direct à venir", Modifier.align(Alignment.BottomCenter).padding(15.dp), color = Color.White, fontWeight = FontWeight.Bold) }
+            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) { Text("👀 ${live.viewerCount}", color = WhappyMuted, fontSize = 11.sp); Spacer(Modifier.weight(1f)); TextButton(onClick = { reactionCount += 1 }) { Text("💙 $reactionCount") } }
+            if (live.productTitle.isNotBlank()) Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC)), shape = RoundedCornerShape(14.dp)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue); Column(Modifier.padding(start = 9.dp)) { Text("DEAL DU LIVE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(live.productTitle, color = WhappyDark, fontWeight = FontWeight.Bold) } } }
+            LazyColumn(Modifier.fillMaxWidth().height(90.dp).padding(top = 8.dp)) { items(comments) { comment -> Text(comment, Modifier.padding(vertical = 3.dp), color = WhappyMuted, fontSize = 11.sp) } }
+            Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { message = it.take(180) }, Modifier.weight(1f), placeholder = { Text("Écrire dans le Live") }, singleLine = true, shape = RoundedCornerShape(15.dp)); IconButton(onClick = { if (message.isNotBlank()) { comments = comments + "Vous : ${message.trim()}"; message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, "Envoyer", tint = WhappyBlue) } }
+        } },
+        confirmButton = { TextButton(onClick = onOpenTwin) { Text("Animer avec mon WHAPPY") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
 }
 
 @Composable
@@ -1348,8 +1443,10 @@ private fun BusinessScreen(
     preview: Boolean,
     busy: Boolean,
     onCreatePage: (String, String, String, String) -> Unit,
+    onUpdatePage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
+    onUpdateDealStatus: (String, String) -> Unit,
     onMarkPaymentRead: (String) -> Unit,
     onEnableNotifications: () -> Unit,
     onOpenTwin: () -> Unit,
@@ -1358,13 +1455,16 @@ private fun BusinessScreen(
     var creatingPage by remember { mutableStateOf(false) }
     var creatingCampaign by remember { mutableStateOf(false) }
     var creatingDeal by remember { mutableStateOf(false) }
+    var editingPage by remember { mutableStateOf<WhappyBusinessPage?>(null) }
     var localPages by remember { mutableStateOf(emptyList<WhappyBusinessPage>()) }
     var localCampaigns by remember { mutableStateOf(emptyList<WhappyCampaign>()) }
     var localDeals by remember { mutableStateOf(emptyList<WhappyDeal>()) }
+    var previewPageUpdates by remember { mutableStateOf(emptyMap<String, WhappyBusinessPage>()) }
+    var previewDealStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
     var locallyRead by remember { mutableStateOf(emptySet<String>()) }
-    val visiblePages = localPages + pages
+    val visiblePages = (localPages + pages).map { previewPageUpdates[it.id] ?: it }
     val visibleCampaigns = localCampaigns + campaigns
-    val visibleDeals = localDeals + deals
+    val visibleDeals = (localDeals + deals).map { deal -> previewDealStatuses[deal.id]?.let { deal.copy(status = it) } ?: deal }
     val unread = paymentNotices.count { !it.read && it.id !in locallyRead }
     val paidTotal = paymentNotices.filter { it.status == "paid" }.sumOf { it.amount }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1402,13 +1502,13 @@ private fun BusinessScreen(
             BusinessSection.PAGES -> {
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Mes pages", Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark); TextButton(onClick = { creatingPage = true }) { Text("+ Nouvelle") } } }
                 if (visiblePages.isEmpty()) item { EmptyState("Aucune page Business", "Créez une identité professionnelle pour votre activité ou votre contenu.") }
-                items(visiblePages, key = { it.id }) { page -> BusinessPageCard(page) }
+                items(visiblePages, key = { it.id }) { page -> BusinessPageCard(page) { editingPage = page } }
             }
             BusinessSection.DEALS -> {
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Deals en cours", Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark); if (visiblePages.isNotEmpty()) TextButton(onClick = { creatingDeal = true }) { Text("+ Créer") } } }
                 if (visiblePages.isEmpty()) item { EmptyState("Page requise", "Créez d’abord votre page Business pour publier des Deals.") }
                 else if (visibleDeals.isEmpty()) item { EmptyState("Aucun Deal", "Publiez une offre limitée pour activer vos ventes.") }
-                items(visibleDeals, key = { it.id }) { deal -> DealCard(deal) }
+                items(visibleDeals, key = { it.id }) { deal -> DealCard(deal) { status -> if (preview) previewDealStatuses = previewDealStatuses + (deal.id to status) else onUpdateDealStatus(deal.id, status) } }
             }
             BusinessSection.PAYMENTS -> {
                 item { Text("Notifications de paiement", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
@@ -1440,6 +1540,11 @@ private fun BusinessScreen(
         else onCreateDeal(page, title, description, original, price, stock, days)
         creatingDeal = false
     }
+    editingPage?.let { page -> EditBusinessPageDialog(page, busy, onDismiss = { editingPage = null }) { name, category, bio, city, phone, website ->
+        if (preview) previewPageUpdates = previewPageUpdates + (page.id to page.copy(name = name, category = category, bio = bio, city = city, phone = phone, website = website))
+        else onUpdatePage(page, name, category, bio, city, phone, website)
+        editingPage = null
+    } }
 }
 
 @Composable
@@ -1448,10 +1553,10 @@ private fun BusinessFeatureCard(icon: androidx.compose.ui.graphics.vector.ImageV
 }
 
 @Composable
-private fun BusinessPageCard(page: WhappyBusinessPage) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WhappyBlue) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2); Text(page.city, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 10.sp) } } } }
+private fun BusinessPageCard(page: WhappyBusinessPage, onEdit: () -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WhappyBlue) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }; TextButton(onClick = onEdit) { Text("Modifier") } }; FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("📍 ${page.city}", color = WhappyMuted, fontSize = 10.sp); if (page.phone.isNotBlank()) Text("☎ ${page.phone}", color = WhappyMuted, fontSize = 10.sp); if (page.website.isNotBlank()) Text("↗ ${page.website}", color = WhappyBlue, fontSize = 10.sp) } } } }
 
 @Composable
-private fun DealCard(deal: WhappyDeal) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFFFEEF1)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text("DEAL", color = Color(0xFFD81B42), fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(deal.pageName, Modifier.padding(start = 8.dp).weight(1f), color = WhappyMuted, fontSize = 11.sp); Text("${deal.sold}/${deal.stock} vendus", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold) }; Text(deal.title, Modifier.padding(top = 10.dp), color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black); Text(deal.description, Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp); Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.Bottom) { Text(formatMoney(deal.dealPrice), color = WhappyBlue, fontSize = 20.sp, fontWeight = FontWeight.Black); if (deal.originalPrice > deal.dealPrice) Text(formatMoney(deal.originalPrice), Modifier.padding(start = 8.dp), color = WhappyMuted, fontSize = 11.sp); Spacer(Modifier.weight(1f)); Text("Expire ${formatShortDate(deal.endsAt)}", color = WhappyMuted, fontSize = 10.sp) } } } }
+private fun DealCard(deal: WhappyDeal, onStatus: (String) -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(8.dp)).background(if (deal.status == "active") Color(0xFFFFEEF1) else Color(0xFFE9EEF0)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text(if (deal.status == "active") "DEAL ACTIF" else deal.status.uppercase(), color = if (deal.status == "active") Color(0xFFD81B42) else WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(deal.pageName, Modifier.padding(start = 8.dp).weight(1f), color = WhappyMuted, fontSize = 11.sp); Text("${deal.sold}/${deal.stock} vendus", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold) }; Text(deal.title, Modifier.padding(top = 10.dp), color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black); Text(deal.description, Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp); Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.Bottom) { Text(formatMoney(deal.dealPrice), color = WhappyBlue, fontSize = 20.sp, fontWeight = FontWeight.Black); if (deal.originalPrice > deal.dealPrice) Text(formatMoney(deal.originalPrice), Modifier.padding(start = 8.dp), color = WhappyMuted, fontSize = 11.sp); Spacer(Modifier.weight(1f)); Text("Expire ${formatShortDate(deal.endsAt)}", color = WhappyMuted, fontSize = 10.sp) }; Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { if (deal.status == "active") OutlinedButton(onClick = { onStatus("paused") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Suspendre") } else if (deal.status == "paused") Button(onClick = { onStatus("active") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Réactiver") }; OutlinedButton(onClick = { onStatus("ended") }, enabled = deal.status != "ended", modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Terminer") } } } } }
 
 @Composable
 private fun PaymentNoticeCard(notice: WhappyPaymentNotice, locallyRead: Boolean, onRead: () -> Unit) { val unread = !notice.read && !locallyRead; Card(Modifier.fillMaxWidth().clickable(enabled = unread, onClick = onRead), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (unread) Color(0xFFEAF7FC) else Color.White), border = CardDefaults.outlinedCardBorder()) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(48.dp).clip(CircleShape).background(if (notice.status == "paid") Color(0xFFDFF6EA) else Color(0xFFFFF1D6)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Payments, null, tint = if (notice.status == "paid") Color(0xFF12824B) else Color(0xFFB56A00)) }; Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(if (notice.status == "paid") "Paiement reçu" else notice.status.replaceFirstChar { it.uppercase() }, color = WhappyDark, fontWeight = FontWeight.Black); Text("${notice.buyerName} · ${notice.provider}", color = WhappyMuted, fontSize = 11.sp); Text(formatTime(notice.createdAt), color = WhappyMuted, fontSize = 10.sp) }; Column(horizontalAlignment = Alignment.End) { Text("+${formatMoney(notice.amount)}", color = Color(0xFF12824B), fontWeight = FontWeight.Black); if (unread) Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(WhappyBlue)) } } } }
@@ -1470,6 +1575,20 @@ private fun DealDialog(pages: List<WhappyBusinessPage>, busy: Boolean, onDismiss
 private fun BusinessPageDialog(busy:Boolean,onDismiss:()->Unit,onSave:(String,String,String,String)->Unit){
     var name by remember{mutableStateOf("")};var category by remember{mutableStateOf("")};var bio by remember{mutableStateOf("")};var city by remember{mutableStateOf("Brazzaville")}
     AlertDialog(onDismissRequest=onDismiss,title={Text("Créer une page Business")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){OutlinedTextField(name,{name=it.take(80)},Modifier.fillMaxWidth(),label={Text("Nom public")},singleLine=true);OutlinedTextField(category,{category=it},Modifier.fillMaxWidth(),label={Text("Catégorie")},singleLine=true);OutlinedTextField(bio,{bio=it.take(400)},Modifier.fillMaxWidth(),label={Text("Présentation")},minLines=3);OutlinedTextField(city,{city=it},Modifier.fillMaxWidth(),label={Text("Ville")},singleLine=true)}},confirmButton={Button(enabled=name.trim().length>=2&&category.isNotBlank()&&!busy,onClick={onSave(name,category,bio,city)}){Text(if(busy)"Création…" else "Créer")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
+}
+
+@Composable
+private fun EditBusinessPageDialog(page: WhappyBusinessPage, busy: Boolean, onDismiss: () -> Unit, onSave: (String, String, String, String, String, String) -> Unit) {
+    var name by remember(page.id) { mutableStateOf(page.name) }; var category by remember(page.id) { mutableStateOf(page.category) }; var bio by remember(page.id) { mutableStateOf(page.bio) }; var city by remember(page.id) { mutableStateOf(page.city) }; var phone by remember(page.id) { mutableStateOf(page.phone) }; var website by remember(page.id) { mutableStateOf(page.website) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Column { Text("Profil Business", fontWeight = FontWeight.Black); Text("@${page.handle}", color = WhappyBlue, fontSize = 11.sp) } }, text = { LazyColumn(Modifier.fillMaxWidth().height(440.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Nom public") }, singleLine = true) }
+        item { OutlinedTextField(category, { category = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Catégorie") }, singleLine = true) }
+        item { OutlinedTextField(bio, { bio = it.take(400) }, Modifier.fillMaxWidth(), label = { Text("Présentation") }, minLines = 3) }
+        item { OutlinedTextField(city, { city = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Ville") }, singleLine = true) }
+        item { OutlinedTextField(phone, { phone = it.take(30) }, Modifier.fillMaxWidth(), label = { Text("Téléphone professionnel") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true) }
+        item { OutlinedTextField(website, { website = it.take(180) }, Modifier.fillMaxWidth(), label = { Text("Site web ou réseau social") }, singleLine = true) }
+        item { Text("Ces informations seront visibles sur votre page publique Business.", color = WhappyMuted, fontSize = 10.sp) }
+    } }, confirmButton = { Button(enabled = name.trim().length >= 2 && category.isNotBlank() && !busy, onClick = { onSave(name.trim(), category.trim(), bio.trim(), city.trim(), phone.trim(), website.trim()) }) { Text(if (busy) "Enregistrement…" else "Enregistrer") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
 }
 
 @Composable

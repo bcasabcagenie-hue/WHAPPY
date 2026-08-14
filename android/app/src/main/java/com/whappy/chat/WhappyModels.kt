@@ -3,7 +3,7 @@ package com.whappy.chat
 import com.google.firebase.auth.FirebaseUser
 
 enum class WhappyTab(val label: String) {
-    MOMENTS("Moments"),
+    MOMENTS("Accueil"),
     MESSAGES("Messages"),
     MARKET("Marché"),
     LIVE("Live"),
@@ -54,6 +54,8 @@ data class WhappyBusinessPage(
     val bio: String,
     val city: String,
     val ownerId: String,
+    val phone: String = "",
+    val website: String = "",
 )
 
 data class WhappyCampaign(
