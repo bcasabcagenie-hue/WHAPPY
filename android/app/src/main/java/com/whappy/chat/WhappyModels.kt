@@ -8,6 +8,7 @@ enum class WhappyTab(val label: String) {
     CALLS("Appels"),
     MARKET("Marché"),
     LIVE("Live"),
+    SERVICES("Services"),
     BUSINESS("Business"),
     PROFILE("Profil"),
 }
@@ -24,6 +25,8 @@ data class WhappyConversation(
     val lastMessage: String,
     val updatedAt: Long,
     val unread: Boolean,
+    val peerTyping: Boolean = false,
+    val peerReadAt: Long = 0L,
 )
 
 data class WhappyContact(
@@ -40,6 +43,11 @@ data class WhappyMessage(
     val mediaUrl: String = "",
     val mediaName: String = "",
     val durationSeconds: Int = 0,
+    val replyToId: String = "",
+    val replyText: String = "",
+    val reactions: Map<String, String> = emptyMap(),
+    val deleted: Boolean = false,
+    val edited: Boolean = false,
 )
 
 data class WhappyListing(

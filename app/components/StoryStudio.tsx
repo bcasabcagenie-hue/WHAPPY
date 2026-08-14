@@ -26,21 +26,39 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   const [caption, setCaption] = useState("");
   const [active, setActive] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [loading, setLoading] = useState(cloud);
   const [railTarget, setRailTarget] = useState<HTMLElement | null>(null);
   const notifyRef = useRef(notify);
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
   useEffect(() => {
-    const timer = window.setTimeout(() => setRailTarget(document.querySelector(".moments-feed > .story-line")), 0);
+    const timer = window.setTimeout(() => setRailTarget(document.querySelector<HTMLElement>(".moments-feed > .story-line")), 0);
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => {
     if (!cloud) return;
-    return watchStories(setStories, () => notifyRef.current("Les Stories sont momentanément indisponibles."));
+    return watchStories((next) => { setStories(next); setLoading(false); setOffline(false); }, () => {
+      setStories(demoStories);
+      setLoading(false);
+      setOffline(true);
+      notifyRef.current("Les Stories sont momentanément hors ligne ; vous pouvez toujours préparer un brouillon.");
+    });
   }, [cloud]);
 
-  const current = active === null ? null : stories[active] || null;
-  const orderedStories = useMemo(() => [...stories].sort((a, b) => Number(b.authorId === userId) - Number(a.authorId === userId)), [stories, userId]);
+  const activeStories = useMemo(() => stories.filter((story) => (story.expiresAt?.toDate?.()?.getTime() || Date.now() + 1) > Date.now()), [stories]);
+  const orderedStories = useMemo(() => [...activeStories].sort((a, b) => Number(b.authorId === userId) - Number(a.authorId === userId)), [activeStories, userId]);
+  const current = active === null ? null : orderedStories[active] || null;
+
+  useEffect(() => {
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (creatorOpen) resetCreator();
+      else if (active !== null) setActive(null);
+    }
+    window.addEventListener("keydown", closeWithEscape);
+    return () => window.removeEventListener("keydown", closeWithEscape);
+  }, [creatorOpen, active]);
 
   function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.files?.[0] || null;
@@ -98,18 +116,19 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   }
 
   function openStory(story: StoryItem) {
-    setActive(stories.findIndex((item) => item.id === story.id));
+    setActive(orderedStories.findIndex((item) => item.id === story.id));
   }
 
   const rail = <section className="story-studio" aria-label="Stories Whappy">
-      <header><div><small>STORIES</small><strong>Les moments de vos contacts</strong></div><span>24 H</span></header>
+      <header><div><small>STORIES</small><strong>Les moments de vos contacts</strong></div><button className="story-header-action" type="button" onClick={() => setCreatorOpen(true)}>＋ Créer</button><span className={loading ? "loading" : offline ? "offline" : ""}>{loading ? "CHARGEMENT" : offline ? "HORS LIGNE" : "24 H"}</span></header>
       <div className="story-line real-stories">
         <button className="add-story" onClick={() => setCreatorOpen(true)}><span>＋</span><strong>Votre Story</strong><small>Photo ou vidéo</small></button>
+        {loading && [1, 2, 3].map((item) => <div className="story-loading-card" key={item}><span/><strong/><small/></div>)}
         {orderedStories.map((story) => <button key={story.id} onClick={() => openStory(story)}>
           <span className={`story-cover ${story.tone || ""}`} style={story.mediaUrl ? { backgroundImage: `url(${story.mediaUrl})` } : undefined}><i>{initials(story.authorName)}</i>{story.mediaType === "video" && <b>▶</b>}</span>
           <strong>{story.authorId === userId ? "Votre Story" : story.authorName.split(" ")[0]}</strong><small>{story.authorId === userId ? "Publiée" : "Nouveau"}</small>
         </button>)}
-        {!orderedStories.length && <div className="stories-empty"><span>✦</span><strong>Aucune Story active</strong><small>Partagez la première.</small></div>}
+        {!loading && !orderedStories.length && <button className="stories-empty" onClick={() => setCreatorOpen(true)}><span>✦</span><strong>Aucune Story active</strong><small>Partagez la première →</small></button>}
       </div>
     </section>;
 
@@ -131,10 +150,10 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
     </div>}
 
     {current && <div className="story-viewer" role="dialog" aria-modal="true" aria-label={`Story de ${current.authorName}`}>
-      <header><div className="story-progress">{stories.map((story, index) => <i className={index <= (active || 0) ? "seen" : ""} key={story.id}/>)}</div><section><span>{initials(current.authorName)}</span><div><strong>{current.authorName}</strong><small>Story · visible 24 h</small></div>{current.authorId === userId && <button onClick={() => void deleteCurrent()} disabled={busy}>Supprimer</button>}<button onClick={() => setActive(null)} aria-label="Fermer">×</button></section></header>
+      <header><div className="story-progress">{orderedStories.map((story, index) => <i className={index <= (active || 0) ? "seen" : ""} key={story.id}/>)}</div><section><span>{initials(current.authorName)}</span><div><strong>{current.authorName}</strong><small>Story · visible 24 h</small></div>{current.authorId === userId && <button onClick={() => void deleteCurrent()} disabled={busy}>Supprimer</button>}<button onClick={() => setActive(null)} aria-label="Fermer">×</button></section></header>
       <main className={current.tone || ""}>{current.mediaUrl ? current.mediaType === "video" ? <video src={current.mediaUrl} controls autoPlay playsInline/> : <img src={current.mediaUrl} alt={`Story de ${current.authorName}`}/> : <div className="story-demo-visual"><span>{initials(current.authorName)}</span><strong>WHAPPY STORY</strong></div>}{current.caption && <p>{current.caption}</p>}</main>
       <button className="story-previous" onClick={() => setActive((value) => value === null ? null : Math.max(0, value - 1))} disabled={active === 0} aria-label="Story précédente">‹</button>
-      <button className="story-next" onClick={() => setActive((value) => value === null ? null : value >= stories.length - 1 ? null : value + 1)} aria-label="Story suivante">›</button>
+      <button className="story-next" onClick={() => setActive((value) => value === null ? null : value >= orderedStories.length - 1 ? null : value + 1)} aria-label="Story suivante">›</button>
     </div>}
   </>;
 }

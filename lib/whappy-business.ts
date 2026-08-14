@@ -51,8 +51,66 @@ export type AdEvent = {
   createdAt?: CloudDate;
 };
 
+export type BusinessCurrency = "XAF" | "XOF" | "CDF" | "USD" | "EUR";
+export const businessCurrencyLabels: Record<BusinessCurrency, string> = {
+  XAF: "FCFA · CEMAC",
+  XOF: "FCFA · UEMOA",
+  CDF: "Franc congolais",
+  USD: "Dollar US",
+  EUR: "Euro",
+};
+export type BusinessOfferKind = "product" | "service";
+export type BusinessOffer = {
+  id: string;
+  ownerId: string;
+  kind: BusinessOfferKind;
+  title: string;
+  description: string;
+  price: number;
+  currency: BusinessCurrency;
+  status: "active" | "draft";
+  createdAt?: CloudDate;
+  updatedAt?: CloudDate;
+};
+export type BusinessSettings = { ownerId: string; currency: BusinessCurrency; defaultKind: BusinessOfferKind; updatedAt?: CloudDate };
+export type LeadStage = "new" | "contacted" | "qualified" | "won" | "lost";
+export const leadStageLabels: Record<LeadStage, string> = { new: "Nouveau", contacted: "Contacté", qualified: "Qualifié", won: "Client gagné", lost: "À reprendre" };
+export type BusinessLead = {
+  id: string;
+  ownerId: string;
+  name: string;
+  contact: string;
+  need: string;
+  source: string;
+  stage: LeadStage;
+  nextAction: string;
+  notes: string;
+  createdAt?: CloudDate;
+  updatedAt?: CloudDate;
+};
+
+export type ArtistStatus = "prospect" | "active" | "paused" | "archived";
+
+export type Artist = {
+  id: string;
+  ownerId: string;
+  name: string;
+  stageName: string;
+  discipline: string;
+  city: string;
+  contact: string;
+  email: string;
+  status: ArtistStatus;
+  nextAction: string;
+  monthlyBudget: number;
+  notes: string;
+  createdAt?: CloudDate;
+  updatedAt?: CloudDate;
+};
+
 export type NewBusinessPage = Pick<BusinessPage, "name" | "type" | "category" | "bio" | "city" | "phone" | "website">;
 export type NewAdCampaign = Pick<AdCampaign, "pageId" | "pageName" | "objective" | "title" | "creative" | "cta" | "audience" | "city" | "dailyBudget" | "days">;
+export type NewArtist = Pick<Artist, "name" | "stageName" | "discipline" | "city" | "contact" | "email" | "status" | "nextAction" | "monthlyBudget" | "notes">;
 
 function slugify(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42);
@@ -157,6 +215,51 @@ export async function deleteAdCampaign(campaignId: string) {
   await deleteDoc(doc(db, "adCampaigns", campaignId));
 }
 
+export function watchOwnerArtists(ownerId: string, onArtists: (artists: Artist[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "artists"), where("ownerId", "==", ownerId)), (snapshot) => {
+    const artists = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as Artist));
+    artists.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onArtists(artists);
+  }, onError);
+}
+
+export async function createArtist(ownerId: string, artist: NewArtist) {
+  const reference = await addDoc(collection(db, "artists"), {
+    ...artist,
+    ownerId,
+    name: artist.name.trim().slice(0, 100),
+    stageName: artist.stageName.trim().slice(0, 100),
+    discipline: artist.discipline.trim().slice(0, 80),
+    city: artist.city.trim().slice(0, 80),
+    contact: artist.contact.trim().slice(0, 40),
+    email: artist.email.trim().slice(0, 120),
+    nextAction: artist.nextAction.trim().slice(0, 120),
+    monthlyBudget: Math.max(0, Math.round(artist.monthlyBudget)),
+    notes: artist.notes.trim().slice(0, 600),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return reference.id;
+}
+
+export async function updateArtist(artistId: string, changes: Partial<NewArtist>) {
+  const sanitized = { ...changes } as Partial<NewArtist>;
+  if (sanitized.name !== undefined) sanitized.name = sanitized.name.trim().slice(0, 100);
+  if (sanitized.stageName !== undefined) sanitized.stageName = sanitized.stageName.trim().slice(0, 100);
+  if (sanitized.discipline !== undefined) sanitized.discipline = sanitized.discipline.trim().slice(0, 80);
+  if (sanitized.city !== undefined) sanitized.city = sanitized.city.trim().slice(0, 80);
+  if (sanitized.contact !== undefined) sanitized.contact = sanitized.contact.trim().slice(0, 40);
+  if (sanitized.email !== undefined) sanitized.email = sanitized.email.trim().slice(0, 120);
+  if (sanitized.nextAction !== undefined) sanitized.nextAction = sanitized.nextAction.trim().slice(0, 120);
+  if (sanitized.monthlyBudget !== undefined) sanitized.monthlyBudget = Math.max(0, Math.round(sanitized.monthlyBudget));
+  if (sanitized.notes !== undefined) sanitized.notes = sanitized.notes.trim().slice(0, 600);
+  await updateDoc(doc(db, "artists", artistId), { ...sanitized, updatedAt: serverTimestamp() });
+}
+
+export async function deleteArtist(artistId: string) {
+  await deleteDoc(doc(db, "artists", artistId));
+}
+
 export function watchOwnerAdEvents(ownerId: string, onEvents: (events: AdEvent[]) => void, onError: () => void) {
   return onSnapshot(query(collection(db, "adEvents"), where("ownerId", "==", ownerId)), (snapshot) => onEvents(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AdEvent))), onError);
 }
@@ -169,4 +272,42 @@ export async function recordAdEvent(campaign: AdCampaign, userId: string, type: 
     return;
   }
   await addDoc(collection(db, "adEvents"), { campaignId: campaign.id, ownerId: campaign.ownerId, userId, type, createdAt: serverTimestamp() });
+}
+
+export function watchBusinessSettings(ownerId: string, onSettings: (settings: BusinessSettings | null) => void, onError: () => void) {
+  return onSnapshot(doc(db, "businessSettings", ownerId), (snapshot) => onSettings(snapshot.exists() ? ({ ownerId, ...snapshot.data() } as BusinessSettings) : null), onError);
+}
+
+export async function saveBusinessSettings(ownerId: string, settings: Pick<BusinessSettings, "currency" | "defaultKind">) {
+  await setDoc(doc(db, "businessSettings", ownerId), { ownerId, ...settings, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export function watchOwnerOffers(ownerId: string, onOffers: (offers: BusinessOffer[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "businessOffers"), where("ownerId", "==", ownerId)), (snapshot) => {
+    const offers = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as BusinessOffer));
+    offers.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onOffers(offers);
+  }, onError);
+}
+
+export async function createBusinessOffer(ownerId: string, offer: Omit<BusinessOffer, "id" | "ownerId" | "createdAt" | "updatedAt">) {
+  const reference = await addDoc(collection(db, "businessOffers"), { ...offer, ownerId, title: offer.title.trim().slice(0, 120), description: offer.description.trim().slice(0, 600), price: Math.max(0, Math.round(offer.price)), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return reference.id;
+}
+
+export function watchOwnerLeads(ownerId: string, onLeads: (leads: BusinessLead[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "businessLeads"), where("ownerId", "==", ownerId)), (snapshot) => {
+    const leads = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as BusinessLead));
+    leads.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onLeads(leads);
+  }, onError);
+}
+
+export async function createBusinessLead(ownerId: string, lead: Omit<BusinessLead, "id" | "ownerId" | "createdAt" | "updatedAt">) {
+  const reference = await addDoc(collection(db, "businessLeads"), { ...lead, ownerId, name: lead.name.trim().slice(0, 100), contact: lead.contact.trim().slice(0, 80), need: lead.need.trim().slice(0, 180), source: lead.source.trim().slice(0, 80), nextAction: lead.nextAction.trim().slice(0, 120), notes: lead.notes.trim().slice(0, 600), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return reference.id;
+}
+
+export async function updateBusinessLeadStage(leadId: string, stage: LeadStage) {
+  await updateDoc(doc(db, "businessLeads", leadId), { stage, updatedAt: serverTimestamp() });
 }

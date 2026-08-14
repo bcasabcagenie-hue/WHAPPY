@@ -21,4 +21,4 @@ xcodebuild -project Whappy.xcodeproj -scheme Whappy -sdk iphonesimulator \
 2. Dans **Signing & Capabilities**, sélectionner l’équipe Apple Developer du propriétaire de WHAPPY.
 3. Brancher un iPhone et choisir **Run**, ou utiliser **Product > Archive** puis **Distribute App**.
 
-Le bundle identifier de la version 1.0.0 est `com.whappy.chat`.
+Le bundle identifier de la version 1.2.1 est `com.whappy.chat`.

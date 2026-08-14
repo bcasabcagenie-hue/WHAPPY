@@ -4,6 +4,8 @@ package com.whappy.chat
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
@@ -47,6 +49,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -55,6 +58,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -67,6 +71,8 @@ import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LocalOffer
@@ -80,9 +86,9 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.Stop
@@ -150,8 +156,10 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -232,8 +240,12 @@ fun WhappyRoot(
     onTab: (WhappyTab) -> Unit,
     onOpenConversation: (WhappyConversation) -> Unit,
     onCloseConversation: () -> Unit,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String, String, String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
+    onReactMessage: (String, String) -> Unit,
+    onDeleteMessage: (String) -> Unit,
+    onEditMessage: (String, String) -> Unit,
+    onTyping: (Boolean) -> Unit,
     onSearchContact: (String) -> Unit,
     onAddSearchedContact: () -> Unit,
     onClearContactSearch: () -> Unit,
@@ -284,6 +296,10 @@ fun WhappyRoot(
         onCloseConversation = onCloseConversation,
         onSendMessage = onSendMessage,
         onSendMedia = onSendMedia,
+        onReactMessage = onReactMessage,
+        onDeleteMessage = onDeleteMessage,
+        onEditMessage = onEditMessage,
+        onTyping = onTyping,
         onSearchContact = onSearchContact,
         onAddSearchedContact = onAddSearchedContact,
         onClearContactSearch = onClearContactSearch,
@@ -444,8 +460,12 @@ private fun WhappyMain(
     onTab: (WhappyTab) -> Unit,
     onOpenConversation: (WhappyConversation) -> Unit,
     onCloseConversation: () -> Unit,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String, String, String) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
+    onReactMessage: (String, String) -> Unit,
+    onDeleteMessage: (String) -> Unit,
+    onEditMessage: (String, String) -> Unit,
+    onTyping: (Boolean) -> Unit,
     onSearchContact: (String) -> Unit,
     onAddSearchedContact: () -> Unit,
     onClearContactSearch: () -> Unit,
@@ -516,14 +536,27 @@ private fun WhappyMain(
                     loading = state.loading,
                     sending = state.sending,
                     onBack = { if (preview) previewConversation = null else onCloseConversation() },
-                    onSend = { value ->
-                        if (preview) previewMessages = previewMessages + WhappyMessage("local-${System.currentTimeMillis()}", value, "demo-user", System.currentTimeMillis())
-                        else onSendMessage(value)
+                    onSend = { value, reply ->
+                        if (preview) previewMessages = previewMessages + WhappyMessage("local-${System.currentTimeMillis()}", value, "demo-user", System.currentTimeMillis(), replyToId = reply?.id.orEmpty(), replyText = reply?.text.orEmpty())
+                        else onSendMessage(value, reply?.id.orEmpty(), reply?.text.orEmpty())
                     },
                     onSendMedia = { uri, kind, type, name, duration ->
                         if (preview) previewMessages = previewMessages + WhappyMessage("local-${System.currentTimeMillis()}", if (kind == "audio") "Note vocale" else "Photo", "demo-user", System.currentTimeMillis(), kind, uri.toString(), name, duration)
                         else onSendMedia(uri, kind, type, name, duration)
                     },
+                    onReact = { message, emoji ->
+                        if (preview) previewMessages = previewMessages.map { if (it.id == message.id) it.copy(reactions = it.reactions + ("demo-user" to emoji)) else it }
+                        else onReactMessage(message.id, emoji)
+                    },
+                    onDelete = { message ->
+                        if (preview) previewMessages = previewMessages.map { if (it.id == message.id) it.copy(text = "Message supprimé", kind = "deleted", deleted = true) else it }
+                        else onDeleteMessage(message.id)
+                    },
+                    onEdit = { message, value ->
+                        if (preview) previewMessages = previewMessages.map { if (it.id == message.id) it.copy(text = value, edited = true) else it }
+                        else onEditMessage(message.id, value)
+                    },
+                    onTyping = { if (!preview) onTyping(it) },
                 )
             } else if (showTwinStudio) {
                 WhappyStudioScreen(
@@ -584,6 +617,12 @@ private fun WhappyMain(
                             onEndLive = onEndLive,
                             onUpdateLiveStatus = onUpdateLiveStatus,
                             onOpenTwin = { showTwinStudio = true },
+                        )
+                        WhappyTab.SERVICES -> ServicesScreen(
+                            userName = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                            phone = state.user?.phoneNumber.orEmpty().ifBlank { "+242 06 000 00 00" },
+                            onOpenMarket = { onTab(WhappyTab.MARKET) },
+                            onOpenBusiness = { onTab(WhappyTab.BUSINESS) },
                         )
                         WhappyTab.BUSINESS -> BusinessScreen(
                             pages = if (preview) demoBusinessPages else state.businessPages,
@@ -679,10 +718,11 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
         WhappyTab.CALLS to Icons.Rounded.Phone,
         WhappyTab.MARKET to Icons.Rounded.Storefront,
         WhappyTab.LIVE to Icons.Rounded.LiveTv,
+        WhappyTab.SERVICES to Icons.Rounded.Payments,
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.LIVE, WhappyTab.BUSINESS, WhappyTab.PROFILE)
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.SERVICES)
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
@@ -698,6 +738,12 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
 
 @Composable
 private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpenWhappies: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
+    var composing by rememberSaveable { mutableStateOf(false) }
+    var momentTitle by rememberSaveable { mutableStateOf("") }
+    var momentBody by rememberSaveable { mutableStateOf("") }
+    var personalMoments by remember { mutableStateOf(prefs.getStringSet("moments", emptySet()).orEmpty().toList().sortedDescending()) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
@@ -740,11 +786,186 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
                         SpaceCard("Marketplace", "Acheter et vendre", Icons.Rounded.Storefront, cell) { onTab(WhappyTab.MARKET) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Live", "Voir les directs", Icons.Rounded.LiveTv, cell) { onTab(WhappyTab.LIVE) }; SpaceCard("Business", "Deals et paiements", Icons.Rounded.BusinessCenter, cell) { onTab(WhappyTab.BUSINESS) } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Services", "Payer et demander", Icons.Rounded.Payments, cell) { onTab(WhappyTab.SERVICES) }; SpaceCard("Profil", "Compte et sécurité", Icons.Rounded.Person, cell) { onTab(WhappyTab.PROFILE) } }
                 }
             }
         }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Moments", Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.Black, color = WhappyDark); Button(onClick = { composing = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Add, null); Text("Publier", Modifier.padding(start = 5.dp)) } } }
+        items(personalMoments, key = { it }) { raw ->
+            val parts = raw.split("|", limit = 3)
+            MomentCard("Vous", "MON MOMENT", parts.getOrElse(1) { "Nouveau moment" }, parts.getOrElse(2) { "" })
+        }
         item { MomentCard("Mokabi Studio", "PUBLICATION SPONSORISÉE", "Porter son histoire. Vivre son style.", "Découvrez la nouvelle collection N’Tela et commandez directement dans WHAPPY.") }
         item { MomentCard("Amina M.", "RECHERCHE ACTIVE", "Je cherche une table artisanale locale", "Budget raisonnable ou échange possible · Poto-Poto") }
+    }
+    if (composing) AlertDialog(
+        onDismissRequest = { composing = false },
+        title = { Text("Créer un Moment", fontWeight = FontWeight.Black) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { OutlinedTextField(momentTitle, { momentTitle = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Titre") }, singleLine = true); OutlinedTextField(momentBody, { momentBody = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Votre moment") }, minLines = 4); Text("Votre publication restera disponible dans l’accueil de cette application.", color = WhappyMuted, fontSize = 11.sp) } },
+        confirmButton = { Button(enabled = momentTitle.trim().length >= 2 && momentBody.trim().length >= 3, onClick = { val entry = "${System.currentTimeMillis()}|${momentTitle.trim().replace("|", " ")}|${momentBody.trim().replace("|", " ")}"; personalMoments = (listOf(entry) + personalMoments).take(20); prefs.edit().putStringSet("moments", personalMoments.toSet()).apply(); momentTitle = ""; momentBody = ""; composing = false }) { Text("Publier") } },
+        dismissButton = { TextButton(onClick = { composing = false }) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun ServicesScreen(
+    userName: String,
+    phone: String,
+    onOpenMarket: () -> Unit,
+    onOpenBusiness: () -> Unit,
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("whappy_native_services", Context.MODE_PRIVATE) }
+    var walletActive by rememberSaveable { mutableStateOf(prefs.getBoolean("wallet_active", false)) }
+    var balance by rememberSaveable { mutableStateOf(prefs.getInt("wallet_balance", 0)) }
+    var transactions by remember { mutableStateOf(prefs.getStringSet("transactions", emptySet()).orEmpty().toList().sortedDescending()) }
+    var requests by remember { mutableStateOf(prefs.getStringSet("requests", emptySet()).orEmpty().toList().sortedDescending()) }
+    var dialog by rememberSaveable { mutableStateOf<String?>(null) }
+    var recipient by rememberSaveable { mutableStateOf("") }
+    var amount by rememberSaveable { mutableStateOf("") }
+    var details by rememberSaveable { mutableStateOf("") }
+    var feedback by rememberSaveable { mutableStateOf<String?>(null) }
+    val receivePayload = remember(phone) { "whappy://pay/${phone.filter { it.isDigit() }}" }
+    val receiveQr = remember(receivePayload) { createWhappyPayloadQr(receivePayload) }
+
+    fun saveTransactions(next: List<String>) {
+        transactions = next.sortedDescending()
+        prefs.edit().putStringSet("transactions", transactions.toSet()).apply()
+    }
+
+    fun saveRequests(next: List<String>) {
+        requests = next.sortedDescending()
+        prefs.edit().putStringSet("requests", requests.toSet()).apply()
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+                Column(Modifier.padding(22.dp)) {
+                    Text("WHAPPY WALLET", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text(if (walletActive) formatMoney(balance.toLong()) else "Portefeuille non activé", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                    Text("Mode démonstration sécurisé · aucun débit bancaire réel", Modifier.padding(top = 5.dp), color = Color(0xFFBECED5), fontSize = 11.sp)
+                    if (!walletActive) {
+                        Button(
+                            onClick = {
+                                walletActive = true
+                                balance = 25_000
+                                prefs.edit().putBoolean("wallet_active", true).putInt("wallet_balance", balance).apply()
+                                saveTransactions(listOf("${System.currentTimeMillis()}|Solde de démonstration|25000") + transactions)
+                                feedback = "Portefeuille activé avec 25 000 FCFA de démonstration."
+                            },
+                            modifier = Modifier.padding(top = 16.dp).fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(15.dp),
+                        ) { Text("Activer le portefeuille", fontWeight = FontWeight.Bold) }
+                    } else {
+                        Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(onClick = { feedback = null; dialog = "pay" }, Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("Payer", fontWeight = FontWeight.Bold) }
+                            OutlinedButton(onClick = { dialog = "receive" }, Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), shape = RoundedCornerShape(15.dp)) { Text("Recevoir", fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
+            }
+        }
+        feedback?.let { message ->
+            item { Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC)), shape = RoundedCornerShape(16.dp)) { Text(message, Modifier.padding(14.dp), color = WhappyDark, fontWeight = FontWeight.SemiBold) } }
+        }
+        item { Text("Services à la demande", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black) }
+        item {
+            BoxWithConstraints {
+                val cell = (maxWidth - 12.dp) / 2
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SpaceCard("Transport", "Commander un trajet", Icons.Rounded.Schedule, cell) { details = ""; dialog = "Transport" }
+                        SpaceCard("Livraison", "Faire livrer un colis", Icons.AutoMirrored.Rounded.ReceiptLong, cell) { details = ""; dialog = "Livraison" }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SpaceCard("Assistance", "Demander de l’aide", Icons.Rounded.Verified, cell) { details = ""; dialog = "Assistance" }
+                        SpaceCard("Marketplace", "Acheter local", Icons.Rounded.Storefront, cell, onOpenMarket)
+                    }
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth().clickable(onClick = onOpenBusiness), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.BusinessCenter, null, tint = WhappyBlue)
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Espace Business", color = WhappyDark, fontWeight = FontWeight.Black); Text("Pages, campagnes, deals et suivi des paiements", color = WhappyMuted, fontSize = 11.sp) }
+                    Text("›", color = WhappyBlue, fontSize = 24.sp)
+                }
+            }
+        }
+        item { Text("Demandes récentes", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black) }
+        if (requests.isEmpty()) item { Text("Aucune demande. Choisissez un service pour créer la première.", color = WhappyMuted) }
+        items(requests.take(5), key = { it }) { raw ->
+            val parts = raw.split("|", limit = 3)
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CheckCircle, null, tint = Color(0xFF12824B))
+                    Column(Modifier.padding(start = 11.dp)) { Text(parts.getOrElse(1) { "Service" }, color = WhappyDark, fontWeight = FontWeight.Bold); Text(parts.getOrElse(2) { "Demande enregistrée" }, color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }
+                }
+            }
+        }
+        if (transactions.isNotEmpty()) {
+            item { Text("Historique du portefeuille", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 4.dp)) }
+            items(transactions.take(6), key = { it }) { raw ->
+                val parts = raw.split("|", limit = 3)
+                val value = parts.getOrNull(2)?.toLongOrNull() ?: 0L
+                Row(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Payments, null, tint = if (value >= 0) Color(0xFF12824B) else WhappyBlue)
+                    Text(parts.getOrElse(1) { "Transaction" }, Modifier.weight(1f).padding(horizontal = 11.dp), color = WhappyDark, fontWeight = FontWeight.SemiBold)
+                    Text((if (value > 0) "+" else "") + formatMoney(value), color = if (value >= 0) Color(0xFF12824B) else WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+
+    if (dialog == "pay") {
+        AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Envoyer un paiement test", fontWeight = FontWeight.Black) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { OutlinedTextField(recipient, { recipient = it }, label = { Text("Bénéficiaire") }, singleLine = true); OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Montant FCFA") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); feedback?.let { Text(it, color = Color(0xFFC53D4B), fontSize = 12.sp) } } },
+            confirmButton = { Button(onClick = {
+                val value = amount.toIntOrNull() ?: 0
+                if (recipient.trim().isEmpty() || value <= 0 || value > balance) feedback = "Vérifiez le bénéficiaire, le montant et le solde disponible."
+                else {
+                    balance -= value
+                    prefs.edit().putInt("wallet_balance", balance).apply()
+                    saveTransactions(listOf("${System.currentTimeMillis()}|Paiement test · ${recipient.trim()}|-${value}") + transactions)
+                    feedback = "Paiement test envoyé à ${recipient.trim()}."
+                    recipient = ""; amount = ""; dialog = null
+                }
+            }) { Text("Confirmer") } },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Annuler") } },
+        )
+    }
+    if (dialog == "receive") {
+        AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Recevoir sur WHAPPY", fontWeight = FontWeight.Black) },
+            text = { Column(horizontalAlignment = Alignment.CenterHorizontally) { Image(receiveQr.asImageBitmap(), "QR de paiement de $userName", Modifier.size(210.dp).clip(RoundedCornerShape(18.dp))); Text(userName, Modifier.padding(top = 12.dp), fontWeight = FontWeight.Bold); Text(phone, color = WhappyMuted); Text("Ce code ouvre une demande de paiement WHAPPY.", Modifier.padding(top = 8.dp), color = WhappyMuted, fontSize = 11.sp) } },
+            confirmButton = { TextButton(onClick = { dialog = null }) { Text("Terminé") } },
+        )
+    }
+    if (dialog in listOf("Transport", "Livraison", "Assistance")) {
+        val service = dialog.orEmpty()
+        AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Demande · $service", fontWeight = FontWeight.Black) },
+            text = { OutlinedTextField(details, { details = it }, label = { Text(if (service == "Transport") "Départ et destination" else "Décrivez votre besoin") }, minLines = 3, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { Button(onClick = {
+                val value = details.trim()
+                if (value.length >= 5) {
+                    saveRequests(listOf("${System.currentTimeMillis()}|$service|$value") + requests)
+                    feedback = "Demande $service enregistrée. Un prestataire pourra la prendre en charge."
+                    details = ""; dialog = null
+                } else feedback = "Ajoutez suffisamment de détails pour traiter la demande."
+            }) { Text("Envoyer") } },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Annuler") } },
+        )
     }
 }
 
@@ -1117,6 +1338,17 @@ private fun MomentCard(author: String, badge: String, title: String, body: Strin
 @Composable
 private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversation: (WhappyConversation) -> Unit) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
+    var recentCalls by remember { mutableStateOf(prefs.getStringSet("recent_calls", emptySet()).orEmpty().toList().sortedDescending()) }
+
+    fun startCall(name: String, phone: String) {
+        val entry = "${System.currentTimeMillis()}|${name.replace("|", " ")}|${phone.replace("|", " ")}"
+        recentCalls = (listOf(entry) + recentCalls).take(30)
+        prefs.edit().putStringSet("recent_calls", recentCalls.toSet()).apply()
+        uriHandler.openUri("tel:$phone")
+    }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
@@ -1132,8 +1364,19 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
             }
         }
         item { Text("Appels récents", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 5.dp)) }
+        if (recentCalls.isEmpty()) item { Text("Aucun appel lancé depuis WHAPPY pour le moment.", color = WhappyMuted, modifier = Modifier.padding(vertical = 6.dp)) }
+        items(recentCalls.take(8), key = { it }) { raw ->
+            val parts = raw.split("|", limit = 3)
+            val timestamp = parts.firstOrNull()?.toLongOrNull() ?: 0L
+            val name = parts.getOrElse(1) { "Contact" }
+            val phone = parts.getOrElse(2) { "" }
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Phone, null, tint = Color(0xFF12824B)); Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(name, color = WhappyDark, fontWeight = FontWeight.Bold); Text("Sortant · ${formatShortDate(timestamp)} à ${formatTime(timestamp)}", color = WhappyMuted, fontSize = 10.sp) }; FilledIconButton(enabled = phone.isNotBlank(), onClick = { startCall(name, phone) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Phone, "Rappeler $name", tint = Color.White) } }
+            }
+        }
+        item { Text("Tous les contacts", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 7.dp)) }
         if (conversations.isEmpty()) {
-            item { EmptyState("Aucun appel", "Démarrez une conversation pour appeler un contact Whappy.") }
+            item { EmptyState("Aucun contact", "Ajoutez un contact dans Messages pour pouvoir l’appeler.") }
         } else {
             items(conversations, key = { "call-${it.id}" }) { conversation ->
                 val callable = conversation.peer.phoneNumber.isNotBlank()
@@ -1146,7 +1389,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                             Text(formatTime(conversation.updatedAt), color = WhappyMuted, fontSize = 10.sp)
                         }
                         IconButton(onClick = { onOpenConversation(conversation) }) { Icon(Icons.Rounded.ChatBubble, "Écrire à ${conversation.peer.displayName}", tint = WhappyBlue) }
-                        FilledIconButton(enabled = callable, onClick = { uriHandler.openUri("tel:${conversation.peer.phoneNumber}") }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
+                        FilledIconButton(enabled = callable, onClick = { startCall(conversation.peer.displayName, conversation.peer.phoneNumber) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
                     }
                 }
             }
@@ -1186,10 +1429,12 @@ private fun MessagesScreen(
     var adding by remember { mutableStateOf(false) }
     var searchingBusiness by remember { mutableStateOf(false) }
     var showingContacts by rememberSaveable { mutableStateOf(false) }
+    var conversationSearch by rememberSaveable { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var scanError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val isPhoneComplete = PhoneNumberFormatter.normalize("+242", phone) != null
+    val filteredConversations = conversations.filter { conversationSearch.isBlank() || "${it.peer.displayName} ${it.lastMessage} ${it.peer.phoneNumber}".contains(conversationSearch, ignoreCase = true) }
 
     fun resetContactSearch() {
         if (!preview) onClearContactSearch()
@@ -1234,9 +1479,10 @@ private fun MessagesScreen(
             TextButton(onClick = { showingContacts = false }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = if (!showingContacts) WhappyDark else WhappyMuted)) { Text("Discussions", fontWeight = if (!showingContacts) FontWeight.Black else FontWeight.Medium) }
             TextButton(onClick = { showingContacts = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (showingContacts) Color.White else Color.Transparent, contentColor = if (showingContacts) WhappyDark else WhappyMuted)) { Text("CONTACTS ${if (contacts.isNotEmpty()) "(${contacts.size})" else ""}", fontWeight = if (showingContacts) FontWeight.Black else FontWeight.Medium) }
         }
+        OutlinedTextField(conversationSearch, { conversationSearch = it.take(120) }, Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp), placeholder = { Text(if (showingContacts) "Rechercher un contact" else "Rechercher une discussion") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
         if (showingContacts) {
             val conversationContacts = conversations.map { WhappyContact(it.peer, it.updatedAt) }
-            val visibleContacts = (contacts + conversationContacts).distinctBy { it.member.uid }.sortedBy { it.member.displayName.lowercase() }
+            val visibleContacts = (contacts + conversationContacts).distinctBy { it.member.uid }.filter { conversationSearch.isBlank() || "${it.member.displayName} ${it.member.phoneNumber}".contains(conversationSearch, ignoreCase = true) }.sortedBy { it.member.displayName.lowercase() }
             if (loading && visibleContacts.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
             else if (visibleContacts.isEmpty()) {
                 Card(Modifier.padding(18.dp).fillMaxWidth().clickable { phone = ""; resetContactSearch(); adding = true }, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
@@ -1264,9 +1510,9 @@ private fun MessagesScreen(
                 }
             }
         } else if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-        else if (conversations.isEmpty()) EmptyState("Aucune conversation", "Ouvrez l’onglet Contacts pour ajouter une personne sur WHAPPY.")
+        else if (filteredConversations.isEmpty()) EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WHAPPY." else "Essayez un autre nom ou un mot du dernier message.")
         else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)) {
-            items(conversations, key = { it.id }) { conversation ->
+            items(filteredConversations, key = { it.id }) { conversation ->
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(conversation) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(52.dp).clip(CircleShape).background(if (conversation.unread) WhappyBlue else Color(0xFFE5EDF1)), contentAlignment = Alignment.Center) { Text(initials(conversation.peer.displayName), color = if (conversation.unread) Color.White else WhappyDark, fontWeight = FontWeight.Black) }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -1403,19 +1649,41 @@ private fun ChatScreen(
     loading: Boolean,
     sending: Boolean,
     onBack: () -> Unit,
-    onSend: (String) -> Unit,
+    onSend: (String, WhappyMessage?) -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
+    onReact: (WhappyMessage, String) -> Unit,
+    onDelete: (WhappyMessage) -> Unit,
+    onEdit: (WhappyMessage, String) -> Unit,
+    onTyping: (Boolean) -> Unit,
 ) {
-    var text by remember(conversation.id) { mutableStateOf("") }
+    val context = LocalContext.current
+    val draftPrefs = remember { context.getSharedPreferences("whappy_chat_drafts", Context.MODE_PRIVATE) }
+    var text by remember(conversation.id) { mutableStateOf(draftPrefs.getString(conversation.id, "").orEmpty()) }
     var showEmoji by remember(conversation.id) { mutableStateOf(false) }
     var recording by remember(conversation.id) { mutableStateOf(false) }
     var recordStartedAt by remember(conversation.id) { mutableStateOf(0L) }
     var recorder by remember(conversation.id) { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember(conversation.id) { mutableStateOf<File?>(null) }
-    val context = LocalContext.current
+    var searchOpen by rememberSaveable(conversation.id) { mutableStateOf(false) }
+    var searchQuery by rememberSaveable(conversation.id) { mutableStateOf("") }
+    var replyTo by remember(conversation.id) { mutableStateOf<WhappyMessage?>(null) }
+    var selectedMessage by remember(conversation.id) { mutableStateOf<WhappyMessage?>(null) }
+    var editingMessage by remember(conversation.id) { mutableStateOf<WhappyMessage?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
     val uriHandler = LocalUriHandler.current
     val listState = rememberLazyListState()
+    val visibleMessages = remember(messages, searchQuery) { if (searchQuery.isBlank()) messages else messages.filter { "${it.text} ${it.mediaName} ${it.replyText}".contains(searchQuery, ignoreCase = true) } }
+
+    fun submitText() {
+        val value = text.trim()
+        if (value.isBlank()) return
+        editingMessage?.let { onEdit(it, value) } ?: onSend(value, replyTo)
+        text = ""
+        replyTo = null
+        editingMessage = null
+        draftPrefs.edit().remove(conversation.id).apply()
+        onTyping(false)
+    }
 
     fun startRecording() {
         runCatching { createVoiceRecorder(context) }.onSuccess { (activeRecorder, file) ->
@@ -1456,33 +1724,49 @@ private fun ChatScreen(
 
     DisposableEffect(conversation.id) {
         onDispose {
+            onTyping(false)
             runCatching { recorder?.stop() }
             recorder?.release()
             recordingFile?.delete()
         }
     }
-    LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
+    LaunchedEffect(text, editingMessage?.id) {
+        if (editingMessage == null && text.isNotBlank()) { onTyping(true); delay(1_400); onTyping(false) }
+        else onTyping(false)
+    }
+    LaunchedEffect(visibleMessages.size) { if (visibleMessages.isNotEmpty() && searchQuery.isBlank()) listState.animateScrollToItem(visibleMessages.lastIndex) }
 
     Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
             Box(Modifier.size(42.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(conversation.peer.displayName), color = Color.White, fontWeight = FontWeight.Bold) }
-            Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(conversation.peer.displayName, fontWeight = FontWeight.Bold, color = WhappyDark); Text("WHAPPY · en ligne", color = WhappyBlue, fontSize = 11.sp) }
+            Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(conversation.peer.displayName, fontWeight = FontWeight.Bold, color = WhappyDark); Text(if (conversation.peerTyping) "écrit…" else "WHAPPY · en ligne", color = WhappyBlue, fontSize = 11.sp, fontWeight = if (conversation.peerTyping) FontWeight.Bold else FontWeight.Normal) }
+            IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Icon(Icons.Rounded.Search, "Rechercher dans la discussion", tint = if (searchOpen) WhappyBlue else WhappyDark) }
             if (conversation.peer.phoneNumber.isNotBlank()) IconButton(onClick = { uriHandler.openUri("tel:${conversation.peer.phoneNumber}") }) { Icon(Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}") }
         }
+        if (searchOpen) OutlinedTextField(searchQuery, { searchQuery = it.take(120) }, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher un message") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
         else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(messages, key = { it.id }) { message ->
+            if (visibleMessages.isEmpty() && searchQuery.isNotBlank()) item { Text("Aucun message ne correspond à « $searchQuery ».", Modifier.padding(24.dp), color = WhappyMuted) }
+            itemsIndexed(visibleMessages, key = { _, message -> message.id }) { index, message ->
                 val mine = message.senderId == currentUserId
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
-                    Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f)) {
-                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                            when (message.kind) {
-                                "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
-                                "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
-                                else -> Text(message.text, color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp)
+                Column(Modifier.fillMaxWidth()) {
+                    if (index == 0 || !isSameDay(message.createdAt, visibleMessages[index - 1].createdAt)) {
+                        Text(formatMessageDay(message.createdAt), Modifier.align(Alignment.CenterHorizontally).padding(vertical = 7.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFE8F0F3)).padding(horizontal = 10.dp, vertical = 4.dp), color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+                        Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted) { selectedMessage = message }) {
+                            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (mine) Color.White.copy(alpha = .16f) else Color(0xFFEAF7FC)).padding(8.dp)) { Text("↩ ${message.replyText}", color = if (mine) Color.White.copy(alpha = .9f) else WhappyMuted, fontSize = 10.sp, maxLines = 2) }
+                                when (message.kind) {
+                                    "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
+                                    "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
+                                    "deleted" -> Text("Message supprimé", color = if (mine) Color.White.copy(alpha = .7f) else WhappyMuted)
+                                    else -> Text(message.text, color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp)
+                                }
+                                if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { message.reactions.values.groupingBy { it }.eachCount().forEach { (emoji, count) -> Text("$emoji${if (count > 1) " $count" else ""}", modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (mine) Color.White.copy(alpha = .18f) else Color(0xFFEAF7FC)).padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp) } }
+                                Row(Modifier.align(Alignment.End).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) { if (message.edited) Text("modifié · ", color = if (mine) Color.White.copy(alpha = .68f) else WhappyMuted, fontSize = 9.sp); Text(formatTime(message.createdAt), color = if (mine) Color.White.copy(alpha = .75f) else WhappyMuted, fontSize = 9.sp); if (mine) { val read = message.createdAt > 0L && conversation.peerReadAt >= message.createdAt; Text(if (read) " · Lu" else " · Envoyé", color = Color.White.copy(alpha = if (read) .95f else .68f), fontSize = 9.sp); Icon(Icons.Rounded.CheckCircle, null, tint = Color.White.copy(alpha = if (read) 1f else .65f), modifier = Modifier.padding(start = 3.dp).size(12.dp)) } }
                             }
-                            Row(Modifier.align(Alignment.End).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) { Text(formatTime(message.createdAt), color = if (mine) Color.White.copy(alpha = .75f) else WhappyMuted, fontSize = 9.sp); if (mine) Icon(Icons.Rounded.CheckCircle, null, tint = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 4.dp).size(12.dp)) }
                         }
                     }
                 }
@@ -1496,24 +1780,26 @@ private fun ChatScreen(
                 TextButton(onClick = { finishRecording(false) }) { Text("Annuler") }
             }
         }
+        replyTo?.let { message -> Row(Modifier.fillMaxWidth().background(Color(0xFFEAF7FC)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Rounded.Send, null, tint = WhappyBlue, modifier = Modifier.size(17.dp)); Column(Modifier.weight(1f).padding(horizontal = 9.dp)) { Text("Répondre", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(message.text.ifBlank { message.mediaName.ifBlank { "Média" } }, color = WhappyDark, fontSize = 11.sp, maxLines = 1) }; TextButton(onClick = { replyTo = null }) { Text("Annuler") } } }
+        editingMessage?.let { message -> Row(Modifier.fillMaxWidth().background(Color(0xFFFFF7E8)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.MoreVert, null, tint = Color(0xFFE9781A), modifier = Modifier.size(17.dp)); Column(Modifier.weight(1f).padding(horizontal = 9.dp)) { Text("Modifier le message", color = Color(0xFFE9781A), fontSize = 10.sp, fontWeight = FontWeight.Black); Text(message.text, color = WhappyDark, fontSize = 11.sp, maxLines = 1) }; TextButton(onClick = { editingMessage = null; text = ""; draftPrefs.edit().remove(conversation.id).apply() }) { Text("Annuler") } } }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !sending && !recording, onClick = { imagePicker.launch("image/*") }) { Icon(Icons.Rounded.AttachFile, "Joindre une photo", tint = WhappyMuted) }
             IconButton(enabled = !recording, onClick = { showEmoji = !showEmoji; if (showEmoji) keyboard?.hide() }) { Icon(Icons.Rounded.EmojiEmotions, "Émojis", tint = if (showEmoji) WhappyBlue else WhappyMuted) }
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it.take(4_000) },
+                onValueChange = { text = it.take(4_000); draftPrefs.edit().putString(conversation.id, text).apply() },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text(if (recording) "Enregistrement…" else "Message…") },
                 enabled = !recording,
                 maxLines = 5,
                 shape = RoundedCornerShape(20.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = true),
-                keyboardActions = KeyboardActions(onSend = { if (text.isNotBlank()) { onSend(text); text = ""; keyboard?.hide() } }),
+                keyboardActions = KeyboardActions(onSend = { submitText(); keyboard?.hide() }),
             )
             IconButton(
                 enabled = !sending,
                 onClick = {
-                    if (text.isNotBlank()) { onSend(text); text = "" }
+                    if (text.isNotBlank()) submitText()
                     else if (recording) finishRecording(true)
                     else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
                     else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -1528,6 +1814,15 @@ private fun ChatScreen(
                 }
             }
         }
+    }
+    selectedMessage?.let { message ->
+        val mine = message.senderId == currentUserId
+        AlertDialog(
+            onDismissRequest = { selectedMessage = null },
+            title = { Text("Actions du message", fontWeight = FontWeight.Black) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(message.text.ifBlank { message.mediaName.ifBlank { "Média" } }, color = WhappyMuted, maxLines = 3); Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("❤️", "👍", "😂", "😮", "🙏").forEach { emoji -> TextButton(onClick = { onReact(message, emoji); selectedMessage = null }, contentPadding = PaddingValues(6.dp)) { Text(emoji, fontSize = 20.sp) } } }; OutlinedButton(onClick = { replyTo = message; editingMessage = null; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Répondre") }; if (message.text.isNotBlank()) OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WHAPPY", message.text)); selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Copier le texte") }; if (mine && message.kind == "text") OutlinedButton(onClick = { editingMessage = message; replyTo = null; text = message.text; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Modifier") }; if (mine) OutlinedButton(onClick = { onDelete(message); selectedMessage = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD72C46))) { Text("Supprimer pour tous") } } },
+            confirmButton = { TextButton(onClick = { selectedMessage = null }) { Text("Fermer") } },
+        )
     }
 }
 
@@ -1576,24 +1871,48 @@ private fun MarketScreen(
     busy: Boolean,
     onPublish: (String, String, String, String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
     var search by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
     var localItems by remember { mutableStateOf(emptyList<WhappyListing>()) }
+    var selected by remember { mutableStateOf<WhappyListing?>(null) }
+    var showingCart by rememberSaveable { mutableStateOf(false) }
+    var showingOrders by rememberSaveable { mutableStateOf(false) }
+    var delivery by rememberSaveable { mutableStateOf("") }
+    var marketFeedback by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedIds by remember { mutableStateOf(prefs.getStringSet("market_favorites", emptySet()).orEmpty().toSet()) }
+    var cart by remember {
+        mutableStateOf(prefs.getString("market_cart", "").orEmpty().split(";").mapNotNull { token ->
+            val pieces = token.split("=", limit = 2); val count = pieces.getOrNull(1)?.toIntOrNull(); if (pieces.firstOrNull().isNullOrBlank() || count == null || count <= 0) null else pieces[0] to count
+        }.toMap())
+    }
+    var orders by remember { mutableStateOf(prefs.getStringSet("market_orders", emptySet()).orEmpty().toList().sortedDescending()) }
     val products = (localItems + listings).filter { search.isBlank() || "${it.title} ${it.seller} ${it.place}".contains(search, ignoreCase = true) }
+
+    fun saveCart(next: Map<String, Int>) {
+        cart = next.filterValues { it > 0 }
+        prefs.edit().putString("market_cart", cart.entries.joinToString(";") { "${it.key}=${it.value}" }).apply()
+    }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Marketplace", fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text("Achetez, vendez ou négociez localement", color = WhappyMuted) }
+                IconButton(onClick = { showingOrders = true }) { Icon(Icons.AutoMirrored.Rounded.ReceiptLong, "Mes commandes", tint = WhappyDark) }
+                Box(contentAlignment = Alignment.TopEnd) { IconButton(onClick = { showingCart = true }) { Icon(Icons.Rounded.ShoppingCart, "Panier", tint = WhappyDark) }; if (cart.values.sum() > 0) Box(Modifier.size(17.dp).clip(CircleShape).background(Color(0xFFFF3B5C)), contentAlignment = Alignment.Center) { Text(cart.values.sum().coerceAtMost(9).toString(), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black) } }
                 Button(onClick = { creating = true }, shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 13.dp, vertical = 10.dp)) { Icon(Icons.Rounded.Add, null); Text("Vendre", Modifier.padding(start = 4.dp)) }
             }
         }
+        marketFeedback?.let { value -> item { Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC)), shape = RoundedCornerShape(15.dp)) { Text(value, Modifier.padding(13.dp), color = WhappyDark, fontWeight = FontWeight.SemiBold) } } }
         item { OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), placeholder = { Text("Rechercher un produit ou une boutique") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(18.dp), singleLine = true) }
         if (products.isEmpty()) item { EmptyState("Aucune annonce", "Publiez la première offre de cette catégorie.") }
         items(products, key = { it.id }) { product ->
-            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+            Card(Modifier.clickable { selected = product }, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(76.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFFE2F1F8)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
                     Column(Modifier.weight(1f).padding(start = 14.dp)) { Text(product.title, fontWeight = FontWeight.Bold, color = WhappyDark); Text(product.price, Modifier.padding(top = 5.dp), color = WhappyBlue, fontWeight = FontWeight.Bold); Text("${product.place} · ${product.seller}", Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp); if(product.mode=="troc") Text("TROC ACCEPTÉ", Modifier.padding(top=5.dp), color=WhappyBlue, fontSize=9.sp, fontWeight=FontWeight.Black) }
+                    IconButton(onClick = { savedIds = if (product.id in savedIds) savedIds - product.id else savedIds + product.id; prefs.edit().putStringSet("market_favorites", savedIds).apply() }) { Icon(if (product.id in savedIds) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Favori", tint = if (product.id in savedIds) Color(0xFFFF3B5C) else WhappyMuted) }
                 }
             }
         }
@@ -1603,6 +1922,35 @@ private fun MarketScreen(
         else onPublish(title, price, place, mode)
         creating = false
     }
+    selected?.let { product ->
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text(product.title, fontWeight = FontWeight.Black) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Box(Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xFFE2F1F8)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = WhappyBlue, modifier = Modifier.size(62.dp)) }; Text(product.price, color = WhappyBlue, fontSize = 21.sp, fontWeight = FontWeight.Black); Text("Vendu par ${product.seller} · ${product.place}", color = WhappyMuted); Text(if (product.mode == "troc") "Cette annonce accepte les propositions d’échange." else "Ajoutez cet article au panier pour préparer votre commande.", color = WhappyDark) } },
+            confirmButton = { Button(onClick = { saveCart(cart + (product.id to ((cart[product.id] ?: 0) + 1).coerceAtMost(9))); marketFeedback = "${product.title} ajouté au panier."; selected = null }) { Icon(Icons.Rounded.ShoppingCart, null); Text("Ajouter", Modifier.padding(start = 5.dp)) } },
+            dismissButton = { Row { TextButton(onClick = { savedIds = if (product.id in savedIds) savedIds - product.id else savedIds + product.id; prefs.edit().putStringSet("market_favorites", savedIds).apply() }) { Text(if (product.id in savedIds) "Retirer des favoris" else "Favori") }; TextButton(onClick = { selected = null }) { Text("Fermer") } } },
+        )
+    }
+    if (showingCart) {
+        val allProducts = localItems + listings
+        AlertDialog(
+            onDismissRequest = { showingCart = false },
+            title = { Text("Mon panier · ${cart.values.sum()} article(s)", fontWeight = FontWeight.Black) },
+            text = { LazyColumn(Modifier.fillMaxWidth().height(420.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (cart.isEmpty()) item { Text("Votre panier est vide. Ouvrez une annonce pour ajouter un article.", color = WhappyMuted) }
+                cart.forEach { (id, quantity) -> val product = allProducts.firstOrNull { it.id == id }; if (product != null) item(key = "cart-$id") { Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F9FA)), shape = RoundedCornerShape(15.dp)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(product.title, fontWeight = FontWeight.Bold, color = WhappyDark, maxLines = 2); Text(product.price, color = WhappyBlue, fontSize = 11.sp) }; TextButton(onClick = { saveCart(cart + (id to quantity - 1)) }) { Text("−") }; Text(quantity.toString(), fontWeight = FontWeight.Black); TextButton(onClick = { saveCart(cart + (id to (quantity + 1).coerceAtMost(9))) }) { Text("+") } } } } }
+                if (cart.isNotEmpty()) item { OutlinedTextField(delivery, { delivery = it.take(180) }, Modifier.fillMaxWidth(), label = { Text("Adresse ou point de rendez-vous") }, minLines = 2) }
+            } },
+            confirmButton = { Button(enabled = cart.isNotEmpty() && delivery.trim().length >= 5, onClick = { val reference = "WH-${UUID.randomUUID().toString().take(6).uppercase()}"; val titles = cart.mapNotNull { (id, quantity) -> allProducts.firstOrNull { it.id == id }?.let { "$quantity × ${it.title.replace("|", " ")}" } }.joinToString(", "); val entry = "${System.currentTimeMillis()}|$reference|$titles · ${delivery.trim().replace("|", " ")}"; orders = (listOf(entry) + orders).take(30); prefs.edit().putStringSet("market_orders", orders.toSet()).apply(); saveCart(emptyMap()); delivery = ""; showingCart = false; marketFeedback = "Commande $reference enregistrée." }) { Text("Commander") } },
+            dismissButton = { TextButton(onClick = { showingCart = false }) { Text("Fermer") } },
+        )
+    }
+    if (showingOrders) AlertDialog(
+        onDismissRequest = { showingOrders = false },
+        title = { Text("Mes commandes", fontWeight = FontWeight.Black) },
+        text = { LazyColumn(Modifier.fillMaxWidth().height(400.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { if (orders.isEmpty()) item { Text("Aucune commande enregistrée.", color = WhappyMuted) }; items(orders, key = { it }) { raw -> val parts = raw.split("|", limit = 3); Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F9FA)), shape = RoundedCornerShape(15.dp)) { Column(Modifier.padding(13.dp)) { Row { Text(parts.getOrElse(1) { "Commande" }, Modifier.weight(1f), color = WhappyDark, fontWeight = FontWeight.Black); Text("À confirmer", color = Color(0xFFE9781A), fontSize = 10.sp, fontWeight = FontWeight.Bold) }; Text(parts.getOrElse(2) { "" }, Modifier.padding(top = 6.dp), color = WhappyMuted, fontSize = 11.sp) } } } } },
+        confirmButton = { TextButton(onClick = { showingOrders = false }) { Text("Fermer") } },
+    )
 }
 
 @Composable
@@ -1830,7 +2178,7 @@ private fun BusinessScreen(
             BusinessSection.DASHBOARD -> {
                 item { Text("Centre Business", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
                 item { BusinessFeatureCard(Icons.Rounded.Storefront, "Profil Business", if (visiblePages.isEmpty()) "Créez une page publique professionnelle" else "${visiblePages.first().name} · @${visiblePages.first().handle}") { section = BusinessSection.PAGES } }
-                item { BusinessFeatureCard(Icons.Rounded.ReceiptLong, "Catalogue", if (visibleDeals.isEmpty()) "Ajoutez vos produits et services" else "${visibleDeals.size} offre(s) · $availableStock unité(s) disponibles") { section = BusinessSection.CATALOG } }
+                item { BusinessFeatureCard(Icons.AutoMirrored.Rounded.ReceiptLong, "Catalogue", if (visibleDeals.isEmpty()) "Ajoutez vos produits et services" else "${visibleDeals.size} offre(s) · $availableStock unité(s) disponibles") { section = BusinessSection.CATALOG } }
                 item { BusinessFeatureCard(Icons.Rounded.LocalOffer, "Deals", "Offres limitées, stock et ventes en un coup d’œil") { section = BusinessSection.DEALS } }
                 item { BusinessFeatureCard(Icons.Rounded.BusinessCenter, "Commandes", if (paymentNotices.isEmpty()) "Centralisez vos prochaines ventes" else "${paymentNotices.size} commande(s) à suivre") { section = BusinessSection.ORDERS } }
                 item { BusinessFeatureCard(Icons.Rounded.Payments, "Paiements", if (unread > 0) "$unread nouvelle(s) notification(s)" else "Historique et alertes de transactions") { section = BusinessSection.PAYMENTS } }
@@ -1856,7 +2204,7 @@ private fun BusinessScreen(
             }
             BusinessSection.ORDERS -> {
                 item { Text("Centre de commandes", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
-                item { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = WhappyDark), shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("COMMANDES CONFIRMÉES", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(paymentNotices.size.toString(), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("$soldUnits article(s) vendu(s)", color = Color(0xFFBECED5), fontSize = 11.sp) }; Icon(Icons.Rounded.ReceiptLong, null, tint = WhappyBlue, modifier = Modifier.size(42.dp)) } } }
+                item { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = WhappyDark), shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("COMMANDES CONFIRMÉES", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(paymentNotices.size.toString(), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("$soldUnits article(s) vendu(s)", color = Color(0xFFBECED5), fontSize = 11.sp) }; Icon(Icons.AutoMirrored.Rounded.ReceiptLong, null, tint = WhappyBlue, modifier = Modifier.size(42.dp)) } } }
                 if (paymentNotices.isEmpty()) item { EmptyState("Aucune commande", "Les commandes confirmées par paiement apparaîtront ici.") }
                 items(paymentNotices, key = { "order-${it.id}" }) { notice -> OrderCard(notice) }
             }
@@ -2127,8 +2475,15 @@ private fun ProfileScreen(
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
     var localPhoto by remember(photoUrl) { mutableStateOf(photoUrl) }
     var showingMyCode by remember { mutableStateOf(false) }
+    var settingDialog by rememberSaveable { mutableStateOf<String?>(null) }
+    var privacy by rememberSaveable { mutableStateOf(prefs.getString("privacy", "contacts") ?: "contacts") }
+    var messageNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_messages", true)) }
+    var callNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_calls", true)) }
+    var dataSaver by rememberSaveable { mutableStateOf(prefs.getBoolean("data_saver", false)) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         localPhoto = uri.toString()
@@ -2165,11 +2520,26 @@ private fun ProfileScreen(
             Card(Modifier.fillMaxWidth().clickable(onClick = onOpenWhappies), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White) }; Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text("MON WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Mon double numérique", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp); Text(if (twinReadiness > 0) "Profil prêt à $twinReadiness %" else "Image, voix, mouvements et missions", color = Color(0xFFBECED5), fontSize = 11.sp) }; Text("›", color = WhappyBlue, fontSize = 26.sp) } }
         }
         items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
+            Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
     }
     if (showingMyCode) WhappyCodeDialog(name = name, phone = phone, onDismiss = { showingMyCode = false })
+    settingDialog?.let { section ->
+        AlertDialog(
+            onDismissRequest = { settingDialog = null },
+            title = { Text(section, fontWeight = FontWeight.Black) },
+            text = {
+                when (section) {
+                    "Confidentialité" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Qui peut vous contacter ?", color = WhappyMuted); listOf("contacts" to "Mes contacts", "everyone" to "Tous les utilisateurs", "nobody" to "Personne").forEach { option -> OutlinedButton(onClick = { privacy = option.first; prefs.edit().putString("privacy", privacy).apply() }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (privacy == option.first) Color(0xFFE1F3FB) else Color.Transparent), shape = RoundedCornerShape(13.dp)) { Text(option.second) } } }
+                    "Notifications" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text("Nouveaux messages", Modifier.weight(1f)); Switch(messageNotifications, { messageNotifications = it; prefs.edit().putBoolean("notify_messages", it).apply() }) }; Row(verticalAlignment = Alignment.CenterVertically) { Text("Appels entrants", Modifier.weight(1f)); Switch(callNotifications, { callNotifications = it; prefs.edit().putBoolean("notify_calls", it).apply() }) }; Text("Les autorisations système restent contrôlées dans les réglages Android.", color = WhappyMuted, fontSize = 11.sp) }
+                    "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }; Text("Les photos et notes vocales choisies restent accessibles depuis leurs conversations.", color = WhappyMuted, fontSize = 11.sp) }
+                    else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("WHAPPY réunit vos conversations, appels, achats, directs et services. En cas de problème, contactez l’assistance depuis cet appareil.", color = WhappyDark); OutlinedButton(onClick = { uriHandler.openUri("mailto:support@whappy.chat?subject=Aide%20WHAPPY") }, Modifier.fillMaxWidth()) { Text("Contacter l’assistance") } }
+                }
+            },
+            confirmButton = { TextButton(onClick = { settingDialog = null }) { Text("Terminé") } },
+        )
+    }
 }
 
 @Composable
@@ -2200,6 +2570,19 @@ private fun WhappyCodeDialog(name: String, phone: String, onDismiss: () -> Unit)
 
 private fun createWhappyQr(phone: String): Bitmap = QRCodeWriter().encode(
     "whappy://contact/$phone",
+    BarcodeFormat.QR_CODE,
+    600,
+    600,
+).let { matrix ->
+    Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888).apply {
+        for (x in 0 until matrix.width) for (y in 0 until matrix.height) {
+            setPixel(x, y, if (matrix[x, y]) android.graphics.Color.rgb(16, 46, 59) else android.graphics.Color.WHITE)
+        }
+    }
+}
+
+private fun createWhappyPayloadQr(payload: String): Bitmap = QRCodeWriter().encode(
+    payload,
     BarcodeFormat.QR_CODE,
     600,
     600,
@@ -2274,6 +2657,23 @@ private fun EmptyState(title: String, body: String) {
 private fun initials(name: String): String = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase().ifBlank { "WH" }
 
 private fun formatTime(timestamp: Long): String = if (timestamp <= 0) "" else SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(timestamp))
+
+private fun isSameDay(first: Long, second: Long): Boolean {
+    if (first <= 0L || second <= 0L) return first == second
+    val left = Calendar.getInstance().apply { timeInMillis = first }
+    val right = Calendar.getInstance().apply { timeInMillis = second }
+    return left.get(Calendar.ERA) == right.get(Calendar.ERA) && left.get(Calendar.YEAR) == right.get(Calendar.YEAR) && left.get(Calendar.DAY_OF_YEAR) == right.get(Calendar.DAY_OF_YEAR)
+}
+
+private fun formatMessageDay(timestamp: Long): String {
+    if (timestamp <= 0L) return "Envoi en cours"
+    val target = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val today = Calendar.getInstance()
+    if (isSameDay(timestamp, today.timeInMillis)) return "Aujourd’hui"
+    today.add(Calendar.DAY_OF_YEAR, -1)
+    if (isSameDay(timestamp, today.timeInMillis)) return "Hier"
+    return SimpleDateFormat("EEEE d MMMM", Locale.FRANCE).format(target.time).replaceFirstChar { it.titlecase(Locale.FRANCE) }
+}
 
 private fun formatMoney(amount: Long): String = String.format(Locale.FRANCE, "%,d FCFA", amount).replace('\u202f', ' ')
 

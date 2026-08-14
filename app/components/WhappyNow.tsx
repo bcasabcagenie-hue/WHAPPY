@@ -105,7 +105,7 @@ export function WhappyNow({ unread, listingCount, orderCount, cloud, onNavigate 
           <button
             key={activity.eyebrow}
             className={index === active ? "active" : ""}
-            onClick={() => setActive(index)}
+            onClick={() => { setActive(index); setPaused(true); }}
             aria-label={`Afficher : ${activity.eyebrow}`}
             aria-current={index === active ? "true" : undefined}
           />

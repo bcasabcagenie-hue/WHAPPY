@@ -168,6 +168,11 @@ class WhappyRepository(
                     mediaUrl = document.getString("mediaUrl").orEmpty(),
                     mediaName = document.getString("mediaName").orEmpty(),
                     durationSeconds = document.getLong("duration")?.toInt() ?: 0,
+                    replyToId = document.getString("replyToId").orEmpty(),
+                    replyText = document.getString("replyText").orEmpty(),
+                    reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
+                    deleted = document.getBoolean("deleted") == true,
+                    edited = document.getBoolean("edited") == true,
                 )
             })
         }
@@ -390,24 +395,52 @@ class WhappyRepository(
             })
         }
 
-    suspend fun sendMessage(conversationId: String, userId: String, text: String) {
+    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "") {
         val value = text.trim()
         require(value.isNotEmpty() && value.length <= 4_000)
         val conversation = db.collection("conversations").document(conversationId)
         conversation.collection("messages").add(
-            mapOf(
-                "text" to value,
-                "senderId" to userId,
-                "createdAt" to FieldValue.serverTimestamp(),
-            ),
+            buildMap<String, Any> {
+                put("text", value)
+                put("senderId", userId)
+                put("createdAt", FieldValue.serverTimestamp())
+                if (replyToId.isNotBlank()) { put("replyToId", replyToId); put("replyText", replyText.take(240)) }
+            },
         ).await()
         conversation.update(
             mapOf(
                 "lastMessage" to value,
+                "lastSenderId" to userId,
                 "updatedAt" to FieldValue.serverTimestamp(),
                 "typingBy.$userId" to false,
             ),
         ).await()
+    }
+
+    suspend fun reactToMessage(conversationId: String, messageId: String, userId: String, emoji: String) {
+        require(emoji in setOf("❤️", "👍", "😂", "😮", "🙏"))
+        db.collection("conversations").document(conversationId).collection("messages").document(messageId)
+            .update("reactions.$userId", emoji).await()
+    }
+
+    suspend fun deleteMessage(conversationId: String, messageId: String, userId: String) {
+        val reference = db.collection("conversations").document(conversationId).collection("messages").document(messageId)
+        val snapshot = reference.get().await()
+        require(snapshot.getString("senderId") == userId)
+        reference.update(mapOf("text" to "Message supprimé", "kind" to "deleted", "mediaUrl" to "", "mediaName" to "", "deleted" to true)).await()
+    }
+
+    suspend fun editMessage(conversationId: String, messageId: String, userId: String, text: String) {
+        val value = text.trim()
+        require(value.isNotEmpty() && value.length <= 4_000)
+        val reference = db.collection("conversations").document(conversationId).collection("messages").document(messageId)
+        val snapshot = reference.get().await()
+        require(snapshot.getString("senderId") == userId && (snapshot.getString("kind") ?: "text") == "text")
+        reference.update(mapOf("text" to value, "edited" to true)).await()
+    }
+
+    suspend fun setTyping(conversationId: String, userId: String, typing: Boolean) {
+        db.collection("conversations").document(conversationId).update("typingBy.$userId", typing).await()
     }
 
     suspend fun sendMediaMessage(
@@ -450,6 +483,7 @@ class WhappyRepository(
         conversation.update(
             mapOf(
                 "lastMessage" to label,
+                "lastSenderId" to userId,
                 "updatedAt" to FieldValue.serverTimestamp(),
                 "typingBy.$userId" to false,
             ),
@@ -869,13 +903,17 @@ class WhappyRepository(
         }
         val readBy = get("readBy") as? Map<String, Any?>
         val readAt = (readBy?.get(userId) as? Timestamp)?.toDate()?.time ?: 0L
+        val peerReadAt = (readBy?.get(peer.uid) as? Timestamp)?.toDate()?.time ?: 0L
         val updatedAt = timestampMillis("updatedAt")
+        val typingBy = get("typingBy") as? Map<String, Any?>
         return WhappyConversation(
             id = id,
             peer = peer,
             lastMessage = getString("lastMessage") ?: "Nouvelle conversation",
             updatedAt = updatedAt,
             unread = updatedAt > readAt && getString("lastSenderId") != userId,
+            peerTyping = typingBy?.get(peer.uid) == true,
+            peerReadAt = peerReadAt,
         )
     }
 

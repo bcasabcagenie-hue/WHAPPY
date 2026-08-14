@@ -1,4 +1,4 @@
-import { addDoc, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
@@ -14,6 +14,7 @@ export type CloudListing = {
   trust: number;
   mediaUrl?: string;
   ownerId?: string;
+  sellerPhone?: string;
   status?: "active" | "reserved" | "sold";
 };
 
@@ -37,6 +38,9 @@ export type CloudMessage = {
   duration?: number;
   effect?: "comic" | "neon" | "ink" | "pop";
   caption?: string;
+  expiresAt?: { toDate?: () => Date } | null;
+  viewOnce?: boolean;
+  viewedBy?: Record<string, CloudTimestamp>;
   createdAt?: { toDate?: () => Date } | null;
 };
 
@@ -50,7 +54,9 @@ export type CloudConversation = {
   lastMessage?:string;
   typingBy?:Record<string,boolean>;
   readBy?:Record<string,CloudTimestamp>;
+  presenceBy?:Record<string,CloudTimestamp>;
   updatedAt?:CloudTimestamp;
+  ephemeralSeconds?: 0 | 86400 | 604800 | number;
 };
 
 export type CloudGroup = {
@@ -243,11 +249,16 @@ export async function findWhappyUserByPhone(phoneNumber:string) {
   return found?({uid:found.id,...found.data()} as DirectMember):null;
 }
 
+export async function findWhappyUserById(userId:string) {
+  const snapshot = await getDoc(doc(db, "users", userId));
+  return snapshot.exists() ? ({ uid: snapshot.id, ...snapshot.data() } as DirectMember) : null;
+}
+
 export async function ensureDirectConversation(current:DirectMember,peer:DirectMember) {
   const id=`direct-${[current.uid,peer.uid].sort().join("-")}`;
   const reference=doc(db,"conversations",id);
   const existing=await getDoc(reference);
-  if(!existing.exists())await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[current,peer],typingBy:{},readBy:{},updatedAt:serverTimestamp()});
+  if(!existing.exists())await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[current,peer],typingBy:{},readBy:{},presenceBy:{},ephemeralSeconds:0,updatedAt:serverTimestamp()});
   return id;
 }
 
@@ -265,32 +276,56 @@ export function watchDirectMessages(conversationId:string,onItems:(items:CloudMe
   return onSnapshot(messagesQuery,(snapshot)=>onItems(snapshot.docs.map((item)=>({id:item.id,...item.data()} as CloudMessage))),onError);
 }
 
-export async function sendDirectMessage(conversationId:string,userId:string,text:string) {
+function expiryTimestamp(ephemeralSeconds:number) {
+  return ephemeralSeconds > 0 ? Timestamp.fromMillis(Date.now() + ephemeralSeconds * 1000) : null;
+}
+
+export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0) {
   const value=text.trim();
   if(!value||value.length>4000)throw new Error("invalid-message");
-  await addDoc(collection(db,"conversations",conversationId,"messages"),{text:value,senderId:userId,createdAt:serverTimestamp()});
+  if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
+  await addDoc(collection(db,"conversations",conversationId,"messages"),{text:value,senderId:userId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()});
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
 }
 
-export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="") {
+export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="",ephemeralSeconds=0,viewOnce=false) {
   const maximum=kind==="image"?20*1024*1024:kind==="video"?60*1024*1024:12*1024*1024;
   if(!file.size||file.size>maximum)throw new Error("media-too-large");
   if(kind==="image"&&!file.type.startsWith("image/"))throw new Error("invalid-media");
   if(kind==="audio"&&!file.type.startsWith("audio/"))throw new Error("invalid-media");
   if(kind==="video"&&!file.type.startsWith("video/"))throw new Error("invalid-media");
+  if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
   const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-");
   const mediaRef=ref(storage,`conversations/${conversationId}/${userId}/${Date.now()}-${safeName}`);
   await uploadBytes(mediaRef,file,{contentType:file.type});
   const mediaUrl=await getDownloadURL(mediaRef);
   const label=kind==="image"?"Image WHAPPY":kind==="video"?"Vidéo WHAPPY":"Message vocal";
-  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),duration:Math.max(0,Math.round(duration)),createdAt:serverTimestamp()};
+  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),duration:Math.max(0,Math.round(duration)),expiresAt:expiryTimestamp(ephemeralSeconds),viewOnce:viewOnce && kind !== "audio",viewedBy:{},createdAt:serverTimestamp()};
   if(kind==="video"){payload.effect=["comic","neon","ink","pop"].includes(effect)?effect:"pop";payload.caption=caption.trim().slice(0,100);}
   await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"🎨 Création WHAPPY":kind==="video"?"🎬 Vidéo WHAPPY":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
 }
 
+export async function setDirectEphemeralMode(conversationId:string,ephemeralSeconds:0|86400|604800) {
+  await updateDoc(doc(db,"conversations",conversationId),{ephemeralSeconds,updatedAt:serverTimestamp()});
+}
+
+export async function markDirectMessageViewed(conversationId:string,messageId:string,userId:string) {
+  await updateDoc(doc(db,"conversations",conversationId,"messages",messageId),{[`viewedBy.${userId}`]:serverTimestamp()});
+}
+
+export async function purgeExpiredDirectMessages(conversationId:string,items:CloudMessage[]) {
+  const now=Date.now();
+  const expired=items.filter((item)=>item.expiresAt?.toDate?.()?.getTime() !== undefined && (item.expiresAt?.toDate?.()?.getTime() ?? Infinity) <= now);
+  await Promise.all(expired.map((item)=>deleteDoc(doc(db,"conversations",conversationId,"messages",item.id)).catch(()=>undefined)));
+}
+
 export async function setDirectTyping(conversationId:string,userId:string,typing:boolean) {
   await updateDoc(doc(db,"conversations",conversationId),{[`typingBy.${userId}`]:typing});
+}
+
+export async function markDirectPresence(conversationId:string,userId:string) {
+  await updateDoc(doc(db,"conversations",conversationId),{[`presenceBy.${userId}`]:serverTimestamp()});
 }
 
 export async function markDirectConversationRead(conversationId:string,userId:string) {

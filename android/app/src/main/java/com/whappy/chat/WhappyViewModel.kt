@@ -31,6 +31,7 @@ class WhappyViewModel(
     private var twinAutomationsListener: ListenerRegistration? = null
     private var twinRendersListener: ListenerRegistration? = null
     private var contactSearchRequest = 0
+    private var typingState = false
     private val authListener = FirebaseAuth.AuthStateListener { refreshSession(it.currentUser) }
 
     init {
@@ -38,6 +39,7 @@ class WhappyViewModel(
     }
 
     fun selectTab(tab: WhappyTab) {
+        stopTyping()
         _uiState.update { it.copy(tab = tab, selectedConversation = null, messages = emptyList(), error = null) }
         messagesListener?.remove()
         messagesListener = null
@@ -45,6 +47,7 @@ class WhappyViewModel(
 
     fun openConversation(conversation: WhappyConversation) {
         val user = _uiState.value.user ?: return
+        stopTyping()
         messagesListener?.remove()
         _uiState.update { it.copy(selectedConversation = conversation, messages = emptyList(), loading = true, error = null) }
         messagesListener = repository.observeMessages(
@@ -58,22 +61,64 @@ class WhappyViewModel(
     }
 
     fun closeConversation() {
+        stopTyping()
         messagesListener?.remove()
         messagesListener = null
         _uiState.update { it.copy(selectedConversation = null, messages = emptyList(), error = null) }
     }
 
-    fun sendMessage(text: String) {
+    fun sendMessage(text: String, replyToId: String = "", replyText: String = "") {
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
         if (text.isBlank() || state.sending) return
         _uiState.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.sendMessage(conversation.id, user.uid, text) }
+            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText) }
                 .onSuccess { _uiState.update { current -> current.copy(sending = false, online = true) } }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le message n’a pas été envoyé") } }
         }
+    }
+
+    fun reactToMessage(messageId: String, emoji: String) {
+        val state = _uiState.value
+        val conversation = state.selectedConversation ?: return
+        val user = state.user ?: return
+        viewModelScope.launch { runCatching { repository.reactToMessage(conversation.id, messageId, user.uid, emoji) }.onFailure { _uiState.update { it.copy(error = "La réaction n’a pas été enregistrée") } } }
+    }
+
+    fun deleteMessage(messageId: String) {
+        val state = _uiState.value
+        val conversation = state.selectedConversation ?: return
+        val user = state.user ?: return
+        viewModelScope.launch { runCatching { repository.deleteMessage(conversation.id, messageId, user.uid) }.onFailure { _uiState.update { it.copy(error = "Ce message ne peut pas être supprimé") } } }
+    }
+
+    fun editMessage(messageId: String, text: String) {
+        val state = _uiState.value
+        val conversation = state.selectedConversation ?: return
+        val user = state.user ?: return
+        if (text.isBlank()) return
+        viewModelScope.launch { runCatching { repository.editMessage(conversation.id, messageId, user.uid, text) }.onFailure { _uiState.update { it.copy(error = "Le message n’a pas été modifié") } } }
+    }
+
+    fun setTyping(typing: Boolean) {
+        val state = _uiState.value
+        val conversation = state.selectedConversation ?: return
+        val user = state.user ?: return
+        if (typingState == typing) return
+        typingState = typing
+        viewModelScope.launch { runCatching { repository.setTyping(conversation.id, user.uid, typing) } }
+    }
+
+    private fun stopTyping() {
+        val state = _uiState.value
+        val conversation = state.selectedConversation
+        val user = state.user
+        if (typingState && conversation != null && user != null) {
+            viewModelScope.launch { runCatching { repository.setTyping(conversation.id, user.uid, false) } }
+        }
+        typingState = false
     }
 
     fun sendMedia(uri: Uri, kind: String, contentType: String, mediaName: String, durationSeconds: Int) {
@@ -425,7 +470,7 @@ class WhappyViewModel(
         resolveAccountProfile(user)
         conversationsListener = repository.observeConversations(
             user.uid,
-            onChange = { conversations -> _uiState.update { it.copy(conversations = conversations, loading = false, online = true) } },
+            onChange = { conversations -> _uiState.update { current -> current.copy(conversations = conversations, selectedConversation = current.selectedConversation?.let { selected -> conversations.firstOrNull { it.id == selected.id } ?: selected }, loading = false, online = true) } },
             onError = { _uiState.update { it.copy(loading = false, online = false, error = "Synchronisation momentanément indisponible") } },
         )
         contactsListener = repository.observeContacts(

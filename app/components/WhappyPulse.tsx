@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export type PulseSpace = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "contacts" | "services" | "twin" | "business";
+export type PulseSpace = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "contacts" | "services" | "twin" | "business" | "games";
 type Command = { id: PulseSpace; icon: string; title: string; hint: string; keywords: string; accent?: boolean };
 
 const commands: Command[] = [
@@ -14,6 +14,7 @@ const commands: Command[] = [
   { id: "barter", icon: "⇄", title: "Troc intelligent", hint: "Échanger des objets ou des services", keywords: "troc échange objet service" },
   { id: "services", icon: "⌗", title: "Services", hint: "Paiements et outils du quotidien", keywords: "service paiement pay outil" },
   { id: "business", icon: "▥", title: "Business Suite", hint: "Pages, campagnes et croissance", keywords: "business publicité campagne page entreprise" },
+  { id: "games", icon: "♞", title: "Jeux & Tournois", hint: "Échecs, dames, coach et cagnottes", keywords: "jeu jeux échecs echecs dames tournoi compétition coach prix gagner" },
   { id: "twin", icon: "✦", title: "Mon Double", hint: "Voix, mouvements et automatisations", keywords: "double ia voix mouvement automatiser clone" },
   { id: "orbit", icon: "▦", title: "Moments", hint: "Actualités, publicités et opportunités", keywords: "moment accueil fil actualité publicité" },
 ];
