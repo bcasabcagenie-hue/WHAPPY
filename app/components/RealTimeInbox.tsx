@@ -7,6 +7,7 @@ import { watchCallHistory, type CallSignal } from "@/lib/whappy-calls";
 import { translateTextOnDevice, WhappyExpressionHub } from "@/app/components/WhappyExpressionHub";
 import {
   ensureDirectConversation,
+  findWhappyUserById,
   findWhappyUserByPhone,
   markDirectPresence,
   markDirectConversationRead,
@@ -138,6 +139,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const openRef = useRef(open);
   const userId = user?.uid;
   const [wepiSettings, setWepiSettings] = useState<WepiSettings | null>(null);
+  const [peerProfile, setPeerProfile] = useState<DirectMember | null>(null);
   const wepiHandledRef = useRef(new Set<string>());
   const wepiReadyRef = useRef(false);
   const wepiConversationRef = useRef("");
@@ -161,6 +163,17 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const current = conversations.find((item) => item.id === selected) || conversations[0];
   const currentId = current?.id;
   const peer = useMemo(() => current?.members.find((member) => member.uid !== userId) || null, [current, userId]);
+  const activePeerProfile = peerProfile?.uid === peer?.uid ? peerProfile : null;
+  useEffect(() => {
+    if (!peer?.uid || peer.uid === userId) return;
+    let active = true;
+    void findWhappyUserById(peer.uid).then((profile) => {
+      if (active) setPeerProfile(profile);
+    }).catch(() => {
+      if (active) setPeerProfile(null);
+    });
+    return () => { active = false; };
+  }, [peer?.uid, userId]);
   const searchValue = search.trim().toLowerCase();
   const visibleConversations = useMemo(() => {
     const query = conversations
@@ -463,6 +476,13 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     event.currentTarget.form?.requestSubmit();
   }
 
+  function writeToWepi() {
+    if (!activePeerProfile?.wepiEnabled) return;
+    setText((value) => value.trim() ? value : `Bonjour ${activePeerProfile.wepiName || "WEPI"}, `);
+    window.setTimeout(() => composer.current?.focus(), 0);
+    notify(`Vous écrivez à ${activePeerProfile.wepiName || "WEPI"} · envoyez votre message dans cette conversation`);
+  }
+
   async function translateMessage(message: CloudMessage) {
     if (!message.text || translatingMessage) return;
     const key = `${message.id}:${translationTarget}`;
@@ -546,7 +566,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
               return <button className={current?.id === conversation.id ? "active" : ""} key={conversation.id} onClick={() => { stopTyping(); stopRecording(true); setSelected(conversation.id); }}>
                 <span>{initials(person?.displayName || "Whappy")}</span>
                 <div>
-                  <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{personIsFounder ? <><i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i><em className="conversation-founder-role">Fondateur</em></> : null}</strong>
+                  <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{personIsFounder ? <><i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i><em className="conversation-founder-role">Fondateur</em></> : null}{person?.wepiEnabled ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>
                   <small>{conversation.typingBy?.[person?.uid || ""] ? "écrit…" : conversation.lastMessage || person?.phoneNumber}</small>
                   <small className="conversation-meta">{presenceLine || "• Chargement des infos..."}</small>
                 </div>
@@ -582,10 +602,12 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
         </> : current && peer ? <>
           {(() => {
             const peerIsFounder = isHappyFounderPhone(peer.phoneNumber);
+            const peerHasWepi = Boolean(activePeerProfile?.wepiEnabled);
             const peerSeen = Boolean(peer && timestampMillis(current.readBy?.[peer.uid]) >= timestampMillis(current.updatedAt));
             const peerPresence = buildDirectPresenceLine(peer, current.presenceBy?.[peer.uid], Boolean(current.typingBy?.[peer.uid]), peerOnline, peerSeen);
             return <header>
-              <span>{initials(peer.displayName)}</span><div><strong>{peer.displayName}{peerIsFounder ? <i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}<small className="direct-message-subline">{peerPresence}</small></div>
+              <span>{initials(peer.displayName)}</span><div><strong>{peer.displayName}{peerIsFounder ? <i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}{peerHasWepi ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}<small className="direct-message-subline">{peerHasWepi ? `${peerPresence} · Assistant disponible` : peerPresence}</small></div>
+              {peerHasWepi && <button type="button" className="wepi-contact-action" onClick={writeToWepi} aria-label={`Écrire à ${activePeerProfile?.wepiName || "WEPI"}`}>✦ WEPI</button>}
               <button onClick={() => onCall(peer, false)} aria-label={`Appeler ${peer.displayName}`}>☎</button><button onClick={() => onCall(peer, true)} aria-label={`Appel vidéo avec ${peer.displayName}`}>▣</button>{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
             </header>;
           })()}
@@ -617,7 +639,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             <button type="button" onClick={() => setEphemeralMenuOpen((value) => !value)} className={ephemeralSeconds ? "active" : ""} disabled={busy || recording} aria-label="Régler les messages éphémères" title="Messages éphémères">◷</button>
             <button type="button" onClick={() => setViewOnceMode((value) => !value)} className={viewOnceMode ? "active" : ""} disabled={busy || recording} aria-pressed={viewOnceMode} aria-label="Activer le mode vue unique" title="Photo ou vidéo à vue unique">1×</button>
             <button type="button" className={recording ? "recording" : ""} onClick={startRecording} disabled={busy} aria-label={recording ? "Terminer le message vocal" : "Enregistrer un message vocal"} title="Note vocale">●</button>
-            <textarea ref={composer} value={text} onChange={(event) => change(event.target.value)} onKeyDown={composerKeyDown} onBlur={() => stopTyping(current.id)} maxLength={4000} rows={1} spellCheck lang="fr" autoComplete="off" aria-label={`Message à ${peer.displayName}`} placeholder={`Message à ${peer.displayName} · Entrée pour envoyer`}/>
+            <textarea ref={composer} value={text} onChange={(event) => change(event.target.value)} onKeyDown={composerKeyDown} onBlur={() => stopTyping(current.id)} maxLength={4000} rows={1} spellCheck lang="fr" autoComplete="off" aria-label={activePeerProfile?.wepiEnabled ? `Message à ${activePeerProfile.wepiName || "WEPI"}` : `Message à ${peer.displayName}`} placeholder={activePeerProfile?.wepiEnabled ? `Écrire à ${activePeerProfile.wepiName || "WEPI"} · Entrée pour envoyer` : `Message à ${peer.displayName} · Entrée pour envoyer`}/>
             <button disabled={busy || recording || !text.trim()} aria-label="Envoyer le message" title="Envoyer">➤</button>
             <small>{viewOnceMode ? "Vue unique activée · Photos et vidéos s’ouvrent une seule fois" : "Entrée envoie · Maj + Entrée ajoute une ligne · Orthographe activée"}</small>
           </form>
@@ -648,7 +670,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
           <footer className="direct-onboarding-foot"><span><i/> Whappy Direct est opérationnel</span><p>Vos communications sont liées à votre compte vérifié et disponibles sur vos appareils connectés.</p><button onClick={() => setView("calls")}>Voir les appels →</button></footer>
         </div>}</main>
       </section>
-      {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>Entrez son numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Numéro international complet<input name="phone" defaultValue={composePhone} required inputMode="tel" autoComplete="tel" placeholder="+242 06 000 00 00"/></label><p>Le numéro doit déjà avoir créé un compte Whappy.</p><button disabled={busy}>{busy ? "Recherche…" : "Trouver le compte →"}</button></form>}
+      {adding && <form className="direct-create" onSubmit={addContact}><header><div><small>NOUVELLE CONVERSATION</small><h3>Entrez son numéro Whappy</h3></div><button type="button" onClick={() => setAdding(false)} aria-label="Fermer">×</button></header><label>Numéro international complet<input name="phone" defaultValue={composePhone} required inputMode="tel" autoComplete="tel" placeholder="+242 06 000 00 00"/></label><p>Si le numéro est déjà inscrit, la discussion s’ouvre directement. Aucun écran de contact intermédiaire.</p><button disabled={busy}>{busy ? "Ouverture…" : "Entrer dans la discussion →"}</button></form>}
     </div>}
     {photoPreview && <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="Photo agrandie">
       <header><span>PHOTO WHAPPY</span><div><button type="button" onClick={() => setPhotoZoom((value) => Math.max(1, value - .5))} disabled={photoZoom <= 1} aria-label="Réduire">−</button><b>{Math.round(photoZoom * 100)}%</b><button type="button" onClick={() => setPhotoZoom((value) => Math.min(3, value + .5))} disabled={photoZoom >= 3} aria-label="Agrandir">＋</button><a href={photoPreview} target="_blank" rel="noreferrer">Original ↗</a><button type="button" onClick={closePhotoPreview} aria-label="Fermer">×</button></div></header>

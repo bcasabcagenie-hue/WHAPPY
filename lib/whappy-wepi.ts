@@ -50,6 +50,11 @@ export async function saveWepiSettings(ownerId: string, changes: Partial<Omit<We
   if (sanitized.welcomeMessage !== undefined) sanitized.welcomeMessage = sanitized.welcomeMessage.trim().slice(0, 240);
   if (sanitized.instructions !== undefined) sanitized.instructions = sanitized.instructions.trim().slice(0, 600);
   await setDoc(doc(db, "users", ownerId, "wepi", "settings"), { ownerId, ...sanitized, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc(doc(db, "users", ownerId), {
+    wepiEnabled: sanitized.enabled === true,
+    wepiName: sanitized.assistantName || "WEPI",
+    wepiBusinessName: sanitized.businessName || "",
+  }, { merge: true });
 }
 
 export function buildWepiReply(message: Pick<CloudMessage, "text">, settings: WepiSettings, customerName = "") {

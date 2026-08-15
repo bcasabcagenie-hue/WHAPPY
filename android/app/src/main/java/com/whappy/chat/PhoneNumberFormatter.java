@@ -100,6 +100,17 @@ final class PhoneNumberFormatter {
     }
 
     static String normalizeAny(String rawValue) {
+        if (rawValue != null) {
+            String digits = rawValue.replaceAll("\\D", "");
+            // A ten-digit local number beginning with 2–9 is unambiguously
+            // North American in the formats supported by WHAPPY. Prefer it
+            // before countries that also use ten national digits.
+            if (!rawValue.trim().startsWith("+") && !digits.startsWith("00")
+                    && digits.length() == 10 && !digits.startsWith("0")) {
+                String northAmerican = normalize("+1", rawValue);
+                if (northAmerican != null) return northAmerican;
+            }
+        }
         for (String countryCode : NATIONAL_LENGTHS.keySet()) {
             String normalized = normalize(countryCode, rawValue);
             if (normalized != null) return normalized;

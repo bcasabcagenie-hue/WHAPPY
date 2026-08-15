@@ -249,15 +249,43 @@ class WhappyViewModel(
                 if (peer.uid == user.uid) error("self")
                 peer
             }.onSuccess { peer ->
-                if (request == contactSearchRequest) {
-                    _uiState.update {
-                        it.copy(
-                            contactBusy = false,
-                            contactSearchResult = peer,
-                            contactSearchMessage = null,
-                            online = true,
-                        )
-                    }
+                if (request != contactSearchRequest) return@onSuccess
+                val current = WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty())
+                // A registered number is an unambiguous destination: create (or
+                // reuse) the direct thread and take the user there immediately.
+                // This keeps the number flow as fast as messaging an existing contact.
+                _uiState.update {
+                    it.copy(
+                        contactBusy = true,
+                        contactSearchResult = peer,
+                        contactSearchMessage = "Compte trouvé. Ouverture de la discussion…",
+                        online = true,
+                    )
+                }
+                viewModelScope.launch {
+                    runCatching { repository.addContactAndEnsureConversation(current, peer) }
+                        .onSuccess { conversation ->
+                            if (request != contactSearchRequest) return@onSuccess
+                            _uiState.update {
+                                it.copy(
+                                    contactBusy = false,
+                                    contactSearchResult = null,
+                                    contactSearchPhone = "",
+                                    contactSearchMessage = null,
+                                    online = true,
+                                )
+                            }
+                            openConversation(conversation)
+                        }
+                        .onFailure { failure ->
+                            if (request != contactSearchRequest) return@onFailure
+                            val message = when ((failure as? FirebaseFirestoreException)?.code) {
+                                FirebaseFirestoreException.Code.UNAVAILABLE -> "Connexion indisponible. Le contact est trouvé : relancez l’ouverture de la discussion."
+                                FirebaseFirestoreException.Code.PERMISSION_DENIED -> "Ajout refusé par la sécurité. Vérifiez votre session puis réessayez."
+                                else -> "Le compte est trouvé, mais la discussion n’a pas pu s’ouvrir. Réessayez."
+                            }
+                            _uiState.update { it.copy(contactBusy = false, contactSearchMessage = message) }
+                        }
                 }
             }.onFailure { failure ->
                 if (request != contactSearchRequest) return@onFailure

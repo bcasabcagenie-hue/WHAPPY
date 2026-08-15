@@ -40,9 +40,9 @@ type Listing = { id: string | number; title: string; price: string; place: strin
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const ANDROID_APP = {
-  url: "/WHAPPY-Android-1.4.1-native.apk",
-  version: "1.4.1",
-  size: "17 Mo",
+  url: "/WHAPPY-Android-1.4.2-native.apk",
+  version: "1.4.2",
+  size: "23 Mo",
   minimum: "Android 8.0+",
 } as const;
 
@@ -68,8 +68,8 @@ const lives = [
 
 const WHAPPY_FOUNDER_PHONE = "242065465808";
 const WHAPPY_FOUNDER_NAME = "Happy";
-const WHAPPY_BUSINESS_NAME = "Whappy by BCA";
-const WHAPPY_FALLBACK_NAME = "Utilisateur WHAPPY";
+const WHAPPY_BUSINESS_NAME = "Wepal by BCA";
+const WHAPPY_FALLBACK_NAME = "Utilisateur WEPAL";
 
 type GiftCarrier = "acheteur" | "offreur";
 type LiveGift = {
@@ -180,7 +180,7 @@ export default function Home() {
   const [demoContactName, setDemoContactName] = useState("");
   const [activeAds, setActiveAds] = useState<AdCampaign[]>([]);
   const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
-  const [radioSession, setRadioSession] = useState<RadioSession>({ status: "offline", title: "Whappy FM", elapsed: 0, listeners: 0, micOn: false });
+  const [radioSession, setRadioSession] = useState<RadioSession>({ status: "offline", title: "Wepal FM", elapsed: 0, listeners: 0, micOn: false });
   const [demoReady, setDemoReady] = useState(false);
   const isFounderAccount = isHappyFounderPhone(auth.currentUser?.phoneNumber);
   const demoMode = authenticated && !userId;
@@ -567,14 +567,14 @@ export default function Home() {
 
   const titles: Record<Space, [string, string]> = {
     orbit: ["Accueil", "Publicités, nouveautés et opportunités du moment"],
-    live: ["Whappy Live", "Regardez, échangez et achetez en temps réel"],
-    market: ["Whappy Marketplace", "Tout le monde peut vendre, acheter ou négocier"],
+    live: ["Wepal Live", "Regardez, échangez et achetez en temps réel"],
+    market: ["Wepal Marketplace", "Tout le monde peut vendre, acheter ou négocier"],
     barter: ["Troc intelligent", "Échangez de la valeur, sans limite"],
     seek: ["Je cherche", "Publiez un besoin, la communauté répond"],
     inbox: ["Connexions", "Vos conversations, commandes et offres"],
-    calls: ["Appels", "Historique audio et vidéo de vos contacts Whappy"],
+    calls: ["Appels", "Historique audio et vidéo de vos contacts Wepal"],
     contacts: ["Contacts", "Personnes, groupes et professionnels autour de vous"],
-    rooms: ["Salles Whappy", "Des communautés de foi, de technologie, d’apprentissage et d’entraide"],
+    rooms: ["Salles Wepal", "Des communautés de foi, de technologie, d’apprentissage et d’entraide"],
     radio: ["Radio & Podcasts", "Diffusez votre voix, créez vos podcasts et gardez le lien avec vos auditeurs"],
     services: ["Services", "Payez, achetez, trouvez et gérez votre quotidien"],
     twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
@@ -588,7 +588,7 @@ export default function Home() {
     rooms: "Rechercher une salle, une communauté ou un thème…",
     radio: "Rechercher un podcast, une émission ou un auditeur…",
     orbit: "Rechercher dans les Moments…",
-    services: "Rechercher un service Whappy…",
+    services: "Rechercher un service Wepal…",
     live: "Rechercher un direct…",
     market: "Rechercher un produit ou une boutique…",
     barter: "Rechercher un échange…",

@@ -45,7 +45,7 @@ function postDate(post: WhappyRoomPost) {
 }
 
 export function RoomsSpace({ userId, userName, search, cloud, notify }: { userId: string; userName: string; search: string; cloud: boolean; notify: (text: string) => void }) {
-  const [rooms, setRooms] = useState<WhappyRoom[]>(cloud ? [] : demoRooms);
+  const [rooms, setRooms] = useState<WhappyRoom[]>(demoRooms);
   const [selectedRoom, setSelectedRoom] = useState<WhappyRoom | null>(null);
   const [posts, setPosts] = useState<WhappyRoomPost[]>([]);
   const [filter, setFilter] = useState<"all" | RoomKind>("all");
@@ -57,7 +57,13 @@ export function RoomsSpace({ userId, userName, search, cloud, notify }: { userId
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
   useEffect(() => {
-    if (cloud) return watchWhappyRooms(setRooms, () => notifyRef.current("Les salles Whappy sont momentanément indisponibles"));
+    if (cloud) return watchWhappyRooms((remoteRooms) => {
+      const remoteNames = new Set(remoteRooms.map((room) => room.name));
+      setRooms([...remoteRooms, ...demoRooms.filter((room) => !remoteNames.has(room.name))]);
+    }, () => {
+      setRooms(demoRooms);
+      notifyRef.current("Les salles en ligne sont indisponibles : les communautés de découverte restent accessibles");
+    });
     let active = true;
     queueMicrotask(() => { if (active) setRooms(demoRooms); });
     return () => { active = false; };
@@ -68,7 +74,11 @@ export function RoomsSpace({ userId, userName, search, cloud, notify }: { userId
       queueMicrotask(() => { if (active) setPosts([]); });
       return () => { active = false; };
     }
-    if (cloud) return watchRoomPosts(selectedRoom.id, setPosts, () => notifyRef.current("Les publications de cette salle sont momentanément indisponibles"));
+    const remoteRoom = cloud && !selectedRoom.id.startsWith("demo-") && !selectedRoom.id.startsWith("local-");
+    if (remoteRoom) return watchRoomPosts(selectedRoom.id, setPosts, () => {
+      setPosts([]);
+      notifyRef.current("Les publications de cette salle sont momentanément indisponibles");
+    });
     let active = true;
     queueMicrotask(() => { if (active) setPosts(demoPostState[selectedRoom.id] || []); });
     return () => { active = false; };
@@ -112,7 +122,8 @@ export function RoomsSpace({ userId, userName, search, cloud, notify }: { userId
     if (room.ownerId === userId) return;
     setBusy(true);
     try {
-      if (cloud) await setRoomSubscription(room.id, userId, !subscribed);
+      const remoteRoom = cloud && !room.id.startsWith("demo-") && !room.id.startsWith("local-");
+      if (remoteRoom) await setRoomSubscription(room.id, userId, !subscribed);
       else setRooms((current) => current.map((item) => item.id === room.id ? { ...item, memberIds: !subscribed ? [...item.memberIds, userId] : item.memberIds.filter((id) => id !== userId), memberCount: Math.max(0, item.memberCount + (!subscribed ? 1 : -1)) } : item));
       notify(!subscribed ? `Vous suivez maintenant « ${room.name} »` : `Vous ne suivez plus « ${room.name} »`);
     } catch { notify("L’abonnement à la salle n’a pas pu être mis à jour"); }
@@ -125,7 +136,8 @@ export function RoomsSpace({ userId, userName, search, cloud, notify }: { userId
     const value = postText.trim();
     setBusy(true);
     try {
-      if (cloud) await publishRoomPost(selectedRoom.id, userId, userName, value);
+      const remoteRoom = cloud && !selectedRoom.id.startsWith("demo-") && !selectedRoom.id.startsWith("local-");
+      if (remoteRoom) await publishRoomPost(selectedRoom.id, userId, userName, value);
       else {
         const post: WhappyRoomPost = { id: `demo-post-${Date.now()}`, text: value, authorId: userId, authorName: userName, createdAt: null, reactions: {}, pinned: false, deleted: false };
         setDemoPostState((current) => ({ ...current, [selectedRoom.id]: [...(current[selectedRoom.id] || []), post] }));

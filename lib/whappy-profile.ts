@@ -8,9 +8,12 @@ export type WhappyProfile = {
 };
 
 export async function saveWhappyProfile(profile: WhappyProfile) {
+  const phoneDigits = profile.phoneNumber.replace(/\D/g, "");
   await setDoc(doc(db, "users", profile.uid), {
     displayName: profile.displayName,
     phoneNumber: profile.phoneNumber,
+    phoneLookup: profile.phoneNumber,
+    phoneDigits,
     updatedAt: serverTimestamp(),
   }, { merge: true });
 }

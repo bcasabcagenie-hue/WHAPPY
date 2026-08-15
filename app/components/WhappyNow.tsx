@@ -36,7 +36,7 @@ export function WhappyNow({ unread, listingCount, orderCount, cloud, onNavigate 
     },
     {
       icon: "◇",
-      eyebrow: "WHAPPY MARKET",
+      eyebrow: "WEPAL MARKET",
       title: `${listingCount} opportunités sélectionnées pour vous`,
       detail: orderCount ? `${orderCount} commande${orderCount > 1 ? "s" : ""} à suivre` : "Achetez, vendez ou proposez un échange",
       action: "Explorer",
@@ -54,7 +54,7 @@ export function WhappyNow({ unread, listingCount, orderCount, cloud, onNavigate 
     },
     {
       icon: "✦",
-      eyebrow: cloud ? "WHAPPY SYNCHRONISÉ" : "ESPACE DE DÉMONSTRATION",
+      eyebrow: cloud ? "WEPAL SYNCHRONISÉ" : "ESPACE DE DÉMONSTRATION",
       title: cloud ? "Votre activité est à jour sur le cloud" : "Testez librement toutes les possibilités",
       detail: cloud ? "Messages, groupes et ventes sont connectés" : "Vos essais restent sur cet appareil",
       action: "Piloter",
@@ -76,7 +76,7 @@ export function WhappyNow({ unread, listingCount, orderCount, cloud, onNavigate 
   return (
     <section
       className={`whappy-now ${item.tone}`}
-      aria-label="Activité Whappy en temps réel"
+      aria-label="Activité Wepal en temps réel"
       aria-live="polite"
       onPointerMove={(event) => {
         const bounds = event.currentTarget.getBoundingClientRect();

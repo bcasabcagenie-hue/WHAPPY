@@ -46,7 +46,7 @@ export type CloudMessage = {
   createdAt?: { toDate?: () => Date } | null;
 };
 
-export type DirectMember = { uid:string; displayName:string; phoneNumber:string };
+export type DirectMember = { uid:string; displayName:string; phoneNumber:string; wepiEnabled?: boolean; wepiName?: string; wepiBusinessName?: string };
 type CloudTimestamp = { toDate?: () => Date } | null;
 export type CloudConversation = {
   id:string;
@@ -238,17 +238,40 @@ function normalizeWhappyPhone(phoneNumber:string) {
   if(!digits)return "";
   if(raw.startsWith("+"))return `+${digits}`;
   if(digits.startsWith("00"))return `+${digits.slice(2)}`;
+  if(digits.startsWith("242") && digits.length > 3)return `+${digits}`;
   if(digits.length>10)return `+${digits}`;
   return `+242${digits}`;
 }
 
+function phoneLookupCandidates(phoneNumber: string) {
+  const raw = phoneNumber.trim();
+  const digits = raw.replace(/\D/g, "");
+  const normalized = normalizeWhappyPhone(raw);
+  if (!normalized) return [];
+  const values = new Set<string>([normalized, normalized.replace(/^\+/, "")]);
+  if (digits) values.add(digits);
+  if (digits.startsWith("00")) values.add(digits.slice(2));
+  if (!raw.startsWith("+") && !digits.startsWith("00") && digits.length <= 10) {
+    values.add(`+242${digits}`);
+    values.add(`242${digits}`);
+  }
+  return [...values];
+}
+
 export async function findWhappyUserByPhone(phoneNumber:string) {
-  const normalized=normalizeWhappyPhone(phoneNumber);
-  if(!normalized)return null;
-  const usersQuery=query(collection(db,"users"),where("phoneNumber","==",normalized),limit(1));
-  const snapshot=await getDocs(usersQuery);
-  const found=snapshot.docs[0];
-  return found?({uid:found.id,...found.data()} as DirectMember):null;
+  const candidates = phoneLookupCandidates(phoneNumber);
+  if (!candidates.length) return null;
+  const fields: Array<"phoneNumber" | "phoneLookup" | "phoneDigits"> = ["phoneNumber", "phoneLookup", "phoneDigits"];
+  for (const field of fields) {
+    for (const candidate of candidates) {
+      const value = field === "phoneDigits" ? candidate.replace(/\D/g, "") : candidate;
+      if (!value) continue;
+      const snapshot = await getDocs(query(collection(db, "users"), where(field, "==", value), limit(1)));
+      const found = snapshot.docs[0];
+      if (found) return ({ uid: found.id, ...found.data() } as DirectMember);
+    }
+  }
+  return null;
 }
 
 export async function findWhappyUserById(userId:string) {

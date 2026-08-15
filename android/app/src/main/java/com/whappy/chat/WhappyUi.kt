@@ -177,7 +177,6 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatReader
-import com.google.zxing.NotFoundException
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeWriter
@@ -1206,7 +1205,6 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
 }
 
 @Composable
-@Composable
 private fun GamesScreen(onBack: () -> Unit) {
     var selected by rememberSaveable { mutableStateOf("Défi du jour") }
     var score by rememberSaveable { mutableStateOf(0) }
@@ -2131,13 +2129,13 @@ private fun MessagesScreen(
                                 }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf("1  Trouver", "2  Vérifier", "3  Écrire").forEach { step ->
+                                    listOf("1  Trouver", "2  Ouvrir", "3  Écrire").forEach { step ->
                                     Text(step, Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Color.White).padding(vertical = 7.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                                 }
                             }
                         }
                     }
-                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact." else "Vérifiez la personne avant de l’ajouter à vos Contacts.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact. Si le compte existe, WHAPPY ouvre directement la discussion." else "Compte vérifié : la discussion s’ouvre automatiquement.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { value ->

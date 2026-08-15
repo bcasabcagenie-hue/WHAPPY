@@ -41,8 +41,8 @@ sealed interface WhappyLink {
                     segments.drop(1).firstOrNull() ?: segments.firstOrNull()
                 }
                 when (action) {
-                    "contact" -> PhoneNumberFormatter.normalizeAny(decode(payload))?.let(::Contact)
-                    "channel", "chaine" -> decode(payload).takeIf { it.matches(Regex("[A-Za-z0-9_-]{2,160}")) }?.let(::Channel)
+                    "contact" -> payload?.let(::decode)?.let(PhoneNumberFormatter::normalizeAny)?.let(::Contact)
+                    "channel", "chaine" -> payload?.let(::decode)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{2,160}")) }?.let(::Channel)
                     "search", "recherche" -> run {
                         val query = queryParameter(uri.rawQuery, "q")
                             ?: queryParameter(uri.rawQuery, "query")
