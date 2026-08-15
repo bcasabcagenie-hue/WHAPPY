@@ -1,0 +1,17 @@
+{
+  "name": "Wepal App",
+  "short_name": "Wepal",
+  "description": "Messages, appels, opportunités, ventes et services dans une seule application.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080914",
+  "theme_color": "#2D2E83",
+  "icons": [
+    {
+      "src": "/wepal-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

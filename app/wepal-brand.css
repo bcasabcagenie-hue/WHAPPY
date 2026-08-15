@@ -1,0 +1,213 @@
+/* Wepal App identity: the interface follows the supplied indigo logo. */
+:root {
+  --wepal-indigo: #2d2e83;
+  --wepal-indigo-light: #7476d5;
+  --wepal-indigo-soft: #a8a9f0;
+  --wepal-glow: rgba(45, 46, 131, .38);
+  --neon: var(--wepal-indigo-light);
+  --neon2: var(--wepal-indigo-soft);
+  --line: rgba(214, 214, 255, .14);
+}
+
+body { background: #080914; }
+
+.nova-shell.whappy-blue {
+  background: #080914;
+}
+
+.nova-logo,
+.mobile-logo {
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 12px 30px var(--wepal-glow);
+}
+
+.nova-logo img,
+.mobile-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nova-rail nav button.active,
+.rail-tools > button.active {
+  background: linear-gradient(135deg, rgba(116, 118, 213, .28), rgba(45, 46, 131, .12));
+  color: var(--wepal-indigo-light);
+}
+
+.nova-rail nav button.active:before {
+  background: var(--wepal-indigo-light);
+  box-shadow: 0 0 14px var(--wepal-indigo-light);
+}
+
+.nova-rail nav button b,
+.rail-tools .me i,
+.signal i,
+.profile-avatar > i,
+.profile-avatar.large > i,
+.whappy-blue .live-label,
+.whappy-blue .big-live > span,
+.sync-badge.synced i {
+  background: var(--wepal-indigo-light);
+}
+
+.kicker,
+.signal,
+.section-title small,
+.market-banner span,
+.seller small,
+.seller-console small,
+.topbar-copy .founder-grey-badge,
+.whappy-blue .inbox-title small,
+.whappy-blue .home-ads-head small {
+  color: var(--wepal-indigo-light);
+}
+
+.hero-copy h2 em,
+.live-command h2 em,
+.seek-hero h2 em,
+.twin-copy h2 em,
+.action-strip > button > span:last-child,
+.section-title button,
+.listing-card > div > strong,
+.listing-art > b,
+.preview-product b,
+.trust-orbit strong,
+.market-sell-fab,
+.market-hero-note i {
+  color: var(--wepal-indigo-light);
+}
+
+.top-actions .sell,
+.hero-copy > div button:first-child,
+.live-command-copy > button,
+.seek-hero > div > button,
+.market-hero-actions button:first-child,
+.market-sell-fab,
+.access-primary,
+.modal-submit,
+.business-submit,
+.activity-submit,
+.growth-submit,
+.story-publish,
+.access-apk {
+  border-color: var(--wepal-indigo);
+  background: var(--wepal-indigo);
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(45, 46, 131, .28);
+}
+
+.top-actions .sell:hover,
+.hero-copy > div button:first-child:hover,
+.live-command-copy > button:hover,
+.seek-hero > div > button:hover,
+.access-primary:hover,
+.modal-submit:hover,
+.business-submit:hover,
+.activity-submit:hover,
+.growth-submit:hover,
+.story-publish:hover,
+.access-apk:hover {
+  background: #4244a0;
+  border-color: #4244a0;
+}
+
+.whappy-blue .listing-art.blue,
+.whappy-blue .listing-art.violet,
+.whappy-blue .listing-art.orange,
+.whappy-blue .barter-art.violet,
+.whappy-blue .barter-art.amber,
+.whappy-blue .market-banner,
+.whappy-blue .need-ribbon {
+  background: linear-gradient(135deg, #18194e, #2d2e83 58%, #5355b8);
+}
+
+.whappy-blue .action-strip > button,
+.whappy-blue .barter-engine,
+.whappy-blue .barter-engine label,
+.whappy-blue .live-features > div,
+.whappy-blue .builder-card,
+.whappy-blue .shift-explainer {
+  border-color: rgba(116, 118, 213, .2);
+}
+
+.whappy-blue .action-strip .op-mark,
+.whappy-blue .inbox-presence button > span,
+.whappy-blue .product-thumb,
+.whappy-blue .barter-cards .chain-card,
+.whappy-blue .barter-engine .swap,
+.whappy-blue .match-result,
+.whappy-blue .market-toolbar button.active,
+.whappy-blue .seek-tabs button.active {
+  background: rgba(116, 118, 213, .16);
+  color: var(--wepal-indigo-light);
+  border-color: rgba(116, 118, 213, .36);
+}
+
+.whappy-blue .radar .ring,
+.whappy-blue .radar-core,
+.whappy-blue .studio-preview,
+.whappy-blue .trust-orbit,
+.whappy-blue .match-result {
+  border-color: rgba(116, 118, 213, .36);
+  box-shadow: 0 0 0 8px rgba(116, 118, 213, .07), 0 0 55px rgba(45, 46, 131, .3);
+}
+
+.whappy-blue .nova-search:focus-within,
+.whappy-blue .deal-chat form:focus-within,
+.whappy-blue .deal-chat form input:focus {
+  border-color: rgba(116, 118, 213, .62);
+  box-shadow: 0 0 0 3px rgba(116, 118, 213, .12);
+}
+
+.phone-access {
+  background: radial-gradient(circle at 16% 20%, rgba(45, 46, 131, .42), transparent 34%), #080914;
+}
+
+.access-brand {
+  background: linear-gradient(150deg, #11134a 0%, #17185a 44%, #2d2e83 100%);
+}
+
+.access-logo img,
+.android-download img {
+  box-shadow: 0 16px 36px rgba(0, 0, 0, .24);
+}
+
+.access-logo strong,
+.access-promise h1 em,
+.access-step,
+.access-card h2,
+.access-card label,
+.access-card .access-link,
+.android-download-copy small {
+  color: var(--wepal-indigo-light);
+}
+
+.access-flow span.active b,
+.access-flow span.done b,
+.access-primary,
+.access-apk {
+  background: var(--wepal-indigo);
+}
+
+.access-card {
+  border-color: rgba(116, 118, 213, .26);
+  box-shadow: 0 28px 85px rgba(0, 0, 0, .32), 0 0 0 1px rgba(116, 118, 213, .05);
+}
+
+.access-card input:focus,
+.access-card select:focus,
+.phone-field:focus-within,
+.access-card .otp-field:focus {
+  border-color: var(--wepal-indigo-light);
+  box-shadow: 0 0 0 3px rgba(116, 118, 213, .14);
+}
+
+/* Keep the app name visible in the main browser chrome even when a feature label is shown. */
+.topbar-copy .kicker::first-line { color: var(--wepal-indigo-light); }
+
+@media (max-width: 700px) {
+  .nova-logo { border-radius: 14px; }
+  .mobile-logo { border-radius: 12px; }
+}
