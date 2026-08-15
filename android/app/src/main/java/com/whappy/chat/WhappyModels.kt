@@ -9,6 +9,7 @@ enum class WhappyTab(val label: String) {
     CALLS("Appels"),
     MARKET("Marché"),
     LIVE("Live"),
+    GAMES("Jeux"),
     SERVICES("Services"),
     BUSINESS("Business"),
     PROFILE("Profil"),

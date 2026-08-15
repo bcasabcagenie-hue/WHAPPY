@@ -61,7 +61,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.onSizeChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
@@ -111,8 +110,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Dialog
-import androidx.compose.material3.DialogProperties
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -150,6 +147,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -168,6 +167,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -195,8 +196,8 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFF00A2E6)
-private val WhappyDark = Color(0xFF102E3B)
+private val WhappyBlue = Color(0xFF2D2E83)
+private val WhappyDark = Color(0xFF1B1C58)
 private val WhappyInk = Color(0xFF152D37)
 private val WhappyMuted = Color(0xFF717D82)
 private val WhappyBackground = Color(0xFFF5F9FA)
@@ -1010,6 +1011,7 @@ private fun WhappyMain(
                             onUpdateLiveStatus = onUpdateLiveStatus,
                             onOpenTwin = { showTwinStudio = true },
                         )
+                        WhappyTab.GAMES -> GamesScreen(onBack = { onTab(WhappyTab.MOMENTS) })
                         WhappyTab.SERVICES -> ServicesScreen(
                             userName = accountDisplayName,
                             phone = state.user?.phoneNumber.orEmpty().ifBlank { "+242 06 000 00 00" },
@@ -1112,11 +1114,12 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
         WhappyTab.CALLS to Icons.Rounded.Phone,
         WhappyTab.MARKET to Icons.Rounded.Storefront,
         WhappyTab.LIVE to Icons.Rounded.LiveTv,
+        WhappyTab.GAMES to Icons.Rounded.Bolt,
         WhappyTab.SERVICES to Icons.Rounded.Payments,
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.CONTACTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.SERVICES)
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.CONTACTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.GAMES, WhappyTab.SERVICES)
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
@@ -1180,7 +1183,8 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
                         SpaceCard("Marketplace", "Acheter et vendre", Icons.Rounded.Storefront, cell) { onTab(WhappyTab.MARKET) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Live", "Voir les directs", Icons.Rounded.LiveTv, cell) { onTab(WhappyTab.LIVE) }; SpaceCard("Business", "Deals et paiements", Icons.Rounded.BusinessCenter, cell) { onTab(WhappyTab.BUSINESS) } }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Services", "Payer et demander", Icons.Rounded.Payments, cell) { onTab(WhappyTab.SERVICES) }; SpaceCard("Profil", "Compte et sécurité", Icons.Rounded.Person, cell) { onTab(WhappyTab.PROFILE) } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Jeux", "Défis et duels", Icons.Rounded.Bolt, cell) { onTab(WhappyTab.GAMES) }; SpaceCard("Services", "Payer et demander", Icons.Rounded.Payments, cell) { onTab(WhappyTab.SERVICES) } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Profil", "Compte et sécurité", Icons.Rounded.Person, cell) { onTab(WhappyTab.PROFILE) }; SpaceCard("Mon WHAPPY", "Votre double créatif", Icons.Rounded.AutoAwesome, cell) { onOpenWhappies() } }
                 }
             }
         }
@@ -1199,6 +1203,60 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
         confirmButton = { Button(enabled = momentTitle.trim().length >= 2 && momentBody.trim().length >= 3, onClick = { val entry = "${System.currentTimeMillis()}|${momentTitle.trim().replace("|", " ")}|${momentBody.trim().replace("|", " ")}"; personalMoments = (listOf(entry) + personalMoments).take(20); prefs.edit().putStringSet("moments", personalMoments.toSet()).apply(); momentTitle = ""; momentBody = ""; composing = false }) { Text("Publier") } },
         dismissButton = { TextButton(onClick = { composing = false }) { Text("Annuler") } },
     )
+}
+
+@Composable
+@Composable
+private fun GamesScreen(onBack: () -> Unit) {
+    var selected by rememberSaveable { mutableStateOf("Défi du jour") }
+    var score by rememberSaveable { mutableStateOf(0) }
+    var streak by rememberSaveable { mutableStateOf(1) }
+    val games = listOf(
+        Triple("Défi du jour", "Quiz rapide · 60 secondes", "⚡"),
+        Triple("Duel WHAPPY", "Affrontez un ami en direct", "♟"),
+        Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
+    )
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+                Column(Modifier.padding(22.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Bolt, null, tint = WhappyBlue); Text("  WHAPPY PLAY", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+                    Text("Jouez. Progressez.\nRestez connecté.", Modifier.padding(top = 10.dp), color = Color.White, fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
+                    Text("Des mini-jeux simples à lancer seul ou avec votre communauté.", Modifier.padding(top = 8.dp), color = Color(0xFFBECED5), lineHeight = 19.sp)
+                    Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatPill("Série", "$streak jour${if (streak > 1) "s" else ""}")
+                        StatPill("Score", "$score XP")
+                    }
+                }
+            }
+        }
+        item { Text("Choisir un jeu", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black) }
+        items(games, key = { it.first }) { game ->
+            Card(Modifier.fillMaxWidth().clickable { selected = game.first }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (selected == game.first) Color(0xFFEAF7FC) else Color.White), border = CardDefaults.outlinedCardBorder()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(if (selected == game.first) WhappyBlue else Color(0xFFE4F2F7)), contentAlignment = Alignment.Center) { Text(game.third, fontSize = 22.sp, color = if (selected == game.first) Color.White else WhappyBlue) }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(game.first, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp); Text(game.second, color = WhappyMuted, fontSize = 11.sp) }
+                    Text(if (selected == game.first) "PRÊT" else "JOUER ›", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text(selected, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("Votre partie est prête", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black)
+                    Text("Lancez une manche locale maintenant. Les duels en temps réel seront synchronisés avec vos contacts WHAPPY.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 17.sp)
+                    Button(onClick = { score += 25; streak += 1 }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("  Lancer une manche", fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+        item { OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Retour à l’accueil") } }
+    }
+}
+
+@Composable
+private fun StatPill(label: String, value: String) {
+    Column(Modifier.clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .12f)).padding(horizontal = 12.dp, vertical = 8.dp)) { Text(label.uppercase(), color = Color(0xFF9BC4D1), fontSize = 8.sp, fontWeight = FontWeight.Black); Text(value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
 }
 
 @Composable
@@ -1853,20 +1911,7 @@ private fun MessagesScreen(
         contactSearchMessage.startsWith("Contact ajouté") ||
             contactSearchMessage.startsWith("Ce contact existe déjà")
     )
-
-    val qrImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        imageScanInProgress = true
-        scope.launch {
-            val decoded = decodeQrFromImage(context, uri)
-            imageScanInProgress = false
-            if (decoded == null) {
-                scanError = "Aucun QR lisible trouvé dans cette image. Choisissez une capture nette du code WHAPPY."
-            } else {
-                processScannedContact(decoded)
-            }
-        }
-    }
+    val resetContactSearch: () -> Unit = { if (!preview) onClearContactSearch() }
 
     LaunchedEffect(initialQuery) { if (initialQuery.isNotBlank()) { conversationSearch = initialQuery; messageSection = 2 } }
     LaunchedEffect(initialSection) { if (initialSection == 1 || initialSection == 0 || initialSection == 2) messageSection = initialSection }
@@ -1901,6 +1946,26 @@ private fun MessagesScreen(
             }
         }
         if (!autoSearch) resetContactSearch()
+    }
+
+    fun startContactSearch(rawValue: String, markBusy: Boolean = true) {
+        if (preview) return
+        if (contactBusy) return
+        val normalized = PhoneNumberFormatter.normalize(contactCountry, rawValue)
+            ?: PhoneNumberFormatter.normalizeAny(rawValue)
+            ?: PhoneNumberFormatter.lookupCandidates(rawValue, contactCountry).firstOrNull()
+            ?: PhoneNumberFormatter.lookupCandidates(rawValue).firstOrNull()
+        if (normalized == null) {
+            scanError = "Ce numéro est incomplet ou invalide. Vérifiez le format puis réessayez."
+            return
+        }
+        if (markBusy && !adding) {
+            adding = true
+            resetContactSearch()
+        }
+        phone = normalized
+        contactCountry = authCountries.firstOrNull { normalized.startsWith(it.code) }?.code ?: contactCountry
+        onSearchContact(normalized)
     }
 
     fun processScannedContact(raw: String) {
@@ -1939,28 +2004,18 @@ private fun MessagesScreen(
         }
     }
 
-    fun resetContactSearch() {
-        if (!preview) onClearContactSearch()
-    }
-
-    fun startContactSearch(rawValue: String, markBusy: Boolean = true) {
-        if (preview) return
-        if (contactBusy) return
-        val normalized = PhoneNumberFormatter.normalize(contactCountry, rawValue)
-            ?: PhoneNumberFormatter.normalizeAny(rawValue)
-            ?: PhoneNumberFormatter.lookupCandidates(rawValue, contactCountry).firstOrNull()
-            ?: PhoneNumberFormatter.lookupCandidates(rawValue).firstOrNull()
-        if (normalized == null) {
-            scanError = "Ce numéro est incomplet ou invalide. Vérifiez le format puis réessayez."
-            return
+    val qrImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        imageScanInProgress = true
+        scope.launch {
+            val decoded = decodeQrFromImage(context, uri)
+            imageScanInProgress = false
+            if (decoded == null) {
+                scanError = "Aucun QR lisible trouvé dans cette image. Choisissez une capture nette du code WHAPPY."
+            } else {
+                processScannedContact(decoded)
+            }
         }
-        if (markBusy && !adding) {
-            adding = true
-            resetContactSearch()
-        }
-        phone = normalized
-        contactCountry = authCountries.firstOrNull { normalized.startsWith(it.code) }?.code ?: contactCountry
-        onSearchContact(normalized)
     }
 
     fun scanWhappyCode() {

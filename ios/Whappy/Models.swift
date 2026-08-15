@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 extension Color {
-    static let whappyBlue = Color(red: 0, green: 0.635, blue: 0.902)
+    static let whappyBlue = Color(red: 0.176, green: 0.180, blue: 0.514)
     static let whappyInk = Color(red: 0.082, green: 0.176, blue: 0.216)
     static let whappyBackground = Color(red: 0.961, green: 0.984, blue: 0.988)
 }
@@ -508,5 +508,5 @@ struct WhappyBusiness: Identifiable, Hashable, Codable {
 }
 
 enum WhappyTab: Hashable {
-    case home, messages, calls, market, live, services, profile
+    case home, messages, calls, market, live, games, services, profile
 }
