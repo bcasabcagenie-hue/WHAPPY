@@ -16,6 +16,11 @@ final class PhoneNumberFormatter {
         NATIONAL_LENGTHS.put("+225", 10);
         NATIONAL_LENGTHS.put("+221", 9);
         NATIONAL_LENGTHS.put("+33", 9);
+        NATIONAL_LENGTHS.put("+241", 8);
+        NATIONAL_LENGTHS.put("+244", 9);
+        NATIONAL_LENGTHS.put("+234", 10);
+        NATIONAL_LENGTHS.put("+27", 9);
+        NATIONAL_LENGTHS.put("+1", 10);
     }
 
     private PhoneNumberFormatter() {}
@@ -52,25 +57,57 @@ final class PhoneNumberFormatter {
     }
 
     static List<String> lookupCandidates(String rawValue) {
+        return lookupCandidates(rawValue, "+242");
+    }
+
+    static List<String> lookupCandidates(String rawValue, String preferredCountryCode) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
-        String normalized = normalize("+242", rawValue);
+        String preferred = preferredCountryCode == null || preferredCountryCode.isBlank() ? "+242" : preferredCountryCode;
+        String normalized = normalize(preferred, rawValue);
         if (normalized != null) candidates.add(normalized);
         if (rawValue == null) return new ArrayList<>(candidates);
 
         String digits = rawValue.replaceAll("\\D", "");
-        if (digits.startsWith("00")) digits = digits.substring(2);
+        if (rawValue.startsWith("00")) {
+            String withCountry = "+" + digits;
+            String fromInternational = normalize(preferred, withCountry);
+            if (fromInternational != null) candidates.add(fromInternational);
+        }
+
+        if (rawValue.startsWith("+")) {
+            for (Map.Entry<String, Integer> entry : NATIONAL_LENGTHS.entrySet()) {
+                String candidate = normalize(entry.getKey(), rawValue);
+                if (candidate != null) candidates.add(candidate);
+            }
+            return new ArrayList<>(candidates);
+        }
+
+        if (rawValue.startsWith("00")) {
+            digits = digits.length() > 2 ? digits.substring(2) : "";
+        }
         if (digits.startsWith("242") && digits.length() > 3) {
             String withCountry = "+" + digits;
-            if (normalize("+242", withCountry) != null) candidates.add(withCountry);
+            for (Map.Entry<String, Integer> entry : NATIONAL_LENGTHS.entrySet()) {
+                String candidate = normalize(entry.getKey(), withCountry);
+                if (candidate != null) candidates.add(candidate);
+            }
         }
-        if (digits.length() == 9) {
-            String local = "+242" + digits;
-            if (normalize("+242", local) != null) candidates.add(local);
+        for (Map.Entry<String, Integer> entry : NATIONAL_LENGTHS.entrySet()) {
+            String fallback = normalize(entry.getKey(), rawValue);
+            if (fallback != null) candidates.add(fallback);
         }
         return new ArrayList<>(candidates);
     }
 
+    static String normalizeAny(String rawValue) {
+        for (String countryCode : NATIONAL_LENGTHS.keySet()) {
+            String normalized = normalize(countryCode, rawValue);
+            if (normalized != null) return normalized;
+        }
+        return null;
+    }
+
     private static boolean dropsDomesticZero(String countryCode) {
-        return !countryCode.equals("+242") && !countryCode.equals("+225");
+        return !countryCode.equals("+242") && !countryCode.equals("+241") && !countryCode.equals("+225") && !countryCode.equals("+1");
     }
 }

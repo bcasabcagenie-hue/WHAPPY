@@ -5,10 +5,18 @@ import org.junit.Test
 
 class AccountSessionPolicyTest {
     @Test
-    fun restoresStoredNameImmediately() {
+    fun founderPhoneGetsHappyName() {
         assertEquals(
-            "Cyril Bokilo",
-            AccountSessionPolicy.displayName("  Cyril Bokilo  ", "+242061234567", 0L, 1_000L),
+            "Happy",
+            AccountSessionPolicy.displayName("", "+242065465808", 0L, 1_000L),
+        )
+    }
+
+    @Test
+    fun keepsManualNameForNonFounder() {
+        assertEquals(
+            "Moussa",
+            AccountSessionPolicy.displayName("  Moussa  ", "+242061234567", 0L, 1_000L),
         )
     }
 

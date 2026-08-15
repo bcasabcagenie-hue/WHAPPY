@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 export type BroadcastConfig = {
   title: string;
@@ -36,25 +36,20 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
   const [comments, setComments] = useState(["Bienvenue dans votre studio Whappy."]);
   const [panel, setPanel] = useState<"conversation" | "stats">("conversation");
   const [productVisible, setProductVisible] = useState(true);
+  const autoOpenCamera = useRef(false);
 
-  function stopStream() {
+  const publicStreamingConnected = false;
+  const liveModeLabel = publicStreamingConnected
+    ? "LIVE PUBLIQUE"
+    : "LIVE LOCAL (prévisualisation)";
+
+  const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setHasStream(false);
-  }
+  }, []);
 
-  useEffect(() => () => stopStream(), []);
-
-  useEffect(() => {
-    if (status !== "live") return;
-    const timer = window.setInterval(() => {
-      setElapsed((value) => value + 1);
-      setViewers((value) => Math.min(24, value + (Math.random() > 0.55 ? 1 : 0)));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [status]);
-
-  async function openCamera() {
+  const openCamera = useCallback(async () => {
     setError("");
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("Ce navigateur ne permet pas d’ouvrir la caméra.");
@@ -78,7 +73,24 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
       setError(name === "NotAllowedError" ? "Autorisez la caméra et le micro dans votre navigateur pour continuer." : "La caméra n’est pas disponible. Vérifiez qu’aucune autre application ne l’utilise.");
       return false;
     }
-  }
+  }, [stopStream]);
+
+  useEffect(() => () => stopStream(), [stopStream]);
+
+  useEffect(() => {
+    if (status !== "live") return;
+    const timer = window.setInterval(() => {
+      setElapsed((value) => value + 1);
+      setViewers((value) => Math.min(24, value + (Math.random() > 0.55 ? 1 : 0)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [status]);
+
+  useEffect(() => {
+    if (autoOpenCamera.current || status !== "setup" || mode !== "human") return;
+    autoOpenCamera.current = true;
+    void openCamera();
+  }, [status, mode, openCamera]);
 
   async function startLive() {
     if (mode === "twin" && !twinAuthorized) {
@@ -132,7 +144,7 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
   return <div className="broadcast-layer" role="dialog" aria-modal="true" aria-label="Studio de direct Whappy">
     <section className="broadcast-studio">
       <header className="broadcast-head">
-        <div><span className={status === "live" ? "is-live" : ""}>{status === "live" ? "● EN DIRECT" : "STUDIO WHAPPY"}</span><h2>{config.title}</h2><p>{status === "live" ? `${formatDuration(elapsed)} · ${viewers} spectateur${viewers > 1 ? "s" : ""}` : "Vérifiez votre image et votre son avant de commencer."}</p></div>
+        <div><span className={status === "live" ? "is-live" : ""}>{status === "live" ? "● EN DIRECT" : "STUDIO WHAPPY"}</span><h2>{config.title}</h2><p>{status === "live" ? `${formatDuration(elapsed)} · ${viewers} spectateur${viewers > 1 ? "s" : ""}` : liveModeLabel}</p></div>
         <button onClick={status === "live" ? endLive : onClose} aria-label={status === "live" ? "Terminer le direct" : "Fermer le studio"}>{status === "live" ? "Terminer" : "×"}</button>
       </header>
 
@@ -168,7 +180,7 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
         </div>
         {mode === "twin" && !twinAuthorized ? <button className="go-live" onClick={onOpenTwin}>Créer mon Double</button> : status === "live" ? <button className="go-live live" onClick={endLive}>■ Terminer</button> : <button className="go-live" onClick={startLive}>● Démarrer le direct</button>}
       </footer>}
-      <small className="broadcast-note">La caméra et le micro fonctionnent réellement. La diffusion publique nécessite encore la connexion au service de streaming Whappy.</small>
+      <small className={publicStreamingConnected ? "broadcast-note connected" : "broadcast-note demo"}>{publicStreamingConnected ? "La diffusion publique est active." : "La caméra et le micro sont réels. Ce mode reste une prévisualisation locale tant que le service de diffusion Whappy n’est pas connecté."}</small>
     </section>
   </div>;
 }

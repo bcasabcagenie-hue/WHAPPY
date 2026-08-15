@@ -11,6 +11,7 @@ internal object AccountSessionPolicy {
     ): String {
         val stored = resolvedName.trim()
         if (stored.length >= 2) return stored
+        if (WhappyIdentity.isFounder(phoneNumber)) return WhappyIdentity.founderName
         if (now - creationTimestamp <= NEW_ACCOUNT_WINDOW_MS) return ""
         val suffix = phoneNumber.filter(Char::isDigit).takeLast(4)
         return if (suffix.isBlank()) "Membre WHAPPY" else "Membre $suffix"

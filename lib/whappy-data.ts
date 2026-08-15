@@ -32,9 +32,11 @@ export type CloudMessage = {
   id: string;
   text: string;
   senderId: string;
-  kind?: "text" | "image" | "audio" | "video";
+  kind?: "text" | "image" | "audio" | "video" | "link";
   mediaUrl?: string;
   mediaName?: string;
+  quality?: "standard" | "hd";
+  linkUrl?: string;
   duration?: number;
   effect?: "comic" | "neon" | "ink" | "pop";
   caption?: string;
@@ -263,7 +265,7 @@ export async function ensureDirectConversation(current:DirectMember,peer:DirectM
 }
 
 export function watchDirectConversations(userId:string,onItems:(items:CloudConversation[])=>void,onError:()=>void) {
-  const conversationsQuery=query(collection(db,"conversations"),where("memberIds","array-contains",userId));
+  const conversationsQuery=query(collection(db,"conversations"),where("memberIds","array-contains",userId),orderBy("updatedAt","desc"));
   return onSnapshot(conversationsQuery,(snapshot)=>{
     const items=snapshot.docs.map((item)=>({id:item.id,...item.data()} as CloudConversation)).filter((item)=>item.memberIds.length===2&&Array.isArray(item.members));
     items.sort((left,right)=>(right.updatedAt?.toDate?.()?.getTime()||0)-(left.updatedAt?.toDate?.()?.getTime()||0));
@@ -280,15 +282,18 @@ function expiryTimestamp(ephemeralSeconds:number) {
   return ephemeralSeconds > 0 ? Timestamp.fromMillis(Date.now() + ephemeralSeconds * 1000) : null;
 }
 
-export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0) {
+export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0,linkUrl="") {
   const value=text.trim();
   if(!value||value.length>4000)throw new Error("invalid-message");
   if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
-  await addDoc(collection(db,"conversations",conversationId,"messages"),{text:value,senderId:userId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()});
+  const safeLink=linkUrl.trim();
+  const payload:Record<string,unknown>={text:value,senderId:userId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()};
+  if(safeLink) { payload.kind="link"; payload.linkUrl=safeLink; }
+  await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
 }
 
-export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="",ephemeralSeconds=0,viewOnce=false) {
+export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="",ephemeralSeconds=0,viewOnce=false,quality:"standard"|"hd"="hd") {
   const maximum=kind==="image"?20*1024*1024:kind==="video"?60*1024*1024:12*1024*1024;
   if(!file.size||file.size>maximum)throw new Error("media-too-large");
   if(kind==="image"&&!file.type.startsWith("image/"))throw new Error("invalid-media");
@@ -297,10 +302,10 @@ export async function sendDirectAttachment(conversationId:string,userId:string,f
   if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
   const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-");
   const mediaRef=ref(storage,`conversations/${conversationId}/${userId}/${Date.now()}-${safeName}`);
-  await uploadBytes(mediaRef,file,{contentType:file.type});
+  await uploadBytes(mediaRef,file,{contentType:file.type,customMetadata:{quality}});
   const mediaUrl=await getDownloadURL(mediaRef);
   const label=kind==="image"?"Image WHAPPY":kind==="video"?"Vidéo WHAPPY":"Message vocal";
-  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),duration:Math.max(0,Math.round(duration)),expiresAt:expiryTimestamp(ephemeralSeconds),viewOnce:viewOnce && kind !== "audio",viewedBy:{},createdAt:serverTimestamp()};
+  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),quality:kind === "audio" ? "standard" : quality,duration:Math.max(0,Math.round(duration)),expiresAt:expiryTimestamp(ephemeralSeconds),viewOnce:viewOnce && kind !== "audio",viewedBy:{},createdAt:serverTimestamp()};
   if(kind==="video"){payload.effect=["comic","neon","ink","pop"].includes(effect)?effect:"pop";payload.caption=caption.trim().slice(0,100);}
   await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"🎨 Création WHAPPY":kind==="video"?"🎬 Vidéo WHAPPY":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});

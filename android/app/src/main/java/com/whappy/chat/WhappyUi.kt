@@ -8,6 +8,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.graphics.Bitmap
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
@@ -17,6 +18,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
+import android.util.Patterns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -27,6 +29,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,8 +58,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.onSizeChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
@@ -83,10 +89,13 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QrCode
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material.icons.rounded.SmartToy
@@ -95,12 +104,15 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Dialog
+import androidx.compose.material3.DialogProperties
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -127,6 +139,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -135,16 +148,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -152,7 +173,12 @@ import androidx.core.content.FileProvider
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.zxing.BinaryBitmap
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.NotFoundException
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeWriter
 import java.io.File
 import java.text.SimpleDateFormat
@@ -162,10 +188,12 @@ import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.max
 
 private val WhappyBlue = Color(0xFF00A2E6)
 private val WhappyDark = Color(0xFF102E3B)
@@ -179,6 +207,10 @@ private val demoConversations = listOf(
     WhappyConversation("demo-junior", WhappyMember("junior", "Junior K.", "+242 05 884 21 60"), "Je peux livrer cet après-midi.", System.currentTimeMillis() - 3_600_000, false),
     WhappyConversation("demo-mokabi", WhappyMember("mokabi", "Mokabi Studio"), "Votre commande est prête ✦", System.currentTimeMillis() - 7_200_000, false),
 )
+
+private val whappyFounderDisplayName = WhappyIdentity.founderName
+private val whappyFounderChannelName = WhappyIdentity.founderChannelName
+private val whappyFounderChannelTagline = WhappyIdentity.founderChannelTagline
 
 private val demoMessages = listOf(
     WhappyMessage("1", "Bonjour Cyril, le canapé est toujours disponible.", "amina", System.currentTimeMillis() - 180_000),
@@ -203,7 +235,18 @@ private val demoCampaigns = listOf(
 private val demoLives = listOf(
     WhappyLive("demo-live-1", "mokabi", "Mokabi Studio", "Nouvelle collection N’Tela", "Mode", "Chemise N’Tela", "live", 1284, System.currentTimeMillis() - 1_200_000),
     WhappyLive("demo-live-2", "junior", "Junior Tech", "Les bonnes affaires smartphones", "Tech", "Galaxy S25", "live", 438, System.currentTimeMillis() - 420_000),
-    WhappyLive("demo-live-3", "demo-user", "Cyril Bokilo", "Mon prochain direct Business", "Business", "", "scheduled", 0, System.currentTimeMillis() + 3_600_000),
+    WhappyLive("demo-live-3", "demo-user", whappyFounderDisplayName, "Mon prochain direct Business", "Business", "", "scheduled", 0, System.currentTimeMillis() + 3_600_000),
+)
+
+private val demoChannels = listOf(
+    WhappyChannel("demo-channel-city", "Brazzaville Maintenant", "Actualités utiles, sorties et opportunités de la ville.", "Actualités", "city-owner", "WHAPPY Local", listOf("demo-user"), 12_480, 128, "Les bons plans du week-end sont publiés.", System.currentTimeMillis() - 240_000, true),
+    WhappyChannel("demo-channel-market", "Bons plans WHAPPY", "Promotions vérifiées et nouvelles offres du Marché WHAPPY.", "Shopping", "market-owner", "WHAPPY Marché", emptyList(), 8_205, 74, "Nouvelle sélection tech à moins de 100 000 FCFA.", System.currentTimeMillis() - 3_600_000, true),
+    WhappyChannel("demo-channel-me", whappyFounderChannelName, whappyFounderChannelTagline, "Créateurs", "demo-user", whappyFounderDisplayName, listOf("demo-user"), 1, 1, "Bienvenue dans ma chaîne WHAPPY.", System.currentTimeMillis() - 86_400_000),
+)
+
+private val demoChannelPosts = listOf(
+    WhappyChannelPost("demo-post-1", "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", "city-owner", "WHAPPY Local", System.currentTimeMillis() - 86_400_000, mapOf("amina" to "❤️", "junior" to "👍"), pinned = true),
+    WhappyChannelPost("demo-post-2", "Ce week-end : marché des créateurs samedi à Poto-Poto, de 10 h à 18 h.", "city-owner", "WHAPPY Local", System.currentTimeMillis() - 240_000, mapOf("amina" to "🔥")),
 )
 
 private val demoDeals = listOf(
@@ -214,6 +257,16 @@ private val demoDeals = listOf(
 private val demoPaymentNotices = listOf(
     WhappyPaymentNotice("demo-payment-1", "demo-page", "demo-deal-1", "Amina M.", 49_000, "FCFA", "Mobile Money", "paid", System.currentTimeMillis() - 180_000, false),
     WhappyPaymentNotice("demo-payment-2", "demo-page", "demo-deal-2", "Junior K.", 99_000, "FCFA", "Carte", "paid", System.currentTimeMillis() - 3_600_000, true),
+)
+
+private enum class MessageActionType { Link, Phone }
+
+private data class MessageAction(
+    val title: String,
+    val target: String,
+    val type: MessageActionType,
+    val start: Int,
+    val end: Int,
 )
 
 @Composable
@@ -246,6 +299,15 @@ fun WhappyRoot(
     onDeleteMessage: (String) -> Unit,
     onEditMessage: (String, String) -> Unit,
     onTyping: (Boolean) -> Unit,
+    onHandleWhappyLink: (String) -> Unit,
+    onOpenChannel: (WhappyChannel) -> Unit,
+    onCloseChannel: () -> Unit,
+    onCreateChannel: (String, String, String) -> Unit,
+    onSubscribeChannel: (String, Boolean) -> Unit,
+    onPublishChannelPost: (String) -> Unit,
+    onReactChannelPost: (String, String) -> Unit,
+    onPinChannelPost: (String, Boolean) -> Unit,
+    onDeleteChannelPost: (String) -> Unit,
     onSearchContact: (String) -> Unit,
     onAddSearchedContact: () -> Unit,
     onClearContactSearch: () -> Unit,
@@ -300,6 +362,15 @@ fun WhappyRoot(
         onDeleteMessage = onDeleteMessage,
         onEditMessage = onEditMessage,
         onTyping = onTyping,
+        onHandleWhappyLink = onHandleWhappyLink,
+        onOpenChannel = onOpenChannel,
+        onCloseChannel = onCloseChannel,
+        onCreateChannel = onCreateChannel,
+        onSubscribeChannel = onSubscribeChannel,
+        onPublishChannelPost = onPublishChannelPost,
+        onReactChannelPost = onReactChannelPost,
+        onPinChannelPost = onPinChannelPost,
+        onDeleteChannelPost = onDeleteChannelPost,
         onSearchContact = onSearchContact,
         onAddSearchedContact = onAddSearchedContact,
         onClearContactSearch = onClearContactSearch,
@@ -347,13 +418,261 @@ private fun SessionRestoringScreen() {
 
 private data class AuthCountry(val name: String, val flag: String, val code: String)
 
+private fun flagFor(isoCode: String): String {
+    val normalized = isoCode.uppercase(Locale.US)
+    if (normalized.length != 2) return "🏳️"
+    val base = 0x1F1E6
+    return normalized.fold(StringBuilder()) { acc, ch ->
+        val v = ch.code - 'A'.code
+        if (v !in 0..25) return "🏳️"
+        acc.appendCodePoint(base + v)
+        acc
+    }.toString()
+}
+
 private val authCountries = listOf(
-    AuthCountry("Congo", "🇨🇬", "+242"),
-    AuthCountry("RD Congo", "🇨🇩", "+243"),
-    AuthCountry("Cameroun", "🇨🇲", "+237"),
-    AuthCountry("Côte d’Ivoire", "🇨🇮", "+225"),
-    AuthCountry("Sénégal", "🇸🇳", "+221"),
-    AuthCountry("France", "🇫🇷", "+33"),
+    AuthCountry("Afghanistan", flagFor("AF"), "+93"),
+    AuthCountry("Albania", flagFor("AL"), "+355"),
+    AuthCountry("Algeria", flagFor("DZ"), "+213"),
+    AuthCountry("AmericanSamoa", flagFor("AS"), "+1684"),
+    AuthCountry("Andorra", flagFor("AD"), "+376"),
+    AuthCountry("Angola", flagFor("AO"), "+244"),
+    AuthCountry("Anguilla", flagFor("AI"), "+1264"),
+    AuthCountry("Antarctica", flagFor("AQ"), "+672"),
+    AuthCountry("Antigua and Barbuda", flagFor("AG"), "+1268"),
+    AuthCountry("Argentina", flagFor("AR"), "+54"),
+    AuthCountry("Armenia", flagFor("AM"), "+374"),
+    AuthCountry("Aruba", flagFor("AW"), "+297"),
+    AuthCountry("Australia", flagFor("AU"), "+61"),
+    AuthCountry("Austria", flagFor("AT"), "+43"),
+    AuthCountry("Azerbaijan", flagFor("AZ"), "+994"),
+    AuthCountry("Bahamas", flagFor("BS"), "+1242"),
+    AuthCountry("Bahrain", flagFor("BH"), "+973"),
+    AuthCountry("Bangladesh", flagFor("BD"), "+880"),
+    AuthCountry("Barbados", flagFor("BB"), "+1246"),
+    AuthCountry("Belarus", flagFor("BY"), "+375"),
+    AuthCountry("Belgium", flagFor("BE"), "+32"),
+    AuthCountry("Belize", flagFor("BZ"), "+501"),
+    AuthCountry("Benin", flagFor("BJ"), "+229"),
+    AuthCountry("Bermuda", flagFor("BM"), "+1441"),
+    AuthCountry("Bhutan", flagFor("BT"), "+975"),
+    AuthCountry("Bolivia, Plurinational State of Bolivia", flagFor("BO"), "+591"),
+    AuthCountry("Bosnia and Herzegovina", flagFor("BA"), "+387"),
+    AuthCountry("Botswana", flagFor("BW"), "+267"),
+    AuthCountry("Bouvet Island", flagFor("BV"), "+55"),
+    AuthCountry("Brazil", flagFor("BR"), "+55"),
+    AuthCountry("British Indian Ocean Territory", flagFor("IO"), "+246"),
+    AuthCountry("Brunei Darussalam", flagFor("BN"), "+673"),
+    AuthCountry("Bulgaria", flagFor("BG"), "+359"),
+    AuthCountry("Burkina Faso", flagFor("BF"), "+226"),
+    AuthCountry("Burundi", flagFor("BI"), "+257"),
+    AuthCountry("Cambodia", flagFor("KH"), "+855"),
+    AuthCountry("Cameroon", flagFor("CM"), "+237"),
+    AuthCountry("Canada", flagFor("CA"), "+1"),
+    AuthCountry("Cape Verde", flagFor("CV"), "+238"),
+    AuthCountry("Cayman Islands", flagFor("KY"), "+1345"),
+    AuthCountry("Central African Republic", flagFor("CF"), "+236"),
+    AuthCountry("Chad", flagFor("TD"), "+235"),
+    AuthCountry("Chile", flagFor("CL"), "+56"),
+    AuthCountry("China", flagFor("CN"), "+86"),
+    AuthCountry("Christmas Island", flagFor("CX"), "+61"),
+    AuthCountry("Cocos (Keeling) Islands", flagFor("CC"), "+61"),
+    AuthCountry("Colombia", flagFor("CO"), "+57"),
+    AuthCountry("Comoros", flagFor("KM"), "+269"),
+    AuthCountry("Congo", flagFor("CG"), "+242"),
+    AuthCountry("Congo, The Democratic Republic of the", flagFor("CD"), "+243"),
+    AuthCountry("Cook Islands", flagFor("CK"), "+682"),
+    AuthCountry("Costa Rica", flagFor("CR"), "+506"),
+    AuthCountry("Ivory Coast", flagFor("CI"), "+225"),
+    AuthCountry("Croatia", flagFor("HR"), "+385"),
+    AuthCountry("Cuba", flagFor("CU"), "+53"),
+    AuthCountry("Cyprus", flagFor("CY"), "+357"),
+    AuthCountry("Czech Republic", flagFor("CZ"), "+420"),
+    AuthCountry("Denmark", flagFor("DK"), "+45"),
+    AuthCountry("Djibouti", flagFor("DJ"), "+253"),
+    AuthCountry("Dominica", flagFor("DM"), "+1767"),
+    AuthCountry("Dominican Republic", flagFor("DO"), "+1849"),
+    AuthCountry("Ecuador", flagFor("EC"), "+593"),
+    AuthCountry("Egypt", flagFor("EG"), "+20"),
+    AuthCountry("El Salvador", flagFor("SV"), "+503"),
+    AuthCountry("Equatorial Guinea", flagFor("GQ"), "+240"),
+    AuthCountry("Eritrea", flagFor("ER"), "+291"),
+    AuthCountry("Estonia", flagFor("EE"), "+372"),
+    AuthCountry("Ethiopia", flagFor("ET"), "+251"),
+    AuthCountry("Falkland Islands", flagFor("FK"), "+500"),
+    AuthCountry("Faroe Islands", flagFor("FO"), "+298"),
+    AuthCountry("Fiji", flagFor("FJ"), "+679"),
+    AuthCountry("Finland", flagFor("FI"), "+358"),
+    AuthCountry("France", flagFor("FR"), "+33"),
+    AuthCountry("French Polynesia", flagFor("PF"), "+689"),
+    AuthCountry("French Southern and Antarctic Lands", flagFor("TF"), "+262"),
+    AuthCountry("Gabon", flagFor("GA"), "+241"),
+    AuthCountry("Gambia", flagFor("GM"), "+220"),
+    AuthCountry("Georgia", flagFor("GE"), "+995"),
+    AuthCountry("Germany", flagFor("DE"), "+49"),
+    AuthCountry("Ghana", flagFor("GH"), "+233"),
+    AuthCountry("Gibraltar", flagFor("GI"), "+350"),
+    AuthCountry("Greece", flagFor("EL"), "+30"),
+    AuthCountry("Greenland", flagFor("GL"), "+299"),
+    AuthCountry("Grenada", flagFor("GD"), "+1473"),
+    AuthCountry("Guadeloupe", flagFor("GP"), "+590"),
+    AuthCountry("Guam", flagFor("GU"), "+1671"),
+    AuthCountry("Guatemala", flagFor("GT"), "+502"),
+    AuthCountry("Guernsey", flagFor("GG"), "+44"),
+    AuthCountry("Guinea", flagFor("GN"), "+224"),
+    AuthCountry("Guinea-Bissau", flagFor("GW"), "+245"),
+    AuthCountry("Guyana", flagFor("GY"), "+592"),
+    AuthCountry("Haiti", flagFor("HT"), "+509"),
+    AuthCountry("Heard Island and McDonald Islands", flagFor("HM"), "+672"),
+    AuthCountry("Vatican City State (Holy See)", flagFor("VA"), "+379"),
+    AuthCountry("Honduras", flagFor("HN"), "+504"),
+    AuthCountry("Hong Kong", flagFor("HK"), "+852"),
+    AuthCountry("Hungary", flagFor("HU"), "+36"),
+    AuthCountry("Iceland", flagFor("IS"), "+354"),
+    AuthCountry("India", flagFor("IN"), "+91"),
+    AuthCountry("Indonesia", flagFor("ID"), "+62"),
+    AuthCountry("Iran, Islamic Republic of", flagFor("IR"), "+98"),
+    AuthCountry("Iraq", flagFor("IQ"), "+964"),
+    AuthCountry("Ireland", flagFor("IE"), "+353"),
+    AuthCountry("Isle of Man", flagFor("IM"), "+44"),
+    AuthCountry("Israel", flagFor("IL"), "+972"),
+    AuthCountry("Italy", flagFor("IT"), "+39"),
+    AuthCountry("Jamaica", flagFor("JM"), "+1876"),
+    AuthCountry("Japan", flagFor("JP"), "+81"),
+    AuthCountry("Jersey", flagFor("JE"), "+44"),
+    AuthCountry("Jordan", flagFor("JO"), "+962"),
+    AuthCountry("Kazakhstan", flagFor("KZ"), "+7"),
+    AuthCountry("Kenya", flagFor("KE"), "+254"),
+    AuthCountry("Kiribati", flagFor("KI"), "+686"),
+    AuthCountry("North Korea", flagFor("KP"), "+850"),
+    AuthCountry("South Korea", flagFor("KR"), "+82"),
+    AuthCountry("Kuwait", flagFor("KW"), "+965"),
+    AuthCountry("Kyrgyzstan", flagFor("KG"), "+996"),
+    AuthCountry("Laos", flagFor("LA"), "+856"),
+    AuthCountry("Latvia", flagFor("LV"), "+371"),
+    AuthCountry("Lebanon", flagFor("LB"), "+961"),
+    AuthCountry("Lesotho", flagFor("LS"), "+266"),
+    AuthCountry("Liberia", flagFor("LR"), "+231"),
+    AuthCountry("Libyan Arab Jamahiriya", flagFor("LY"), "+218"),
+    AuthCountry("Liechtenstein", flagFor("LI"), "+423"),
+    AuthCountry("Lithuania", flagFor("LT"), "+370"),
+    AuthCountry("Luxembourg", flagFor("LU"), "+352"),
+    AuthCountry("Macau", flagFor("MO"), "+853"),
+    AuthCountry("Macedonia, The Former Yugoslav Republic of", flagFor("MK"), "+389"),
+    AuthCountry("Madagascar", flagFor("MG"), "+261"),
+    AuthCountry("Malawi", flagFor("MW"), "+265"),
+    AuthCountry("Malaysia", flagFor("MY"), "+60"),
+    AuthCountry("Maldives", flagFor("MV"), "+960"),
+    AuthCountry("Mali", flagFor("ML"), "+223"),
+    AuthCountry("Malta", flagFor("MT"), "+356"),
+    AuthCountry("Marshall Islands", flagFor("MH"), "+692"),
+    AuthCountry("Martinique", flagFor("MQ"), "+596"),
+    AuthCountry("Mauritania", flagFor("MR"), "+222"),
+    AuthCountry("Mauritius", flagFor("MU"), "+230"),
+    AuthCountry("Mayotte", flagFor("YT"), "+262"),
+    AuthCountry("Mexico", flagFor("MX"), "+52"),
+    AuthCountry("Micronesia, Federated States of", flagFor("FM"), "+691"),
+    AuthCountry("Moldova, Republic of", flagFor("MD"), "+373"),
+    AuthCountry("Monaco", flagFor("MC"), "+377"),
+    AuthCountry("Mongolia", flagFor("MN"), "+976"),
+    AuthCountry("Montenegro", flagFor("ME"), "+382"),
+    AuthCountry("Montserrat", flagFor("MS"), "+1664"),
+    AuthCountry("Morocco", flagFor("MA"), "+212"),
+    AuthCountry("Mozambique", flagFor("MZ"), "+258"),
+    AuthCountry("Myanmar", flagFor("MM"), "+95"),
+    AuthCountry("Namibia", flagFor("NA"), "+264"),
+    AuthCountry("Nauru", flagFor("NR"), "+674"),
+    AuthCountry("Nepal", flagFor("NP"), "+977"),
+    AuthCountry("Netherlands", flagFor("NL"), "+31"),
+    AuthCountry("Netherlands Antilles", flagFor("AN"), "+599"),
+    AuthCountry("New Caledonia", flagFor("NC"), "+687"),
+    AuthCountry("New Zealand", flagFor("NZ"), "+64"),
+    AuthCountry("Nicaragua", flagFor("NI"), "+505"),
+    AuthCountry("Niger", flagFor("NE"), "+227"),
+    AuthCountry("Nigeria", flagFor("NG"), "+234"),
+    AuthCountry("Niue", flagFor("NU"), "+683"),
+    AuthCountry("Norfolk Island", flagFor("NF"), "+672"),
+    AuthCountry("Northern Mariana Islands", flagFor("MP"), "+1670"),
+    AuthCountry("Norway", flagFor("NO"), "+47"),
+    AuthCountry("Oman", flagFor("OM"), "+968"),
+    AuthCountry("Pakistan", flagFor("PK"), "+92"),
+    AuthCountry("Palau", flagFor("PW"), "+680"),
+    AuthCountry("Palestinian Territory, Occupied", flagFor("PS"), "+970"),
+    AuthCountry("Panama", flagFor("PA"), "+507"),
+    AuthCountry("Papua New Guinea", flagFor("PG"), "+675"),
+    AuthCountry("Paraguay", flagFor("PY"), "+595"),
+    AuthCountry("Peru", flagFor("PE"), "+51"),
+    AuthCountry("Philippines", flagFor("PH"), "+63"),
+    AuthCountry("Pitcairn", flagFor("PN"), "+870"),
+    AuthCountry("Poland", flagFor("PL"), "+48"),
+    AuthCountry("Portugal", flagFor("PT"), "+351"),
+    AuthCountry("Puerto Rico", flagFor("PR"), "+1939"),
+    AuthCountry("Qatar", flagFor("QA"), "+974"),
+    AuthCountry("Réunion", flagFor("RE"), "+262"),
+    AuthCountry("Romania", flagFor("RO"), "+40"),
+    AuthCountry("Russia", flagFor("RU"), "+7"),
+    AuthCountry("Rwanda", flagFor("RW"), "+250"),
+    AuthCountry("Saint Helena, Ascension and Tristan Da Cunha", flagFor("SH"), "+290"),
+    AuthCountry("Saint Kitts and Nevis", flagFor("KN"), "+1869"),
+    AuthCountry("Saint Lucia", flagFor("LC"), "+1758"),
+    AuthCountry("Saint Pierre and Miquelon", flagFor("PM"), "+508"),
+    AuthCountry("Saint Vincent and the Grenadines", flagFor("VC"), "+1784"),
+    AuthCountry("Samoa", flagFor("WS"), "+685"),
+    AuthCountry("San Marino", flagFor("SM"), "+378"),
+    AuthCountry("Sao Tome and Principe", flagFor("ST"), "+239"),
+    AuthCountry("Saudi Arabia", flagFor("SA"), "+966"),
+    AuthCountry("Senegal", flagFor("SN"), "+221"),
+    AuthCountry("Serbia", flagFor("RS"), "+381"),
+    AuthCountry("Seychelles", flagFor("SC"), "+248"),
+    AuthCountry("Sierra Leone", flagFor("SL"), "+232"),
+    AuthCountry("Singapore", flagFor("SG"), "+65"),
+    AuthCountry("Slovakia", flagFor("SK"), "+421"),
+    AuthCountry("Slovenia", flagFor("SI"), "+386"),
+    AuthCountry("Solomon Islands", flagFor("SB"), "+677"),
+    AuthCountry("Somalia", flagFor("SO"), "+252"),
+    AuthCountry("South Africa", flagFor("ZA"), "+27"),
+    AuthCountry("South Georgia and the South Sandwich Islands", flagFor("GS"), "+500"),
+    AuthCountry("Spain", flagFor("ES"), "+34"),
+    AuthCountry("Sri Lanka", flagFor("LK"), "+94"),
+    AuthCountry("Sudan", flagFor("SD"), "+249"),
+    AuthCountry("Suriname", flagFor("SR"), "+597"),
+    AuthCountry("Svalbard and Jan Mayen", flagFor("SJ"), "+47"),
+    AuthCountry("Swaziland", flagFor("SZ"), "+268"),
+    AuthCountry("Sweden", flagFor("SE"), "+46"),
+    AuthCountry("Switzerland", flagFor("CH"), "+41"),
+    AuthCountry("Syria", flagFor("SY"), "+963"),
+    AuthCountry("Taiwan", flagFor("TW"), "+886"),
+    AuthCountry("Tajikistan", flagFor("TJ"), "+992"),
+    AuthCountry("Tanzania, United Republic of", flagFor("TZ"), "+255"),
+    AuthCountry("Thailand", flagFor("TH"), "+66"),
+    AuthCountry("Timor-Leste", flagFor("TL"), "+670"),
+    AuthCountry("Togo", flagFor("TG"), "+228"),
+    AuthCountry("Tokelau", flagFor("TK"), "+690"),
+    AuthCountry("Tonga", flagFor("TO"), "+676"),
+    AuthCountry("Trinidad and Tobago", flagFor("TT"), "+1868"),
+    AuthCountry("Tunisia", flagFor("TN"), "+216"),
+    AuthCountry("Turkey", flagFor("TR"), "+90"),
+    AuthCountry("Turkmenistan", flagFor("TM"), "+993"),
+    AuthCountry("Turks and Caicos Islands", flagFor("TC"), "+1649"),
+    AuthCountry("Tuvalu", flagFor("TV"), "+688"),
+    AuthCountry("Uganda", flagFor("UG"), "+256"),
+    AuthCountry("Ukraine", flagFor("UA"), "+380"),
+    AuthCountry("United Arab Emirates", flagFor("AE"), "+971"),
+    AuthCountry("United Kingdom", flagFor("GB"), "+44"),
+    AuthCountry("United States", flagFor("US"), "+1"),
+    AuthCountry("United States Minor Outlying Islands", flagFor("UM"), "+1581"),
+    AuthCountry("Uruguay", flagFor("UY"), "+598"),
+    AuthCountry("Uzbekistan", flagFor("UZ"), "+998"),
+    AuthCountry("Vanuatu", flagFor("VU"), "+678"),
+    AuthCountry("Venezuela, Bolivarian Republic of", flagFor("VE"), "+58"),
+    AuthCountry("Vietnam", flagFor("VN"), "+84"),
+    AuthCountry("Virgin Islands, British", flagFor("VG"), "+1284"),
+    AuthCountry("Virgin Islands, U.S.", flagFor("VI"), "+1340"),
+    AuthCountry("Wallis and Futuna", flagFor("WF"), "+681"),
+    AuthCountry("Western Sahara", flagFor("EH"), "+732"),
+    AuthCountry("Yemen", flagFor("YE"), "+967"),
+    AuthCountry("Zambia", flagFor("ZM"), "+260"),
+    AuthCountry("Zimbabwe", flagFor("ZW"), "+263"),
 )
 
 @Composable
@@ -466,6 +785,15 @@ private fun WhappyMain(
     onDeleteMessage: (String) -> Unit,
     onEditMessage: (String, String) -> Unit,
     onTyping: (Boolean) -> Unit,
+    onHandleWhappyLink: (String) -> Unit,
+    onOpenChannel: (WhappyChannel) -> Unit,
+    onCloseChannel: () -> Unit,
+    onCreateChannel: (String, String, String) -> Unit,
+    onSubscribeChannel: (String, Boolean) -> Unit,
+    onPublishChannelPost: (String) -> Unit,
+    onReactChannelPost: (String, String) -> Unit,
+    onPinChannelPost: (String, Boolean) -> Unit,
+    onDeleteChannelPost: (String) -> Unit,
     onSearchContact: (String) -> Unit,
     onAddSearchedContact: () -> Unit,
     onClearContactSearch: () -> Unit,
@@ -494,19 +822,31 @@ private fun WhappyMain(
     onUpdateProfilePhoto: (Uri, String) -> Unit,
 ) {
     var previewConversation by remember { mutableStateOf<WhappyConversation?>(null) }
+    var previewChannel by remember { mutableStateOf<WhappyChannel?>(null) }
+    var previewChannelPosts by remember { mutableStateOf(demoChannelPosts) }
     var previewMessages by remember { mutableStateOf(emptyList<WhappyMessage>()) }
     var showTwinStudio by remember { mutableStateOf(false) }
     var showActivityCenter by remember { mutableStateOf(false) }
     var locallyReadNotices by remember { mutableStateOf(emptySet<String>()) }
     val selected = if (preview) previewConversation else state.selectedConversation
+    val selectedChannel = if (preview) previewChannel else state.selectedChannel
     val currentTab = state.tab
     val activityNotices = if (preview) demoPaymentNotices else state.paymentNotices
     val activityLives = if (preview) demoLives else state.lives
     val unreadActivity = activityNotices.count { !it.read && it.id !in locallyReadNotices }
-    BackHandler(enabled = selected != null || showTwinStudio || showActivityCenter) {
+    val accountPhone = state.user?.phoneNumber.orEmpty()
+    val isFounderAccount = WhappyIdentity.isFounder(accountPhone)
+    val accountDisplayName = if (preview && state.user == null) {
+        WhappyIdentity.founderName
+    } else {
+        WhappyIdentity.resolveAccountName(state.accountDisplayName, accountPhone)
+    }
+    BackHandler(enabled = selected != null || selectedChannel != null || showTwinStudio || showActivityCenter) {
         if (showActivityCenter) showActivityCenter = false
         else if (showTwinStudio) showTwinStudio = false
+        else if (preview && selectedChannel != null) previewChannel = null
         else if (preview) previewConversation = null
+        else if (selectedChannel != null) onCloseChannel()
         else onCloseConversation()
     }
     if (state.error != null) AlertDialog(onDismissRequest = onDismissError, confirmButton = { TextButton(onClick = onDismissError) { Text("Fermer") } }, title = { Text("WHAPPY") }, text = { Text(state.error) })
@@ -524,11 +864,25 @@ private fun WhappyMain(
         containerColor = WhappyBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (selected == null && !showTwinStudio) WhappyBottomBar(currentTab, onTab)
+            if (selected == null && selectedChannel == null && !showTwinStudio) WhappyBottomBar(currentTab, onTab)
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).statusBarsPadding()) {
-            if (selected != null) {
+            if (selectedChannel != null) {
+                ChannelScreen(
+                    channel = selectedChannel,
+                    posts = if (preview) previewChannelPosts else state.channelPosts,
+                    currentUserId = state.user?.uid ?: "demo-user",
+                    loading = state.loading,
+                    sending = state.sending,
+                    onBack = { if (preview) previewChannel = null else onCloseChannel() },
+                    onSubscribe = { subscribed -> if (preview) previewChannel = selectedChannel.copy(memberIds = if (subscribed) (selectedChannel.memberIds + "demo-user").distinct() else selectedChannel.memberIds - "demo-user", memberCount = (selectedChannel.memberCount + if (subscribed) 1 else -1).coerceAtLeast(1)) else onSubscribeChannel(selectedChannel.id, subscribed) },
+                    onPublish = { value -> if (preview) previewChannelPosts = previewChannelPosts + WhappyChannelPost("local-${System.currentTimeMillis()}", value, "demo-user", accountDisplayName, System.currentTimeMillis()) else onPublishChannelPost(value) },
+                    onReact = { post, emoji -> if (preview) previewChannelPosts = previewChannelPosts.map { if (it.id == post.id) it.copy(reactions = it.reactions + ("demo-user" to emoji)) else it } else onReactChannelPost(post.id, emoji) },
+                    onPin = { post -> if (preview) previewChannelPosts = previewChannelPosts.map { if (it.id == post.id) it.copy(pinned = !it.pinned) else it } else onPinChannelPost(post.id, !post.pinned) },
+                    onDelete = { post -> if (preview) previewChannelPosts = previewChannelPosts.map { if (it.id == post.id) it.copy(text = "Publication supprimée", deleted = true, pinned = false) else it } else onDeleteChannelPost(post.id) },
+                )
+            } else if (selected != null) {
                 ChatScreen(
                     conversation = selected,
                     messages = if (preview) demoMessages + previewMessages else state.messages,
@@ -562,7 +916,7 @@ private fun WhappyMain(
                 WhappyStudioScreen(
                     state = state,
                     preview = preview,
-                    userName = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                    userName = accountDisplayName,
                     onBack = { showTwinStudio = false },
                     onSaveConsent = onSaveTwinConsent,
                     onUploadAsset = onUploadTwinAsset,
@@ -575,51 +929,89 @@ private fun WhappyMain(
                 BrandHeader(
                     subtitle = if (preview) "Mode démonstration" else if (state.online) "Synchronisé en temps réel" else "Connexion limitée",
                     avatar = true,
-                    name = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                    name = accountDisplayName,
                     photoUrl = state.accountPhotoUrl,
                     unread = unreadActivity,
                     onActivity = { showActivityCenter = true },
                     onProfile = { onTab(WhappyTab.PROFILE) },
                 )
                 AnimatedContent(currentTab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "whappy-tab") { tab ->
-                    when (tab) {
-                        WhappyTab.MOMENTS -> MomentsScreen(state.twinProfile?.readiness ?: 0, onTab, onOpenWhappies = { showTwinStudio = true })
-                        WhappyTab.MESSAGES -> MessagesScreen(
-                            conversations = if (preview) demoConversations else state.conversations,
-                            loading = state.loading,
-                            preview = preview,
-                            contactBusy = state.contactBusy,
+            when (tab) {
+                WhappyTab.MOMENTS -> MomentsScreen(state.twinProfile?.readiness ?: 0, onTab, onOpenWhappies = { showTwinStudio = true })
+                WhappyTab.CONTACTS -> MessagesScreen(
+                    conversations = if (preview) demoConversations else state.conversations,
+                    loading = state.loading,
+                    preview = preview,
+                    contactBusy = state.contactBusy,
+                    contacts = if (preview) demoConversations.map { WhappyContact(it.peer) } else state.contacts,
+                    contactSearchResult = state.contactSearchResult,
+                    contactSearchPhone = state.contactSearchPhone,
+                    contactSearchMessage = state.contactSearchMessage,
+                    businessResults = if (preview) demoBusinessPages else state.businessSearchResults,
+                    businessSearchBusy = state.businessSearchBusy,
+                    channels = if (preview) demoChannels else state.channels,
+                    currentUserId = state.user?.uid ?: "demo-user",
+                    channelBusy = state.actionBusy,
+                    initialQuery = state.discoveryQuery,
+                    initialSection = 1,
+                    onSearchContact = onSearchContact,
+                    onAddSearchedContact = onAddSearchedContact,
+                    onClearContactSearch = onClearContactSearch,
+                    onOpenContact = onOpenContact,
+                    onSearchBusinesses = onSearchBusinesses,
+                    onContactBusiness = onContactBusiness,
+                    onOpen = { if (preview) previewConversation = it else onOpenConversation(it) },
+                    onOpenChannel = { if (preview) { previewChannel = it; previewChannelPosts = demoChannelPosts } else onOpenChannel(it) },
+                    onCreateChannel = onCreateChannel,
+                    onSubscribeChannel = onSubscribeChannel,
+                    onHandleWhappyLink = onHandleWhappyLink,
+                )
+                WhappyTab.MESSAGES -> MessagesScreen(
+                    conversations = if (preview) demoConversations else state.conversations,
+                    loading = state.loading,
+                    preview = preview,
+                    contactBusy = state.contactBusy,
                             contacts = if (preview) demoConversations.map { WhappyContact(it.peer) } else state.contacts,
                             contactSearchResult = state.contactSearchResult,
                             contactSearchPhone = state.contactSearchPhone,
                             contactSearchMessage = state.contactSearchMessage,
                             businessResults = if (preview) demoBusinessPages else state.businessSearchResults,
                             businessSearchBusy = state.businessSearchBusy,
-                            onSearchContact = onSearchContact,
-                            onAddSearchedContact = onAddSearchedContact,
-                            onClearContactSearch = onClearContactSearch,
-                            onOpenContact = onOpenContact,
-                            onSearchBusinesses = onSearchBusinesses,
+                    channels = if (preview) demoChannels else state.channels,
+                    currentUserId = state.user?.uid ?: "demo-user",
+                    channelBusy = state.actionBusy,
+                    initialQuery = state.discoveryQuery,
+                    initialSection = 0,
+                    onSearchContact = onSearchContact,
+                    onAddSearchedContact = onAddSearchedContact,
+                    onClearContactSearch = onClearContactSearch,
+                    onOpenContact = onOpenContact,
+                    onSearchBusinesses = onSearchBusinesses,
                             onContactBusiness = onContactBusiness,
                             onOpen = { if (preview) previewConversation = it else onOpenConversation(it) },
+                            onOpenChannel = { if (preview) { previewChannel = it; previewChannelPosts = demoChannelPosts } else onOpenChannel(it) },
+                            onCreateChannel = onCreateChannel,
+                            onSubscribeChannel = onSubscribeChannel,
+                            onHandleWhappyLink = onHandleWhappyLink,
                         )
                         WhappyTab.CALLS -> CallsScreen(
                             conversations = if (preview) demoConversations else state.conversations,
                             onOpenConversation = { if (preview) previewConversation = it else onOpenConversation(it) },
                         )
-                        WhappyTab.MARKET -> MarketScreen(if (preview) demoListings else state.listings, preview, state.actionBusy, onPublishListing)
+                        WhappyTab.MARKET -> MarketScreen(if (preview) demoListings else state.listings, preview, state.actionBusy, accountDisplayName, onPublishListing)
                         WhappyTab.LIVE -> LiveScreen(
                             lives = if (preview) demoLives else state.lives,
                             currentUserId = state.user?.uid ?: "demo-user",
                             preview = preview,
                             busy = state.actionBusy,
+                            accountDisplayName = accountDisplayName,
                             onCreateLive = onCreateLive,
                             onEndLive = onEndLive,
                             onUpdateLiveStatus = onUpdateLiveStatus,
                             onOpenTwin = { showTwinStudio = true },
                         )
                         WhappyTab.SERVICES -> ServicesScreen(
-                            userName = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                            userName = accountDisplayName,
                             phone = state.user?.phoneNumber.orEmpty().ifBlank { "+242 06 000 00 00" },
                             onOpenMarket = { onTab(WhappyTab.MARKET) },
                             onOpenBusiness = { onTab(WhappyTab.BUSINESS) },
@@ -641,7 +1033,8 @@ private fun WhappyMain(
                             onOpenTwin = { showTwinStudio = true },
                         )
                         WhappyTab.PROFILE -> ProfileScreen(
-                            name = state.accountDisplayName.ifBlank { "Cyril Bokilo" },
+                            name = accountDisplayName,
+                            founder = isFounderAccount,
                             phone = state.user?.phoneNumber.orEmpty(),
                             photoUrl = state.accountPhotoUrl,
                             twinReadiness = state.twinProfile?.readiness ?: 0,
@@ -715,6 +1108,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
     val icons = mapOf(
         WhappyTab.MOMENTS to Icons.Rounded.Home,
         WhappyTab.MESSAGES to Icons.Rounded.ChatBubble,
+        WhappyTab.CONTACTS to Icons.Rounded.Person,
         WhappyTab.CALLS to Icons.Rounded.Phone,
         WhappyTab.MARKET to Icons.Rounded.Storefront,
         WhappyTab.LIVE to Icons.Rounded.LiveTv,
@@ -722,7 +1116,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.SERVICES)
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.CONTACTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.SERVICES)
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
@@ -1418,6 +1812,11 @@ private fun MessagesScreen(
     contactSearchMessage: String?,
     businessResults: List<WhappyBusinessPage>,
     businessSearchBusy: Boolean,
+    channels: List<WhappyChannel>,
+    currentUserId: String,
+    channelBusy: Boolean,
+    initialQuery: String,
+    initialSection: Int,
     onSearchContact: (String) -> Unit,
     onAddSearchedContact: () -> Unit,
     onClearContactSearch: () -> Unit,
@@ -1425,19 +1824,143 @@ private fun MessagesScreen(
     onSearchBusinesses: (String) -> Unit,
     onContactBusiness: (WhappyBusinessPage) -> Unit,
     onOpen: (WhappyConversation) -> Unit,
+    onOpenChannel: (WhappyChannel) -> Unit,
+    onCreateChannel: (String, String, String) -> Unit,
+    onSubscribeChannel: (String, Boolean) -> Unit,
+    onHandleWhappyLink: (String) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
     var searchingBusiness by remember { mutableStateOf(false) }
-    var showingContacts by rememberSaveable { mutableStateOf(false) }
-    var conversationSearch by rememberSaveable { mutableStateOf("") }
+    var messageSection by rememberSaveable { mutableStateOf(if (initialSection == 1) 1 else if (initialSection == 2) 2 else 0) }
+    var creatingChannel by remember { mutableStateOf(false) }
+    var channelName by remember { mutableStateOf("") }
+    var channelDescription by remember { mutableStateOf("") }
+    var channelCategory by remember { mutableStateOf("Communauté") }
+    var conversationSearch by rememberSaveable { mutableStateOf(initialQuery) }
     var phone by remember { mutableStateOf("") }
+    var contactCountry by rememberSaveable { mutableStateOf("+242") }
+    var contactCountryMenu by remember { mutableStateOf(false) }
     var scanError by remember { mutableStateOf<String?>(null) }
+    var scanInProgress by remember { mutableStateOf(false) }
+    var imageScanInProgress by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val isPhoneComplete = PhoneNumberFormatter.normalize("+242", phone) != null
-    val filteredConversations = conversations.filter { conversationSearch.isBlank() || "${it.peer.displayName} ${it.lastMessage} ${it.peer.phoneNumber}".contains(conversationSearch, ignoreCase = true) }
+    val scope = rememberCoroutineScope()
+    val normalizedContactPhone = PhoneNumberFormatter.normalize(contactCountry, phone)
+        ?: PhoneNumberFormatter.normalizeAny(phone)
+    val isPhoneComplete = normalizedContactPhone != null
+    val filteredConversations = conversations.filter { SearchNormalizer.matches(conversationSearch, it.peer.displayName, it.lastMessage, it.peer.phoneNumber) }
+    val contactSuccess = contactSearchMessage != null && (
+        contactSearchMessage.startsWith("Contact ajouté") ||
+            contactSearchMessage.startsWith("Ce contact existe déjà")
+    )
+
+    val qrImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        imageScanInProgress = true
+        scope.launch {
+            val decoded = decodeQrFromImage(context, uri)
+            imageScanInProgress = false
+            if (decoded == null) {
+                scanError = "Aucun QR lisible trouvé dans cette image. Choisissez une capture nette du code WHAPPY."
+            } else {
+                processScannedContact(decoded)
+            }
+        }
+    }
+
+    LaunchedEffect(initialQuery) { if (initialQuery.isNotBlank()) { conversationSearch = initialQuery; messageSection = 2 } }
+    LaunchedEffect(initialSection) { if (initialSection == 1 || initialSection == 0 || initialSection == 2) messageSection = initialSection }
+    LaunchedEffect(contactSearchPhone) { if (contactSearchPhone.isNotBlank()) { phone = contactSearchPhone; contactCountry = authCountries.firstOrNull { contactSearchPhone.startsWith(it.code) }?.code ?: "+242"; adding = true } }
+    LaunchedEffect(contactSuccess, contactBusy) {
+        if (contactSuccess && !contactBusy && !preview) {
+            delay(820)
+            if (adding) {
+                adding = false
+                resetContactSearch()
+            }
+        }
+    }
+
+    fun applyContactInputValue(value: String, autoSearch: Boolean = false) {
+        val candidate = when (val link = WhappyLink.parse(value)) {
+            is WhappyLink.Contact -> link.phone
+            else -> PhoneNumberFormatter.normalize(contactCountry, value)
+                ?: PhoneNumberFormatter.normalizeAny(value)
+                ?: PhoneNumberFormatter.lookupCandidates(value, contactCountry).firstOrNull()
+                ?: PhoneNumberFormatter.lookupCandidates(value).firstOrNull()
+        }
+        if (candidate != null) {
+            phone = candidate
+            contactCountry = authCountries.firstOrNull { candidate.startsWith(it.code) }?.code ?: contactCountry
+            scanError = null
+            if (autoSearch && !preview) onSearchContact(candidate)
+        } else {
+            phone = value
+            if (autoSearch && value.isNotBlank() && !preview) {
+                scanError = "Ce format n’est pas reconnu. Utilisez un numéro valide (ex : 06 12 34 56 78)."
+            }
+        }
+        if (!autoSearch) resetContactSearch()
+    }
+
+    fun processScannedContact(raw: String) {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) {
+            scanError = "Le QR ne contient pas de données valides."
+            return
+        }
+        when (val link = WhappyLink.parse(trimmed)) {
+            is WhappyLink.Contact -> {
+                applyContactInputValue(link.phone, autoSearch = true)
+            }
+            is WhappyLink.Channel -> {
+                if (preview) {
+                    scanError = "Le lien de chaîne sera accessible après connexion."
+                } else {
+                    adding = false
+                    onHandleWhappyLink(trimmed)
+                }
+            }
+            is WhappyLink.Search -> {
+                if (preview) {
+                    scanError = "Le lien de recherche sera accessible après connexion."
+                } else {
+                    adding = false
+                    onHandleWhappyLink(trimmed)
+                }
+            }
+            null -> {
+                if (trimmed.isNotBlank()) {
+                    startContactSearch(trimmed, markBusy = true)
+                } else {
+                    scanError = "Ce QR n’est pas un code WHAPPY valide."
+                }
+            }
+        }
+    }
 
     fun resetContactSearch() {
         if (!preview) onClearContactSearch()
+    }
+
+    fun startContactSearch(rawValue: String, markBusy: Boolean = true) {
+        if (preview) return
+        if (contactBusy) return
+        val normalized = PhoneNumberFormatter.normalize(contactCountry, rawValue)
+            ?: PhoneNumberFormatter.normalizeAny(rawValue)
+            ?: PhoneNumberFormatter.lookupCandidates(rawValue, contactCountry).firstOrNull()
+            ?: PhoneNumberFormatter.lookupCandidates(rawValue).firstOrNull()
+        if (normalized == null) {
+            scanError = "Ce numéro est incomplet ou invalide. Vérifiez le format puis réessayez."
+            return
+        }
+        if (markBusy && !adding) {
+            adding = true
+            resetContactSearch()
+        }
+        phone = normalized
+        contactCountry = authCountries.firstOrNull { normalized.startsWith(it.code) }?.code ?: contactCountry
+        onSearchContact(normalized)
     }
 
     fun scanWhappyCode() {
@@ -1446,43 +1969,52 @@ private fun MessagesScreen(
             scanError = "Le scanner n’est pas disponible sur cet appareil"
             return
         }
+        scanError = null
+        if (scanInProgress) return
+        scanInProgress = true
         val options = GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
             .enableAutoZoom()
             .build()
-        GmsBarcodeScanning.getClient(activity, options).startScan()
-            .addOnSuccessListener { barcode ->
-                val number = phoneFromWhappyCode(barcode.rawValue.orEmpty())
-                if (number == null) {
-                    scanError = "Ce code n’est pas un code contact WHAPPY valide"
-                } else {
-                    phone = number
-                    if (!preview) {
-                        onClearContactSearch()
-                        onSearchContact(number)
-                    }
+        try {
+            GmsBarcodeScanning.getClient(activity, options).startScan()
+                .addOnSuccessListener { barcode ->
+                    scanInProgress = false
+                    processScannedContact(barcode.rawValue.orEmpty())
                 }
-            }
-            .addOnCanceledListener { scanError = "Scan annulé. Vous pouvez aussi saisir le numéro du contact." }
-            .addOnFailureListener { scanError = "Le scanner n’a pas pu démarrer sur cet appareil. Saisissez le numéro ou utilisez un appareil avec Google Play services." }
+                .addOnCanceledListener {
+                    scanInProgress = false
+                    scanError = "Scan annulé. Vous pouvez aussi saisir le numéro du contact."
+                }
+                .addOnFailureListener {
+                    scanInProgress = false
+                    scanError = "Le scanner n’a pas pu démarrer sur cet appareil. Saisissez le numéro ou utilisez un téléphone avec Google Play services."
+                }
+        } catch (error: Exception) {
+            scanInProgress = false
+            scanError = "Le scanner n’est pas disponible pour le moment. Saisissez le numéro du contact."
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(if (showingContacts) "Contacts" else "Messages", fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(if (showingContacts) "Vos personnes sur WHAPPY" else "Vos conversations instantanées", color = WhappyMuted) }
-            TextButton(onClick = { phone = ""; resetContactSearch(); adding = true }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.textButtonColors(contentColor = WhappyBlue)) {
-                Icon(Icons.Rounded.Add, "Ajouter un contact", modifier = Modifier.size(18.dp))
-                Text(" Ajouter", fontWeight = FontWeight.Black)
+            Column(Modifier.weight(1f)) { Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> "Messages" }, fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(when (messageSection) { 1 -> "Vos personnes sur WHAPPY"; 2 -> "Suivez ce qui compte pour vous"; else -> "Vos conversations instantanées" }, color = WhappyMuted) }
+            TextButton(onClick = { if (messageSection == 2) creatingChannel = true else { phone = ""; resetContactSearch(); adding = true } }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.textButtonColors(contentColor = WhappyBlue)) {
+                Icon(Icons.Rounded.Add, if (messageSection == 2) "Créer une chaîne" else "Ajouter un contact", modifier = Modifier.size(18.dp))
+                Text(if (messageSection == 2) " Créer" else " Ajouter", fontWeight = FontWeight.Black)
             }
         }
         Row(Modifier.padding(horizontal = 18.dp, vertical = 2.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFFE7F1F5)).padding(4.dp)) {
-            TextButton(onClick = { showingContacts = false }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = if (!showingContacts) WhappyDark else WhappyMuted)) { Text("Discussions", fontWeight = if (!showingContacts) FontWeight.Black else FontWeight.Medium) }
-            TextButton(onClick = { showingContacts = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (showingContacts) Color.White else Color.Transparent, contentColor = if (showingContacts) WhappyDark else WhappyMuted)) { Text("CONTACTS ${if (contacts.isNotEmpty()) "(${contacts.size})" else ""}", fontWeight = if (showingContacts) FontWeight.Black else FontWeight.Medium) }
+            listOf("Discussions", "Contacts", "Chaînes").forEachIndexed { index, label ->
+                TextButton(onClick = { messageSection = index; conversationSearch = "" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (messageSection == index) Color.White else Color.Transparent, contentColor = if (messageSection == index) WhappyDark else WhappyMuted)) { Text(label, fontSize = 11.sp, fontWeight = if (messageSection == index) FontWeight.Black else FontWeight.Medium) }
+            }
         }
-        OutlinedTextField(conversationSearch, { conversationSearch = it.take(120) }, Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp), placeholder = { Text(if (showingContacts) "Rechercher un contact" else "Rechercher une discussion") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
-        if (showingContacts) {
+        OutlinedTextField(conversationSearch, { conversationSearch = it.take(120) }, Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp), placeholder = { Text(when (messageSection) { 1 -> "Rechercher un contact"; 2 -> "Rechercher une chaîne ou une catégorie"; else -> "Rechercher une discussion" }) }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
+        if (messageSection == 2) {
+            ChannelDirectory(channels, currentUserId, conversationSearch, onOpenChannel, onSubscribeChannel)
+        } else if (messageSection == 1) {
             val conversationContacts = conversations.map { WhappyContact(it.peer, it.updatedAt) }
-            val visibleContacts = (contacts + conversationContacts).distinctBy { it.member.uid }.filter { conversationSearch.isBlank() || "${it.member.displayName} ${it.member.phoneNumber}".contains(conversationSearch, ignoreCase = true) }.sortedBy { it.member.displayName.lowercase() }
+            val visibleContacts = (contacts + conversationContacts).distinctBy { it.member.uid }.filter { SearchNormalizer.matches(conversationSearch, it.member.displayName, it.member.phoneNumber) }.sortedBy { SearchNormalizer.normalize(it.member.displayName) }
             if (loading && visibleContacts.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
             else if (visibleContacts.isEmpty()) {
                 Card(Modifier.padding(18.dp).fillMaxWidth().clickable { phone = ""; resetContactSearch(); adding = true }, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
@@ -1529,40 +2061,113 @@ private fun MessagesScreen(
             title = { Text(if (contactSearchResult == null) "Ajouter sur WHAPPY" else "Compte WHAPPY trouvé") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact." else "Vérifiez la personne avant de l’ajouter à vos Contacts.", color = WhappyMuted)
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3FAFD)),
+                        border = CardDefaults.outlinedCardBorder(),
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PersonAdd, null, tint = Color.White, modifier = Modifier.size(19.dp)) }
+                                Column(Modifier.padding(start = 10.dp)) {
+                                    Text("Ajouter une personne", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                    Text("Retrouvez-la et ouvrez une discussion instantanément.", color = WhappyMuted, fontSize = 10.sp)
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("1  Trouver", "2  Vérifier", "3  Écrire").forEach { step ->
+                                    Text(step, Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Color.White).padding(vertical = 7.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
+                    }
+                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact." else "Vérifiez la personne avant de l’ajouter à vos Contacts.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
                     OutlinedTextField(
                         value = phone,
-                        onValueChange = { phone = it; resetContactSearch() },
+                        onValueChange = { value ->
+                            applyContactInputValue(value)
+                        },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        label = { Text("Téléphone (+242 ou numéro local)") },
+                        label = { Text("Numéro de téléphone") },
+                        leadingIcon = { Box { TextButton(onClick = { contactCountryMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text(contactCountry + " ▾", fontSize = 11.sp, fontWeight = FontWeight.Bold) }; DropdownMenu(contactCountryMenu, { contactCountryMenu = false }) { authCountries.forEach { country -> DropdownMenuItem(text = { Text("${country.flag} ${country.name}  ${country.code}") }, onClick = { contactCountry = country.code; contactCountryMenu = false; resetContactSearch() }) } } } },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { if (isPhoneComplete && !contactBusy && !preview) onSearchContact(phone) }),
+                        keyboardActions = KeyboardActions(onSearch = { if (!contactBusy && !preview) startContactSearch(phone) }),
                         singleLine = true,
                     )
-                    if (phone.isNotBlank() && !isPhoneComplete) Text("Indiquez un numéro complet. Au Congo : 9 chiffres après +242.", color = WhappyMuted, fontSize = 11.sp)
-                    OutlinedButton(enabled = !contactBusy, onClick = { if (preview) scanError = "Le scan est disponible dans l’application connectée" else scanWhappyCode() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp))
-                        Text("  Scanner un code WHAPPY", fontWeight = FontWeight.Bold)
+                    TextButton(
+                        enabled = !contactBusy,
+                        modifier = Modifier.padding(top = 1.dp),
+                        onClick = {
+                            val clipboardText = runCatching {
+                                (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                                    .primaryClip
+                                    ?.getItemAt(0)
+                                    ?.coerceToText(context)
+                                    ?.toString()
+                                    ?.trim()
+                                    .orEmpty()
+                            }.getOrDefault("")
+                            if (clipboardText.isBlank()) {
+                                scanError = "Le presse-papiers est vide. Saisissez le numéro puis recherchez."
+                            } else {
+                                applyContactInputValue(clipboardText, autoSearch = true)
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Rounded.Share, null, modifier = Modifier.size(18.dp))
+                        Text("  Coller le code / numéro")
+                    }
+                    if (phone.isNotBlank() && !isPhoneComplete) Text("Vérifiez l’indicatif et la longueur du numéro. Vous pouvez aussi coller un numéro international complet.", color = WhappyMuted, fontSize = 11.sp)
+                    if (normalizedContactPhone != null) Text("Numéro reconnu : $normalizedContactPhone", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(enabled = !contactBusy && !scanInProgress && !imageScanInProgress, onClick = { if (preview) scanError = "Le scan est disponible dans l’application connectée" else scanWhappyCode() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
+                            Icon(Icons.Rounded.QrCode, null, modifier = Modifier.size(18.dp))
+                            Text(if (scanInProgress) "  Analyse…" else "  Scanner", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(enabled = !contactBusy && !scanInProgress && !imageScanInProgress, onClick = { if (preview) scanError = "L’import est disponible dans l’application connectée" else qrImagePicker.launch("image/*") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
+                            Icon(Icons.Rounded.Photo, null, modifier = Modifier.size(18.dp))
+                            Text(if (imageScanInProgress) "  Lecture…" else "  Image QR", fontWeight = FontWeight.Bold)
+                        }
                     }
                     if (contactBusy) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { CircularProgressIndicator(Modifier.size(18.dp), color = WhappyBlue, strokeWidth = 2.dp); Text(if (contactSearchResult == null) "Recherche du compte WHAPPY…" else "Ajout du contact…", color = WhappyMuted, fontSize = 12.sp) }
                     if (contactSearchResult != null) Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7FC))) {
                         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val isFounderContact = WhappyIdentity.isFounder(contactSearchResult.phoneNumber)
                             Box(Modifier.size(44.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(contactSearchResult.displayName), color = Color.White, fontWeight = FontWeight.Black) }
                             Column(Modifier.weight(1f).padding(start = 11.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) { Text(contactSearchResult.displayName, color = WhappyDark, fontWeight = FontWeight.Black); Icon(Icons.Rounded.Verified, null, modifier = Modifier.padding(start = 4.dp).size(15.dp), tint = WhappyBlue) }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(contactSearchResult.displayName, color = WhappyDark, fontWeight = FontWeight.Black)
+                                    Icon(
+                                        Icons.Rounded.Verified,
+                                        null,
+                                        modifier = Modifier.padding(start = 4.dp).size(15.dp),
+                                        tint = if (isFounderContact) Color(0xFF8F979E) else WhappyBlue,
+                                    )
+                                }
                                 Text(contactSearchResult.phoneNumber.ifBlank { contactSearchPhone }, color = WhappyMuted, fontSize = 11.sp)
-                                Text("Compte WHAPPY vérifié", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                if (isFounderContact) {
+                                    Text(WhappyIdentity.founderBadgeLabel, color = Color(0xFF8F979E), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Text("Compte WHAPPY vérifié", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
-                    if (contactSearchMessage != null) Text(contactSearchMessage, color = if (contactSearchResult == null) WhappyMuted else WhappyBlue, fontSize = 12.sp, lineHeight = 17.sp)
+                    if (contactSearchMessage != null) Text(
+                        contactSearchMessage,
+                        color = if (contactSearchMessage.startsWith("Contact ajouté") || contactSearchMessage.startsWith("Ce contact existe déjà"))
+                            Color(0xFF0F8A54) else if (contactSearchResult == null) WhappyMuted else WhappyBlue,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
                     TextButton(onClick = { adding = false; resetContactSearch(); searchingBusiness = true }, modifier = Modifier.fillMaxWidth()) { Text("Trouver un Business à la place") }
                 }
             },
             confirmButton = {
                 if (contactSearchResult != null) Button(enabled = !contactBusy, onClick = { if (!preview) onAddSearchedContact() }) {
                     if (contactBusy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp) else Text(if (preview) "Disponible après connexion" else "Ajouter et écrire")
-                } else Button(enabled = isPhoneComplete && !contactBusy, onClick = { if (!preview) onSearchContact(phone) }) {
+                } else Button(enabled = !contactBusy, onClick = { if (!preview) startContactSearch(phone) }) {
                     if (contactBusy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp) else Text(if (preview) "Disponible après connexion" else "Rechercher")
                 }
             },
@@ -1585,7 +2190,148 @@ private fun MessagesScreen(
             text = { Text(scanError.orEmpty()) },
             confirmButton = { TextButton(onClick = { scanError = null }) { Text("Compris") } },
         )
+        if (creatingChannel) AlertDialog(
+            onDismissRequest = { if (!channelBusy) creatingChannel = false },
+            title = { Text("Créer une chaîne", fontWeight = FontWeight.Black) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Une chaîne est un espace de diffusion public. Vous seul pourrez publier ; vos abonnés pourront réagir.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                OutlinedTextField(channelName, { channelName = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Nom de la chaîne") }, singleLine = true)
+                OutlinedTextField(channelDescription, { channelDescription = it.take(300) }, Modifier.fillMaxWidth(), label = { Text("Description") }, minLines = 3, supportingText = { Text("${channelDescription.length}/300") })
+                Text("CATÉGORIE", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("Communauté", "Actualités", "Créateurs", "Shopping", "Sport", "Tech").forEach { category -> TextButton(onClick = { channelCategory = category }, colors = ButtonDefaults.textButtonColors(containerColor = if (channelCategory == category) WhappyBlue else Color(0xFFE8F0F3), contentColor = if (channelCategory == category) Color.White else WhappyDark)) { Text(category, fontSize = 11.sp) } } }
+            } },
+            confirmButton = { Button(enabled = !channelBusy && channelName.trim().length >= 3 && channelDescription.trim().length >= 10, onClick = { onCreateChannel(channelName, channelDescription, channelCategory); creatingChannel = false; channelName = ""; channelDescription = "" }) { if (channelBusy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp) else Text("Créer") } },
+            dismissButton = { TextButton(enabled = !channelBusy, onClick = { creatingChannel = false }) { Text("Annuler") } },
+        )
     }
+}
+
+@Composable
+private fun ChannelDirectory(
+    channels: List<WhappyChannel>,
+    currentUserId: String,
+    search: String,
+    onOpen: (WhappyChannel) -> Unit,
+    onSubscribe: (String, Boolean) -> Unit,
+) {
+    val visible = channels.filter { SearchNormalizer.matches(search, it.name, it.description, it.category, it.ownerName) }
+        .sortedWith(compareByDescending<WhappyChannel> { currentUserId in it.memberIds }.thenByDescending { it.memberCount })
+    if (visible.isEmpty()) {
+        EmptyState(if (search.isBlank()) "Aucune chaîne" else "Aucune chaîne trouvée", if (search.isBlank()) "Créez la première chaîne WHAPPY et commencez à publier." else "Essayez un nom, une catégorie ou un autre mot-clé.")
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(WhappyDark).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = Color.White) }
+                Column(Modifier.padding(start = 12.dp)) { Text("CHAÎNES WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Des publications utiles, sans bruit", color = Color.White, fontWeight = FontWeight.Black); Text("${channels.size} chaîne${if (channels.size > 1) "s" else ""} à découvrir", color = Color.White.copy(alpha = .68f), fontSize = 11.sp) }
+            }
+        }
+        items(visible, key = { "channel-${it.id}" }) { channel ->
+            val subscribed = currentUserId in channel.memberIds
+            val owner = channel.ownerId == currentUserId
+            Card(Modifier.fillMaxWidth().clickable { onOpen(channel) }, shape = RoundedCornerShape(21.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(if (subscribed) WhappyBlue else Color(0xFFE1F3FB)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = if (subscribed) Color.White else WhappyBlue) }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) { Text(channel.name, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp); if (channel.verified) Icon(Icons.Rounded.Verified, "Chaîne vérifiée", tint = WhappyBlue, modifier = Modifier.padding(start = 4.dp).size(16.dp)) }
+                            Text("${channel.category} · ${formatCompactCount(channel.memberCount)} abonnés", color = WhappyMuted, fontSize = 11.sp)
+                        }
+                        if (owner) Text("PROPRIÉTAIRE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        else OutlinedButton(onClick = { onSubscribe(channel.id, !subscribed) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) { Text(if (subscribed) "Suivie" else "Suivre", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    }
+                    Text(channel.description, color = WhappyInk, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (channel.lastPost.isNotBlank()) Text(channel.lastPost, Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(Color(0xFFF2F7F9)).padding(9.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelScreen(
+    channel: WhappyChannel,
+    posts: List<WhappyChannelPost>,
+    currentUserId: String,
+    loading: Boolean,
+    sending: Boolean,
+    onBack: () -> Unit,
+    onSubscribe: (Boolean) -> Unit,
+    onPublish: (String) -> Unit,
+    onReact: (WhappyChannelPost, String) -> Unit,
+    onPin: (WhappyChannelPost) -> Unit,
+    onDelete: (WhappyChannelPost) -> Unit,
+) {
+    val context = LocalContext.current
+    val listState = rememberLazyListState()
+    val owner = channel.ownerId == currentUserId
+    val subscribed = currentUserId in channel.memberIds
+    var text by rememberSaveable(channel.id) { mutableStateOf("") }
+    var searchOpen by rememberSaveable(channel.id) { mutableStateOf(false) }
+    var search by rememberSaveable(channel.id) { mutableStateOf("") }
+    var selectedPost by remember(channel.id) { mutableStateOf<WhappyChannelPost?>(null) }
+    var showingChannelCode by remember(channel.id) { mutableStateOf(false) }
+    val channelLink = remember(channel.id) { "https://whappy.chat/channel/${channel.id}" }
+    val visible = remember(posts, search) { posts.filter { SearchNormalizer.matches(search, it.text, it.authorName) }.sortedWith(compareByDescending<WhappyChannelPost> { it.pinned }.thenBy { it.createdAt }) }
+    LaunchedEffect(posts.size) { if (posts.isNotEmpty() && search.isBlank()) listState.animateScrollToItem(visible.lastIndex.coerceAtLeast(0)) }
+
+    Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
+        Row(Modifier.fillMaxWidth().background(Color.White).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = Color.White) }
+            Column(Modifier.weight(1f).padding(start = 10.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(channel.name, fontWeight = FontWeight.Black, color = WhappyDark); if (channel.verified) Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.padding(start = 4.dp).size(15.dp)) }; Text("${formatCompactCount(channel.memberCount)} abonnés · ${channel.postCount} publications", color = WhappyMuted, fontSize = 10.sp) }
+            IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) search = "" }) { Icon(Icons.Rounded.Search, "Rechercher", tint = if (searchOpen) WhappyBlue else WhappyDark) }
+            IconButton(onClick = { showingChannelCode = true }) { Icon(Icons.Rounded.Share, "Partager la chaîne", tint = WhappyDark) }
+        }
+        if (searchOpen) OutlinedTextField(search, { search = it.take(120) }, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher dans la chaîne") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
+        Column(Modifier.fillMaxWidth().background(WhappyDark).padding(horizontal = 16.dp, vertical = 13.dp)) {
+            Text(channel.description, color = Color.White, fontSize = 12.sp, lineHeight = 17.sp)
+            Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) { Text("Par ${channel.ownerName} · ${channel.category}", Modifier.weight(1f), color = Color.White.copy(alpha = .64f), fontSize = 10.sp); if (!owner) Button(onClick = { onSubscribe(!subscribed) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)) { Text(if (subscribed) "Abonné ✓" else "S’abonner", fontSize = 11.sp) } }
+        }
+        if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
+        else if (visible.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { EmptyState(if (search.isBlank()) "Aucune publication" else "Aucun résultat", if (owner && search.isBlank()) "Publiez la première actualité de votre chaîne." else "Les prochaines publications apparaîtront ici.") }
+        else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(visible, key = { "post-${it.id}" }) { post ->
+                Card(Modifier.fillMaxWidth().clickable(enabled = !post.deleted) { selectedPost = post }, shape = RoundedCornerShape(19.dp), colors = CardDefaults.cardColors(containerColor = if (post.pinned) Color(0xFFEAF7FC) else Color.White), border = CardDefaults.outlinedCardBorder()) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { if (post.pinned) Text("📌 ÉPINGLÉ", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black); Spacer(Modifier.weight(1f)); Text(formatShortDate(post.createdAt) + " · " + formatTime(post.createdAt), color = WhappyMuted, fontSize = 9.sp) }
+                        Text(if (post.deleted) "Publication supprimée" else post.text, color = if (post.deleted) WhappyMuted else WhappyInk, lineHeight = 21.sp, fontSize = 14.sp)
+                        if (post.reactions.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { post.reactions.values.groupingBy { it }.eachCount().forEach { (emoji, count) -> Text("$emoji ${if (count > 1) count else ""}", Modifier.clip(CircleShape).background(Color(0xFFF0F5F7)).padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 11.sp) } }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Text(post.authorName, Modifier.weight(1f), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold); Text(if (subscribed || owner) "Appuyez pour réagir" else "Abonnez-vous pour réagir", color = WhappyMuted, fontSize = 9.sp) }
+                    }
+                }
+            }
+        }
+        if (owner) Row(Modifier.fillMaxWidth().background(Color.White).padding(10.dp), verticalAlignment = Alignment.Bottom) {
+            OutlinedTextField(text, { text = it.take(4_000) }, Modifier.weight(1f), placeholder = { Text("Nouvelle publication…") }, maxLines = 6, supportingText = { Text("${text.length}/4000") }, shape = RoundedCornerShape(18.dp))
+            FilledIconButton(enabled = text.isNotBlank() && !sending, onClick = { onPublish(text); text = "" }, modifier = Modifier.padding(start = 8.dp).size(50.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { if (sending) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(Icons.AutoMirrored.Rounded.Send, "Publier", tint = Color.White) }
+        } else if (!subscribed) Button(onClick = { onSubscribe(true) }, Modifier.fillMaxWidth().padding(12.dp), shape = RoundedCornerShape(15.dp)) { Icon(Icons.Rounded.Notifications, null); Text("  S’abonner à cette chaîne", fontWeight = FontWeight.Bold) }
+    }
+    selectedPost?.let { post ->
+        AlertDialog(onDismissRequest = { selectedPost = null }, title = { Text("Publication", fontWeight = FontWeight.Black) }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(post.text, color = WhappyMuted, maxLines = 4)
+            if (subscribed || owner) { Text("Réagir", fontWeight = FontWeight.Bold); Row { listOf("❤️", "👍", "🔥", "👏", "💡").forEach { emoji -> TextButton(onClick = { onReact(post, emoji); selectedPost = null }, contentPadding = PaddingValues(7.dp)) { Text(emoji, fontSize = 20.sp) } } } }
+            OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Publication WHAPPY", post.text)); selectedPost = null }, Modifier.fillMaxWidth()) { Text("Copier la publication") }
+            if (owner) { OutlinedButton(onClick = { onPin(post); selectedPost = null }, Modifier.fillMaxWidth()) { Text(if (post.pinned) "Désépingler" else "Épingler en haut") }; OutlinedButton(onClick = { onDelete(post); selectedPost = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD72C46))) { Text("Supprimer") } }
+        } }, confirmButton = { TextButton(onClick = { selectedPost = null }) { Text("Fermer") } })
+    }
+    if (showingChannelCode) {
+        val qr = remember(channelLink) { createWhappyPayloadQr("whappy://channel/${channel.id}") }
+        AlertDialog(onDismissRequest = { showingChannelCode = false }, title = { Text("Partager la chaîne", fontWeight = FontWeight.Black) }, text = { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Image(qr.asImageBitmap(), "QR de la chaîne ${channel.name}", Modifier.size(210.dp).clip(RoundedCornerShape(18.dp)))
+            Text(channel.name, fontWeight = FontWeight.Black, color = WhappyDark)
+            Text(channelLink, color = WhappyMuted, fontSize = 10.sp)
+            OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Lien WHAPPY", channelLink)) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.QrCode, null); Text("  Copier le lien") }
+            Button(onClick = { shareWhappyLink(context, channel.name, channelLink) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Share, null); Text("  Partager") }
+        } }, confirmButton = { TextButton(onClick = { showingChannelCode = false }) { Text("Terminé") } })
+    }
+}
+
+private fun formatCompactCount(value: Int): String = when {
+    value >= 1_000_000 -> String.format(Locale.FRANCE, "%.1f M", value / 1_000_000f).replace(",0", "")
+    value >= 1_000 -> String.format(Locale.FRANCE, "%.1f k", value / 1_000f).replace(",0", "")
+    else -> value.toString()
 }
 
 @Composable
@@ -1672,7 +2418,9 @@ private fun ChatScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val uriHandler = LocalUriHandler.current
     val listState = rememberLazyListState()
-    val visibleMessages = remember(messages, searchQuery) { if (searchQuery.isBlank()) messages else messages.filter { "${it.text} ${it.mediaName} ${it.replyText}".contains(searchQuery, ignoreCase = true) } }
+    val chatScope = rememberCoroutineScope()
+    val visibleMessages = remember(messages, searchQuery) { messages.filter { SearchNormalizer.matches(searchQuery, it.text, it.mediaName, it.replyText) } }
+    var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
 
     fun submitText() {
         val value = text.trim()
@@ -1758,11 +2506,35 @@ private fun ChatScreen(
                         Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted) { selectedMessage = message }) {
                             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                 if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (mine) Color.White.copy(alpha = .16f) else Color(0xFFEAF7FC)).padding(8.dp)) { Text("↩ ${message.replyText}", color = if (mine) Color.White.copy(alpha = .9f) else WhappyMuted, fontSize = 10.sp, maxLines = 2) }
+                                if (message.replyText.isNotBlank()) {
+                                    val targetIndex = visibleMessages.indexOfFirst { it.id == message.replyToId }
+                                    if (targetIndex >= 0) {
+                                        TextButton(
+                                            onClick = {
+                                                chatScope.launch { listState.animateScrollToItem(targetIndex) }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                        ) {
+                                            Text("Voir le message d’origine", color = if (mine) Color.White else WhappyBlue, fontSize = 9.sp)
+                                        }
+                                    }
+                                }
+                                val actions = remember(message.text) { detectMessageActions(message.text) }
                                 when (message.kind) {
                                     "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
-                                    "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
+                                    "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
                                     "deleted" -> Text("Message supprimé", color = if (mine) Color.White.copy(alpha = .7f) else WhappyMuted)
-                                    else -> Text(message.text, color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp)
+                                    else -> MessageLinkText(message.text, mine, actions = actions, onAction = { openMessageAction(uriHandler, it) })
+                                }
+                                if (actions.isNotEmpty()) {
+                                    FlowRow(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        actions.take(2).forEach { action ->
+                                            OutlinedButton(
+                                                onClick = { openMessageAction(uriHandler, action) },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                                            ) { Text(if (action.type == MessageActionType.Phone) "📞 ${action.title}" else "🔗 ${action.title}") }
+                                        }
+                                    }
                                 }
                                 if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { message.reactions.values.groupingBy { it }.eachCount().forEach { (emoji, count) -> Text("$emoji${if (count > 1) " $count" else ""}", modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (mine) Color.White.copy(alpha = .18f) else Color(0xFFEAF7FC)).padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp) } }
                                 Row(Modifier.align(Alignment.End).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) { if (message.edited) Text("modifié · ", color = if (mine) Color.White.copy(alpha = .68f) else WhappyMuted, fontSize = 9.sp); Text(formatTime(message.createdAt), color = if (mine) Color.White.copy(alpha = .75f) else WhappyMuted, fontSize = 9.sp); if (mine) { val read = message.createdAt > 0L && conversation.peerReadAt >= message.createdAt; Text(if (read) " · Lu" else " · Envoyé", color = Color.White.copy(alpha = if (read) .95f else .68f), fontSize = 9.sp); Icon(Icons.Rounded.CheckCircle, null, tint = Color.White.copy(alpha = if (read) 1f else .65f), modifier = Modifier.padding(start = 3.dp).size(12.dp)) } }
@@ -1782,6 +2554,12 @@ private fun ChatScreen(
         }
         replyTo?.let { message -> Row(Modifier.fillMaxWidth().background(Color(0xFFEAF7FC)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Rounded.Send, null, tint = WhappyBlue, modifier = Modifier.size(17.dp)); Column(Modifier.weight(1f).padding(horizontal = 9.dp)) { Text("Répondre", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(message.text.ifBlank { message.mediaName.ifBlank { "Média" } }, color = WhappyDark, fontSize = 11.sp, maxLines = 1) }; TextButton(onClick = { replyTo = null }) { Text("Annuler") } } }
         editingMessage?.let { message -> Row(Modifier.fillMaxWidth().background(Color(0xFFFFF7E8)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.MoreVert, null, tint = Color(0xFFE9781A), modifier = Modifier.size(17.dp)); Column(Modifier.weight(1f).padding(horizontal = 9.dp)) { Text("Modifier le message", color = Color(0xFFE9781A), fontSize = 10.sp, fontWeight = FontWeight.Black); Text(message.text, color = WhappyDark, fontSize = 11.sp, maxLines = 1) }; TextButton(onClick = { editingMessage = null; text = ""; draftPrefs.edit().remove(conversation.id).apply() }) { Text("Annuler") } } }
+        if (previewImage != null) {
+            ImageZoomViewer(
+                imageSource = previewImage.orEmpty(),
+                onDismiss = { previewImage = null },
+            )
+        }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !sending && !recording, onClick = { imagePicker.launch("image/*") }) { Icon(Icons.Rounded.AttachFile, "Joindre une photo", tint = WhappyMuted) }
             IconButton(enabled = !recording, onClick = { showEmoji = !showEmoji; if (showEmoji) keyboard?.hide() }) { Icon(Icons.Rounded.EmojiEmotions, "Émojis", tint = if (showEmoji) WhappyBlue else WhappyMuted) }
@@ -1817,13 +2595,152 @@ private fun ChatScreen(
     }
     selectedMessage?.let { message ->
         val mine = message.senderId == currentUserId
+        val messageActions = remember(message.text) { detectMessageActions(message.text) }
         AlertDialog(
             onDismissRequest = { selectedMessage = null },
             title = { Text("Actions du message", fontWeight = FontWeight.Black) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(message.text.ifBlank { message.mediaName.ifBlank { "Média" } }, color = WhappyMuted, maxLines = 3); Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("❤️", "👍", "😂", "😮", "🙏").forEach { emoji -> TextButton(onClick = { onReact(message, emoji); selectedMessage = null }, contentPadding = PaddingValues(6.dp)) { Text(emoji, fontSize = 20.sp) } } }; OutlinedButton(onClick = { replyTo = message; editingMessage = null; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Répondre") }; if (message.text.isNotBlank()) OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WHAPPY", message.text)); selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Copier le texte") }; if (mine && message.kind == "text") OutlinedButton(onClick = { editingMessage = message; replyTo = null; text = message.text; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Modifier") }; if (mine) OutlinedButton(onClick = { onDelete(message); selectedMessage = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD72C46))) { Text("Supprimer pour tous") } } },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(message.text.ifBlank { message.mediaName.ifBlank { "Média" } }, color = WhappyMuted, maxLines = 3)
+                    if (messageActions.isNotEmpty()) {
+                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            messageActions.forEach { action ->
+                                OutlinedButton(
+                                    onClick = { openMessageAction(uriHandler, action); selectedMessage = null },
+                                    modifier = Modifier.height(30.dp),
+                                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                                ) {
+                                    Text(
+                                        if (action.type == MessageActionType.Phone) "Appeler ${action.title}"
+                                        else "Ouvrir ${action.title}",
+                                        color = WhappyDark,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("❤️", "👍", "😂", "😮", "🙏").forEach { emoji -> TextButton(onClick = { onReact(message, emoji); selectedMessage = null }, contentPadding = PaddingValues(6.dp)) { Text(emoji, fontSize = 20.sp) } } }
+                    OutlinedButton(onClick = { replyTo = message; editingMessage = null; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Répondre") }
+                    if (message.text.isNotBlank()) OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WHAPPY", message.text)); selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Copier le texte") }
+                    if (mine && message.kind == "text") OutlinedButton(onClick = { editingMessage = message; replyTo = null; text = message.text; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Modifier") }
+                    if (mine) OutlinedButton(onClick = { onDelete(message); selectedMessage = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD72C46))) { Text("Supprimer pour tous") }
+                }
+            },
             confirmButton = { TextButton(onClick = { selectedMessage = null }) { Text("Fermer") } },
         )
     }
+}
+
+@Composable
+private fun MessageLinkText(
+    text: String,
+    mine: Boolean,
+    actions: List<MessageAction>,
+    onAction: (MessageAction) -> Unit,
+) {
+    if (actions.isEmpty()) {
+        Text(text, color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp)
+        return
+    }
+    val annotated = buildAnnotatedString {
+        append(text)
+        actions.forEach { action ->
+            if (action.start >= action.end || action.start < 0 || action.end > text.length) return@forEach
+            addStringAnnotation("message-action", action.target, action.start, action.end)
+            addStyle(
+                SpanStyle(
+                    color = if (mine) Color.White.copy(alpha = .92f) else WhappyBlue,
+                    textDecoration = TextDecoration.Underline,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                action.start,
+                action.end,
+            )
+        }
+    }
+    ClickableText(
+        text = annotated,
+        style = TextStyle(color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp),
+        onClick = { offset ->
+            val clicked = annotated.getStringAnnotations("message-action", offset, offset).firstOrNull()
+            if (clicked != null) {
+                val action = actions.firstOrNull { it.start <= offset && offset < it.end && it.target == clicked.item }
+                if (action != null) onAction(action)
+            }
+        },
+    )
+}
+
+private fun openMessageAction(uriHandler: androidx.compose.ui.platform.UriHandler, action: MessageAction) {
+    when (action.type) {
+        MessageActionType.Link -> uriHandler.openUri(action.target)
+        MessageActionType.Phone -> uriHandler.openUri("tel:${action.target}")
+    }
+}
+
+private fun detectMessageActions(text: String): List<MessageAction> {
+    if (text.isBlank()) return emptyList()
+    val actions = mutableListOf<MessageAction>()
+    val covered = mutableListOf<IntRange>()
+    val matcherText = text
+
+    val linkMatcher = Patterns.WEB_URL.matcher(matcherText)
+    while (linkMatcher.find()) {
+        val range = sanitizeMessageRange(linkMatcher.start(), linkMatcher.end(), matcherText)
+        if (range.first > range.last) continue
+        if (covered.any { range.first <= it.last && range.last + 1 >= it.first }) continue
+        val raw = matcherText.substring(range)
+        val target = normalizeMessageLink(raw) ?: continue
+        val label = target.removePrefix("https://").removePrefix("http://").take(38)
+        actions.add(MessageAction(label, target, MessageActionType.Link, range.first, range.last + 1))
+        covered.add(range)
+    }
+
+    val phoneMatcher = Patterns.PHONE.matcher(matcherText)
+    while (phoneMatcher.find()) {
+        val range = phoneMatcher.start() until phoneMatcher.end()
+        if (range.first > range.last) continue
+        if (covered.any { range.first <= it.last && range.last >= it.first }) continue
+        val raw = matcherText.substring(range)
+        val normalized = PhoneNumberFormatter.lookupCandidates(raw).firstOrNull() ?: continue
+        actions.add(MessageAction(normalized, normalized, MessageActionType.Phone, range.first, range.last + 1))
+        covered.add(range)
+    }
+    return actions
+}
+
+private fun normalizeMessageLink(value: String): String? {
+    val raw = value.trim().trimEnd(')', ']', '}', ',', ';', '.', ':', '!', '?')
+    val parsed = runCatching { android.net.Uri.parse(raw) }.getOrNull() ?: return null
+    parsed.scheme?.lowercase()?.let { scheme ->
+        if (scheme == "whappy") return raw
+        if (scheme == "http" || scheme == "https") {
+            val host = parsed.host?.lowercase()
+            if (host == "whappy.chat" || host == "www.whappy.chat") {
+                return raw.replace(Regex("^https?://(?:www\\.)?whappy\\.chat/"), "whappy://")
+            }
+            return raw
+        }
+        return when (scheme) {
+            "mailto", "sms", "tel", "facetime", "whatsapp" -> raw
+            else -> null
+        }
+    }
+    return when {
+        raw.startsWith("www.") -> "https://$raw"
+        raw.contains(".") && !raw.contains(" ") -> "https://$raw"
+        else -> null
+    }
+}
+
+private fun sanitizeMessageRange(start: Int, end: Int, text: String): IntRange {
+    var safeStart = start
+    var safeEnd = end
+    while (safeStart < safeEnd && safeEnd <= text.length && text[safeEnd - 1] in setOf(')', ']', '}', ',', ';', '.', ':', '!', '?')) {
+        safeEnd -= 1
+    }
+    return safeStart until safeEnd
 }
 
 @Composable
@@ -1831,6 +2748,104 @@ private fun MediaMessageRow(icon: androidx.compose.ui.graphics.vector.ImageVecto
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpen).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = if (mine) Color.White else WhappyBlue, modifier = Modifier.size(28.dp))
         Text(label, Modifier.padding(start = 9.dp), color = if (mine) Color.White else WhappyInk, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun ImageZoomViewer(
+    imageSource: String,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var bitmap by remember(imageSource) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var loading by remember(imageSource) { mutableStateOf(true) }
+    var failed by remember(imageSource) { mutableStateOf(false) }
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+    var container by remember { mutableStateOf(IntSize.Zero) }
+
+    LaunchedEffect(imageSource) {
+        loading = true
+        failed = false
+        bitmap = withContext(Dispatchers.IO) {
+            loadImageBitmap(context, imageSource)
+        }
+        loading = false
+        failed = bitmap == null
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .onSizeChanged { container = it },
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                bitmap != null -> {
+                    Image(
+                        bitmap = bitmap!!,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(imageSource, container.width, container.height) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val updatedScale = (scale * zoom).coerceIn(1f, 5f)
+                                    val maxX = max(0f, container.width * (updatedScale - 1f) / 2f)
+                                    val maxY = max(0f, container.height * (updatedScale - 1f) / 2f)
+                                    scale = updatedScale
+                                    offsetX = (offsetX + pan.x).coerceIn(-maxX, maxX)
+                                    offsetY = (offsetY + pan.y).coerceIn(-maxY, maxY)
+                                }
+                            }
+                            .pointerInput(imageSource) {
+                                detectTapGestures(
+                                    onDoubleTap = {
+                                        if (scale > 1.1f) {
+                                            scale = 1f
+                                            offsetX = 0f
+                                            offsetY = 0f
+                                        } else {
+                                            scale = 2.5f
+                                            offsetX = 0f
+                                            offsetY = 0f
+                                        }
+                                    }
+                                )
+                            }
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offsetX
+                                translationY = offsetY
+                            },
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                loading -> CircularProgressIndicator(color = Color.White)
+                failed -> Text("Impossible de charger l’image", color = Color.White, fontWeight = FontWeight.Black)
+            }
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp, end = 8.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f)),
+            ) {
+                Icon(Icons.Rounded.Close, null, tint = Color.White)
+            }
+        }
     }
 }
 
@@ -1869,6 +2884,7 @@ private fun MarketScreen(
     listings: List<WhappyListing>,
     preview: Boolean,
     busy: Boolean,
+    accountDisplayName: String,
     onPublish: (String, String, String, String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -1888,7 +2904,7 @@ private fun MarketScreen(
         }.toMap())
     }
     var orders by remember { mutableStateOf(prefs.getStringSet("market_orders", emptySet()).orEmpty().toList().sortedDescending()) }
-    val products = (localItems + listings).filter { search.isBlank() || "${it.title} ${it.seller} ${it.place}".contains(search, ignoreCase = true) }
+    val products = (localItems + listings).filter { SearchNormalizer.matches(search, it.title, it.seller, it.place) }
 
     fun saveCart(next: Map<String, Int>) {
         cart = next.filterValues { it > 0 }
@@ -1918,7 +2934,7 @@ private fun MarketScreen(
         }
     }
     if (creating) ListingDialog(busy, onDismiss = { creating = false }) { title, price, place, mode ->
-        if (preview) localItems = listOf(WhappyListing("local-${System.currentTimeMillis()}", title, price.ifBlank { "Prix à discuter" }, place.ifBlank { "Brazzaville" }, "Cyril Bokilo", "demo-user", mode)) + localItems
+            if (preview) localItems = listOf(WhappyListing("local-${System.currentTimeMillis()}", title, price.ifBlank { "Prix à discuter" }, place.ifBlank { "Brazzaville" }, accountDisplayName, "demo-user", mode)) + localItems
         else onPublish(title, price, place, mode)
         creating = false
     }
@@ -1970,6 +2986,7 @@ private fun LiveScreen(
     currentUserId: String,
     preview: Boolean,
     busy: Boolean,
+    accountDisplayName: String,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
@@ -2064,7 +3081,7 @@ private fun LiveScreen(
         val createAction = {
             val status = if (startNow) "live" else "scheduled"
             if (startNow) pendingStudioTitle = title
-            if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, "Cyril Bokilo", title, category, product, status, 0, System.currentTimeMillis(), hostMode, visibility)) + localLives
+            if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, accountDisplayName, title, category, product, status, 0, System.currentTimeMillis(), hostMode, visibility)) + localLives
             else onCreateLive(title, category, product, startNow, hostMode, visibility)
         }
         if (startNow) startWithPermissions(createAction) else createAction()
@@ -2465,6 +3482,7 @@ private fun MetricCard(label: String, value: String, modifier: Modifier) {
 @Composable
 private fun ProfileScreen(
     name: String,
+    founder: Boolean,
     phone: String,
     photoUrl: String,
     twinReadiness: Int,
@@ -2484,6 +3502,7 @@ private fun ProfileScreen(
     var messageNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_messages", true)) }
     var callNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_calls", true)) }
     var dataSaver by rememberSaveable { mutableStateOf(prefs.getBoolean("data_saver", false)) }
+    var previewPhoto by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         localPhoto = uri.toString()
@@ -2494,7 +3513,7 @@ private fun ProfileScreen(
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(contentAlignment = Alignment.BottomEnd) {
-                        UserAvatar(localPhoto, name, 92.dp)
+                        UserAvatar(localPhoto, name, 92.dp, modifier = if (localPhoto.isBlank()) Modifier else Modifier.clickable { previewPhoto = localPhoto })
                         IconButton(
                             onClick = { photoPicker.launch("image/*") },
                             enabled = !busy,
@@ -2506,9 +3525,31 @@ private fun ProfileScreen(
                         else Icon(Icons.Rounded.Photo, null, Modifier.size(18.dp))
                         Text(if (busy) " Enregistrement…" else " Changer ma photo", fontWeight = FontWeight.Bold)
                     }
-                    Text(name, Modifier.padding(top = 14.dp), fontSize = 23.sp, fontWeight = FontWeight.Black, color = WhappyDark)
+                    Text(
+                        if (founder) WhappyIdentity.founderBusinessName else name,
+                        Modifier.padding(top = 14.dp),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        color = WhappyDark,
+                    )
+                    if (founder) {
+                        Text(WhappyIdentity.founderName, Modifier.padding(top = 3.dp), color = WhappyMuted, fontSize = 12.sp)
+                    }
                     Text(if (preview) "Mode démonstration" else phone, Modifier.padding(top = 4.dp), color = WhappyMuted)
-                    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.size(17.dp)); Text("Compte WHAPPY vérifié", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    if (founder) {
+                        Row(
+                            Modifier
+                                .padding(top = 10.dp)
+                                .background(Color(0xFFF0F2F4), RoundedCornerShape(999.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.Verified, null, tint = Color(0xFF8F979E), modifier = Modifier.size(14.dp))
+                            Text(WhappyIdentity.founderBadgeLabel, Modifier.padding(start = 6.dp), color = Color(0xFF8F979E), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.size(17.dp)); Text("Compte WHAPPY vérifié", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    }
                     OutlinedButton(onClick = { showingMyCode = true }, Modifier.padding(top = 14.dp), shape = RoundedCornerShape(14.dp)) {
                         Icon(Icons.Rounded.Person, null, modifier = Modifier.size(18.dp))
                         Text("  Mon code WHAPPY", fontWeight = FontWeight.Bold)
@@ -2523,6 +3564,12 @@ private fun ProfileScreen(
             Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
+    }
+    if (previewPhoto != null) {
+        ImageZoomViewer(
+            imageSource = previewPhoto.orEmpty(),
+            onDismiss = { previewPhoto = null },
+        )
     }
     if (showingMyCode) WhappyCodeDialog(name = name, phone = phone, onDismiss = { showingMyCode = false })
     settingDialog?.let { section ->
@@ -2544,8 +3591,10 @@ private fun ProfileScreen(
 
 @Composable
 private fun WhappyCodeDialog(name: String, phone: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     val normalized = remember(phone) { PhoneNumberFormatter.normalize("+242", phone).orEmpty() }
     val qrCode = remember(normalized) { normalized.takeIf { it.isNotBlank() }?.let(::createWhappyQr) }
+    val contactLink = remember(normalized) { normalized.takeIf { it.isNotBlank() }?.let { "https://whappy.chat/contact/${Uri.encode(it)}" }.orEmpty() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Mon code WHAPPY") },
@@ -2559,6 +3608,9 @@ private fun WhappyCodeDialog(name: String, phone: String, onDismiss: () -> Unit)
                         modifier = Modifier.padding(top = 18.dp).size(210.dp).clip(RoundedCornerShape(18.dp)),
                     )
                     Text(normalized, Modifier.padding(top = 11.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
+                    Text(contactLink, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 9.sp)
+                    OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Mon lien WHAPPY", contactLink)) }, Modifier.fillMaxWidth().padding(top = 12.dp), shape = RoundedCornerShape(13.dp)) { Text("Copier mon lien") }
+                    Button(onClick = { shareWhappyLink(context, "Contact WHAPPY", contactLink) }, Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(13.dp)) { Icon(Icons.Rounded.Share, null); Text("  Partager mon contact") }
                 } else {
                     Text("Votre numéro sécurisé sera disponible ici dès que votre profil sera synchronisé.", Modifier.padding(top = 16.dp), color = WhappyMuted)
                 }
@@ -2566,6 +3618,12 @@ private fun WhappyCodeDialog(name: String, phone: String, onDismiss: () -> Unit)
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Terminé") } },
     )
+}
+
+private fun shareWhappyLink(context: Context, title: String, link: String) {
+    val appLink = link.replace("https://whappy.chat/", "whappy://")
+    val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_SUBJECT, title); putExtra(Intent.EXTRA_TEXT, "$title\n$appLink\n$link") }
+    context.startActivity(Intent.createChooser(intent, "Partager avec…"))
 }
 
 private fun createWhappyQr(phone: String): Bitmap = QRCodeWriter().encode(
@@ -2594,12 +3652,38 @@ private fun createWhappyPayloadQr(payload: String): Bitmap = QRCodeWriter().enco
     }
 }
 
-private fun phoneFromWhappyCode(value: String): String? {
-    val raw = value.trim()
-        .removePrefix("whappy://contact/")
-        .removePrefix("WHAPPY:CONTACT:")
-        .removePrefix("whappy:contact:")
-    return PhoneNumberFormatter.normalize("+242", raw)
+private suspend fun decodeQrFromImage(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
+    try {
+        val bitmap = context.contentResolver.openInputStream(uri)?.use { stream -> BitmapFactory.decodeStream(stream) }
+            ?: return@withContext null
+        try {
+            if (bitmap.width <= 0 || bitmap.height <= 0) return@withContext null
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            MultiFormatReader().decode(
+                BinaryBitmap(HybridBinarizer(RGBLuminanceSource(bitmap.width, bitmap.height, pixels)))
+            ).text
+        } finally {
+            bitmap.recycle()
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun loadImageBitmap(context: Context, source: String): androidx.compose.ui.graphics.ImageBitmap? {
+    if (source.isBlank()) return null
+    val bytes = when {
+        source.startsWith("http://") || source.startsWith("https://") -> runCatching { URL(source).openStream().use { it.readBytes() } }.getOrNull()
+        source.startsWith("content://") || source.startsWith("file://") -> context.contentResolver.openInputStream(Uri.parse(source))?.use { it.readBytes() }
+        else -> runCatching { File(source).takeIf { it.exists() }?.readBytes() }.getOrNull()
+    } ?: return null
+    val decoded = if (Build.VERSION.SDK_INT >= 28) {
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, _, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    } else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    return decoded?.asImageBitmap()
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -2615,21 +3699,7 @@ private fun UserAvatar(photoUrl: String, name: String, size: Dp, modifier: Modif
     LaunchedEffect(photoUrl) {
         if (photoUrl.isBlank()) return@LaunchedEffect
         AvatarMemoryCache.items[photoUrl]?.let { cached -> bitmap = cached; return@LaunchedEffect }
-        val loaded = withContext(Dispatchers.IO) {
-            runCatching {
-                val bytes = if (photoUrl.startsWith("http://") || photoUrl.startsWith("https://")) {
-                    URL(photoUrl).openStream().use { it.readBytes() }
-                } else {
-                    context.contentResolver.openInputStream(Uri.parse(photoUrl))?.use { it.readBytes() }
-                } ?: return@runCatching null
-                val decoded = if (Build.VERSION.SDK_INT >= 28) {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, _, _ ->
-                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                    }
-                } else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                decoded?.asImageBitmap()
-            }.getOrNull()
-        }
+        val loaded = withContext(Dispatchers.IO) { runCatching { loadImageBitmap(context, photoUrl) }.getOrNull() }
         if (loaded != null) {
             AvatarMemoryCache.items[photoUrl] = loaded
             bitmap = loaded
@@ -2647,10 +3717,15 @@ private object AvatarMemoryCache {
 
 @Composable
 private fun EmptyState(title: String, body: String) {
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(74.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFFE1F3FB)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ChatBubble, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
-        Text(title, Modifier.padding(top = 16.dp), fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark)
-        Text(body, Modifier.padding(top = 7.dp), color = WhappyMuted, lineHeight = 20.sp)
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(74.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFFE1F3FB)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ChatBubble, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
+                Text(title, Modifier.padding(top = 7.dp), fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark, textAlign = TextAlign.Center)
+                Text(body, color = WhappyMuted, lineHeight = 20.sp, textAlign = TextAlign.Center)
+                Text("WHAPPY · votre espace est prêt", Modifier.padding(top = 7.dp), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            }
+        }
     }
 }
 

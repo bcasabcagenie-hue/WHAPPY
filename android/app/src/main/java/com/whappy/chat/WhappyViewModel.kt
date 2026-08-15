@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,8 @@ class WhappyViewModel(
     private var conversationsListener: ListenerRegistration? = null
     private var contactsListener: ListenerRegistration? = null
     private var messagesListener: ListenerRegistration? = null
+    private var channelsListener: ListenerRegistration? = null
+    private var channelPostsListener: ListenerRegistration? = null
     private var listingsListener: ListenerRegistration? = null
     private var businessListener: ListenerRegistration? = null
     private var campaignsListener: ListenerRegistration? = null
@@ -31,6 +34,7 @@ class WhappyViewModel(
     private var twinAutomationsListener: ListenerRegistration? = null
     private var twinRendersListener: ListenerRegistration? = null
     private var contactSearchRequest = 0
+    private var pendingChannelId: String? = null
     private var typingState = false
     private val authListener = FirebaseAuth.AuthStateListener { refreshSession(it.currentUser) }
 
@@ -40,16 +44,20 @@ class WhappyViewModel(
 
     fun selectTab(tab: WhappyTab) {
         stopTyping()
-        _uiState.update { it.copy(tab = tab, selectedConversation = null, messages = emptyList(), error = null) }
+        _uiState.update { it.copy(tab = tab, selectedConversation = null, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), error = null) }
         messagesListener?.remove()
         messagesListener = null
+        channelPostsListener?.remove()
+        channelPostsListener = null
     }
 
     fun openConversation(conversation: WhappyConversation) {
         val user = _uiState.value.user ?: return
         stopTyping()
+        channelPostsListener?.remove()
+        channelPostsListener = null
         messagesListener?.remove()
-        _uiState.update { it.copy(selectedConversation = conversation, messages = emptyList(), loading = true, error = null) }
+        _uiState.update { it.copy(selectedConversation = conversation, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), loading = true, error = null) }
         messagesListener = repository.observeMessages(
             conversation.id,
             onChange = { messages ->
@@ -65,6 +73,74 @@ class WhappyViewModel(
         messagesListener?.remove()
         messagesListener = null
         _uiState.update { it.copy(selectedConversation = null, messages = emptyList(), error = null) }
+    }
+
+    fun openChannel(channel: WhappyChannel) {
+        stopTyping()
+        messagesListener?.remove()
+        messagesListener = null
+        channelPostsListener?.remove()
+        _uiState.update { it.copy(selectedConversation = null, messages = emptyList(), selectedChannel = channel, channelPosts = emptyList(), loading = true, error = null) }
+        channelPostsListener = repository.observeChannelPosts(
+            channel.id,
+            onChange = { posts -> _uiState.update { it.copy(channelPosts = posts, loading = false, online = true) } },
+            onError = { _uiState.update { it.copy(loading = false, online = false, error = "Les publications de cette chaîne sont indisponibles") } },
+        )
+    }
+
+    fun closeChannel() {
+        channelPostsListener?.remove()
+        channelPostsListener = null
+        _uiState.update { it.copy(selectedChannel = null, channelPosts = emptyList(), error = null) }
+    }
+
+    fun createChannel(name: String, description: String, category: String) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.createChannel(user.uid, accountName(), name, description, category) }
+                .onSuccess { _uiState.update { it.copy(actionBusy = false, online = true) } }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La chaîne n’a pas pu être créée") } }
+        }
+    }
+
+    fun setChannelSubscription(channelId: String, subscribed: Boolean) {
+        val user = _uiState.value.user ?: return
+        viewModelScope.launch {
+            runCatching { repository.setChannelSubscription(channelId, user.uid, subscribed) }
+                .onFailure { _uiState.update { it.copy(error = "L’abonnement n’a pas pu être mis à jour") } }
+        }
+    }
+
+    fun publishChannelPost(text: String) {
+        val state = _uiState.value
+        val user = state.user ?: return
+        val channel = state.selectedChannel ?: return
+        if (channel.ownerId != user.uid || text.isBlank() || state.sending) return
+        _uiState.update { it.copy(sending = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.publishChannelPost(channel.id, user.uid, accountName(), text) }
+                .onSuccess { _uiState.update { it.copy(sending = false, online = true) } }
+                .onFailure { _uiState.update { it.copy(sending = false, error = "La publication n’a pas été envoyée") } }
+        }
+    }
+
+    fun reactToChannelPost(postId: String, emoji: String) {
+        val state = _uiState.value
+        val user = state.user ?: return
+        val channel = state.selectedChannel ?: return
+        viewModelScope.launch { runCatching { repository.reactToChannelPost(channel.id, postId, user.uid, emoji) }.onFailure { _uiState.update { it.copy(error = "La réaction n’a pas été enregistrée") } } }
+    }
+
+    fun pinChannelPost(postId: String, pinned: Boolean) {
+        val channel = _uiState.value.selectedChannel ?: return
+        viewModelScope.launch { runCatching { repository.pinChannelPost(channel.id, postId, pinned) }.onFailure { _uiState.update { it.copy(error = "L’épinglage a échoué") } } }
+    }
+
+    fun deleteChannelPost(postId: String) {
+        val channel = _uiState.value.selectedChannel ?: return
+        viewModelScope.launch { runCatching { repository.deleteChannelPost(channel.id, postId) }.onFailure { _uiState.update { it.copy(error = "La publication n’a pas pu être supprimée") } } }
     }
 
     fun sendMessage(text: String, replyToId: String = "", replyText: String = "") {
@@ -146,12 +222,12 @@ class WhappyViewModel(
     fun searchContact(phone: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.contactBusy) return
-        val normalizedPhone = PhoneNumberFormatter.normalize("+242", phone)
+        val normalizedPhone = PhoneNumberFormatter.normalizeAny(phone)
         if (normalizedPhone == null) {
             _uiState.update {
                 it.copy(
                     contactSearchResult = null,
-                    contactSearchPhone = "",
+                    contactSearchPhone = phone,
                     contactSearchMessage = "Saisissez un numéro complet, par exemple +242 06 123 45 67.",
                 )
             }
@@ -188,9 +264,21 @@ class WhappyViewModel(
                 val message = when (failure.message) {
                     "not-found" -> "Aucun compte WHAPPY trouvé. Vérifiez le numéro ou demandez à la personne d’ouvrir WHAPPY une première fois."
                     "self" -> "C’est votre propre numéro WHAPPY"
-                    else -> "La recherche du contact a échoué"
+                    else -> when ((failure as? FirebaseFirestoreException)?.code) {
+                        FirebaseFirestoreException.Code.UNAVAILABLE -> "Connexion indisponible. Vérifiez Internet puis relancez la recherche."
+                        FirebaseFirestoreException.Code.PERMISSION_DENIED -> "La recherche est bloquée par les règles de sécurité. Mettez WHAPPY à jour puis réessayez."
+                        else -> "La recherche n’a pas abouti. Vérifiez le numéro au format international puis réessayez."
+                    }
                 }
-                _uiState.update { it.copy(contactBusy = false, contactSearchResult = null, contactSearchMessage = message) }
+                _uiState.update {
+                    it.copy(
+                        contactBusy = false,
+                        contactSearchResult = null,
+                        contactSearchPhone = normalizedPhone,
+                        contactSearchMessage = message,
+                        online = failure !is FirebaseFirestoreException || failure.code != FirebaseFirestoreException.Code.UNAVAILABLE,
+                    )
+                }
             }
         }
     }
@@ -200,32 +288,89 @@ class WhappyViewModel(
         _uiState.update { it.copy(contactSearchResult = null, contactSearchPhone = "", contactSearchMessage = null) }
     }
 
+    fun handleDeepLink(value: String) {
+        when (val link = WhappyLink.parse(value)) {
+            is WhappyLink.Contact -> {
+                selectTab(WhappyTab.CONTACTS)
+                searchContact(link.phone)
+            }
+            is WhappyLink.Channel -> {
+                selectTab(WhappyTab.MESSAGES)
+                val channel = _uiState.value.channels.firstOrNull { it.id == link.id }
+                if (channel != null) openChannel(channel) else pendingChannelId = link.id
+            }
+            is WhappyLink.Search -> {
+                selectTab(WhappyTab.MESSAGES)
+                _uiState.update { it.copy(discoveryQuery = link.query) }
+            }
+            null -> _uiState.update { it.copy(error = "Ce lien WHAPPY n’est pas valide ou a expiré") }
+        }
+    }
+
     fun addSearchedContact() {
         val state = _uiState.value
         val user = state.user ?: return
         val peer = state.contactSearchResult ?: return
         if (state.contactBusy) return
+
+        val current = WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty())
+        if (state.contacts.any { it.member.uid == peer.uid }) {
+            _uiState.update {
+                it.copy(
+                    contactBusy = true,
+                    contactSearchMessage = "Ce contact existe déjà. Ouverture de la discussion…",
+                    error = null,
+                )
+            }
+            viewModelScope.launch {
+                runCatching {
+                    repository.ensureDirectConversation(current, peer)
+                }.onSuccess { conversation ->
+                    _uiState.update {
+                        it.copy(
+                            contactBusy = false,
+                            contactSearchResult = null,
+                            contactSearchPhone = "",
+                            contactSearchMessage = null,
+                            online = true,
+                        )
+                    }
+                    openConversation(conversation)
+                }.onFailure {
+                    _uiState.update {
+                        it.copy(
+                            contactBusy = false,
+                            contactSearchMessage = "Le contact existe déjà. Impossible d’ouvrir la discussion pour le moment.",
+                        )
+                    }
+                }
+            }
+            return
+        }
+
         _uiState.update { it.copy(contactBusy = true, contactSearchMessage = null, error = null) }
         viewModelScope.launch {
             runCatching {
-                repository.addContactAndEnsureConversation(
-                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
-                    peer,
-                )
+                repository.addContactAndEnsureConversation(current, peer)
             }.onSuccess { conversation ->
                 _uiState.update {
                     it.copy(
                         contactBusy = false,
                         contactSearchResult = null,
                         contactSearchPhone = "",
-                        contactSearchMessage = null,
+                        contactSearchMessage = "Contact ajouté avec succès. Ouverture de la conversation…",
                         online = true,
                     )
                 }
                 openConversation(conversation)
-            }.onFailure {
-                _uiState.update { it.copy(contactBusy = false, contactSearchMessage = "Le contact n’a pas pu être ajouté. Réessayez dans un instant.") }
-            }
+                }.onFailure { failure ->
+                    val message = when ((failure as? FirebaseFirestoreException)?.code) {
+                        FirebaseFirestoreException.Code.UNAVAILABLE -> "Connexion indisponible. Le contact n’a pas été perdu : relancez l’ajout."
+                        FirebaseFirestoreException.Code.PERMISSION_DENIED -> "Ajout refusé par la sécurité. Vérifiez votre session puis réessayez."
+                        else -> "Le contact n’a pas pu être ajouté. Vérifiez Internet puis réessayez."
+                    }
+                    _uiState.update { it.copy(contactBusy = false, contactSearchMessage = message, online = failure !is FirebaseFirestoreException || failure.code != FirebaseFirestoreException.Code.UNAVAILABLE) }
+                }
         }
     }
 
@@ -441,6 +586,8 @@ class WhappyViewModel(
         conversationsListener?.remove()
         contactsListener?.remove()
         messagesListener?.remove()
+        channelsListener?.remove()
+        channelPostsListener?.remove()
         listingsListener?.remove()
         businessListener?.remove()
         campaignsListener?.remove()
@@ -453,6 +600,8 @@ class WhappyViewModel(
         conversationsListener = null
         contactsListener = null
         messagesListener = null
+        channelsListener = null
+        channelPostsListener = null
         listingsListener = null
         businessListener = null
         campaignsListener = null
@@ -472,6 +621,13 @@ class WhappyViewModel(
             user.uid,
             onChange = { conversations -> _uiState.update { current -> current.copy(conversations = conversations, selectedConversation = current.selectedConversation?.let { selected -> conversations.firstOrNull { it.id == selected.id } ?: selected }, loading = false, online = true) } },
             onError = { _uiState.update { it.copy(loading = false, online = false, error = "Synchronisation momentanément indisponible") } },
+        )
+        channelsListener = repository.observeChannels(
+            onChange = { channels ->
+                _uiState.update { current -> current.copy(channels = channels, selectedChannel = current.selectedChannel?.let { selected -> channels.firstOrNull { it.id == selected.id } ?: selected }, online = true) }
+                pendingChannelId?.let { id -> channels.firstOrNull { it.id == id }?.let { channel -> pendingChannelId = null; openChannel(channel) } }
+            },
+            onError = { _uiState.update { it.copy(online = false, error = "Les chaînes sont momentanément indisponibles") } },
         )
         contactsListener = repository.observeContacts(
             user.uid,
@@ -543,13 +699,18 @@ class WhappyViewModel(
         }
     }
 
-    private fun accountName(): String = _uiState.value.accountDisplayName.ifBlank { "Utilisateur WHAPPY" }
+    private fun accountName(): String = _uiState.value.accountDisplayName.ifBlank {
+        val phone = _uiState.value.user?.phoneNumber.orEmpty()
+        if (WhappyIdentity.isFounder(phone)) WhappyIdentity.founderName else "Utilisateur WHAPPY"
+    }
 
     override fun onCleared() {
         FirebaseAuth.getInstance().removeAuthStateListener(authListener)
         conversationsListener?.remove()
         contactsListener?.remove()
         messagesListener?.remove()
+        channelsListener?.remove()
+        channelPostsListener?.remove()
         listingsListener?.remove()
         businessListener?.remove()
         campaignsListener?.remove()

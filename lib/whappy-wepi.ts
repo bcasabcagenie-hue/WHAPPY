@@ -1,5 +1,6 @@
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import type { WhappyRoom, WhappyRoomPost } from "@/lib/whappy-rooms";
 import type { CloudMessage } from "@/lib/whappy-data";
 
 export type WepiTone = "chaleureux" | "expert" | "direct";
@@ -13,6 +14,15 @@ export type WepiSettings = {
   tone: WepiTone;
   welcomeMessage: string;
   instructions: string;
+  updatedAt?: { toDate?: () => Date } | null;
+};
+
+export type WepiRoomPilotSettings = {
+  roomId: string;
+  ownerId: string;
+  enabled: boolean;
+  autoModeration: boolean;
+  announcementAssist: boolean;
   updatedAt?: { toDate?: () => Date } | null;
 };
 
@@ -60,4 +70,42 @@ export function buildWepiReply(message: Pick<CloudMessage, "text">, settings: We
     return `Merci${name}, votre demande concernant ${business} est bien reçue. Je vérifie la disponibilité et nous revenons vers vous rapidement. ${tone}`;
   }
   return `${greeting}${name} Votre message est bien reçu par ${business}. ${settings.instructions.trim() || "Je transmets votre demande à l’équipe."} Un membre de l’équipe peut prendre le relais si votre demande nécessite une vérification.`;
+}
+
+export const defaultWepiRoomPilot = (roomId: string, ownerId: string): WepiRoomPilotSettings => ({
+  roomId,
+  ownerId,
+  enabled: false,
+  autoModeration: true,
+  announcementAssist: true,
+});
+
+export function watchWepiRoomPilot(roomId: string, ownerId: string, onSettings: (settings: WepiRoomPilotSettings) => void, onError: () => void) {
+  return onSnapshot(doc(db, "channels", roomId, "pilot", "wepi"), (snapshot) => {
+    onSettings(snapshot.exists() ? ({ ...defaultWepiRoomPilot(roomId, ownerId), ...snapshot.data(), roomId, ownerId } as WepiRoomPilotSettings) : defaultWepiRoomPilot(roomId, ownerId));
+  }, onError);
+}
+
+export async function saveWepiRoomPilot(settings: WepiRoomPilotSettings) {
+  await setDoc(doc(db, "channels", settings.roomId, "pilot", "wepi"), {
+    roomId: settings.roomId,
+    ownerId: settings.ownerId,
+    enabled: settings.enabled,
+    autoModeration: settings.autoModeration,
+    announcementAssist: settings.announcementAssist,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export function buildWepiRoomSuggestion(room: Pick<WhappyRoom, "category" | "name" | "memberCount">, posts: WhappyRoomPost[]) {
+  const pinned = posts.filter((post) => post.pinned).length;
+  const ideas: Record<WhappyRoom["category"], string> = {
+    prayer: `Préparer un rappel bienveillant pour le prochain temps de prière de « ${room.name} » et inviter les membres à partager leurs intentions en privé.`,
+    technology: `Lancer un sujet concret dans « ${room.name} » : demander à la communauté de partager un outil, une ressource ou une solution locale cette semaine.`,
+    education: `Publier un mini-défi d’apprentissage dans « ${room.name} » et proposer aux membres de revenir avec leur résultat dans 48 heures.`,
+    business: `Annoncer une rencontre ou une opportunité vérifiable dans « ${room.name} », avec une date, un lieu et une action claire pour les membres.`,
+    culture: `Mettre en avant un talent de la communauté dans « ${room.name} » et inviter les membres à recommander une création à découvrir.`,
+    solidarity: `Identifier un besoin concret dans « ${room.name} », préciser comment aider et rappeler de protéger les informations personnelles.`,
+  };
+  return `${ideas[room.category]} ${posts.length ? `La salle compte ${posts.length} publication${posts.length > 1 ? "s" : ""} récente${posts.length > 1 ? "s" : ""} et ${pinned} information${pinned > 1 ? "s" : ""} épinglée${pinned > 1 ? "s" : ""}.` : `Elle compte déjà ${room.memberCount} membre${room.memberCount > 1 ? "s" : ""} : c’est le bon moment pour lancer le premier rendez-vous.`}`;
 }

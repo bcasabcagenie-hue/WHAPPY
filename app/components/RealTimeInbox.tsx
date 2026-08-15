@@ -22,6 +22,7 @@ import {
   type CloudMessage,
   type DirectMember,
 } from "@/lib/whappy-data";
+import { buildWepiReply, watchWepiSettings, type WepiSettings } from "@/lib/whappy-wepi";
 
 type RealTimeInboxProps = {
   user: DirectMember | null;
@@ -33,6 +34,7 @@ type RealTimeInboxProps = {
   composePeer?: DirectMember | null;
   search?: string;
   initialView?: "messages" | "calls";
+  founder?: boolean;
 };
 
 function timestampMillis(value: { toDate?: () => Date } | null | undefined) {
@@ -43,8 +45,42 @@ function messageTime(value: { toDate?: () => Date } | null | undefined) {
   return value?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "À l’instant";
 }
 
+function normalizePhone(value = "") {
+  return value.replace(/\D/g, "");
+}
+
+function isHappyFounderPhone(value?: string | null) {
+  return normalizePhone(value || "") === "242065465808";
+}
+
+function formatLastSeenLabel(value: { toDate?: () => Date } | null | undefined) {
+  const time = messageTime(value);
+  return time === "À l’instant" ? "" : `à ${time}`;
+}
+
+function buildDirectPresenceLine(person: DirectMember | null | undefined, lastSeenAt: { toDate?: () => Date } | null | undefined, isTyping: boolean, isOnline: boolean, isRead: boolean) {
+  const seenLabel = formatLastSeenLabel(lastSeenAt);
+  if (!person) return "";
+  if (isTyping) return "● En ligne · écrit en ce moment…";
+  const status = isOnline ? "● En ligne" : "○ Hors ligne";
+  if (!seenLabel) return `${status} · ${isRead ? "Vu" : "vu récemment"}`;
+  return `${status} · ${isRead ? `Vu ${seenLabel}` : `vu ${seenLabel}`}`;
+}
+
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "WH";
+}
+
+function firstHttpUrl(value: string) {
+  const match = value.match(/https?:\/\/[^\s<]+/i)?.[0]?.replace(/[),.;!?]+$/, "");
+  if (!match) return "";
+  try { return new URL(match).protocol === "https:" || new URL(match).protocol === "http:" ? match : ""; }
+  catch { return ""; }
+}
+
+function linkHost(value: string) {
+  try { return new URL(value).hostname.replace(/^www\./, ""); }
+  catch { return "Lien partagé"; }
 }
 
 function callPeer(call: CallSignal, userId: string): DirectMember {
@@ -59,7 +95,7 @@ function callLabel(call: CallSignal, userId: string) {
   return call.calleeId === userId ? "Manqué" : "Annulé";
 }
 
-export function RealTimeInbox({ user, onCall, notify, embedded = false, composeToken = 0, composePhone = "", composePeer = null, search = "", initialView = "messages" }: RealTimeInboxProps) {
+export function RealTimeInbox({ user, onCall, notify, embedded = false, composeToken = 0, composePhone = "", composePeer = null, search = "", initialView = "messages", founder }: RealTimeInboxProps) {
   const [open, setOpen] = useState(embedded);
   const [view, setView] = useState<"messages" | "calls">(composeToken ? "messages" : initialView);
   const [conversations, setConversations] = useState<CloudConversation[]>([]);
@@ -84,13 +120,15 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoZoom, setPhotoZoom] = useState(1);
   const [photoViewOnceId, setPhotoViewOnceId] = useState("");
+  const [videoViewOnce, setVideoViewOnce] = useState<{ id: string; src: string } | null>(null);
+  const [hdMedia, setHdMedia] = useState(true);
   const typingTimer = useRef<number | null>(null);
   const typingConversation = useRef("");
   const messagesEnd = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const openPhoneRef = useRef<(phone: string) => Promise<void>>(async () => undefined);
   const openPeerRef = useRef<(peer: DirectMember) => Promise<void>>(async () => undefined);
-  const imageInput = useRef<HTMLInputElement>(null);
+  const mediaInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const recorderStream = useRef<MediaStream | null>(null);
   const recordingTimer = useRef<number | null>(null);
@@ -99,12 +137,21 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const notifyRef = useRef(notify);
   const openRef = useRef(open);
   const userId = user?.uid;
+  const [wepiSettings, setWepiSettings] = useState<WepiSettings | null>(null);
+  const wepiHandledRef = useRef(new Set<string>());
+  const wepiReadyRef = useRef(false);
+  const wepiConversationRef = useRef("");
+  const itemsConversationRef = useRef("");
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
   useEffect(() => { openRef.current = open; }, [open]);
   useEffect(() => {
     if (!userId) return;
     return watchDirectConversations(userId, setConversations, () => notifyRef.current("Messagerie directe momentanément hors ligne"));
+  }, [userId]);
+  useEffect(() => {
+    if (!userId) return;
+    return watchWepiSettings(userId, setWepiSettings, () => notifyRef.current("WEPI est momentanément indisponible"));
   }, [userId]);
   useEffect(() => {
     if (!userId) return;
@@ -115,18 +162,63 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const currentId = current?.id;
   const peer = useMemo(() => current?.members.find((member) => member.uid !== userId) || null, [current, userId]);
   const searchValue = search.trim().toLowerCase();
-  const visibleConversations = useMemo(() => conversations.filter((conversation) => !searchValue || conversation.members.some((member) => `${member.displayName} ${member.phoneNumber}`.toLowerCase().includes(searchValue))), [conversations, searchValue]);
+  const visibleConversations = useMemo(() => {
+    const query = conversations
+      .filter((conversation) => !searchValue || conversation.members.some((member) => `${member.displayName} ${member.phoneNumber}`.toLowerCase().includes(searchValue)))
+      .map((conversation) => {
+        const person = conversation.members.find((member) => member.uid !== userId);
+        const updatedAt = timestampMillis(conversation.updatedAt);
+        return {
+          conversation,
+          personName: person?.displayName || "",
+          unread: updatedAt > timestampMillis(conversation.readBy?.[userId || ""]),
+          updatedAt,
+        };
+      })
+      .sort((left, right) => {
+        if (left.unread !== right.unread) return left.unread ? -1 : 1;
+        if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
+        return left.personName.localeCompare(right.personName, "fr", { sensitivity: "base" });
+      });
+    return query;
+  }, [conversations, searchValue, userId]);
   const visibleCalls = useMemo(() => calls.filter((call) => !searchValue || `${call.callerName} ${call.calleeName}`.toLowerCase().includes(searchValue)), [calls, searchValue]);
 
   useEffect(() => {
     if (!currentId || !userId) return;
+    const subscribedConversationId = currentId;
     return watchDirectMessages(currentId, (messages) => {
+      itemsConversationRef.current = subscribedConversationId;
       const now = Date.now();
       setItems(messages.filter((message) => (message.expiresAt?.toDate?.()?.getTime() || now + 1) > now));
       void purgeExpiredDirectMessages(currentId, messages);
       if (openRef.current) void markDirectConversationRead(currentId, userId);
     }, () => notifyRef.current("Messages momentanément hors ligne"));
   }, [currentId, userId]);
+
+  useEffect(() => {
+    if (wepiConversationRef.current === currentId) return;
+    wepiConversationRef.current = currentId || "";
+    wepiReadyRef.current = false;
+  }, [currentId]);
+
+  useEffect(() => {
+    if (!currentId || itemsConversationRef.current !== currentId || !userId || !wepiSettings?.enabled || !wepiSettings.autoReply || !items.length) return;
+    if (!wepiReadyRef.current) {
+      items.forEach((message) => wepiHandledRef.current.add(message.id));
+      wepiReadyRef.current = true;
+      return;
+    }
+    const latest = items[items.length - 1];
+    if (!latest || latest.senderId === userId || wepiHandledRef.current.has(latest.id)) return;
+    wepiHandledRef.current.add(latest.id);
+    const reply = buildWepiReply(latest, wepiSettings, peer?.displayName);
+    void sendDirectMessage(currentId, userId, reply, current?.ephemeralSeconds === 86400 || current?.ephemeralSeconds === 604800 ? current.ephemeralSeconds : 0)
+      .catch(() => {
+        wepiHandledRef.current.delete(latest.id);
+        notifyRef.current("WEPI n’a pas pu envoyer sa réponse");
+      });
+  }, [current, currentId, items, peer?.displayName, userId, wepiSettings]);
 
   useEffect(() => {
     if (!currentId || !userId) return;
@@ -146,6 +238,8 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       setMessageTranslations({});
       setViewedOnceIds({});
       setOpenedViewOnceIds({});
+      setVideoViewOnce(null);
+      setViewOnceMode(false);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [currentId, current?.ephemeralSeconds]);
@@ -202,23 +296,30 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     setRecording(false);
   }
 
-  async function uploadAttachment(file: File, kind: "image" | "audio" | "video", duration = 0, conversationId = currentId, effect = "", caption = "", viewOnceValue = viewOnceMode) {
+  async function uploadAttachment(file: File, kind: "image" | "audio" | "video", duration = 0, conversationId = currentId, effect = "", caption = "", viewOnceValue = viewOnceMode, quality: "standard" | "hd" = hdMedia ? "hd" : "standard") {
     if (!conversationId || !userId || busy) return;
     setBusy(true);
     try {
-      await sendDirectAttachment(conversationId, userId, file, kind, duration, effect, caption, ephemeralSeconds, viewOnceValue);
+      await sendDirectAttachment(conversationId, userId, file, kind, duration, effect, caption, ephemeralSeconds, viewOnceValue, quality);
       notify(kind === "image" ? (viewOnceValue ? "Photo à vue unique envoyée" : "Image envoyée") : kind === "video" ? (viewOnceValue ? "Vidéo à vue unique envoyée" : "Vidéo WHAPPY envoyée") : "Message vocal envoyé");
-    } catch {
-      notify(kind === "image" ? "L’image n’a pas pu être envoyée" : kind === "video" ? "La vidéo n’a pas pu être envoyée" : "Le message vocal n’a pas pu être envoyé");
+    } catch (error) {
+      if (error instanceof Error && error.message === "media-too-large") {
+        notify(kind === "video" ? "La vidéo doit peser moins de 60 Mo" : "L’image doit peser moins de 20 Mo");
+      } else {
+        notify(kind === "image" ? "L’image n’a pas pu être envoyée" : kind === "video" ? "La vidéo n’a pas pu être envoyée" : "Le message vocal n’a pas pu être envoyé");
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  async function chooseImage(event: ChangeEvent<HTMLInputElement>) {
+  async function chooseMedia(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) await uploadAttachment(file, "image");
+    if (!file) return;
+    if (file.type.startsWith("image/")) await uploadAttachment(file, "image");
+    else if (file.type.startsWith("video/")) await uploadAttachment(file, "video");
+    else notify("Choisissez une image ou une vidéo");
   }
 
   async function startRecording() {
@@ -312,15 +413,26 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     }
   }
 
+  function closeViewOnceVideo(messageId = videoViewOnce?.id) {
+    if (!messageId) return;
+    setVideoViewOnce((current) => current?.id === messageId ? null : current);
+    setOpenedViewOnceIds((current) => {
+      const next = { ...current };
+      delete next[messageId];
+      return next;
+    });
+  }
+
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!current || !user || !text.trim() || busy) return;
     const value = text.trim();
+    const linkUrl = firstHttpUrl(value);
     setText("");
     stopTyping(current.id);
     setBusy(true);
     try {
-      await sendDirectMessage(current.id, user.uid, value, ephemeralSeconds);
+      await sendDirectMessage(current.id, user.uid, value, ephemeralSeconds, linkUrl);
     } catch {
       setText(value);
       notify("Le message n’a pas été envoyé");
@@ -372,12 +484,17 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       setPhotoPreview(message.mediaUrl);
       setPhotoZoom(1);
       setPhotoViewOnceId(message.id);
+    } else if (message.kind === "video" && message.mediaUrl) {
+      setVideoViewOnce({ id: message.id, src: message.mediaUrl });
     }
     try {
       await markDirectMessageViewed(currentId, message.id, userId);
     } catch {
       setViewedOnceIds((current) => { const next = { ...current }; delete next[message.id]; return next; });
       setOpenedViewOnceIds((current) => { const next = { ...current }; delete next[message.id]; return next; });
+      setPhotoPreview("");
+      setPhotoViewOnceId("");
+      closeViewOnceVideo(message.id);
       notify("Ce média à vue unique n’a pas pu être ouvert");
     }
   }
@@ -413,19 +530,26 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     </button>}
     {(embedded || open) && <div className={`realtime-layer ${embedded ? "embedded" : ""}`} role={embedded ? undefined : "dialog"} aria-modal={embedded ? undefined : true} aria-label="Whappy Direct">
       <section className={`realtime-panel ${embedded ? "embedded" : ""}`}>
-        <aside>
+        <aside className="realtime-inbox-list realtime-motion-mode-3">
           <header><div><small>WHAPPY DIRECT</small><strong>Communications</strong></div><button onClick={() => setAdding(true)} aria-label="Nouvelle conversation">＋</button></header>
           <nav className="direct-tabs" aria-label="Sections Whappy Direct">
             <button className={view === "messages" ? "active" : ""} onClick={() => setView("messages")}>◫ Discussions</button>
             <button className={view === "calls" ? "active" : ""} onClick={() => setView("calls")}>☎ Appels <b>{calls.length}</b></button>
           </nav>
           {view === "messages" ? <>
-            {visibleConversations.map((conversation) => {
+            {visibleConversations.map(({ conversation, unread }) => {
               const person = conversation.members.find((member) => member.uid !== user.uid);
-              const unread = timestampMillis(conversation.updatedAt) > timestampMillis(conversation.readBy?.[user.uid]);
+              const personIsFounder = isHappyFounderPhone(person?.phoneNumber);
+              const personOnline = Boolean(person && timestampMillis(conversation.presenceBy?.[person.uid]) > presenceTick - 90_000);
+              const personSeen = Boolean(person && timestampMillis(conversation.readBy?.[person.uid]) >= timestampMillis(conversation.updatedAt));
+              const presenceLine = buildDirectPresenceLine(person, person?.uid ? conversation.presenceBy?.[person.uid] : null, Boolean(person && conversation.typingBy?.[person.uid]), personOnline, personSeen);
               return <button className={current?.id === conversation.id ? "active" : ""} key={conversation.id} onClick={() => { stopTyping(); stopRecording(true); setSelected(conversation.id); }}>
                 <span>{initials(person?.displayName || "Whappy")}</span>
-                <div><strong>{person?.displayName || "Contact Whappy"}</strong><small>{conversation.typingBy?.[person?.uid || ""] ? "écrit…" : conversation.lastMessage || person?.phoneNumber}</small></div>
+                <div>
+                  <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{personIsFounder ? <><i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i><em className="conversation-founder-role">Fondateur</em></> : null}</strong>
+                  <small>{conversation.typingBy?.[person?.uid || ""] ? "écrit…" : conversation.lastMessage || person?.phoneNumber}</small>
+                  <small className="conversation-meta">{presenceLine || "• Chargement des infos..."}</small>
+                </div>
                 <i className={unread ? "unread" : ""}>{unread ? "●" : ""}</i>
               </button>;
             })}
@@ -456,10 +580,15 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             {!visibleCalls.length && <div className="call-history-empty"><span>☎</span><h3>{searchValue ? "Aucun appel trouvé" : "Aucun appel pour le moment"}</h3><p>{searchValue ? "Modifiez votre recherche pour retrouver un contact." : "Ouvrez une discussion et lancez votre premier appel Whappy."}</p><button onClick={() => setView("messages")}>Voir les discussions</button></div>}
           </div>
         </> : current && peer ? <>
-          <header>
-            <span>{initials(peer.displayName)}</span><div><strong>{peer.displayName}</strong><small>{current.typingBy?.[peer.uid] ? "● En ligne · écrit en ce moment…" : peerOnline ? (ephemeralSeconds ? `● En ligne · éphémère · ${ephemeralLabel(ephemeralSeconds)}` : "● En ligne · synchronisé en direct") : "○ Hors ligne · messages disponibles"}</small></div>
-            <button onClick={() => onCall(peer, false)} aria-label={`Appeler ${peer.displayName}`}>☎</button><button onClick={() => onCall(peer, true)} aria-label={`Appel vidéo avec ${peer.displayName}`}>▣</button>{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
-          </header>
+          {(() => {
+            const peerIsFounder = isHappyFounderPhone(peer.phoneNumber);
+            const peerSeen = Boolean(peer && timestampMillis(current.readBy?.[peer.uid]) >= timestampMillis(current.updatedAt));
+            const peerPresence = buildDirectPresenceLine(peer, current.presenceBy?.[peer.uid], Boolean(current.typingBy?.[peer.uid]), peerOnline, peerSeen);
+            return <header>
+              <span>{initials(peer.displayName)}</span><div><strong>{peer.displayName}{peerIsFounder ? <i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}<small className="direct-message-subline">{peerPresence}</small></div>
+              <button onClick={() => onCall(peer, false)} aria-label={`Appeler ${peer.displayName}`}>☎</button><button onClick={() => onCall(peer, true)} aria-label={`Appel vidéo avec ${peer.displayName}`}>▣</button>{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
+            </header>;
+          })()}
           <div className="realtime-messages">
             {!items.length && <div className="message-empty"><span>✦</span><strong>La conversation commence ici</strong><small>Vos messages apparaîtront instantanément sur les deux comptes.</small></div>}
             {items.map((message) => {
@@ -469,9 +598,10 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
               const viewOnceOpen = Boolean(message.viewOnce && message.senderId !== user.uid && openedViewOnceIds[message.id]);
               const viewOnceConsumed = Boolean(message.viewOnce && message.senderId !== user.uid && (message.viewedBy?.[user.uid] || viewedOnceIds[message.id]) && !viewOnceOpen);
               const viewOncePending = Boolean(message.viewOnce && message.senderId !== user.uid && !viewOnceConsumed && !viewOnceOpen);
+              const sentReadTimestamp = peer && message.senderId === user.uid ? messageTime({ toDate: () => new Date(Math.max(timestampMillis(current.readBy?.[peer.uid]), timestampMillis(message.createdAt)) ) }) : "";
               return <article className={`${message.senderId === user.uid ? "mine" : ""} ${message.kind === "image" ? "image" : ""} ${message.kind === "video" ? "video" : ""}`} key={message.id}>
-                {message.kind === "image" && message.mediaUrl ? viewOncePending ? <button type="button" className="message-view-once" onClick={() => void openViewOnce(message)}><span>1</span><strong>Photo à vue unique</strong><small>Appuyez pour ouvrir</small></button> : viewOnceConsumed ? <div className="message-viewed-once"><span>✓</span><strong>Photo déjà ouverte</strong><small>Ce média ne peut être vu qu’une fois.</small></div> : <button type="button" className="message-photo" onClick={() => { setPhotoPreview(message.mediaUrl || ""); setPhotoZoom(1); }} style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Agrandir la photo"/> : message.kind === "video" && message.mediaUrl ? viewOncePending ? <button type="button" className="message-view-once" onClick={() => void openViewOnce(message)}><span>1</span><strong>Vidéo à vue unique</strong><small>Appuyez pour ouvrir</small></button> : viewOnceConsumed ? <div className="message-viewed-once"><span>✓</span><strong>Vidéo déjà ouverte</strong><small>Ce média ne peut être vu qu’une fois.</small></div> : <div className="message-video"><video controls playsInline preload="metadata" src={message.mediaUrl} className={message.effect || "pop"}/>{message.caption && <strong>{message.caption}</strong>}<i>✦ WHAPPY VIDEO</i></div> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <><p>{message.text}</p>{translated && <p className="message-translation"><b>{translationTarget.toUpperCase()}</b>{translated}</p>}<div className="message-translation-tools"><button type="button" className={translationTarget === "fr" ? "active" : ""} onClick={() => setTranslationTarget("fr")}>FR</button><button type="button" className={translationTarget === "en" ? "active" : ""} onClick={() => setTranslationTarget("en")}>EN</button><button type="button" className="message-translate" onClick={() => void translateMessage(message)}>{translatingMessage === message.id ? "Traduction…" : translated ? "Masquer" : `文 Traduire en ${translationTarget === "fr" ? "français" : "anglais"}`}</button></div></>}
-                <small><time>{messageTime(message.createdAt)}</time>{message.senderId === user.uid && <><span> · </span><b className={read ? "message-seen" : "message-sent"}>{read ? "✓✓ Vu" : "✓ Envoyé"}</b></>}</small>
+                {message.kind === "link" && message.linkUrl ? <a className="message-link-card" href={message.linkUrl} target="_blank" rel="noreferrer"><span>↗</span><div><small>LIEN PARTAGÉ · {linkHost(message.linkUrl)}</small><strong>{message.text === message.linkUrl ? "Ouvrir le lien partagé" : message.text}</strong><p>{message.linkUrl}</p></div></a> : message.kind === "image" && message.mediaUrl ? viewOncePending ? <button type="button" className="message-view-once" onClick={() => void openViewOnce(message)}><span>1</span><strong>Photo à vue unique</strong><small>Appuyez pour ouvrir</small></button> : viewOnceConsumed ? <div className="message-viewed-once"><span>✓</span><strong>Photo déjà ouverte</strong><small>Ce média ne peut être vu qu’une fois.</small></div> : <button type="button" className="message-photo" onClick={() => { setPhotoPreview(message.mediaUrl || ""); setPhotoZoom(1); }} style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Agrandir la photo"/> : message.kind === "video" && message.mediaUrl ? viewOncePending ? <button type="button" className="message-view-once" onClick={() => void openViewOnce(message)}><span>1</span><strong>Vidéo à vue unique</strong><small>Appuyez pour ouvrir</small></button> : viewOnceOpen ? <div className="message-view-once"><span>1</span><strong>Lecture unique en cours</strong><small>Vue dans l’écran dédié</small></div> : viewOnceConsumed ? <div className="message-viewed-once"><span>✓</span><strong>Vidéo déjà ouverte</strong><small>Ce média ne peut être vu qu’une fois.</small></div> : <div className="message-video"><video controls playsInline preload="metadata" src={message.mediaUrl} className={message.effect || "pop"}/>{message.caption && <strong>{message.caption}</strong>}<i>✦ WHAPPY VIDEO {message.quality === "hd" ? "· HD" : ""}</i></div> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <><p>{message.text}</p>{translated && <p className="message-translation"><b>{translationTarget.toUpperCase()}</b>{translated}</p>}<div className="message-translation-tools"><button type="button" className={translationTarget === "fr" ? "active" : ""} onClick={() => setTranslationTarget("fr")}>FR</button><button type="button" className={translationTarget === "en" ? "active" : ""} onClick={() => setTranslationTarget("en")}>EN</button><button type="button" className="message-translate" onClick={() => void translateMessage(message)}>{translatingMessage === message.id ? "Traduction…" : translated ? "Masquer" : `文 Traduire en ${translationTarget === "fr" ? "français" : "anglais"}`}</button></div></>}
+                {message.viewOnce && <em className="view-once-badge">1× VUE UNIQUE</em>}<small><time>{messageTime(message.createdAt)}</time>{message.senderId === user.uid && <><span> · </span><b className={read ? "message-seen" : "message-sent"}>{read ? `✓✓ Vu ${sentReadTimestamp}` : "✓ Envoyé"}</b></>}</small>
               </article>;
             })}<div ref={messagesEnd}/>
           </div>
@@ -479,21 +609,23 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
           {expressionOpen && <WhappyExpressionHub draft={text} onDraftChange={change} notify={notify} onClose={() => setExpressionOpen(false)} onSendMedia={(file, kind, effect, caption) => uploadAttachment(file, kind, 0, current.id, effect, caption)}/>}
           <form className="direct-composer" onSubmit={send}>
             {ephemeralMenuOpen && <div className="ephemeral-menu" role="menu"><strong>Messages éphémères</strong><small>Les nouveaux messages disparaissent automatiquement.</small><button type="button" className={!ephemeralSeconds ? "active" : ""} onClick={() => void changeEphemeralMode(0)}>Désactivés <span>Conserver</span></button><button type="button" className={ephemeralSeconds === 86400 ? "active" : ""} onClick={() => void changeEphemeralMode(86400)}>24 heures <span>Expiration automatique</span></button><button type="button" className={ephemeralSeconds === 604800 ? "active" : ""} onClick={() => void changeEphemeralMode(604800)}>7 jours <span>Expiration automatique</span></button></div>}
-            <input className="message-file" ref={imageInput} type="file" accept="image/*" onChange={chooseImage}/>
+            <input className="message-file" ref={mediaInput} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" onChange={chooseMedia}/>
             <button type="button" onClick={() => setExpressionOpen((value) => !value)} className={expressionOpen ? "active" : ""} disabled={busy || recording} aria-label="Emojis, traduction et créations WHAPPY" title="Emojis, traduction et Meme Lab">☺</button>
-            <button type="button" onClick={() => imageInput.current?.click()} disabled={busy || recording} aria-label="Ajouter une photo" title="Ajouter une photo">＋</button>
+            <button type="button" onClick={() => mediaInput.current?.click()} disabled={busy || recording} aria-label="Ajouter une image ou une vidéo HD" title="Image ou vidéo HD">▧</button>
+            <button type="button" onClick={() => setHdMedia((value) => !value)} className={hdMedia ? "active hd-toggle" : "hd-toggle"} disabled={busy || recording} aria-pressed={hdMedia} aria-label={hdMedia ? "Qualité HD activée" : "Activer la qualité HD"} title={hdMedia ? "Qualité HD activée · fichier original conservé" : "Activer la qualité HD"}>HD</button>
+            <button type="button" onClick={() => setText((value) => `${value}${value && !value.endsWith(" ") ? " " : ""}https://`)} disabled={busy || recording} aria-label="Ajouter un lien" title="Ajouter un lien">↗</button>
             <button type="button" onClick={() => setEphemeralMenuOpen((value) => !value)} className={ephemeralSeconds ? "active" : ""} disabled={busy || recording} aria-label="Régler les messages éphémères" title="Messages éphémères">◷</button>
-            <button type="button" onClick={() => setViewOnceMode((value) => !value)} className={viewOnceMode ? "active" : ""} disabled={busy || recording} aria-label="Activer le mode vue unique" title="Photo ou vidéo à vue unique">1×</button>
+            <button type="button" onClick={() => setViewOnceMode((value) => !value)} className={viewOnceMode ? "active" : ""} disabled={busy || recording} aria-pressed={viewOnceMode} aria-label="Activer le mode vue unique" title="Photo ou vidéo à vue unique">1×</button>
             <button type="button" className={recording ? "recording" : ""} onClick={startRecording} disabled={busy} aria-label={recording ? "Terminer le message vocal" : "Enregistrer un message vocal"} title="Note vocale">●</button>
             <textarea ref={composer} value={text} onChange={(event) => change(event.target.value)} onKeyDown={composerKeyDown} onBlur={() => stopTyping(current.id)} maxLength={4000} rows={1} spellCheck lang="fr" autoComplete="off" aria-label={`Message à ${peer.displayName}`} placeholder={`Message à ${peer.displayName} · Entrée pour envoyer`}/>
             <button disabled={busy || recording || !text.trim()} aria-label="Envoyer le message" title="Envoyer">➤</button>
-            <small>Entrée envoie · Maj + Entrée ajoute une ligne · Orthographe activée</small>
+            <small>{viewOnceMode ? "Vue unique activée · Photos et vidéos s’ouvrent une seule fois" : "Entrée envoie · Maj + Entrée ajoute une ligne · Orthographe activée"}</small>
           </form>
         </> : <div className="direct-onboarding">
           {!embedded && <button className="direct-onboarding-close" onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
           <header className="direct-welcome-head">
             <div><small>VOTRE ESPACE DE COMMUNICATION</small><h2>Bonjour {user.displayName.split(/\s+/)[0]},<br/><em>tout est prêt.</em></h2><p>Lancez votre première conversation avec un numéro Whappy. Messages, médias et appels resteront regroupés ici.</p></div>
-            <div className="direct-account-card"><span>{initials(user.displayName)}</span><div><small>COMPTE WHAPPY VÉRIFIÉ</small><strong>{user.displayName}</strong><p>{user.phoneNumber ? `${user.phoneNumber.slice(0, 4)} ••• •• ${user.phoneNumber.slice(-2)}` : "Identité téléphonique active"}</p></div><b>✓</b></div>
+            <div className="direct-account-card"><span>{initials(user.displayName)}</span><div><small>{founder ? "COMPTE FONDATEUR CERTIFIÉ" : "COMPTE WHAPPY VÉRIFIÉ"}</small><strong>{user.displayName}{founder ? <i className="founder-grey-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}</strong><p>{user.phoneNumber ? `${user.phoneNumber.slice(0, 4)} ••• •• ${user.phoneNumber.slice(-2)}` : "Identité téléphonique active"}</p></div><b>✓</b></div>
           </header>
           <section className="direct-overview">
             <article><span>◫</span><div><small>DISCUSSIONS</small><strong>{conversations.length}</strong><p>Synchronisées en direct</p></div></article>
@@ -521,6 +653,10 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     {photoPreview && <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="Photo agrandie">
       <header><span>PHOTO WHAPPY</span><div><button type="button" onClick={() => setPhotoZoom((value) => Math.max(1, value - .5))} disabled={photoZoom <= 1} aria-label="Réduire">−</button><b>{Math.round(photoZoom * 100)}%</b><button type="button" onClick={() => setPhotoZoom((value) => Math.min(3, value + .5))} disabled={photoZoom >= 3} aria-label="Agrandir">＋</button><a href={photoPreview} target="_blank" rel="noreferrer">Original ↗</a><button type="button" onClick={closePhotoPreview} aria-label="Fermer">×</button></div></header>
       <button type="button" className="photo-lightbox-stage" onClick={() => setPhotoZoom((value) => value === 1 ? 2 : 1)} aria-label={photoZoom === 1 ? "Agrandir davantage" : "Revenir à la taille normale"}><img src={photoPreview} alt="Agrandissement partagé" style={{ transform: `scale(${photoZoom})` }}/></button>
+    </div>}
+    {videoViewOnce && <div className="video-viewonce-lightbox" role="dialog" aria-modal="true" aria-label="Lecture vidéo vue unique">
+      <header><span>VIDÉO WHAPPY · VUE UNIQUE</span><button type="button" onClick={() => closeViewOnceVideo(videoViewOnce.id)} aria-label="Fermer la vidéo">×</button></header>
+      <main className="video-viewonce-stage"><video src={videoViewOnce.src} controls autoPlay playsInline onEnded={() => closeViewOnceVideo(videoViewOnce.id)} className="video-viewonce-player"/></main>
     </div>}
   </>;
 }

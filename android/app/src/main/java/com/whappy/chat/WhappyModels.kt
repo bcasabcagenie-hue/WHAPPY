@@ -5,6 +5,7 @@ import com.google.firebase.auth.FirebaseUser
 enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
     MESSAGES("Messages"),
+    CONTACTS("Contacts"),
     CALLS("Appels"),
     MARKET("Marché"),
     LIVE("Live"),
@@ -48,6 +49,32 @@ data class WhappyMessage(
     val reactions: Map<String, String> = emptyMap(),
     val deleted: Boolean = false,
     val edited: Boolean = false,
+)
+
+data class WhappyChannel(
+    val id: String,
+    val name: String,
+    val description: String,
+    val category: String,
+    val ownerId: String,
+    val ownerName: String,
+    val memberIds: List<String> = emptyList(),
+    val memberCount: Int = 1,
+    val postCount: Int = 0,
+    val lastPost: String = "",
+    val updatedAt: Long = 0L,
+    val verified: Boolean = false,
+)
+
+data class WhappyChannelPost(
+    val id: String,
+    val text: String,
+    val authorId: String,
+    val authorName: String,
+    val createdAt: Long,
+    val reactions: Map<String, String> = emptyMap(),
+    val pinned: Boolean = false,
+    val deleted: Boolean = false,
 )
 
 data class WhappyListing(
@@ -183,6 +210,10 @@ data class WhappyUiState(
     val contactSearchMessage: String? = null,
     val selectedConversation: WhappyConversation? = null,
     val messages: List<WhappyMessage> = emptyList(),
+    val channels: List<WhappyChannel> = emptyList(),
+    val selectedChannel: WhappyChannel? = null,
+    val channelPosts: List<WhappyChannelPost> = emptyList(),
+    val discoveryQuery: String = "",
     val listings: List<WhappyListing> = emptyList(),
     val businessPages: List<WhappyBusinessPage> = emptyList(),
     val campaigns: List<WhappyCampaign> = emptyList(),

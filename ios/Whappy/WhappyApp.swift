@@ -9,6 +9,7 @@ struct WhappyApp: App {
             ContentView()
                 .environmentObject(store)
                 .tint(.whappyBlue)
+                .onOpenURL { store.handleWhappyURL($0) }
         }
     }
 }

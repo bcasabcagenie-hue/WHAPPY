@@ -4,6 +4,7 @@ import Foundation
 final class WhappyStore: ObservableObject {
     @Published var selectedTab: WhappyTab = .home
     @Published var conversations: [Conversation] { didSet { save() } }
+    @Published var channels: [WhappyChannel] { didSet { save() } }
     @Published var listings: [Listing] { didSet { save() } }
     @Published var liveRooms: [LiveRoom] { didSet { save() } }
     @Published var calls: [CallRecord] { didSet { save() } }
@@ -17,6 +18,9 @@ final class WhappyStore: ObservableObject {
     @Published var notificationsEnabled: Bool { didSet { save() } }
     @Published var privacyMode: String { didSet { save() } }
     @Published var dataSaverEnabled: Bool { didSet { save() } }
+    @Published var pendingContactPhone: String?
+    @Published var pendingChannelID: UUID?
+    @Published var pendingSearch: String?
 
     private let defaults = UserDefaults.standard
     private let encoder = JSONEncoder()
@@ -33,6 +37,14 @@ final class WhappyStore: ObservableObject {
             ]),
             Conversation(id: UUID(), name: "Junior K.", initials: "JK", phoneNumber: "+242058842160", lastMessage: "Je peux livrer cet après-midi.", unread: false, messages: []),
             Conversation(id: UUID(), name: "Mokabi Studio", initials: "MS", phoneNumber: "+242064420222", lastMessage: "Votre commande est prête ✦", unread: false, messages: [])
+        ]
+        channels = [
+            WhappyChannel(id: UUID(), name: "Brazzaville Maintenant", description: "Actualités utiles, sorties et opportunités de la ville.", category: "Actualités", ownerName: "WHAPPY Local", owner: false, subscribed: true, memberCount: 12_480, verified: true, posts: [
+                WhappyChannelPost(id: UUID(), text: "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", authorName: "WHAPPY Local", createdAt: now.addingTimeInterval(-86_400), reactions: ["amina": "❤️", "junior": "👍"], pinned: true),
+                WhappyChannelPost(id: UUID(), text: "Ce week-end : marché des créateurs samedi à Poto-Poto, de 10 h à 18 h.", authorName: "WHAPPY Local", createdAt: now.addingTimeInterval(-240), reactions: ["amina": "🔥"])
+            ]),
+            WhappyChannel(id: UUID(), name: "Bons plans WHAPPY", description: "Promotions vérifiées et nouvelles offres du Marché WHAPPY.", category: "Shopping", ownerName: "WHAPPY Marché", owner: false, subscribed: false, memberCount: 8_205, verified: true, posts: []),
+            WhappyChannel(id: UUID(), name: whappyFounderChannelName, description: whappyFounderChannelTagline, category: "Créateurs", ownerName: whappyFounderName, owner: true, subscribed: true, memberCount: 1, verified: false, posts: [])
         ]
         listings = [
             Listing(id: UUID(), title: "MacBook Air M3 · Comme neuf", price: "750 000 FCFA", place: "Poto-Poto", seller: "Junior K.", icon: "laptopcomputer", acceptsTrade: false),
@@ -57,6 +69,9 @@ final class WhappyStore: ObservableObject {
         notificationsEnabled = true
         privacyMode = "contacts"
         dataSaverEnabled = false
+        pendingContactPhone = nil
+        pendingChannelID = nil
+        pendingSearch = nil
         restore()
         restoring = false
     }
@@ -64,9 +79,20 @@ final class WhappyStore: ObservableObject {
     var unreadCount: Int { conversations.filter(\.unread).count }
     var cartCount: Int { cart.reduce(0) { $0 + $1.quantity } }
 
+    func handleWhappyURL(_ url: URL) {
+        guard let link = WhappyDeepLink.parse(url) else { return }
+        selectedTab = .messages
+        switch link {
+        case .contact(let phone): pendingContactPhone = phone
+        case .channel(let id): pendingChannelID = id
+        case .search(let query): pendingSearch = query
+        }
+    }
+
     func markRead(_ conversation: Conversation) {
         guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
         conversations[index].unread = false
+        conversations[index].readAt = Date()
     }
 
     func toggleUnread(_ conversation: Conversation) {
@@ -81,8 +107,19 @@ final class WhappyStore: ObservableObject {
     func send(_ text: String, to conversationID: UUID, replyTo: Message? = nil) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
-        conversations[index].messages.append(Message(id: UUID(), text: value, mine: true, sentAt: Date(), replyToID: replyTo?.id, replyText: replyTo?.text))
+        let messageID = UUID()
+        let now = Date()
+        conversations[index].messages.append(Message(id: messageID, text: value, mine: true, sentAt: now, replyToID: replyTo?.id, replyText: replyTo?.text, status: "sending"))
         conversations[index].lastMessage = value
+        Task {
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard let conversationIndex = conversations.firstIndex(where: { $0.id == conversationID }),
+                  let messageIndex = conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageID })
+            else { return }
+            let currentStatus = conversations[conversationIndex].messages[messageIndex].status
+            guard currentStatus == "sending" else { return }
+            conversations[conversationIndex].messages[messageIndex].status = "sent"
+        }
     }
 
     func react(to messageID: UUID, in conversationID: UUID, emoji: String) {
@@ -101,15 +138,27 @@ final class WhappyStore: ObservableObject {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, let conversation = conversations.firstIndex(where: { $0.id == conversationID }), let message = conversations[conversation].messages.firstIndex(where: { $0.id == messageID }), conversations[conversation].messages[message].mine, conversations[conversation].messages[message].kind == "text" else { return }
         let previous = conversations[conversation].messages[message]
-        conversations[conversation].messages[message] = Message(id: previous.id, text: value, mine: true, sentAt: previous.sentAt, kind: previous.kind, mediaPath: previous.mediaPath, replyToID: previous.replyToID, replyText: previous.replyText, reactions: previous.reactions, deleted: false, edited: true)
+        let status = previous.status == "sending" ? "sending" : "sent"
+        conversations[conversation].messages[message] = Message(id: previous.id, text: value, mine: true, sentAt: previous.sentAt, kind: previous.kind, mediaPath: previous.mediaPath, replyToID: previous.replyToID, replyText: previous.replyText, reactions: previous.reactions, deleted: false, edited: true, status: status)
         if message == conversations[conversation].messages.count - 1 { conversations[conversation].lastMessage = value }
     }
 
     func sendMedia(kind: String, path: String, to conversationID: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
         let label = kind == "image" ? "📷 Photo" : "🎤 Note vocale"
-        conversations[index].messages.append(Message(id: UUID(), text: label, mine: true, sentAt: Date(), kind: kind, mediaPath: path))
+        let messageID = UUID()
+        let now = Date()
+        conversations[index].messages.append(Message(id: messageID, text: label, mine: true, sentAt: now, kind: kind, mediaPath: path, status: "sending"))
         conversations[index].lastMessage = label
+        Task {
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard let conversationIndex = conversations.firstIndex(where: { $0.id == conversationID }),
+                  let messageIndex = conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageID })
+            else { return }
+            let currentStatus = conversations[conversationIndex].messages[messageIndex].status
+            guard currentStatus == "sending" else { return }
+            conversations[conversationIndex].messages[messageIndex].status = "sent"
+        }
     }
 
     func createMoment(title: String, text: String) {
@@ -127,6 +176,42 @@ final class WhappyStore: ObservableObject {
         conversations.insert(Conversation(id: UUID(), name: cleanName, initials: initials, phoneNumber: cleanPhone, lastMessage: "Nouvelle conversation", unread: false, messages: []), at: 0)
     }
 
+    func createChannel(name: String, description: String, category: String) {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanName.count >= 3, cleanName.count <= 80, cleanDescription.count >= 10, cleanDescription.count <= 300 else { return }
+        channels.insert(WhappyChannel(id: UUID(), name: cleanName, description: cleanDescription, category: category, ownerName: whappyFounderName, owner: true, subscribed: true, memberCount: 1, verified: false, posts: []), at: 0)
+    }
+
+    func toggleChannelSubscription(_ channel: WhappyChannel) {
+        guard let index = channels.firstIndex(where: { $0.id == channel.id }), !channels[index].owner else { return }
+        channels[index].subscribed.toggle()
+        channels[index].memberCount = max(1, channels[index].memberCount + (channels[index].subscribed ? 1 : -1))
+    }
+
+    func publish(_ text: String, toChannel channelID: UUID) {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 4_000, let index = channels.firstIndex(where: { $0.id == channelID }), channels[index].owner else { return }
+        channels[index].posts.append(WhappyChannelPost(id: UUID(), text: value, authorName: channels[index].ownerName, createdAt: Date()))
+    }
+
+    func react(toChannelPost postID: UUID, channelID: UUID, emoji: String) {
+        guard let channel = channels.firstIndex(where: { $0.id == channelID }), channels[channel].subscribed, let post = channels[channel].posts.firstIndex(where: { $0.id == postID }) else { return }
+        channels[channel].posts[post].reactions["me"] = emoji
+    }
+
+    func togglePinnedChannelPost(_ postID: UUID, channelID: UUID) {
+        guard let channel = channels.firstIndex(where: { $0.id == channelID }), channels[channel].owner, let post = channels[channel].posts.firstIndex(where: { $0.id == postID }) else { return }
+        channels[channel].posts[post].pinned.toggle()
+    }
+
+    func deleteChannelPost(_ postID: UUID, channelID: UUID) {
+        guard let channel = channels.firstIndex(where: { $0.id == channelID }), channels[channel].owner, let post = channels[channel].posts.firstIndex(where: { $0.id == postID }) else { return }
+        channels[channel].posts[post].text = "Publication supprimée"
+        channels[channel].posts[post].deleted = true
+        channels[channel].posts[post].pinned = false
+    }
+
     func recordCall(name: String, phone: String, mode: CallMode) {
         calls.insert(CallRecord(id: UUID(), name: name, phoneNumber: phone, mode: mode, date: Date(), outgoing: true, missed: false), at: 0)
     }
@@ -134,7 +219,7 @@ final class WhappyStore: ObservableObject {
     func addListing(title: String, price: String, place: String, trade: Bool) {
         let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.count >= 2 else { return }
-        listings.insert(Listing(id: UUID(), title: value, price: price.isEmpty ? "À discuter" : price, place: place.isEmpty ? "Brazzaville" : place, seller: "Cyril Bokilo", icon: trade ? "arrow.triangle.2.circlepath" : "shippingbox.fill", acceptsTrade: trade), at: 0)
+        listings.insert(Listing(id: UUID(), title: value, price: price.isEmpty ? "À discuter" : price, place: place.isEmpty ? "Brazzaville" : place, seller: whappyFounderName, icon: trade ? "arrow.triangle.2.circlepath" : "shippingbox.fill", acceptsTrade: trade), at: 0)
     }
 
     func toggleSaved(_ listing: Listing) {
@@ -164,7 +249,7 @@ final class WhappyStore: ObservableObject {
     func createLive(title: String, category: String) -> LiveRoom? {
         let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.count >= 3 else { return nil }
-        let room = LiveRoom(id: UUID(), host: "Cyril Bokilo", title: value, category: category, viewers: 1, icon: "video.fill")
+        let room = LiveRoom(id: UUID(), host: whappyFounderName, title: value, category: category, viewers: 1, icon: "video.fill")
         liveRooms.insert(room, at: 0)
         return room
     }
@@ -200,6 +285,7 @@ final class WhappyStore: ObservableObject {
 
     private func restore() {
         conversations = decode("conversations") ?? conversations
+        channels = decode("channels") ?? channels
         listings = decode("listings") ?? listings
         liveRooms = decode("liveRooms") ?? liveRooms
         calls = decode("calls") ?? calls
@@ -223,6 +309,7 @@ final class WhappyStore: ObservableObject {
     private func save() {
         guard !restoring else { return }
         encode(conversations, "conversations")
+        encode(channels, "channels")
         encode(listings, "listings")
         encode(liveRooms, "liveRooms")
         encode(calls, "calls")

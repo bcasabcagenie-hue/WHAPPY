@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.3\.6-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.4\.0-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -119,7 +119,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
-  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules, expressionHub, pulse] = await Promise.all([
+  const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules, expressionHub, pulse, wepiAssistant, wepiData] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -144,6 +144,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../storage.rules", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WhappyExpressionHub.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WhappyPulse.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WepiAssistant.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-wepi.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /src="\/whappy-logo\.svg"/);
@@ -256,6 +258,8 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(realTimeInbox, /Entrée pour envoyer/);
   assert.match(realTimeInbox, /spellCheck/);
   assert.match(realTimeInbox, /WhappyExpressionHub/);
+  assert.match(realTimeInbox, /watchWepiSettings/);
+  assert.match(realTimeInbox, /buildWepiReply/);
   assert.match(expressionHub, /WHAPPY EXPRESSION HUB/);
   assert.match(expressionHub, /WHAPPIES/);
   assert.match(expressionHub, /translateTextOnDevice/);
@@ -270,6 +274,10 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(businessStudio, /Créer une page/);
   assert.match(businessStudio, /Campagnes publicitaires/);
   assert.match(businessStudio, /IMPRESSIONS RÉELLES/);
+  assert.match(businessStudio, /WEPI IA/);
+  assert.match(businessStudio, /Répondez à vos utilisateurs avec WEPI/);
+  assert.match(businessStudio, /WEPI IA pour votre Business/);
+  assert.match(businessStudio, /Ouvrir l’interface WEPI/);
   assert.match(businessData, /watchActiveCampaigns/);
   assert.match(businessData, /recordAdEvent/);
   assert.match(businessData, /createAdCampaign/);
@@ -290,13 +298,48 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(twinEngine, /speechSynthesis/);
   assert.match(twinEngine, /MISSIONS DU DOUBLE/);
   assert.match(twinEngine, /Vendeur 24\/7/);
+  assert.match(twinEngine, /WEPI IA/);
   assert.match(twinEngine, /Portrait vidéo/);
   assert.match(twinEngine, /Aperçu complet/);
   assert.match(twinData, /twinAutomations/);
   assert.match(twinData, /twinRenders/);
   assert.match(rules, /match \/twinProfiles\/\{profileId\}/);
+  assert.match(rules, /match \/wepi\/\{settingsId\}/);
+  assert.match(wepiAssistant, /Activer WEPI/);
+  assert.match(wepiAssistant, /Réponse automatique/);
+  assert.match(wepiData, /buildWepiReply/);
+  assert.match(wepiData, /saveWepiSettings/);
   assert.match(storageRules, /match \/twins\/\{userId\}/);
   assert.match(groupActivities, /Votre vote est enregistré/);
   assert.match(groupActivities, /Votre participation est confirmée/);
   assert.doesNotMatch(`${page}${layout}${packageJson}${readme}`, /Fusioniox/i);
+});
+
+test("expose les Salles Whappy et leur modèle de communautés", async () => {
+  const [page, rooms, roomPilot, roomData, wepiData, rules] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/RoomsSpace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WepiRoomPilot.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-rooms.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-wepi.ts", import.meta.url), "utf8"),
+    readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /<RoomsSpace/);
+  assert.match(page, /label="Salles"/);
+  assert.match(rooms, /Salle Espérance/);
+  assert.match(rooms, /Tech Congo/);
+  assert.match(rooms, /Créer une salle/);
+  assert.match(rooms, /Suivre cette salle/);
+  assert.match(rooms, /RÈGLES DE LA SALLE/);
+  assert.match(rooms, /WepiRoomPilot/);
+  assert.match(roomPilot, /PILOTAGE/);
+  assert.match(roomData, /export type RoomKind/);
+  assert.match(roomData, /createWhappyRoom/);
+  assert.match(roomData, /watchRoomPosts/);
+  assert.match(roomData, /reactToRoomPost/);
+  assert.match(wepiData, /buildWepiRoomSuggestion/);
+  assert.match(wepiData, /saveWepiRoomPilot/);
+  assert.match(rules, /match \/channels\/\{channelId\}/);
+  assert.match(rules, /match \/pilot\/\{settingsId\}/);
+  assert.match(rules, /match \/posts\/\{postId\}/);
 });

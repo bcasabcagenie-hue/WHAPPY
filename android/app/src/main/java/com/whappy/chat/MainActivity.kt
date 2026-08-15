@@ -2,6 +2,7 @@ package com.whappy.chat
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import androidx.activity.ComponentActivity
@@ -10,6 +11,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -24,14 +27,24 @@ import com.google.firebase.firestore.FirebaseFirestore
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
+    private var incomingLink by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         val preview = BuildConfig.DEBUG && intent.getBooleanExtra("preview_home", false)
+        incomingLink = intent?.dataString
         setContent {
             val model: WhappyViewModel = viewModel()
             val state by model.uiState.collectAsStateWithLifecycle()
+            LaunchedEffect(incomingLink, state.user?.uid, state.sessionRestoring) {
+                val link = incomingLink
+                if (!link.isNullOrBlank() && (preview || (state.user != null && !state.sessionRestoring))) {
+                    model.handleDeepLink(link)
+                    incomingLink = null
+                }
+            }
             val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                 if (granted) {
                     WhappyNotifications.ensureChannel(this)
@@ -52,6 +65,15 @@ class MainActivity : ComponentActivity() {
                     onDeleteMessage = model::deleteMessage,
                     onEditMessage = model::editMessage,
                     onTyping = model::setTyping,
+                    onHandleWhappyLink = model::handleDeepLink,
+                    onOpenChannel = model::openChannel,
+                    onCloseChannel = model::closeChannel,
+                    onCreateChannel = model::createChannel,
+                    onSubscribeChannel = model::setChannelSubscription,
+                    onPublishChannelPost = model::publishChannelPost,
+                    onReactChannelPost = model::reactToChannelPost,
+                    onPinChannelPost = model::pinChannelPost,
+                    onDeleteChannelPost = model::deleteChannelPost,
                     onSearchContact = model::searchContact,
                     onAddSearchedContact = model::addSearchedContact,
                     onClearContactSearch = model::clearContactSearch,
@@ -86,6 +108,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        incomingLink = intent.dataString
     }
 }
 

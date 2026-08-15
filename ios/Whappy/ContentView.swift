@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage.CIFilterBuiltins
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -126,30 +127,155 @@ private struct ActionCard: View {
 struct MessagesView: View {
     @EnvironmentObject private var store: WhappyStore
     @State private var composing = false
+    @State private var creatingChannel = false
     @State private var search = ""
-    private var filtered: [Conversation] { search.isEmpty ? store.conversations : store.conversations.filter { $0.name.localizedCaseInsensitiveContains(search) || $0.lastMessage.localizedCaseInsensitiveContains(search) || $0.phoneNumber.contains(search) } }
+    @State private var section = 0
+    @State private var linkedPhone = "+242"
+    @State private var linkedChannel: WhappyChannel?
+    private var filtered: [Conversation] { store.conversations.filter { "\($0.name) \($0.lastMessage) \($0.phoneNumber)".matchesWhappySearch(search) } }
+    private var filteredChannels: [WhappyChannel] { store.channels.filter { "\($0.name) \($0.description) \($0.category) \($0.ownerName)".matchesWhappySearch(search) }.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) } }
 
     var body: some View {
-        List(filtered) { conversation in
-            NavigationLink(value: conversation) {
-                HStack(spacing: 13) {
-                    InitialsAvatar(text: conversation.initials)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(conversation.name).font(.headline)
-                        Text(conversation.lastMessage).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+        VStack(spacing: 0) {
+            Picker("Espace Messages", selection: $section) { Text("Discussions").tag(0); Text("Chaînes").tag(1) }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+            if section == 0 {
+                List(filtered) { conversation in
+                    NavigationLink(value: conversation) {
+                        HStack(spacing: 13) {
+                            InitialsAvatar(text: conversation.initials)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(conversation.name).font(.headline)
+                                Text(conversation.lastMessage).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            if conversation.unread { Circle().fill(Color.whappyBlue).frame(width: 10, height: 10) }
+                        }.padding(.vertical, 5)
                     }
-                    Spacer()
-                    if conversation.unread { Circle().fill(Color.whappyBlue).frame(width: 10, height: 10) }
-                }.padding(.vertical, 5)
+                    .swipeActions(edge: .leading) { Button { store.toggleUnread(conversation) } label: { Label(conversation.unread ? "Marquer lu" : "Non lu", systemImage: conversation.unread ? "envelope.open" : "envelope.badge") }.tint(.whappyBlue) }
+                    .swipeActions(edge: .trailing) { Button(role: .destructive) { store.deleteConversation(conversation) } label: { Label("Supprimer", systemImage: "trash") } }
+                }.listStyle(.plain)
+            } else {
+                ChannelDirectoryView(channels: filteredChannels)
             }
-            .swipeActions(edge: .leading) { Button { store.toggleUnread(conversation) } label: { Label(conversation.unread ? "Marquer lu" : "Non lu", systemImage: conversation.unread ? "envelope.open" : "envelope.badge") }.tint(.whappyBlue) }
-            .swipeActions(edge: .trailing) { Button(role: .destructive) { store.deleteConversation(conversation) } label: { Label("Supprimer", systemImage: "trash") } }
         }
-        .listStyle(.plain).navigationTitle("Messages")
-        .searchable(text: $search, prompt: "Nom ou contenu récent")
+        .navigationTitle(section == 0 ? "Messages" : "Chaînes")
+        .searchable(text: $search, prompt: section == 0 ? "Nom ou contenu récent" : "Chaîne ou catégorie")
         .navigationDestination(for: Conversation.self) { conversation in ConversationView(conversationID: conversation.id).onAppear { store.markRead(conversation) } }
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { composing = true } label: { Label("Nouveau", systemImage: "square.and.pencil") } } }
-        .sheet(isPresented: $composing) { NewConversationView() }
+        .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { if section == 0 { composing = true } else { creatingChannel = true } } label: { Label(section == 0 ? "Nouveau" : "Créer", systemImage: section == 0 ? "square.and.pencil" : "plus.circle.fill") } } }
+        .sheet(isPresented: $composing) { NewConversationView(initialPhone: linkedPhone) }
+        .sheet(isPresented: $creatingChannel) { NewChannelView() }
+        .sheet(item: $linkedChannel) { channel in NavigationStack { ChannelView(channelID: channel.id) } }
+        .onAppear { consumePendingLinks() }
+        .onChange(of: store.pendingContactPhone) { _, _ in consumePendingLinks() }
+        .onChange(of: store.pendingChannelID) { _, _ in consumePendingLinks() }
+        .onChange(of: store.pendingSearch) { _, _ in consumePendingLinks() }
+    }
+
+    private func consumePendingLinks() {
+        if let phone = store.pendingContactPhone { linkedPhone = phone; composing = true; section = 0; store.pendingContactPhone = nil }
+        if let id = store.pendingChannelID, let channel = store.channels.first(where: { $0.id == id }) { linkedChannel = channel; section = 1; store.pendingChannelID = nil }
+        if let query = store.pendingSearch { search = query; section = 1; store.pendingSearch = nil }
+    }
+}
+
+private struct ChannelDirectoryView: View {
+    @EnvironmentObject private var store: WhappyStore
+    let channels: [WhappyChannel]
+
+    var body: some View {
+        if channels.isEmpty { ContentUnavailableView("Aucune chaîne", systemImage: "dot.radiowaves.left.and.right", description: Text("Créez la première chaîne WHAPPY.")) }
+        else {
+            List {
+                Section {
+                    HStack(spacing: 13) { Image(systemName: "dot.radiowaves.left.and.right").font(.title2.bold()).foregroundStyle(.white).frame(width: 48, height: 48).background(Color.whappyBlue).clipShape(RoundedRectangle(cornerRadius: 15)); VStack(alignment: .leading) { Text("CHAÎNES WHAPPY").font(.caption2.bold()).foregroundStyle(Color.whappyBlue); Text("Des publications utiles, sans bruit").font(.headline).foregroundStyle(.white); Text("\(store.channels.count) chaînes à découvrir").font(.caption).foregroundStyle(.white.opacity(0.65)) } }.padding(.vertical, 7).listRowBackground(Color.whappyInk)
+                }
+                Section("Découvrir") {
+                    ForEach(channels) { channel in
+                        NavigationLink(value: channel) {
+                            HStack(spacing: 12) {
+                                Image(systemName: channel.subscribed ? "dot.radiowaves.left.and.right" : "megaphone.fill").foregroundStyle(channel.subscribed ? .white : Color.whappyBlue).frame(width: 48, height: 48).background(channel.subscribed ? Color.whappyBlue : Color.whappyBlue.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 15))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 4) { Text(channel.name).font(.headline); if channel.verified { Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.whappyBlue).font(.caption) } }
+                                    Text("\(channel.category) · \(channel.memberCount.formatted(.number.notation(.compactName))) abonnés").font(.caption).foregroundStyle(.secondary)
+                                    Text(channel.posts.last?.text ?? channel.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }.padding(.vertical, 5)
+                        }
+                        .swipeActions(edge: .leading) { if !channel.owner { Button { store.toggleChannelSubscription(channel) } label: { Label(channel.subscribed ? "Quitter" : "Suivre", systemImage: channel.subscribed ? "bell.slash" : "bell.badge") }.tint(channel.subscribed ? .gray : .whappyBlue) } }
+                    }
+                }
+            }.listStyle(.insetGrouped)
+        }
+    }
+}
+
+private struct NewChannelView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WhappyStore
+    @State private var name = ""
+    @State private var description = ""
+    @State private var category = "Communauté"
+    private let categories = ["Communauté", "Actualités", "Créateurs", "Shopping", "Sport", "Tech"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Identité") { TextField("Nom de la chaîne", text: $name); TextField("Description", text: $description, axis: .vertical).lineLimit(3...6); Text("\(description.count)/300").font(.caption).foregroundStyle(.secondary) }
+                Section("Catégorie") { Picker("Catégorie", selection: $category) { ForEach(categories, id: \.self) { Text($0) } } }
+                Section { Label("Vous seul pourrez publier. Les abonnés pourront suivre et réagir.", systemImage: "shield.checkered").font(.footnote).foregroundStyle(.secondary) }
+            }
+            .navigationTitle("Nouvelle chaîne").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Créer") { store.createChannel(name: name, description: description, category: category); dismiss() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || description.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 || description.count > 300) } }
+        }
+    }
+}
+
+private struct ChannelView: View {
+    @EnvironmentObject private var store: WhappyStore
+    let channelID: UUID
+    @State private var draft = ""
+    @State private var search = ""
+    private var channel: WhappyChannel? { store.channels.first { $0.id == channelID } }
+    private var posts: [WhappyChannelPost] {
+        let source = channel?.posts.filter { $0.text.matchesWhappySearch(search) } ?? []
+        return source.sorted { ($0.pinned ? 1 : 0, $0.createdAt) > ($1.pinned ? 1 : 0, $1.createdAt) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let channel {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack { Image(systemName: "dot.radiowaves.left.and.right").font(.title2).foregroundStyle(Color.whappyBlue); VStack(alignment: .leading) { HStack { Text(channel.name).font(.title3.bold()); if channel.verified { Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.whappyBlue) } }; Text("\(channel.memberCount.formatted(.number.notation(.compactName))) abonnés · \(channel.posts.count) publications").font(.caption).foregroundStyle(.secondary) }; Spacer(); ShareLink(item: "Découvrez la chaîne \(channel.name) sur WHAPPY\nwhappy://channel/\(channel.id.uuidString)\nhttps://whappy.chat/channel/\(channel.id.uuidString)") { Image(systemName: "square.and.arrow.up") } }
+                    Text(channel.description).font(.subheadline)
+                    HStack { Label("Par \(channel.ownerName)", systemImage: "person.crop.circle").font(.caption).foregroundStyle(.secondary); Spacer(); if !channel.owner { Button(channel.subscribed ? "Abonné ✓" : "S’abonner") { store.toggleChannelSubscription(channel) }.buttonStyle(.borderedProminent).controlSize(.small) } else { Label("Propriétaire", systemImage: "crown.fill").font(.caption.bold()).foregroundStyle(Color.whappyBlue) } }
+                }.padding().background(Color(.secondarySystemBackground))
+                if posts.isEmpty { ContentUnavailableView(search.isEmpty ? "Aucune publication" : "Aucun résultat", systemImage: "text.bubble", description: Text(channel.owner && search.isEmpty ? "Publiez la première actualité de votre chaîne." : "Les publications apparaîtront ici.")).frame(maxHeight: .infinity) }
+                else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(posts) { post in
+                                VStack(alignment: .leading, spacing: 9) {
+                                    HStack { if post.pinned { Label("ÉPINGLÉ", systemImage: "pin.fill").font(.caption2.bold()).foregroundStyle(Color.whappyBlue) }; Spacer(); Text(post.createdAt, style: .relative).font(.caption2).foregroundStyle(.secondary) }
+                                    Text(post.text).foregroundStyle(post.deleted ? Color.secondary : Color.whappyInk).italic(post.deleted)
+                                    if !post.reactions.isEmpty { HStack { ForEach(Array(Dictionary(grouping: post.reactions.values, by: { $0 })).sorted(by: { $0.key < $1.key }), id: \.key) { group in Text(group.key + (group.value.count > 1 ? " \(group.value.count)" : "")).font(.caption).padding(.horizontal, 7).padding(.vertical, 4).background(Color(.tertiarySystemFill)).clipShape(Capsule()) } } }
+                                    HStack { Text(post.authorName).font(.caption.bold()).foregroundStyle(Color.whappyBlue); Spacer(); Text(channel.subscribed ? "Maintenez pour réagir" : "Abonnez-vous pour réagir").font(.caption2).foregroundStyle(.secondary) }
+                                }.padding().background(post.pinned ? Color.whappyBlue.opacity(0.08) : Color(.secondarySystemBackground)).clipShape(RoundedRectangle(cornerRadius: 18))
+                                .contextMenu {
+                                    if channel.subscribed && !post.deleted { Menu("Réagir") { ForEach(["❤️", "👍", "🔥", "👏", "💡"], id: \.self) { emoji in Button(emoji) { store.react(toChannelPost: post.id, channelID: channelID, emoji: emoji) } } }; Button { UIPasteboard.general.string = post.text } label: { Label("Copier", systemImage: "doc.on.doc") } }
+                                    if channel.owner && !post.deleted { Button { store.togglePinnedChannelPost(post.id, channelID: channelID) } label: { Label(post.pinned ? "Désépingler" : "Épingler", systemImage: "pin") }; Button(role: .destructive) { store.deleteChannelPost(post.id, channelID: channelID) } label: { Label("Supprimer", systemImage: "trash") } }
+                                }
+                            }
+                        }.padding()
+                    }
+                }
+                if channel.owner {
+                    HStack(alignment: .bottom) { TextField("Nouvelle publication…", text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...6); Button { store.publish(draft, toChannel: channelID); draft = "" } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.count > 4_000) }.padding().background(.bar)
+                } else if !channel.subscribed { Button { store.toggleChannelSubscription(channel) } label: { Label("S’abonner à cette chaîne", systemImage: "bell.badge.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).padding() }
+            }
+        }
+        .navigationTitle(channel?.name ?? "Chaîne").navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, prompt: "Rechercher une publication")
     }
 }
 
@@ -157,23 +283,139 @@ private struct NewConversationView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: WhappyStore
     @State private var name = ""
-    @State private var phone = "+242"
+    @State private var phone: String
+    @State private var countryCode: String
+    @State private var scanning = false
+    @State private var scanError: String?
+
+    init(initialPhone: String = "+242") {
+        _phone = State(initialValue: initialPhone)
+        _countryCode = State(initialValue: WhappyPhoneCountry.supported.first(where: { initialPhone.hasPrefix($0.code) })?.code ?? "+242")
+    }
+
+    private var normalizedPhone: String? { WhappyPhoneCountry.normalize(phone, selectedCode: countryCode) }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Contact") {
                     TextField("Nom", text: $name)
-                    TextField("Téléphone", text: $phone).keyboardType(.phonePad)
+                    Picker("Pays", selection: $countryCode) { ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) } }
+                    TextField("Téléphone ou lien WHAPPY", text: $phone)
+                        .keyboardType(.phonePad)
+                        .onChange(of: phone) { _, value in
+                            if case .contact(let scannedPhone) = WhappyDeepLink.parse(value) {
+                                phone = scannedPhone
+                            } else if let normalized = WhappyPhoneCountry.normalize(value, selectedCode: countryCode) {
+                                phone = normalized
+                            }
+                            countryCode = WhappyPhoneCountry.supported.first(where: { phone.hasPrefix($0.code) })?.code ?? countryCode
+                        }
+                    if let normalizedPhone { Label(normalizedPhone, systemImage: "checkmark.circle.fill").font(.footnote.bold()).foregroundStyle(Color.whappyBlue) }
+                    else if !phone.isEmpty { Label("Vérifiez l’indicatif et la longueur du numéro", systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.orange) }
+                    Button { scanning = true } label: { Label("Scanner un code WHAPPY", systemImage: "qrcode.viewfinder") }
                 }
                 Section { Text("Le contact reste enregistré sur cet appareil et la conversation peut être utilisée immédiatement.").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("Nouvelle discussion")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Créer") { store.createConversation(name: name, phone: phone); dismiss() }.disabled(name.count < 2 || phone.count < 8) }
+                ToolbarItem(placement: .confirmationAction) { Button("Créer") { if let normalizedPhone { store.createConversation(name: name, phone: normalizedPhone); dismiss() } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 || normalizedPhone == nil) }
+            }
+            .sheet(isPresented: $scanning) { WhappyScannerSheet { value in handleScannedValue(value) } }
+            .alert("Scanner WHAPPY", isPresented: Binding(get: { scanError != nil }, set: { if !$0 { scanError = nil } })) { Button("Compris") { scanError = nil } } message: { Text(scanError ?? "") }
+        }
+    }
+
+    private func handleScannedValue(_ value: String) {
+        scanning = false
+        if let directPhone = WhappyPhoneCountry.normalize(value) {
+            phone = directPhone
+            countryCode = WhappyPhoneCountry.supported.first(where: { directPhone.hasPrefix($0.code) })?.code ?? "+242"
+            return
+        }
+        guard let link = WhappyDeepLink.parse(value) else { scanError = "Ce QR n’est pas un code WHAPPY valide."; return }
+        switch link {
+        case .contact(let value): phone = value; countryCode = WhappyPhoneCountry.supported.first(where: { value.hasPrefix($0.code) })?.code ?? "+242"
+        case .channel(let id): store.selectedTab = .messages; store.pendingChannelID = id; dismiss()
+        case .search(let query): store.selectedTab = .messages; store.pendingSearch = query; dismiss()
+        }
+    }
+}
+
+private struct WhappyScannerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onCode: (String) -> Void
+    @State private var authorized: Bool?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if authorized == true { WhappyQRCodeScanner { value in onCode(value); dismiss() }.ignoresSafeArea(edges: .bottom).overlay(alignment: .bottom) { Label("Cadrez un QR contact, chaîne ou recherche WHAPPY", systemImage: "qrcode.viewfinder").font(.footnote.bold()).padding().background(.ultraThinMaterial).clipShape(Capsule()).padding(.bottom, 28) } }
+                else if authorized == false { ContentUnavailableView("Caméra indisponible", systemImage: "camera.fill", description: Text("Autorisez la caméra dans Réglages pour scanner un code WHAPPY.")) }
+                else { ProgressView("Ouverture du scanner…") }
+            }
+            .navigationTitle("Scanner WHAPPY").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } } }
+        }
+        .task {
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized: authorized = true
+            case .notDetermined: authorized = await AVCaptureDevice.requestAccess(for: .video)
+            default: authorized = false
             }
         }
+    }
+}
+
+private struct WhappyQRCodeScanner: UIViewControllerRepresentable {
+    let onCode: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode) }
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let controller = UIViewController()
+        controller.view.backgroundColor = .black
+        context.coordinator.configure(in: controller)
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+
+    static func dismantleUIViewController(_ uiViewController: UIViewController, coordinator: Coordinator) { coordinator.stop() }
+
+    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        private let session = AVCaptureSession()
+        private let onCode: (String) -> Void
+        private var completed = false
+        private var previewLayer: AVCaptureVideoPreviewLayer?
+
+        init(onCode: @escaping (String) -> Void) { self.onCode = onCode }
+
+        func configure(in controller: UIViewController) {
+            guard let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return }
+            session.addInput(input)
+            let output = AVCaptureMetadataOutput()
+            guard session.canAddOutput(output) else { return }
+            session.addOutput(output)
+            output.setMetadataObjectsDelegate(self, queue: .main)
+            output.metadataObjectTypes = [.qr]
+            let layer = AVCaptureVideoPreviewLayer(session: session)
+            layer.videoGravity = .resizeAspectFill
+            layer.frame = controller.view.bounds
+            controller.view.layer.addSublayer(layer)
+            previewLayer = layer
+            DispatchQueue.global(qos: .userInitiated).async { [session] in session.startRunning() }
+        }
+
+        func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+            guard !completed, let code = (metadataObjects.first as? AVMetadataMachineReadableCodeObject)?.stringValue else { return }
+            completed = true
+            session.stopRunning()
+            onCode(code)
+        }
+
+        func stop() { if session.isRunning { DispatchQueue.global(qos: .utility).async { [session] in session.stopRunning() } } }
     }
 }
 
@@ -183,6 +425,7 @@ private struct ConversationView: View {
     @State private var draft = ""
     @State private var callMode: CallMode?
     @State private var photoItem: PhotosPickerItem?
+    @State private var zoomedPhoto: ZoomPhoto?
     @State private var recorder: AVAudioRecorder?
     @State private var player: AVAudioPlayer?
     @State private var recording = false
@@ -190,14 +433,101 @@ private struct ConversationView: View {
     @State private var search = ""
     @State private var replyTo: Message?
     @State private var editingMessage: Message?
+    @Environment(\.openURL) private var openURL
     private var conversation: Conversation? { store.conversations.first { $0.id == conversationID } }
     private var visibleMessages: [Message] {
         let source = conversation?.messages ?? []
         guard !search.isEmpty else { return source }
-        return source.filter { $0.text.localizedCaseInsensitiveContains(search) || ($0.replyText?.localizedCaseInsensitiveContains(search) == true) }
+        return source.filter { "\($0.text) \($0.replyText ?? "")".matchesWhappySearch(search) }
     }
 
     private var draftKey: String { "whappy.draft.\(conversationID.uuidString)" }
+
+    private struct MessageActionLink: Identifiable {
+        let id = UUID()
+        let title: String
+        let systemIcon: String
+        let url: URL
+        let range: NSRange
+    }
+
+    private func detectMessageActions(_ text: String) -> [MessageActionLink] {
+        guard let detector = try? NSDataDetector(types: (NSTextCheckingResult.CheckingType.link.rawValue | NSTextCheckingResult.CheckingType.phoneNumber.rawValue)) else { return [] }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        var actions: [MessageActionLink] = []
+        var covered = [NSRange]()
+        detector.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+            guard let match = match else { return }
+            guard !covered.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
+            switch match.resultType {
+            case .link:
+                guard let matchURL = match.url else { return }
+                guard let normalized = normalizedActionURL(matchURL) else { return }
+                let title = normalized.host?.isEmpty == false ? "Ouvrir \(normalized.host ?? "le lien")" : "Ouvrir le lien"
+                let actionURL = normalized
+                guard !actions.contains(where: { $0.url == actionURL }) else { return }
+                actions.append(MessageActionLink(title: title, systemIcon: "link", url: actionURL, range: match.range))
+                covered.append(match.range)
+            case .phoneNumber:
+                guard let phone = match.phoneNumber else { return }
+                let normalized = normalizeMessagePhone(phone)
+                guard let cleaned = normalized?.filter({ $0.isNumber || $0 == "+" }).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
+                      let phoneURL = URL(string: "tel:\(cleaned)") else { return }
+                guard !actions.contains(where: { $0.url == phoneURL }) else { return }
+                covered.append(match.range)
+                actions.append(MessageActionLink(title: "Appeler \(cleaned)", systemIcon: "phone.fill", url: phoneURL, range: match.range))
+            default:
+                break
+            }
+        }
+        return actions
+    }
+
+    private func normalizeMessagePhone(_ value: String) -> String? {
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let exact = WhappyPhoneCountry.supported.first(where: { raw.hasPrefix($0.code) }) {
+            if let candidate = WhappyPhoneCountry.normalize(raw, selectedCode: exact.code) { return candidate }
+        }
+        for country in WhappyPhoneCountry.supported.sorted(by: { $0.code.count > $1.code.count }) {
+            if let candidate = WhappyPhoneCountry.normalize(raw, selectedCode: country.code) { return candidate }
+        }
+        return nil
+    }
+
+    private func normalizedActionURL(_ url: URL) -> URL? {
+        let raw = url.absoluteString
+        let sanitized = raw.trimmingCharacters(in: CharacterSet(charactersIn: "([<{«»〈〉`'\".,;:!?)]}…"))
+        guard let trimmed = URL(string: sanitized) else { return nil }
+
+        if let scheme = trimmed.scheme?.lowercased() {
+            if scheme == "https" || scheme == "http", let host = trimmed.host?.lowercased(), host == "whappy.chat" || host == "www.whappy.chat" {
+                let normalizedPath = trimmed.path.hasPrefix("/") ? String(trimmed.path.dropFirst()) : trimmed.path
+                var components = URLComponents()
+                components.scheme = "whappy"
+                let segments = normalizedPath.split(separator: "/")
+                if segments.isEmpty { return nil }
+                components.host = segments.first.map(String.init)
+                components.path = segments.dropFirst().isEmpty ? "" : "/" + segments.dropFirst().map(String.init).joined(separator: "/")
+                if let query = trimmed.query { components.query = query }
+                return components.url
+            }
+            let allowed = ["http", "https", "mailto", "sms", "tel", "facetime", "whatsapp", "whappy"]
+            return allowed.contains(scheme) ? trimmed : nil
+        }
+
+        let hostless = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hostless.hasPrefix("www.") || (hostless.contains(".") && !hostless.contains(" ")) {
+            return URL(string: "https://\(hostless)")
+        }
+        return nil
+    }
+
+    private func messageDeliveryLabel(_ message: Message, in conversation: Conversation?) -> String {
+        if message.status == "sending" { return " • Envoi..." }
+        if message.status == "failed" { return " • Échec" }
+        let readTimestamp = conversation?.readAt ?? .distantPast
+        return (message.sentAt <= readTimestamp) ? " • Lu" : " • Envoyé"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -215,14 +545,44 @@ private struct ConversationView: View {
                                 if message.mine { Spacer(minLength: 65) }
                                 VStack(alignment: message.mine ? .trailing : .leading, spacing: 5) {
                                     if let replied = message.replyText, !replied.isEmpty { Text("↩ \(replied)").font(.caption).lineLimit(2).padding(7).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(message.mine ? 0.16 : 0.55)).clipShape(RoundedRectangle(cornerRadius: 9)) }
+                                    if let replyTarget = message.replyToID, let targetMessage = visibleMessages.first(where: { $0.id == replyTarget }) {
+                                        Button { withAnimation { proxy.scrollTo(targetMessage.id, anchor: .center) } } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "arrow.up.circle")
+                                                Text("Voir le message d’origine")
+                                            }
+                                        }
+                                        .font(.caption2)
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.secondary)
+                                    }
                                     if message.deleted { Text("Message supprimé").italic().opacity(0.7) }
                                     else if message.kind == "image", let path = message.mediaPath, let image = UIImage(contentsOfFile: path) {
-                                        Image(uiImage: image).resizable().scaledToFill().frame(width: 190, height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 190, height: 150)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                            .contentShape(RoundedRectangle(cornerRadius: 12))
+                                            .onTapGesture { zoomedPhoto = ZoomPhoto(image: image) }
                                     } else if message.kind == "audio", let path = message.mediaPath {
                                         Button { playAudio(path) } label: { Label(player?.isPlaying == true ? "Lecture…" : "Lire la note vocale", systemImage: "waveform.circle.fill") }.buttonStyle(.plain)
                                     } else { Text(message.text) }
+                                    let actions = detectMessageActions(message.text)
+                                    if !actions.isEmpty && !message.deleted {
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            ForEach(Array(actions.prefix(2))) { action in
+                                                Button(action.label) { openURL(action.url) }
+                                                    .font(.caption)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 5)
+                                                    .background(Color.white.opacity(message.mine ? 0.17 : 0.08))
+                                                    .clipShape(RoundedRectangle(cornerRadius: 999))
+                                            }
+                                        }.padding(.top, 5)
+                                    }
                                     if !message.reactions.isEmpty { HStack(spacing: 4) { ForEach(Array(Dictionary(grouping: message.reactions.values, by: { $0 })).sorted(by: { $0.key < $1.key }), id: \.key) { group in Text(group.key + (group.value.count > 1 ? " \(group.value.count)" : "")).font(.caption).padding(.horizontal, 6).padding(.vertical, 3).background(.white.opacity(message.mine ? 0.18 : 0.7)).clipShape(Capsule()) } } }
-                                    HStack(spacing: 4) { if message.edited { Text("modifié ·").font(.caption2).opacity(0.6) }; Text(message.sentAt, style: .time).font(.caption2).opacity(0.65); if message.mine { Image(systemName: "checkmark.circle.fill").font(.caption2).opacity(0.8) } }
+                                    HStack(spacing: 4) { if message.edited { Text("modifié ·").font(.caption2).opacity(0.6) }; Text(message.sentAt, style: .time).font(.caption2).opacity(0.65); if message.mine { Text(messageDeliveryLabel(message, in: conversation)).font(.caption2).opacity(0.7) } }
                                 }
                                 .padding(.horizontal, 14).padding(.vertical, 9)
                                 .background(message.mine ? Color.whappyBlue : Color(.secondarySystemBackground))
@@ -230,6 +590,9 @@ private struct ConversationView: View {
                                 .contextMenu {
                                     if !message.deleted {
                                         Button { replyTo = message } label: { Label("Répondre", systemImage: "arrowshape.turn.up.left") }
+                                        ForEach(detectMessageActions(message.text).prefix(2)) { action in
+                                            Button { openURL(action.url) } label: { Label(action.title, systemImage: action.systemIcon) }
+                                        }
                                         Menu("Réagir") { ForEach(["❤️", "👍", "😂", "😮", "🙏"], id: \.self) { emoji in Button(emoji) { store.react(to: message.id, in: conversationID, emoji: emoji) } } }
                                         if !message.text.isEmpty { Button { UIPasteboard.general.string = message.text } label: { Label("Copier", systemImage: "doc.on.doc") } }
                                         if message.mine && message.kind == "text" { Button { editingMessage = message; replyTo = nil; draft = message.text } label: { Label("Modifier", systemImage: "pencil") } }
@@ -257,6 +620,9 @@ private struct ConversationView: View {
         .navigationTitle(conversation?.name ?? "Discussion").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { Button { searchOpen.toggle(); if !searchOpen { search = "" } } label: { Image(systemName: "magnifyingglass") }; Button { callMode = .audio } label: { Image(systemName: "phone.fill") }; Button { callMode = .video } label: { Image(systemName: "video.fill") } } }
         .sheet(item: $callMode) { mode in if let conversation { SystemCallView(name: conversation.name, phone: conversation.phoneNumber, mode: mode) } }
+        .fullScreenCover(item: $zoomedPhoto) { photo in
+            ZoomablePhotoViewer(image: photo.image, onDismiss: { zoomedPhoto = nil })
+        }
         .onChange(of: photoItem) { _, item in guard let item else { return }; Task { await attachPhoto(item) } }
         .onAppear { if draft.isEmpty { draft = UserDefaults.standard.string(forKey: draftKey) ?? "" } }
         .onChange(of: draft) { _, value in if editingMessage == nil { UserDefaults.standard.set(value, forKey: draftKey) } }
@@ -309,6 +675,98 @@ private struct ConversationView: View {
         if player?.isPlaying == true { player?.stop(); player = nil; return }
         guard let audio = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: path)) else { return }
         audio.play(); player = audio
+    }
+}
+
+private struct ZoomPhoto: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+private struct ZoomablePhotoViewer: View {
+    let image: UIImage
+    let onDismiss: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topTrailing) {
+                Color.black.ignoresSafeArea()
+
+                let maxOffsetX = max(0, (geometry.size.width * (scale - 1)) / 2)
+                let maxOffsetY = max(0, (geometry.size.height * (scale - 1)) / 2)
+                let clampedOffset = CGSize(
+                    width: min(maxOffsetX, max(-maxOffsetX, offset.width)),
+                    height: min(maxOffsetY, max(-maxOffsetY, offset.height))
+                )
+
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(clampedOffset)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                let nextScale = lastScale * value
+                                scale = min(max(nextScale, 1), 4)
+                            }
+                            .onEnded { _ in
+                                if scale < 1.06 {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.95)) {
+                                        scale = 1
+                                        lastScale = 1
+                                        offset = .zero
+                                        lastOffset = .zero
+                                    }
+                                } else {
+                                    lastScale = scale
+                                }
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if scale > 1 { offset = CGSize(width: lastOffset.width + value.translation.width, height: lastOffset.height + value.translation.height) }
+                            }
+                            .onEnded { _ in
+                                lastOffset = offset
+                            }
+                    )
+                    .simultaneousGesture(
+                        TapGesture(count: 2)
+                            .onEnded {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                    if scale > 1.06 {
+                                        scale = 1
+                                        lastScale = 1
+                                        offset = .zero
+                                        lastOffset = .zero
+                                    } else {
+                                        scale = 2
+                                        lastScale = 2
+                                    }
+                                }
+                            }
+                    )
+
+                Button {
+                    onDismiss()
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(20)
+                        .contentShape(Circle())
+                }
+            }
+        }
     }
 }
 
@@ -379,7 +837,7 @@ struct MarketView: View {
     @State private var search = ""
     @State private var selling = false
     @State private var showingCart = false
-    private var filtered: [Listing] { search.isEmpty ? store.listings : store.listings.filter { $0.title.localizedCaseInsensitiveContains(search) || $0.place.localizedCaseInsensitiveContains(search) } }
+    private var filtered: [Listing] { store.listings.filter { "\($0.title) \($0.place) \($0.seller)".matchesWhappySearch(search) } }
 
     var body: some View {
         ScrollView { LazyVStack(spacing: 12) { ForEach(filtered) { listing in NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(.plain) } }.padding() }
@@ -484,7 +942,7 @@ private struct LiveRoomView: View {
             if let room { LiveCard(room: room).padding(); ScrollView { VStack(alignment: .leading, spacing: 10) { ForEach(comments, id: \.self) { Text($0).padding(10).background(Color(.secondarySystemBackground)).clipShape(RoundedRectangle(cornerRadius: 12)) } }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal) }; HStack { TextField("Commenter le direct", text: $comment).textFieldStyle(.roundedBorder); Button { let value = comment.trimmingCharacters(in: .whitespacesAndNewlines); if !value.isEmpty { comments.append("Vous : \(value)"); comment = "" } } label: { Image(systemName: "paperplane.fill") }.disabled(comment.isEmpty) }.padding().background(.bar) }
         }
         .navigationTitle(room?.host ?? "Live").navigationBarTitleDisplayMode(.inline)
-        .toolbar { if let room, room.host == "Cyril Bokilo", room.live { ToolbarItem(placement: .topBarTrailing) { Button("Terminer", role: .destructive) { store.endLive(room) } } } }
+        .toolbar { if let room, room.host == whappyFounderName, room.live { ToolbarItem(placement: .topBarTrailing) { Button("Terminer", role: .destructive) { store.endLive(room) } } } }
     }
 }
 
@@ -521,7 +979,7 @@ struct ServicesView: View {
                     Text(store.walletTransactions.isEmpty ? "Portefeuille non activé" : "\(store.walletBalance.formatted()) FCFA").font(.largeTitle.bold()).foregroundStyle(.white)
                     Text("Mode démonstration · aucun débit bancaire réel").font(.caption).foregroundStyle(.white.opacity(0.72))
                     if store.walletTransactions.isEmpty { Button("Activer avec 25 000 FCFA test") { store.activateDemoWallet(); message = "Portefeuille de démonstration activé." }.buttonStyle(.borderedProminent) }
-                    else { HStack { Button("Payer") { paying = true }.buttonStyle(.borderedProminent); ShareLink(item: URL(string: "https://whappy.chat/pay/cyril-bokilo")!) { Label("Recevoir", systemImage: "qrcode") }.buttonStyle(.bordered) } }
+                    else { HStack { Button("Payer") { paying = true }.buttonStyle(.borderedProminent); ShareLink(item: URL(string: "https://whappy.chat/pay/\(whappyFounderPaySlug)")!) { Label("Recevoir", systemImage: "qrcode") }.buttonStyle(.bordered) } }
                 }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 26))
                 if let message { Label(message, systemImage: "checkmark.circle.fill").foregroundStyle(.green).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.white).clipShape(RoundedRectangle(cornerRadius: 14)) }
                 Text("Services à la demande").font(.title3.bold())
@@ -577,13 +1035,120 @@ private struct BusinessEditorView: View {
 
 struct ProfileView: View {
     @EnvironmentObject private var store: WhappyStore
+    @State private var zoomedPhoto: ZoomPhoto?
+    @State private var profilePhotoItem: PhotosPickerItem?
+    @State private var profilePhoto: UIImage?
+
+    private static let profilePhotoKey = "whappy-ios-profile-photo-path"
+
+    private func profilePhotoPath() -> String? {
+        UserDefaults.standard.string(forKey: Self.profilePhotoKey)
+    }
+
+    private func saveProfilePhoto(_ image: UIImage) {
+        guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let target = directory.appendingPathComponent("whappy-profile-photo.jpg")
+        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
+        try? data.write(to: target, options: .atomic)
+        UserDefaults.standard.set(target.path, forKey: Self.profilePhotoKey)
+        profilePhoto = image
+    }
+
+    private func loadProfilePhoto() {
+        if let path = profilePhotoPath() {
+            profilePhoto = UIImage(contentsOfFile: path)
+        }
+        if profilePhoto == nil, let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let target = directory.appendingPathComponent("whappy-profile-photo.jpg")
+            profilePhoto = UIImage(contentsOfFile: target.path)
+            if profilePhoto != nil {
+                UserDefaults.standard.set(target.path, forKey: Self.profilePhotoKey)
+            }
+        }
+    }
+
     var body: some View {
         List {
-            Section { HStack(spacing: 16) { InitialsAvatar(text: "CB", size: 62); VStack(alignment: .leading) { Text("Cyril Bokilo").font(.title3.bold()); Text("Compte WHAPPY natif").font(.subheadline).foregroundStyle(.secondary) } }.padding(.vertical, 8) }
-            Section("Votre activité") { NavigationLink { BusinessEditorView() } label: { Label("Ma boutique", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
+            Section {
+                HStack(spacing: 16) {
+                    profileHeaderAvatar
+                    VStack(alignment: .leading) {
+                        Text(whappyFounderName).font(.title3.bold())
+                        Text(whappyFounderBusinessName + " · " + whappyFounderBadgeLabel).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }.padding(.vertical, 8)
+            }
+            Section("Votre activité") { NavigationLink { MyWhappyLinkView() } label: { Label("Mon code et mon lien WHAPPY", systemImage: "qrcode") }; NavigationLink { BusinessEditorView() } label: { Label("Ma boutique", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
             Section("Réglages") { Toggle(isOn: $store.notificationsEnabled) { Label("Notifications", systemImage: "bell.badge.fill") }; NavigationLink { PrivacySettingsView() } label: { Label("Confidentialité et sécurité", systemImage: "lock.shield.fill") }; NavigationLink { DataSettingsView() } label: { Label("Stockage et données", systemImage: "internaldrive.fill") }; NavigationLink { InfoView(title: "Aide", message: "Utilisez Messages pour discuter, Marché pour acheter ou vendre, Live pour diffuser, et Services pour payer en mode démonstration ou demander une prestation.", icon: "questionmark.circle.fill") } label: { Label("Aide", systemImage: "questionmark.circle.fill") } }
             Section { Text("WHAPPY iOS · application native").foregroundStyle(.secondary) }
         }.navigationTitle("Profil")
+            .onAppear(perform: loadProfilePhoto)
+            .onChange(of: profilePhotoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        saveProfilePhoto(image)
+                    }
+                    profilePhotoItem = nil
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    PhotosPicker(selection: $profilePhotoItem, matching: .images) {
+                        Image(systemName: "photo.circle.fill")
+                    }
+                }
+            }
+            .fullScreenCover(item: $zoomedPhoto) { photo in
+                ZoomablePhotoViewer(image: photo.image) { zoomedPhoto = nil }
+            }
+    }
+}
+
+private extension ProfileView {
+    var profileHeaderAvatar: some View {
+        Group {
+            if let photo = profilePhoto {
+                Image(uiImage: photo)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                InitialsAvatar(text: "CB", size: 62)
+            }
+        }
+        .frame(width: 62, height: 62)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.whappyBlue.opacity(0.14), lineWidth: 1))
+        .onTapGesture {
+            if let photo = profilePhoto {
+                zoomedPhoto = ZoomPhoto(image: photo)
+            }
+        }
+    }
+}
+
+private struct MyWhappyLinkView: View {
+    @State private var countryCode = "+242"
+    @State private var phone = ""
+    private var normalized: String? { WhappyPhoneCountry.normalize(phone, selectedCode: countryCode) }
+    private var link: URL? { normalized.flatMap { value in URL(string: "https://whappy.chat/contact/\(value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value)") } }
+    private var qrImage: UIImage? {
+        guard let normalized else { return nil }
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data("whappy://contact/\(normalized)".utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)), let cgImage = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    var body: some View {
+        Form {
+            Section("Votre numéro") { Picker("Pays", selection: $countryCode) { ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) } }; TextField("Numéro", text: $phone).keyboardType(.phonePad); if let normalized { Label(normalized, systemImage: "checkmark.circle.fill").foregroundStyle(Color.whappyBlue) } }
+            if let qrImage, let link {
+                Section("Code WHAPPY") { Image(uiImage: qrImage).interpolation(.none).resizable().scaledToFit().frame(maxWidth: .infinity).padding(); Text(link.absoluteString).font(.caption).textSelection(.enabled); ShareLink(item: "Ajoutez-moi sur WHAPPY\nwhappy://contact/\(normalized ?? "")\n\(link.absoluteString)") { Label("Partager mon contact", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent) }
+            }
+        }.navigationTitle("Mon code WHAPPY")
     }
 }
 

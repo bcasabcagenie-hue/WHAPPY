@@ -89,6 +89,33 @@ export type BusinessLead = {
   updatedAt?: CloudDate;
 };
 
+export type WhappyTeamStatus = "active" | "invited" | "paused";
+export type WhappyTeamMember = {
+  id: string;
+  ownerId: string;
+  name: string;
+  role: string;
+  contact: string;
+  area: string;
+  status: WhappyTeamStatus;
+  createdAt?: CloudDate;
+  updatedAt?: CloudDate;
+};
+
+export type FounderEarningStatus = "pending" | "processing" | "paid";
+export type FounderEarning = {
+  id: string;
+  ownerId: string;
+  title: string;
+  source: string;
+  amount: number;
+  currency: BusinessCurrency;
+  status: FounderEarningStatus;
+  dueLabel: string;
+  createdAt?: CloudDate;
+  updatedAt?: CloudDate;
+};
+
 export type ArtistStatus = "prospect" | "active" | "paused" | "archived";
 
 export type Artist = {
@@ -101,6 +128,7 @@ export type Artist = {
   contact: string;
   email: string;
   status: ArtistStatus;
+  isScouted?: boolean;
   nextAction: string;
   monthlyBudget: number;
   notes: string;
@@ -110,7 +138,9 @@ export type Artist = {
 
 export type NewBusinessPage = Pick<BusinessPage, "name" | "type" | "category" | "bio" | "city" | "phone" | "website">;
 export type NewAdCampaign = Pick<AdCampaign, "pageId" | "pageName" | "objective" | "title" | "creative" | "cta" | "audience" | "city" | "dailyBudget" | "days">;
-export type NewArtist = Pick<Artist, "name" | "stageName" | "discipline" | "city" | "contact" | "email" | "status" | "nextAction" | "monthlyBudget" | "notes">;
+export type NewArtist = Pick<Artist, "name" | "stageName" | "discipline" | "city" | "contact" | "email" | "status" | "nextAction" | "monthlyBudget" | "notes"> & {
+  isScouted?: boolean;
+};
 
 function slugify(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42);
@@ -226,6 +256,7 @@ export function watchOwnerArtists(ownerId: string, onArtists: (artists: Artist[]
 export async function createArtist(ownerId: string, artist: NewArtist) {
   const reference = await addDoc(collection(db, "artists"), {
     ...artist,
+    isScouted: artist.isScouted === undefined ? false : Boolean(artist.isScouted),
     ownerId,
     name: artist.name.trim().slice(0, 100),
     stageName: artist.stageName.trim().slice(0, 100),
@@ -251,6 +282,7 @@ export async function updateArtist(artistId: string, changes: Partial<NewArtist>
   if (sanitized.contact !== undefined) sanitized.contact = sanitized.contact.trim().slice(0, 40);
   if (sanitized.email !== undefined) sanitized.email = sanitized.email.trim().slice(0, 120);
   if (sanitized.nextAction !== undefined) sanitized.nextAction = sanitized.nextAction.trim().slice(0, 120);
+  if (sanitized.isScouted !== undefined) sanitized.isScouted = Boolean(sanitized.isScouted);
   if (sanitized.monthlyBudget !== undefined) sanitized.monthlyBudget = Math.max(0, Math.round(sanitized.monthlyBudget));
   if (sanitized.notes !== undefined) sanitized.notes = sanitized.notes.trim().slice(0, 600);
   await updateDoc(doc(db, "artists", artistId), { ...sanitized, updatedAt: serverTimestamp() });
@@ -310,4 +342,67 @@ export async function createBusinessLead(ownerId: string, lead: Omit<BusinessLea
 
 export async function updateBusinessLeadStage(leadId: string, stage: LeadStage) {
   await updateDoc(doc(db, "businessLeads", leadId), { stage, updatedAt: serverTimestamp() });
+}
+
+export function watchWhappyUserCount(onCount: (count: number) => void, onError: () => void) {
+  return onSnapshot(collection(db, "users"), (snapshot) => onCount(snapshot.size), onError);
+}
+
+export function watchWhappyLiveStats(onStats: (stats: { sessions: number; viewers: number }) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "liveSessions"), where("status", "==", "live")), (snapshot) => {
+    const viewers = snapshot.docs.reduce((total, item) => total + Math.max(0, Number(item.data().viewerCount || 0)), 0);
+    onStats({ sessions: snapshot.size, viewers });
+  }, onError);
+}
+
+export function watchWhappyTeam(ownerId: string, onMembers: (members: WhappyTeamMember[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "whappyTeam"), where("ownerId", "==", ownerId)), (snapshot) => {
+    const members = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as WhappyTeamMember));
+    members.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onMembers(members);
+  }, onError);
+}
+
+export async function createWhappyTeamMember(ownerId: string, member: Omit<WhappyTeamMember, "id" | "ownerId" | "createdAt" | "updatedAt">) {
+  const reference = await addDoc(collection(db, "whappyTeam"), {
+    ...member,
+    ownerId,
+    name: member.name.trim().slice(0, 100),
+    role: member.role.trim().slice(0, 100),
+    contact: member.contact.trim().slice(0, 120),
+    area: member.area.trim().slice(0, 100),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return reference.id;
+}
+
+export async function updateWhappyTeamMember(memberId: string, changes: Partial<Pick<WhappyTeamMember, "name" | "role" | "contact" | "area" | "status">>) {
+  await updateDoc(doc(db, "whappyTeam", memberId), { ...changes, updatedAt: serverTimestamp() });
+}
+
+export function watchFounderEarnings(ownerId: string, onEarnings: (earnings: FounderEarning[]) => void, onError: () => void) {
+  return onSnapshot(query(collection(db, "whappyEarnings"), where("ownerId", "==", ownerId)), (snapshot) => {
+    const earnings = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as FounderEarning));
+    earnings.sort((left, right) => (right.createdAt?.toDate?.()?.getTime() || 0) - (left.createdAt?.toDate?.()?.getTime() || 0));
+    onEarnings(earnings);
+  }, onError);
+}
+
+export async function createFounderEarning(ownerId: string, earning: Omit<FounderEarning, "id" | "ownerId" | "createdAt" | "updatedAt">) {
+  const reference = await addDoc(collection(db, "whappyEarnings"), {
+    ...earning,
+    ownerId,
+    title: earning.title.trim().slice(0, 120),
+    source: earning.source.trim().slice(0, 100),
+    amount: Math.max(0, Math.round(earning.amount)),
+    dueLabel: earning.dueLabel.trim().slice(0, 80),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return reference.id;
+}
+
+export async function updateFounderEarningStatus(earningId: string, status: FounderEarningStatus) {
+  await updateDoc(doc(db, "whappyEarnings", earningId), { status, updatedAt: serverTimestamp() });
 }

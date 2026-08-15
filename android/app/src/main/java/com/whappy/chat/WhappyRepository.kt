@@ -13,6 +13,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 class WhappyRepository(
@@ -82,14 +83,15 @@ class WhappyRepository(
 
     suspend fun updateProfilePhoto(userId: String, uri: Uri, contentType: String): String {
         require(auth.currentUser?.uid == userId)
-        require(contentType in setOf("image/jpeg", "image/png", "image/webp"))
-        val extension = when (contentType) {
+        val safeContentType = normalizeImageContentType(contentType)
+        require(safeContentType in setOf("image/jpeg", "image/png", "image/webp"))
+        val extension = when (safeContentType) {
             "image/png" -> "png"
             "image/webp" -> "webp"
             else -> "jpg"
         }
         val objectRef = storage.reference.child("profiles/$userId/avatar-${UUID.randomUUID()}.$extension")
-        val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(contentType).build()
+        val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
         objectRef.putFile(uri, metadata).await()
         val downloadUrl = objectRef.downloadUrl.await().toString()
         db.collection("users").document(userId).set(
@@ -105,6 +107,15 @@ class WhappyRepository(
             runCatching { user.updateProfile(update).await() }
         }
         return downloadUrl
+    }
+
+    private fun normalizeImageContentType(type: String): String = when (type.lowercase(Locale.ROOT)) {
+        "image/png", "image/webp", "image/jpeg", "image/jpg", "image/pjpeg" -> when (type.lowercase(Locale.ROOT)) {
+            "image/jpg", "image/pjpeg" -> "image/jpeg"
+            else -> type.lowercase(Locale.ROOT)
+        }
+        "image/heic", "image/heif", "image/heics", "image/heifs", "image/avif" -> "image/jpeg"
+        else -> if (type.startsWith("image/")) "image/jpeg" else "image/jpeg"
     }
 
     fun observeConversations(
@@ -173,6 +184,63 @@ class WhappyRepository(
                     reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
                     deleted = document.getBoolean("deleted") == true,
                     edited = document.getBoolean("edited") == true,
+                )
+            })
+        }
+
+    fun observeChannels(
+        onChange: (List<WhappyChannel>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("channels")
+        .orderBy("updatedAt", Query.Direction.DESCENDING)
+        .limit(100)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().mapNotNull { document ->
+                val name = document.getString("name").orEmpty()
+                val ownerId = document.getString("ownerId").orEmpty()
+                if (name.isBlank() || ownerId.isBlank()) null else WhappyChannel(
+                    id = document.id,
+                    name = name,
+                    description = document.getString("description").orEmpty(),
+                    category = document.getString("category") ?: "Communauté",
+                    ownerId = ownerId,
+                    ownerName = document.getString("ownerName") ?: "Créateur WHAPPY",
+                    memberIds = (document.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty(),
+                    memberCount = document.getLong("memberCount")?.toInt() ?: 1,
+                    postCount = document.getLong("postCount")?.toInt() ?: 0,
+                    lastPost = document.getString("lastPost").orEmpty(),
+                    updatedAt = document.timestampMillis("updatedAt"),
+                    verified = document.getBoolean("verified") == true,
+                )
+            })
+        }
+
+    fun observeChannelPosts(
+        channelId: String,
+        onChange: (List<WhappyChannelPost>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("channels").document(channelId).collection("posts")
+        .orderBy("createdAt", Query.Direction.ASCENDING)
+        .limit(300)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().map { document ->
+                WhappyChannelPost(
+                    id = document.id,
+                    text = document.getString("text").orEmpty(),
+                    authorId = document.getString("authorId").orEmpty(),
+                    authorName = document.getString("authorName") ?: "WHAPPY",
+                    createdAt = document.timestampMillis("createdAt"),
+                    reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
+                    pinned = document.getBoolean("pinned") == true,
+                    deleted = document.getBoolean("deleted") == true,
                 )
             })
         }
@@ -441,6 +509,66 @@ class WhappyRepository(
 
     suspend fun setTyping(conversationId: String, userId: String, typing: Boolean) {
         db.collection("conversations").document(conversationId).update("typingBy.$userId", typing).await()
+    }
+
+    suspend fun createChannel(userId: String, ownerName: String, name: String, description: String, category: String) {
+        val cleanName = name.trim()
+        val cleanDescription = description.trim()
+        require(cleanName.length in 3..80 && cleanDescription.length in 10..300)
+        val reference = db.collection("channels").document()
+        reference.set(
+            mapOf(
+                "name" to cleanName,
+                "description" to cleanDescription,
+                "category" to category.take(40),
+                "ownerId" to userId,
+                "ownerName" to ownerName.take(80),
+                "memberIds" to listOf(userId),
+                "memberCount" to 1,
+                "postCount" to 0,
+                "lastPost" to "Bienvenue sur $cleanName",
+                "verified" to false,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
+    suspend fun setChannelSubscription(channelId: String, userId: String, subscribed: Boolean) {
+        val reference = db.collection("channels").document(channelId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(reference)
+            val members = (snapshot.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+            val ownerId = snapshot.getString("ownerId").orEmpty()
+            require(userId != ownerId || subscribed)
+            val next = if (subscribed) (members + userId).distinct() else members.filterNot { it == userId }
+            if (next != members) transaction.update(reference, mapOf("memberIds" to next, "memberCount" to next.size, "updatedAt" to FieldValue.serverTimestamp()))
+            null
+        }.await()
+    }
+
+    suspend fun publishChannelPost(channelId: String, userId: String, authorName: String, text: String) {
+        val value = text.trim()
+        require(value.length in 1..4_000)
+        val channel = db.collection("channels").document(channelId)
+        val post = channel.collection("posts").document()
+        val batch = db.batch()
+        batch.set(post, mapOf("text" to value, "authorId" to userId, "authorName" to authorName.take(80), "createdAt" to FieldValue.serverTimestamp(), "reactions" to emptyMap<String, String>(), "pinned" to false, "deleted" to false))
+        batch.update(channel, mapOf("lastPost" to value.take(160), "postCount" to FieldValue.increment(1), "updatedAt" to FieldValue.serverTimestamp()))
+        batch.commit().await()
+    }
+
+    suspend fun reactToChannelPost(channelId: String, postId: String, userId: String, emoji: String) {
+        require(emoji in setOf("❤️", "👍", "🔥", "👏", "💡"))
+        db.collection("channels").document(channelId).collection("posts").document(postId).update("reactions.$userId", emoji).await()
+    }
+
+    suspend fun pinChannelPost(channelId: String, postId: String, pinned: Boolean) {
+        db.collection("channels").document(channelId).collection("posts").document(postId).update("pinned", pinned).await()
+    }
+
+    suspend fun deleteChannelPost(channelId: String, postId: String) {
+        db.collection("channels").document(channelId).collection("posts").document(postId).update(mapOf("text" to "Publication supprimée", "deleted" to true, "pinned" to false)).await()
     }
 
     suspend fun sendMediaMessage(
@@ -843,7 +971,7 @@ class WhappyRepository(
     }
 
     suspend fun searchBusinessPages(query: String): List<WhappyBusinessPage> {
-        val needle = query.trim().lowercase()
+        val needle = SearchNormalizer.normalize(query)
         if (needle.length < 2) return emptyList()
         return db.collection("businessPages")
             .limit(100)
@@ -852,10 +980,9 @@ class WhappyRepository(
             .documents
             .map { it.toBusinessPage() }
             .filter { page ->
-                listOf(page.name, page.handle, page.category, page.city, page.bio)
-                    .any { value -> value.lowercase().contains(needle) }
+                SearchNormalizer.matches(query, page.name, page.handle, page.category, page.city, page.bio)
             }
-            .sortedWith(compareBy<WhappyBusinessPage> { !it.name.lowercase().startsWith(needle) }.thenBy { it.name.lowercase() })
+            .sortedWith(compareBy<WhappyBusinessPage> { !SearchNormalizer.normalize(it.name).startsWith(needle) }.thenBy { SearchNormalizer.normalize(it.name) })
             .take(20)
     }
 

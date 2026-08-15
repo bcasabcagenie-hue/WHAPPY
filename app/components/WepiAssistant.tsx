@@ -20,11 +20,15 @@ export function WepiAssistant({ userId, userName, businessName = "", cloud, noti
   useEffect(() => { notifyRef.current = notify; }, [notify]);
   useEffect(() => {
     if (!cloud) {
-      try {
-        const stored = JSON.parse(localStorage.getItem(`whappy-wepi-${userId}`) || "null") as WepiSettings | null;
-        if (stored) setSettings({ ...defaultWepiSettings(userId, businessName), ...stored, ownerId: userId });
-      } catch { /* La démo reste utilisable sans stockage local. */ }
-      return;
+      let active = true;
+      queueMicrotask(() => {
+        if (!active) return;
+        try {
+          const stored = JSON.parse(localStorage.getItem(`whappy-wepi-${userId}`) || "null") as WepiSettings | null;
+          if (stored) setSettings({ ...defaultWepiSettings(userId, businessName), ...stored, ownerId: userId });
+        } catch { /* La démo reste utilisable sans stockage local. */ }
+      });
+      return () => { active = false; };
     }
     return watchWepiSettings(userId, (stored) => {
       setSettings(stored ? { ...defaultWepiSettings(userId, businessName), ...stored } : defaultWepiSettings(userId, businessName));
@@ -56,14 +60,27 @@ export function WepiAssistant({ userId, userName, businessName = "", cloud, noti
     finally { setBusy(false); }
   }
 
-  function toggle(key: "enabled" | "autoReply") {
-    setSettings((current) => ({ ...current, [key]: !current[key] }));
+  async function toggle(key: "enabled" | "autoReply") {
+    const nextValue = !settings[key];
+    const nextSettings = { ...settings, [key]: nextValue };
+    setSettings(nextSettings);
+    if (!cloud) {
+      notify(nextValue ? (key === "enabled" ? "WEPI est activé en mode local" : "WEPI répondra automatiquement") : (key === "enabled" ? "WEPI est désactivé" : "Réponse automatique WEPI en pause"));
+      return;
+    }
+    try {
+      await saveWepiSettings(userId, nextSettings);
+      notify(nextValue ? (key === "enabled" ? "WEPI est activé" : "Réponse automatique WEPI activée") : (key === "enabled" ? "WEPI est désactivé" : "Réponse automatique WEPI en pause"));
+    } catch {
+      setSettings((current) => ({ ...current, [key]: !nextValue }));
+      notify("Le réglage WEPI n’a pas pu être enregistré");
+    }
   }
 
   return <section className="wepi-assistant">
     <header className="wepi-assistant-head"><div><span className="wepi-mark">W</span><div><small>WHAPPY INTELLIGENCE</small><h3>WEPI, votre assistant IA</h3></div></div><span className={`wepi-status ${settings.enabled ? "on" : "off"}`}><i />{settings.enabled ? "ACTIF" : "EN PAUSE"}</span></header>
     <p className="wepi-lead">WEPI comprend les questions entrantes et répond selon vos informations. Il ne publie rien et ne prend pas d’engagement commercial sans votre accord.</p>
-    <div className="wepi-switches"><button type="button" className={settings.enabled ? "active" : ""} onClick={() => toggle("enabled")}><span>{settings.enabled ? "✓" : "○"}</span><div><strong>Activer WEPI</strong><small>Rendre l’assistant disponible dans Whappy</small></div></button><button type="button" className={settings.autoReply ? "active" : ""} onClick={() => toggle("autoReply")} disabled={!settings.enabled}><span>{settings.autoReply ? "✓" : "○"}</span><div><strong>Réponse automatique</strong><small>Répondre aux nouveaux messages entrants</small></div></button></div>
+    <div className="wepi-switches"><button type="button" className={settings.enabled ? "active" : ""} onClick={() => void toggle("enabled")}><span>{settings.enabled ? "✓" : "○"}</span><div><strong>Activer WEPI</strong><small>Rendre l’assistant disponible dans Whappy</small></div></button><button type="button" className={settings.autoReply ? "active" : ""} onClick={() => void toggle("autoReply")} disabled={!settings.enabled}><span>{settings.autoReply ? "✓" : "○"}</span><div><strong>Réponse automatique</strong><small>Répondre aux nouveaux messages entrants</small></div></button></div>
     <form onSubmit={save} className="wepi-form">
       <div className="wepi-form-grid"><label>Nom de l’assistant<input name="assistantName" defaultValue={settings.assistantName} key={`${settings.ownerId}-${settings.assistantName}`} maxLength={60}/></label><label>Nom du business<input name="businessName" defaultValue={settings.businessName || businessName} key={`${settings.ownerId}-${settings.businessName}-${businessName}`} maxLength={100} placeholder="Ex. Mokabi Store"/></label><label>Ton<select name="tone" defaultValue={settings.tone} key={`${settings.ownerId}-${settings.tone}`}><option value="chaleureux">Chaleureux</option><option value="expert">Expert</option><option value="direct">Direct</option></select></label></div>
       <label>Message d’accueil<textarea name="welcomeMessage" defaultValue={settings.welcomeMessage} key={`${settings.ownerId}-${settings.welcomeMessage}`} maxLength={240} rows={2}/></label>

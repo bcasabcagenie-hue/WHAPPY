@@ -11,6 +11,7 @@ function messageTime(message: CloudMessage) {
 }
 import { saveWhappyProfile } from "@/lib/whappy-profile";
 import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
+import { RadioStudio, type RadioSession } from "@/app/components/RadioStudio";
 import { TwinRecorder } from "@/app/components/TwinRecorder";
 import { TwinEngineStudio } from "@/app/components/TwinEngineStudio";
 import { CallRoom } from "@/app/components/CallRoom";
@@ -21,8 +22,12 @@ import { ContactsSpace, SuperHub } from "@/app/components/SuperHub";
 import { RealTimeInbox } from "@/app/components/RealTimeInbox";
 import { BusinessStudio } from "@/app/components/BusinessStudio";
 import { BusinessGrowthTools } from "@/app/components/BusinessGrowthTools";
+import { RoomsSpace } from "@/app/components/RoomsSpace";
+import { HappyFounderDashboard } from "@/app/components/HappyFounderDashboard";
 import { WhappyPulse } from "@/app/components/WhappyPulse";
 import { WhappyNow } from "@/app/components/WhappyNow";
+import { WhappyExperience } from "@/app/components/WhappyExperience";
+import { WhappyMotion } from "@/app/components/WhappyMotion";
 import { WhapTextStudio } from "@/app/components/WhapTextStudio";
 import { StoryStudio } from "@/app/components/StoryStudio";
 import type { CallSignal } from "@/lib/whappy-calls";
@@ -30,14 +35,14 @@ import { watchIncomingCalls } from "@/lib/whappy-calls";
 import { recordAdEvent, watchActiveCampaigns, type AdCampaign } from "@/lib/whappy-business";
 import type { DirectMember } from "@/lib/whappy-data";
 
-type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "services" | "twin" | "business" | "games";
+type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "rooms" | "radio" | "services" | "twin" | "business" | "games";
 type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; sellerPhone?: string; status?: "active" | "reserved" | "sold"; };
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const ANDROID_APP = {
-  url: "/WHAPPY-Android-1.3.6-native.apk",
-  version: "1.3.6",
-  size: "16 Mo",
+  url: "/WHAPPY-Android-1.4.1-native.apk",
+  version: "1.4.1",
+  size: "17 Mo",
   minimum: "Android 8.0+",
 } as const;
 
@@ -61,16 +66,50 @@ const lives = [
   { host: "Tech House", title: "Test sans filtre : les meilleurs smartphones", viewers: "963", product: "Galaxy S26", price: "490 000", tone: "tech", badge: "DÉMO LIVE", poster: "/live/tech-house.png", stream: "/live/tech-house.mp4", location: "Centre-ville · Brazzaville" },
 ];
 
-const liveGifts = [
-  { id: "spark", icon: "✨", name: "Éclat", price: 1000, detail: "Un encouragement visible" },
-  { id: "bouquet", icon: "💐", name: "Bouquet", price: 5000, detail: "Un soutien élégant" },
-  { id: "fire", icon: "🔥", name: "Flamme", price: 15000, detail: "Mettez le direct en avant" },
-  { id: "crown", icon: "👑", name: "Couronne", price: 50000, detail: "Le cadeau signature" },
-] as const;
+const WHAPPY_FOUNDER_PHONE = "242065465808";
+const WHAPPY_FOUNDER_NAME = "Happy";
+const WHAPPY_BUSINESS_NAME = "Whappy by BCA";
+const WHAPPY_FALLBACK_NAME = "Utilisateur WHAPPY";
+
+type GiftCarrier = "acheteur" | "offreur";
+type LiveGift = {
+  id: string;
+  icon: string;
+  name: string;
+  price: number;
+  detail: string;
+  hearts: number;
+};
+const liveGifts: LiveGift[] = [
+  { id: "spark", icon: "✨", name: "Éclat pro", price: 25000, detail: "Un encouragement premium visible dans le direct", hearts: 8 },
+  { id: "bouquet", icon: "💐", name: "Bouquet élite", price: 60000, detail: "Mettez en avant votre soutien avec distinction", hearts: 16 },
+  { id: "fire", icon: "🔥", name: "Flamme boost", price: 120000, detail: "Débloquez un focus visible pour votre marque", hearts: 32 },
+  { id: "crown", icon: "👑", name: "Couronne signature", price: 240000, detail: "Un cadeau haut de gamme avec mention dédiée", hearts: 64 },
+];
+const liveGiftTopUps = [20_000, 40_000, 80_000, 160_000] as const;
+const LIVE_STAGE_MAX = 10;
+type LiveGiftCarrier = { gift: LiveGift; note: string; carrier: GiftCarrier };
+type GiftLedger = { count: number; amount: number };
+type GiftWalletLedger = Record<GiftCarrier, GiftLedger>;
+type ModerationAction = "pin" | "unpin" | "hide" | "restore";
+type ModerationEvent = {
+  id: number;
+  action: ModerationAction;
+  commentId: string;
+  commentName: string;
+  by: string;
+  at: number;
+};
+type LiveComment = { id: string; name: string; text: string; hearts: number; isHost?: boolean; sentAt: number; pinned?: boolean; hidden?: boolean };
 
 const liveStageCandidates = ["Vous", "Amina", "Junior", "Grâce", "Maya", "Patrick", "Nadia", "Samuel", "Léna"];
+const LIVE_NOW = Date.now();
 
 function formatLiveMoney(value: number) { return new Intl.NumberFormat("fr-FR").format(value); }
+
+function isHappyFounderPhone(phone?: string | null) {
+  return (phone || "").replace(/\D/g, "") === WHAPPY_FOUNDER_PHONE;
+}
 
 function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -141,9 +180,16 @@ export default function Home() {
   const [demoContactName, setDemoContactName] = useState("");
   const [activeAds, setActiveAds] = useState<AdCampaign[]>([]);
   const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
+  const [radioSession, setRadioSession] = useState<RadioSession>({ status: "offline", title: "Whappy FM", elapsed: 0, listeners: 0, micOn: false });
   const [demoReady, setDemoReady] = useState(false);
-  const directUser=useMemo<DirectMember|null>(()=>userId?{uid:userId,displayName:auth.currentUser?.displayName||profileName||"Vous",phoneNumber:auth.currentUser?.phoneNumber||""}:null,[userId,profileName]);
-  const demoMode=authenticated&&!userId;
+  const isFounderAccount = isHappyFounderPhone(auth.currentUser?.phoneNumber);
+  const demoMode = authenticated && !userId;
+  const founderProfile = isFounderAccount || demoMode;
+  const authDisplayName = (auth.currentUser?.displayName || profileName || "").trim();
+  const userDisplayName = authDisplayName || WHAPPY_FALLBACK_NAME;
+  const accountName = founderProfile ? WHAPPY_FOUNDER_NAME : userDisplayName;
+  const businessName = founderProfile ? WHAPPY_BUSINESS_NAME : accountName;
+  const directUser = useMemo<DirectMember | null>(() => userId ? { uid: userId, displayName: userDisplayName, phoneNumber: auth.currentUser?.phoneNumber || "" } : null, [userId, profileName, isFounderAccount, auth.currentUser?.phoneNumber, userDisplayName]);
 
   useEffect(() => {
     let active = true;
@@ -378,7 +424,7 @@ export default function Home() {
     if (modal === "sell") {
       const title = String(form.get("title") || "Nouvelle annonce").trim();
       const mode = String(form.get("mode"));
-      const seller = auth.currentUser?.displayName || profileName.trim() || "Vous";
+      const seller = userDisplayName;
       const listing = { title, price: String(form.get("price") || "Prix à discuter"), place: String(form.get("place") || "Brazzaville"), seller, sellerPhone: auth.currentUser?.phoneNumber || "", mark: seller.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "VO", category: String(form.get("category") || "Services"), mode: (mode === "sell" ? "vente" : "troc") as Listing["mode"] };
       setPublishBusy(true);
       try {
@@ -528,6 +574,8 @@ export default function Home() {
     inbox: ["Connexions", "Vos conversations, commandes et offres"],
     calls: ["Appels", "Historique audio et vidéo de vos contacts Whappy"],
     contacts: ["Contacts", "Personnes, groupes et professionnels autour de vous"],
+    rooms: ["Salles Whappy", "Des communautés de foi, de technologie, d’apprentissage et d’entraide"],
+    radio: ["Radio & Podcasts", "Diffusez votre voix, créez vos podcasts et gardez le lien avec vos auditeurs"],
     services: ["Services", "Payez, achetez, trouvez et gérez votre quotidien"],
     twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
     business: ["Business Suite", "Pages professionnelles, publicité et croissance"],
@@ -537,6 +585,8 @@ export default function Home() {
     inbox: "Rechercher une conversation…",
     calls: "Rechercher un appel ou un contact…",
     contacts: "Rechercher une personne, un groupe ou un professionnel…",
+    rooms: "Rechercher une salle, une communauté ou un thème…",
+    radio: "Rechercher un podcast, une émission ou un auditeur…",
     orbit: "Rechercher dans les Moments…",
     services: "Rechercher un service Whappy…",
     live: "Rechercher un direct…",
@@ -559,6 +609,8 @@ export default function Home() {
         <Rail active={space === "contacts"} icon="◎" label="Contacts" onClick={() => go("contacts")} />
         <Rail active={space === "orbit"} icon="▦" label="Moments" onClick={() => go("orbit")} />
         <Rail active={space === "games"} icon="♞" label="Jeux" onClick={() => go("games")} />
+        <Rail active={space === "rooms"} icon="◈" label="Salles" onClick={() => go("rooms")} />
+        <Rail active={space === "radio"} icon="◉" label="Radio" live={radioSession.status === "live"} onClick={() => go("radio")} />
         <Rail active={space === "services"} icon="⌗" label="Services" onClick={() => go("services")} />
         <Rail active={space === "business"} icon="▥" label="Business" onClick={() => go("business")} />
       </nav>
@@ -575,10 +627,10 @@ export default function Home() {
           <button className="mobile-logo" onClick={() => go("inbox")} aria-label="Messages Whappy">
             <Image src="/whappy-logo.svg" alt="Logo officiel Whappy" width={40} height={40} priority />
           </button>
-          <div><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]}</h1><p>{titles[space][1]}</p></div>
+          <div key={space} className="topbar-copy"><span className="kicker">WHAPPY / {space.toUpperCase()}</span><h1>{titles[space][0]} {founderProfile && <i className="founder-grey-badge" title="Compte Whappy by BCA certifié">✓</i>}</h1><p>{founderProfile ? `${businessName} · Fondateur · Compte officiel certifié` : titles[space][1]}</p></div>
         </div>
-        <label className="nova-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholders[space]} />{search && <button onClick={() => setSearch("")}>×</button>}</label>
-        <div className="top-actions">{demoMode&&<button className="demo-exit" onClick={()=>{setAuthenticated(false);setSpace("inbox");}}><span>×</span><small>Quitter la démo</small></button>}<span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Mode démonstration sans envoi de données"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Démo"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "calls" ? <><button onClick={() => go("contacts")}><span>◎</span><small>Contacts</small></button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
+        <label className="nova-search"><span>⌕</span><input id="whappy-global-search" aria-label="Rechercher dans l’espace actuel" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholders[space]} />{search && <button onClick={() => setSearch("")} aria-label="Effacer la recherche">×</button>}</label>
+      <div className="top-actions">{demoMode&&<button className="demo-exit" onClick={()=>{setAuthenticated(false);setSpace("inbox");}}><span>×</span><small>Quitter la démo</small></button>}<span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Mode démonstration sans envoi de données"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Démo"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "calls" ? <><button onClick={() => go("contacts")}><span>◎</span><small>Contacts</small></button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "radio" ? <><button onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>◫</span><small>Messages</small></button><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
       </header>
 
       <WhappyNow
@@ -589,37 +641,53 @@ export default function Home() {
         onNavigate={go}
       />
 
-      {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} ad={activeAds[0]} onAdClick={(campaign)=>{void recordAdEvent(campaign,userId,"click").catch(()=>{});notify(`Page ${campaign.pageName} ouverte`);}} footer={<><StoryStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/><WhapTextStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/></>} />}
+      {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} ad={activeAds[0]} onAdClick={(campaign)=>{void recordAdEvent(campaign,userId,"click").catch(()=>{});notify(`Page ${campaign.pageName} ouverte`);}} userName={accountName} founder={founderProfile} footer={<><StoryStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/><WhapTextStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/></>} />}
       {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
       {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} shopCount={shopListings.length} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} onOpenShop={() => setShopOpen(true)} onOpen={setSelectedProduct} />}
       {space === "barter" && <BarterSpace notify={notify} setModal={setModal} />}
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
-      {space === "inbox" && (userId ? <RealTimeInbox key={directCompose} embedded composeToken={directCompose} composePhone={directPhone} composePeer={directPeer} search={search} user={directUser} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <InboxSpace search={search} userId={userId} offer={demoOffer} initialContact={demoContactName} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />)}
-      {space === "calls" && (userId ? <RealTimeInbox key={`calls-${directCompose}`} embedded initialView="calls" search={search} user={directUser} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <CallsPreviewSpace search={search} onCall={(contact,video)=>setCall({contact,video})} onMessages={()=>go("inbox")}/>)}
+      {space === "inbox" && (userId ? <RealTimeInbox key={directCompose} embedded composeToken={directCompose} composePhone={directPhone} composePeer={directPeer} search={search} user={directUser} founder={founderProfile} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <InboxSpace search={search} userId={userId} offer={demoOffer} initialContact={demoContactName} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />)}
+      {space === "calls" && (userId ? <RealTimeInbox key={`calls-${directCompose}`} embedded initialView="calls" search={search} user={directUser} founder={founderProfile} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <CallsPreviewSpace search={search} onCall={(contact,video)=>setCall({contact,video})} onMessages={()=>go("inbox")}/>)}
       {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{setDirectPeer(null);setDirectPhone(contact.phone||"");setDirectCompose((value)=>value+1);go("inbox");notify(contact.phone?`Ouverture de la conversation avec ${contact.name}`:`Entrez le numéro Whappy de ${contact.name}`)}} />}
+      {space === "rooms" && <RoomsSpace userId={userId||"demo-user"} userName={accountName} search={search} cloud={Boolean(userId)} notify={notify} />}
+      <RadioStudio
+        active={space === "radio"}
+        hostName={accountName}
+        notify={notify}
+        onSessionChange={setRadioSession}
+        onOpenInbox={() => {
+          setDirectPeer(null);
+          setDirectPhone("");
+          setDirectCompose((value) => value + 1);
+          go("inbox");
+        }}
+      />
       {space === "services" && <SuperHub search={search} go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinEngineStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} consent={consent} setConsent={setConsent} notify={notify} cloud={Boolean(userId)}/>}
-      {space === "business" && <><BusinessStudio userId={userId||"demo-user"} userName={auth.currentUser?.displayName||profileName||"Cyril Bokilo"} search={search} notify={notify} demo={demoMode}/><BusinessGrowthTools userId={userId||"demo-user"} userName={auth.currentUser?.displayName||profileName||"Cyril Bokilo"} search={search} notify={notify} demo={demoMode}/></>}
+      {space === "business" && <>{(founderProfile || demoMode) && <HappyFounderDashboard ownerId={userId||"happy-demo"} userName={businessName} search={search} notify={notify} demo={demoMode}/>}<div id="business-studio"><BusinessStudio userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div><div id="business-growth"><BusinessGrowthTools userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div></>}
       {space === "games" && <GamesSpace notify={notify} />}
     </section>
 
-    {liveIndex !== null && <LiveViewer live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Whappy",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
+    {liveIndex !== null && <LiveViewerPro live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Whappy",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
     {modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
-    {profileOpen && <ProfilePanel name={auth.currentUser?.displayName || profileName || "Cyril Bokilo"} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
+    {profileOpen && <ProfilePanel name={accountName} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} founder={founderProfile} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
     {shopOpen && <SellerDashboard items={shopListings} cloud={Boolean(userId)} onClose={() => setShopOpen(false)} onCreate={() => { setShopOpen(false); setModal("sell"); }} onUpdate={manageListing} onDelete={deleteShopListing} notify={notify} />}
     {selectedProduct&&<ProductPanel item={selectedProduct} saved={!!saved[String(selectedProduct.id)]} onSave={()=>setSaved(current=>({...current,[selectedProduct.id]:!current[String(selectedProduct.id)]}))} onClose={()=>setSelectedProduct(null)} onContact={(item)=>void contactListing(item)} onAdd={(quantity)=>addToCart(selectedProduct,quantity)}/>}
     {cartOpen&&<CartPanel lines={cart} onClose={()=>setCartOpen(false)} onQuantity={(id,quantity)=>setCart(current=>current.map(line=>line.item.id===id?{...line,quantity}:line))} onRemove={(id)=>setCart(current=>current.filter(line=>line.item.id!==id))} onCheckout={checkout} notify={notify}/>}
     {ordersOpen&&<OrdersPanel orders={orders} cloud={Boolean(userId)} onClose={()=>setOrdersOpen(false)} onExplore={()=>{setOrdersOpen(false);go("market")}} onContact={(seller)=>{setOrdersOpen(false);go("inbox");notify(`Conversation avec ${seller} ouverte`)}} onCancel={cancelTrackedOrder} notify={notify}/>}
     {call&&<CallRoom contact={call.contact} video={call.video} currentUser={directUser} peer={call.peer} incoming={call.incoming} onClose={()=>setCall(null)}/>}
-    <WhappyPulse open={pulseOpen} onClose={()=>setPulseOpen(false)} onNavigate={go} unread={messages.reduce((sum,item)=>sum+item.unread,0)} orderCount={orders.length} cartCount={cart.reduce((sum,line)=>sum+line.quantity,0)} groupCount={groups.length} syncStatus={syncStatus} userName={auth.currentUser?.displayName||profileName||"Vous"} demo={demoMode}/>
-    {toast && <div className="nova-toast">✦ {toast}</div>}
+    {space !== "radio" && <RadioDock session={radioSession} onOpen={() => go("radio")} onMessages={() => go("inbox")}/>}
+    <WhappyPulse open={pulseOpen} onClose={()=>setPulseOpen(false)} onNavigate={go} unread={messages.reduce((sum,item)=>sum+item.unread,0)} orderCount={orders.length} cartCount={cart.reduce((sum,line)=>sum+line.quantity,0)} groupCount={groups.length} syncStatus={syncStatus} userName={auth.currentUser?.displayName||profileName||"Vous"} founder={founderProfile} demo={demoMode}/>
+    <WhappyExperience current={space} onNavigate={go} onPulse={()=>setPulseOpen(true)}/>
+    <WhappyMotion />
+    {toast && <div className="nova-toast" role="status" aria-live="polite">✦ {toast}</div>}
   </main>;
 }
 
 function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,status,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;status:string;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
   const fullNumber=`${countryCode} ${phone || "—"}`;
-  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={70} height={70} priority/><strong>WHAPPY</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Cyril Bokilo"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy et confirmez être propriétaire de ce numéro.</small></div></section></main>;
+  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={70} height={70} priority/><strong>WHAPPY</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy et confirmez être propriétaire de ce numéro.</small></div></section></main>;
 }
 
 function AndroidDownload() {
@@ -628,21 +696,61 @@ function AndroidDownload() {
 }
 
 function Rail({ active, icon, label, count, live, onClick }: { active: boolean; icon: string; label: string; count?: number; live?: boolean; onClick: () => void }) {
-  return <button className={active ? "active" : ""} onClick={onClick}><span>{icon}</span><small>{label}</small>{count ? <b>{count}</b> : null}{live ? <i /> : null}</button>;
+  return <button className={active ? "active" : ""} onClick={onClick} title={label} aria-current={active ? "page" : undefined}><span>{icon}</span><small>{label}</small>{count ? <b>{count}</b> : null}{live ? <i /> : null}</button>;
 }
 
-type GameKind = "chess" | "checkers";
-type GamesView = "play" | "tournaments" | "coach";
+function RadioDock({ session, onOpen, onMessages }: { session: RadioSession; onOpen:()=>void; onMessages:()=>void }) {
+  if (session.status === "offline") return null;
+  return <aside className={`radio-dock ${session.status}`} aria-label="Radio en cours"><button className="radio-dock-main" onClick={onOpen}><span className="radio-dock-mark">◉</span><div><small>{session.status === "live" ? "● RADIO EN DIRECT" : "Ⅱ RADIO EN PAUSE"}</small><strong>{session.title}</strong><em>{session.listeners} auditeur{session.listeners > 1 ? "s" : ""} · {Math.floor(session.elapsed/60).toString().padStart(2,"0")}:{(session.elapsed%60).toString().padStart(2,"0")}</em></div><b>↗</b></button><button className="radio-dock-message" onClick={onMessages} aria-label="Ouvrir mes messages">◫<span>Répondre</span></button></aside>;
+}
+
+type GameKind = "chess" | "checkers" | "ludo" | "sudoku";
+type GamesView = "play" | "tournaments" | "coach" | "community" | "world";
+type DifficultyId = "beginner" | "club" | "expert" | "master" | "grandmaster";
+type GameTeam = { id: number; name: string; game: GameKind; members: number; tier: string; mark: string; color: string };
+type GameTier = { name: string; game: GameKind | "all"; minimum: number; color: string };
 
 const gameProfiles: Record<GameKind, { name: string; mark: string; level: string; rating: string; detail: string; color: string }> = {
   chess: { name: "Échecs", mark: "♞", level: "Grand niveau", rating: "1 842", detail: "Parties classées, puzzles et analyse moteur", color: "blue" },
   checkers: { name: "Dames", mark: "●", level: "Compétition", rating: "1 564", detail: "Dames internationales · parties rapides", color: "violet" },
+  ludo: { name: "Ludo", mark: "✦", level: "Stratégie", rating: "1 206", detail: "Course tactique · 2 à 4 joueurs", color: "red" },
+  sudoku: { name: "Sudoku", mark: "▦", level: "Logique", rating: "1 688", detail: "Défis quotidiens · vitesse et précision", color: "gold" },
 };
 
 const tournamentRows = [
   { name: "Kongo Masters", game: "Échecs · 10+5", date: "Sam. 24 août · 18:00", players: "32 / 64", prize: "250 000 FCFA", tag: "PREMIUM", tone: "gold" },
   { name: "Brazzaville Blitz", game: "Échecs · 3+2", date: "Dim. 25 août · 16:00", players: "48 / 128", prize: "100 000 FCFA", tag: "OUVERT", tone: "blue" },
   { name: "Dames du Congo", game: "Dames · 10 min", date: "Mer. 28 août · 19:30", players: "16 / 32", prize: "75 000 FCFA", tag: "NOUVEAU", tone: "violet" },
+  { name: "Ludo Four Nations", game: "Ludo · 4 joueurs", date: "Ven. 30 août · 20:00", players: "64 / 128", prize: "50 000 FCFA", tag: "OUVERT", tone: "red" },
+];
+
+const defaultGameTeams: GameTeam[] = [
+  { id: 1, name: "Kongo Knights", game: "chess", members: 18, tier: "Or national", mark: "KK", color: "blue" },
+  { id: 2, name: "Les Pions de Bacongo", game: "checkers", members: 12, tier: "Argent régional", mark: "PB", color: "violet" },
+  { id: 3, name: "Moungali Rollers", game: "ludo", members: 9, tier: "Bronze local", mark: "MR", color: "red" },
+];
+
+const defaultGameTiers: GameTier[] = [
+  { name: "Bronze local", game: "all", minimum: 0, color: "bronze" },
+  { name: "Argent régional", game: "all", minimum: 1200, color: "silver" },
+  { name: "Or national", game: "all", minimum: 1500, color: "gold" },
+  { name: "Diamant élite", game: "all", minimum: 1800, color: "diamond" },
+  { name: "Champion WHAPPY", game: "all", minimum: 2100, color: "champion" },
+];
+
+const difficultyProfiles: Record<DifficultyId, { name: string; rating: number; detail: string; gain: number; delay: number; color: string }> = {
+  beginner: { name: "Débutant", rating: 800, detail: "L’ordinateur vous laisse le temps d’apprendre", gain: 8, delay: 520, color: "green" },
+  club: { name: "Club", rating: 1200, detail: "Des coups solides pour progresser régulièrement", gain: 12, delay: 700, color: "blue" },
+  expert: { name: "Expert", rating: 1600, detail: "Tactiques, pièges et réponses rapides", gain: 18, delay: 860, color: "violet" },
+  master: { name: "Maître", rating: 2000, detail: "Une opposition exigeante, proche du tournoi", gain: 24, delay: 1020, color: "gold" },
+  grandmaster: { name: "Grand maître", rating: 2400, detail: "Le défi ultime pour viser le sommet", gain: 32, delay: 1200, color: "red" },
+};
+
+const worldCupEvents = [
+  { game: "chess" as GameKind, title: "Coupe du Monde WHAPPY · Échecs", date: "Qualifications · 07 septembre", stage: "QUALIFICATIONS OUVERTES", prize: "1 000 000 FCFA", players: "2 048 places", tone: "blue" },
+  { game: "checkers" as GameKind, title: "Coupe du Monde WHAPPY · Dames", date: "Qualifications · 14 septembre", stage: "INSCRIPTIONS BIENTÔT", prize: "500 000 FCFA", players: "1 024 places", tone: "violet" },
+  { game: "sudoku" as GameKind, title: "Coupe du Monde WHAPPY · Sudoku", date: "Défi mondial · 21 septembre", stage: "DÉFI CHRONOMÉTRÉ", prize: "350 000 FCFA", players: "5 000 places", tone: "gold" },
+  { game: "ludo" as GameKind, title: "Coupe du Monde WHAPPY · Ludo", date: "Équipes · 28 septembre", stage: "FORMAT PAR ÉQUIPES", prize: "300 000 FCFA", players: "512 équipes", tone: "red" },
 ];
 
 function GamesSpace({ notify }: { notify: (text: string) => void }) {
@@ -652,7 +760,37 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
   const [moveCount, setMoveCount] = useState(18);
   const [registeredTournament, setRegisteredTournament] = useState<string | null>(null);
   const [lessonStarted, setLessonStarted] = useState(false);
+  const [teams, setTeams] = useState<GameTeam[]>(defaultGameTeams);
+  const [tiers, setTiers] = useState<GameTier[]>(defaultGameTiers);
+  const [showTeamForm, setShowTeamForm] = useState(false);
+  const [showTierForm, setShowTierForm] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [teamGame, setTeamGame] = useState<GameKind>("chess");
+  const [teamTier, setTeamTier] = useState("Bronze local");
+  const [tierName, setTierName] = useState("");
+  const [tierGame, setTierGame] = useState<GameKind | "all">("all");
+  const [tierMinimum, setTierMinimum] = useState("1200");
+  const [registeredWorld, setRegisteredWorld] = useState<Record<GameKind, boolean>>({ chess: false, checkers: false, ludo: false, sudoku: false });
+  const [matchSeconds, setMatchSeconds] = useState(9 * 60 + 42);
+  const [matchStarted, setMatchStarted] = useState(true);
+  const [moveHistory, setMoveHistory] = useState(["e4", "e5", "♘f3", "♞c6", "♗b5"]);
+  const [opponentMode, setOpponentMode] = useState<"computer" | "human">("computer");
+  const [difficulty, setDifficulty] = useState<DifficultyId>("expert");
+  const [computerThinking, setComputerThinking] = useState(false);
+  const [matchResult, setMatchResult] = useState<"win" | "loss" | null>(null);
+  const [ratings, setRatings] = useState<Record<GameKind, number>>({ chess: 1842, checkers: 1564, ludo: 1206, sudoku: 1688 });
+  const [wins, setWins] = useState(14);
+  const [losses, setLosses] = useState(4);
+  const [streak, setStreak] = useState(3);
   const profile = gameProfiles[game];
+  const currentRating = ratings[game];
+  const difficultyProfile = difficultyProfiles[difficulty];
+
+  useEffect(() => {
+    if (!matchStarted) return;
+    const timer = window.setInterval(() => setMatchSeconds((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [matchStarted]);
 
   const chessPieces = [
     "♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜",
@@ -664,13 +802,22 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
     "♙", "♙", "♙", "♙", "♙", "♙", "♙", "♙",
     "♖", "♘", "♗", "♕", "♔", "♗", "♘", "♖",
   ];
+  const sudokuBoard = [
+    "5", "3", "", "", "7", "", "", "", "", "6", "", "", "1", "9", "5", "", "", "", "", "9", "8", "", "", "", "", "6", "", "8", "", "", "6", "", "", "", "3", "4", "", "", "8", "", "3", "", "", "1", "7", "", "", "", "2", "", "", "", "6", "", "6", "", "", "", "", "", "", "2", "8", "", "", "4", "1", "9", "", "", "5", "", "", "", "8", "", "", "", "7", "9",
+  ];
 
   function squareLabel(index: number) {
+    if (game === "sudoku") return `ligne ${Math.floor(index / 9) + 1}, colonne ${(index % 9) + 1}`;
     return `${String.fromCharCode(97 + (index % 8))}${8 - Math.floor(index / 8)}`;
   }
 
   function pieceAt(index: number) {
     if (game === "chess") return chessPieces[index];
+    if (game === "sudoku") return sudokuBoard[index] || "";
+    if (game === "ludo") {
+      const ludoTokens: Record<number, string> = { 0: "●", 1: "●", 7: "●", 8: "●", 55: "●", 56: "●", 62: "●", 63: "●" };
+      return ludoTokens[index] || "";
+    }
     const row = Math.floor(index / 8);
     const column = index % 8;
     if ((row <= 2 || row >= 5) && (row + column) % 2 === 1) return row <= 2 ? "●" : "○";
@@ -678,20 +825,108 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
   }
 
   function chooseSquare(index: number) {
+    if (matchResult || computerThinking) return;
     if (!pieceAt(index) && selectedSquare === null) return;
     if (selectedSquare !== null && selectedSquare !== index) {
       setMoveCount((count) => count + 1);
+      setMoveHistory((current) => [...current, squareLabel(index)].slice(-8));
+      setMatchStarted(true);
       notify(`Coup joué vers ${squareLabel(index)} · l’instructeur analyse la position`);
       setSelectedSquare(null);
+      if (opponentMode === "computer") {
+        setComputerThinking(true);
+        window.setTimeout(() => {
+          setMoveCount((count) => count + 1);
+          setMoveHistory((current) => [...current, difficulty === "grandmaster" ? "… tactique" : "… réponse"].slice(-8));
+          setComputerThinking(false);
+          notify(`${difficultyProfile.name} répond · nouvelle position à calculer`);
+        }, difficultyProfile.delay);
+      }
       return;
     }
     setSelectedSquare(selectedSquare === index ? null : index);
+  }
+
+  function resetMatch() {
+    setSelectedSquare(null);
+    setMoveCount(1);
+    setMoveHistory([]);
+    setMatchSeconds(10 * 60);
+    setMatchStarted(true);
+    setComputerThinking(false);
+    setMatchResult(null);
+    notify(`Nouvelle partie ${profile.name} prête`);
+  }
+
+  function formatClock(totalSeconds: number) {
+    return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
+  }
+
+  function formatRating(rating: number) {
+    return new Intl.NumberFormat("fr-FR").format(rating);
+  }
+
+  function tierForRating(rating: number) {
+    return [...tiers].filter((tier) => tier.game === "all" || tier.game === game).sort((a, b) => b.minimum - a.minimum).find((tier) => rating >= tier.minimum) || tiers[0];
+  }
+
+  function nextTierForRating(rating: number) {
+    return [...tiers].filter((tier) => (tier.game === "all" || tier.game === game) && tier.minimum > rating).sort((a, b) => a.minimum - b.minimum)[0] || null;
+  }
+
+  const currentTier = tierForRating(currentRating);
+  const nextTier = nextTierForRating(currentRating);
+  const rankProgress = nextTier ? Math.min(100, Math.max(4, ((currentRating - currentTier.minimum) / (nextTier.minimum - currentTier.minimum)) * 100)) : 100;
+
+  function finishMatch(result: "win" | "loss") {
+    if (matchResult) return;
+    const delta = result === "win" ? difficultyProfile.gain : -Math.max(6, Math.round(difficultyProfile.gain / 2));
+    const nextRating = Math.max(0, currentRating + delta);
+    setRatings((current) => ({ ...current, [game]: nextRating }));
+    setMatchResult(result);
+    setMatchStarted(false);
+    setComputerThinking(false);
+    if (result === "win") {
+      setWins((count) => count + 1);
+      setStreak((count) => count + 1);
+      notify(`Victoire confirmée · +${delta} rating · ${formatRating(nextRating)} points`);
+    } else {
+      setLosses((count) => count + 1);
+      setStreak(0);
+      notify(`Partie terminée · ${delta} rating · ${formatRating(nextRating)} points`);
+    }
   }
 
   function registerTournament(name: string) {
     const next = registeredTournament === name ? null : name;
     setRegisteredTournament(next);
     notify(next ? `Inscription confirmée pour ${name}` : `Inscription annulée pour ${name}`);
+  }
+
+  function addTeam(event: FormEvent) {
+    event.preventDefault();
+    const cleanName = teamName.trim();
+    if (!cleanName) return;
+    setTeams((current) => [...current, { id: Date.now(), name: cleanName, game: teamGame, members: 1, tier: teamTier, mark: cleanName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(), color: gameProfiles[teamGame].color }]);
+    setTeamName("");
+    setShowTeamForm(false);
+    notify(`L’équipe « ${cleanName} » a été créée`);
+  }
+
+  function addTier(event: FormEvent) {
+    event.preventDefault();
+    const cleanName = tierName.trim();
+    if (!cleanName) return;
+    setTiers((current) => [...current, { name: cleanName, game: tierGame, minimum: Number(tierMinimum) || 0, color: "custom" }]);
+    setTierName("");
+    setShowTierForm(false);
+    notify(`L’échelon « ${cleanName} » est disponible`);
+  }
+
+  function registerWorldCup(kind: GameKind) {
+    const next = !registeredWorld[kind];
+    setRegisteredWorld((current) => ({ ...current, [kind]: next }));
+    notify(next ? `Pré-inscription confirmée pour la Coupe WHAPPY ${gameProfiles[kind].name}` : `Pré-inscription annulée pour la Coupe WHAPPY ${gameProfiles[kind].name}`);
   }
 
   return <div className="space-scroll games-space">
@@ -702,31 +937,40 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
         <p>Des parties exigeantes, un instructeur qui vous accompagne et des tournois où la performance peut être récompensée.</p>
         <div className="games-hero-actions">
           <button className="games-primary" onClick={() => { setView("play"); notify("Nouvelle partie prête dans l’arène"); }}>▶ Commencer une partie</button>
-          <button onClick={() => setView("tournaments")}>Voir les tournois <span>↗</span></button>
+          <button onClick={() => setView("world")}>Coupe du Monde WHAPPY <span>↗</span></button>
         </div>
         <div className="games-proof"><span><strong>2 480</strong> joueurs actifs</span><span><strong>18</strong> tournois ce mois</span><span><strong>425 k</strong> FCFA à gagner</span></div>
       </div>
-      <div className="games-hero-orbit" aria-hidden="true"><div className="orbit-ring ring-one" /><div className="orbit-ring ring-two" /><div className="games-piece">{profile.mark}</div><span className="orbit-label label-top">RATING {profile.rating}</span><span className="orbit-label label-right">COACH IA + FIDE</span><span className="orbit-label label-bottom">LIVE · 126</span></div>
+        <div className="games-hero-orbit" aria-hidden="true"><div className="orbit-ring ring-one" /><div className="orbit-ring ring-two" /><div className="games-piece">{profile.mark}</div><span className="orbit-label label-top">RATING {formatRating(currentRating)}</span><span className="orbit-label label-right">COACH IA + FIDE</span><span className="orbit-label label-bottom">LIVE · 126</span></div>
     </section>
 
     <section className="space-content games-content">
       <nav className="games-tabs" aria-label="Navigation de l’arène">
         <button className={view === "play" ? "active" : ""} onClick={() => setView("play")}>Jouer maintenant <small>12 en ligne</small></button>
-        <button className={view === "tournaments" ? "active" : ""} onClick={() => setView("tournaments")}>Tournois <small>3 ouverts</small></button>
+        <button className={view === "world" ? "active" : ""} onClick={() => setView("world")}>Coupe du Monde <small>4 jeux</small></button>
+        <button className={view === "tournaments" ? "active" : ""} onClick={() => setView("tournaments")}>Tournois <small>4 ouverts</small></button>
+        <button className={view === "community" ? "active" : ""} onClick={() => setView("community")}>Équipes & échelons <small>{teams.length} équipes</small></button>
         <button className={view === "coach" ? "active" : ""} onClick={() => setView("coach")}>Mon instructeur <small>4 leçons</small></button>
       </nav>
 
+      {view === "world" && <section className="world-view"><header className="world-cup-hero"><div><span className="world-kicker"><i /> COMPÉTITION MONDIALE WHAPPY</span><h3>Une arène.<br /><em>Le monde entier.</em></h3><p>Les meilleurs joueurs, équipes et esprits logiques se retrouvent dans une même saison.</p><button onClick={() => notify("Calendrier de la Coupe du Monde WHAPPY ouvert")}>Voir le calendrier officiel ↗</button></div><div className="world-cup-badge"><span>WHAPPY</span><strong>WORLD<br />CUP</strong><small>SAISON 01 · 2026</small></div></header><div className="world-timeline"><span className="current"><b>01</b><strong>Qualifications</strong><small>Septembre</small></span><i /><span><b>02</b><strong>Phases régionales</strong><small>Octobre</small></span><i /><span><b>03</b><strong>Grande finale</strong><small>Novembre · Brazzaville</small></span></div><div className="world-section-heading"><div><small>4 DISCIPLINES · 1 TITRE MONDIAL</small><h3>Choisissez votre terrain</h3></div><span>Inscription ouverte aux joueurs et aux équipes</span></div><div className="world-event-grid">{worldCupEvents.map((event) => <article className={`world-event-card ${event.tone}`} key={event.game}><header><span className="world-game-mark">{gameProfiles[event.game].mark}</span><span>{event.stage}</span></header><h4>{event.title}</h4><p>{event.date} <i /> {event.players}</p><div className="world-event-footer"><div><small>DOTATION</small><strong>{event.prize}</strong></div><button className={registeredWorld[event.game] ? "registered" : ""} onClick={() => registerWorldCup(event.game)}>{registeredWorld[event.game] ? "✓ Pré-inscrit" : "Se pré-inscrire"}</button></div></article>)}</div><section className="world-ranking"><header><div><small>CLASSEMENT PROVISOIRE</small><h3>Les joueurs à suivre</h3></div><button onClick={() => setView("community")}>Voir les équipes →</button></header><div>{[{ name: "Cyril B.", game: "Échecs", score: "1 842", mark: "CB" }, { name: "Amina M.", game: "Dames", score: "1 776", mark: "AM" }, { name: "Junior K.", game: "Sudoku", score: "1 688", mark: "JK" }].map((player, index) => <article key={player.name}><b>0{index + 1}</b><span>{player.mark}</span><div><strong>{player.name}</strong><small>{player.game}</small></div><strong>{player.score}</strong></article>)}</div></section></section>}
+
+      {view === "community" && <section className="community-view"><header className="games-section-heading"><div><small>COMMUNAUTÉ COMPÉTITIVE</small><h3>Jouez ensemble, montez ensemble.</h3><p>Créez une équipe, choisissez votre discipline et faites progresser votre échelon.</p></div><button className="create-tournament" onClick={() => setShowTeamForm((current) => !current)}>＋ Créer une équipe</button></header><div className="community-layout"><section className="teams-panel"><header><div><small>MES ÉQUIPES</small><h4>Équipes actives</h4></div><span>{teams.length} équipes</span></header>{showTeamForm && <form className="arena-form" onSubmit={addTeam}><label>Nom de l’équipe<input value={teamName} onChange={(event) => setTeamName(event.target.value)} required placeholder="Ex. Les Cavaliers du Congo" /></label><div><label>Jeu<select value={teamGame} onChange={(event) => setTeamGame(event.target.value as GameKind)}>{(Object.keys(gameProfiles) as GameKind[]).map((kind) => <option key={kind} value={kind}>{gameProfiles[kind].name}</option>)}</select></label><label>Échelon de départ<select value={teamTier} onChange={(event) => setTeamTier(event.target.value)}>{tiers.map((tier) => <option key={tier.name} value={tier.name}>{tier.name}</option>)}</select></label></div><button type="submit">Créer l’équipe →</button></form>}<div className="team-grid">{teams.map((team) => <article className="team-card" key={team.id}><header><span className={`team-mark ${team.color}`}>{team.mark}</span><div><strong>{team.name}</strong><small>{gameProfiles[team.game].name} · {team.members} membres</small></div><b>●</b></header><div className="team-meta"><span><small>ÉCHELON</small><strong>{team.tier}</strong></span><span><small>OBJECTIF</small><strong>Coupe WHAPPY</strong></span></div><button onClick={() => notify(`Invitation à rejoindre ${team.name} envoyée`)}>Inviter des joueurs ↗</button></article>)}</div></section><section className="tiers-panel"><header><div><small>PROGRESSION</small><h4>Échelons WHAPPY</h4></div><button onClick={() => setShowTierForm((current) => !current)}>＋ Créer</button></header>{showTierForm && <form className="arena-form tier-form" onSubmit={addTier}><label>Nom de l’échelon<input value={tierName} onChange={(event) => setTierName(event.target.value)} required placeholder="Ex. Maître de Brazzaville" /></label><div><label>Jeu<select value={tierGame} onChange={(event) => setTierGame(event.target.value as GameKind | "all")}><option value="all">Tous les jeux</option>{(Object.keys(gameProfiles) as GameKind[]).map((kind) => <option key={kind} value={kind}>{gameProfiles[kind].name}</option>)}</select></label><label>Rating minimum<input type="number" min="0" step="50" value={tierMinimum} onChange={(event) => setTierMinimum(event.target.value)} /></label></div><button type="submit">Ajouter l’échelon →</button></form>}<div className="tier-list">{tiers.map((tier, index) => <article className={`tier-row ${tier.color}`} key={`${tier.name}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{tier.name}</strong><small>{tier.game === "all" ? "Tous les jeux" : gameProfiles[tier.game].name} · Rating {tier.minimum}+</small></div><b>{index === tiers.length - 1 ? "★" : "→"}</b></article>)}</div></section></div></section>}
+
       {view === "play" && <>
-        <div className="games-section-heading"><div><small>PARTIE CLASSÉE</small><h3>À vous de jouer</h3><p>Choisissez votre arène, puis affrontez un joueur de votre niveau.</p></div><div className="game-switcher" role="group" aria-label="Choisir un jeu">{(Object.keys(gameProfiles) as GameKind[]).map((kind) => <button key={kind} className={game === kind ? "active" : ""} onClick={() => { setGame(kind); setSelectedSquare(null); }}>{gameProfiles[kind].mark} {gameProfiles[kind].name}</button>)}</div></div>
+        <div className="games-section-heading"><div><small>PARTIE CLASSÉE · PROGRESSION ACTIVE</small><h3>À vous de jouer</h3><p>Affrontez l’ordinateur à votre niveau, gagnez du rating et gravissez les échelons.</p></div><div className="game-switcher" role="group" aria-label="Choisir un jeu">{(Object.keys(gameProfiles) as GameKind[]).map((kind) => <button key={kind} className={game === kind ? "active" : ""} onClick={() => { setGame(kind); setSelectedSquare(null); setMatchResult(null); }}>{gameProfiles[kind].mark} {gameProfiles[kind].name}</button>)}</div></div>
         <div className="arena-grid">
           <section className={`board-panel ${game}`}>
-            <header><div><span className="live-pill"><i /> MATCHMAKING</span><strong>{profile.name} · Classé</strong></div><span className="board-clock">09:42</span></header>
-            <div className="board-frame"><div className="board-coordinates board-files">{["a", "b", "c", "d", "e", "f", "g", "h"].map((file) => <span key={file}>{file}</span>)}</div><div className="game-board" role="grid" aria-label={`Plateau de ${profile.name}`}>{Array.from({ length: 64 }, (_, index) => { const dark = (Math.floor(index / 8) + index) % 2 === 1; const piece = pieceAt(index); const selected = selectedSquare === index; return <button key={index} className={`game-square ${dark ? "dark" : "light"} ${selected ? "selected" : ""} ${piece ? "has-piece" : ""}`} onClick={() => chooseSquare(index)} aria-label={`${squareLabel(index)}${piece ? `, ${piece}` : ""}`}><span>{piece}</span></button>; })}</div></div>
-            <footer><div><small>TOUR DE JEU</small><strong>{moveCount}</strong></div><div><small>FORMAT</small><strong>10+5</strong></div><button onClick={() => notify("Recherche d’un adversaire de niveau similaire…")}>⚡ Trouver un adversaire</button></footer>
+            <header><div><span className="live-pill"><i /> {matchResult ? "PARTIE TERMINÉE" : "MATCH EN DIRECT"}</span><strong>{profile.name} · {opponentMode === "computer" ? `Ordinateur ${difficultyProfile.name}` : "Adversaire en ligne"}</strong></div><div className="match-clock"><button onClick={() => setMatchStarted((current) => !current)} aria-label={matchStarted ? "Mettre la partie en pause" : "Reprendre la partie"} disabled={Boolean(matchResult)}>{matchStarted ? "Ⅱ" : "▶"}</button><span className="board-clock">{formatClock(matchSeconds)}</span></div></header>
+            <div className="board-frame">{game !== "sudoku" && <div className="board-coordinates board-files">{["a", "b", "c", "d", "e", "f", "g", "h"].map((file) => <span key={file}>{file}</span>)}</div>}<div className={`game-board ${game === "sudoku" ? "sudoku-board" : ""} ${matchResult ? "game-finished" : ""}`} role="grid" aria-label={`Plateau de ${profile.name}`}>{Array.from({ length: game === "sudoku" ? 81 : 64 }, (_, index) => { const boardSize = game === "sudoku" ? 9 : 8; const row = Math.floor(index / boardSize); const column = index % boardSize; const dark = game === "sudoku" ? (Math.floor(row / 3) + Math.floor(column / 3)) % 2 === 1 : (row + column) % 2 === 1; const piece = pieceAt(index); const selected = selectedSquare === index; return <button key={index} className={`game-square ${dark ? "dark" : "light"} ${selected ? "selected" : ""} ${piece ? "has-piece" : ""}`} onClick={() => chooseSquare(index)} aria-label={`${squareLabel(index)}${piece ? `, ${piece}` : ""}`} disabled={Boolean(matchResult)}><span>{piece}</span></button>; })}</div>{computerThinking && <div className="computer-thinking"><i /> L’ordinateur calcule sa réponse…</div>}</div>
+            <footer><div><small>TOUR DE JEU</small><strong>{moveCount}</strong></div><div><small>FORMAT</small><strong>{game === "sudoku" ? "9×9" : game === "ludo" ? "4 joueurs" : "10+5"}</strong></div><button onClick={() => game === "ludo" ? notify("Dé lancé : vous avancez de 6 cases") : game === "sudoku" ? notify("Grille vérifiée : 2 erreurs à corriger") : notify("Recherche d’un adversaire de niveau similaire…")}>{game === "ludo" ? "🎲 Lancer le dé" : game === "sudoku" ? "✓ Vérifier la grille" : "⚡ Trouver un adversaire"}</button></footer>
           </section>
           <aside className="games-side-column">
+            <section className="ai-lab-card"><header><div><small>ADVERSAIRE INTELLIGENT</small><strong>Choisissez votre défi</strong></div><span className="ai-status"><i /> PRÊT</span></header><div className="opponent-mode-switch"><button className={opponentMode === "computer" ? "active" : ""} onClick={() => { setOpponentMode("computer"); setMatchResult(null); notify("Mode ordinateur activé"); }}>🤖 Ordinateur</button><button className={opponentMode === "human" ? "active" : ""} onClick={() => { setOpponentMode("human"); setComputerThinking(false); setMatchResult(null); notify("Mode joueur en ligne activé"); }}>♟ Joueur</button></div>{opponentMode === "computer" && <><div className="difficulty-heading"><span>NIVEAU DE DIFFICULTÉ</span><b>{difficultyProfile.rating} Elo</b></div><div className="difficulty-grid">{(Object.keys(difficultyProfiles) as DifficultyId[]).map((level) => <button key={level} className={`${difficulty === level ? "active" : ""} ${difficultyProfiles[level].color}`} onClick={() => { setDifficulty(level); setMatchResult(null); }}><span>{difficultyProfiles[level].rating}</span><strong>{difficultyProfiles[level].name}</strong></button>)}</div><p className="difficulty-detail">{difficultyProfile.detail}. <b>+{difficultyProfile.gain} rating</b> en cas de victoire.</p></>}</section>
             <section className="coach-card"><header><span className="coach-avatar">MK</span><div><small>INSTRUCTEUR · EN LIGNE</small><strong>Maître Kévin</strong><span>FIDE 2 146 · 12 ans d’expérience</span></div><b>●</b></header><div className="coach-lesson"><small>CONSEIL SUR LA POSITION</small><strong>Développez votre cavalier avant de pousser le pion.</strong><p>Votre meilleur coup ici : <b>{game === "chess" ? "♞ f3" : "● c5"}</b></p></div><button className="coach-cta" onClick={() => { setView("coach"); setLessonStarted(true); }}>Ouvrir l’analyse avec l’instructeur ↗</button></section>
             <section className="quick-match"><header><div><small>FORMAT EXPRESS</small><strong>Partie rapide</strong></div><span>+ 126 joueurs</span></header><div className="quick-match-options"><button onClick={() => notify("Match 3+2 recherché")}>3+2 <small>Blitz</small></button><button className="selected" onClick={() => notify("Match 10+5 recherché")}>10+5 <small>Rapide</small></button><button onClick={() => notify("Match 15+10 recherché")}>15+10 <small>Classique</small></button></div><button className="quick-start" onClick={() => notify("Votre adversaire est en cours de recherche…")}>Lancer le matchmaking <span>→</span></button></section>
+          <section className="rank-progress-card"><header><div><small>ESCALADE DES ÉCHELONS</small><strong>{currentTier.name}</strong></div><span className={`rank-badge ${currentTier.color}`}>★</span></header><div className="rank-rating-line"><b>{formatRating(currentRating)}</b><span>{nextTier ? `${formatRating(nextTier.minimum)} pour ${nextTier.name}` : "Sommet atteint"}</span></div><div className="rank-track"><i style={{ width: `${rankProgress}%` }} /></div><footer><span>{nextTier ? `${Math.max(0, nextTier.minimum - currentRating)} points avant la promotion` : "Vous êtes au sommet"}</span><button onClick={() => setView("community")}>Voir les échelons →</button></footer><div className="rank-stats"><span><b>{wins}</b><small>victoires</small></span><span><b>{losses}</b><small>défaites</small></span><span><b>{streak}</b><small>série actuelle</small></span></div></section>
+          <section className="match-insights"><header><div><small>ANALYSE DE LA PARTIE</small><strong>Vue professionnelle</strong></div><span className="analysis-live">● {computerThinking ? "CALCUL" : matchResult ? "FINIE" : "LIVE"}</span></header><div className="analysis-tabs"><button className="active" onClick={() => notify("Analyse moteur activée")}>Analyse</button><button onClick={() => notify("Historique des coups ouvert")}>Coups</button><button onClick={() => notify("Chat de la partie ouvert")}>Chat</button></div><div className="move-history">{moveHistory.length ? moveHistory.map((move, index) => <span key={move + index}><small>{index + 1}</small>{move}</span>) : <em>Les coups joués apparaîtront ici</em>}</div><div className="match-result-actions"><button className="win" disabled={Boolean(matchResult) || computerThinking} onClick={() => finishMatch("win")}>✓ Victoire</button><button className="loss" disabled={Boolean(matchResult) || computerThinking} onClick={() => finishMatch("loss")}>Défaite</button></div><footer><button onClick={resetMatch}>↺ Nouvelle partie</button><button onClick={() => { setMatchStarted(false); setMatchResult("loss"); setComputerThinking(false); notify("Partie abandonnée · échelon conservé"); }}>Abandonner</button></footer></section>
           </aside>
         </div>
       </>}
@@ -738,9 +982,9 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
   </div>;
 }
 
-function Orbit({ go, setModal, setLiveIndex, notify, saved, setSaved, ad, onAdClick, footer }: { go: (space: Space) => void; setModal: (modal: "sell" | "seek" | "live") => void; setLiveIndex: (index: number) => void; notify: (text: string) => void; saved: Record<string, boolean>; setSaved: React.Dispatch<React.SetStateAction<Record<string, boolean>>>; ad?: AdCampaign; onAdClick: (campaign: AdCampaign) => void; footer?: React.ReactNode }) {
+function Orbit({ go, setModal, setLiveIndex, notify, saved, setSaved, ad, onAdClick, footer, userName, founder }: { go: (space: Space) => void; setModal: (modal: "sell" | "seek" | "live") => void; setLiveIndex: (index: number) => void; notify: (text: string) => void; saved: Record<string, boolean>; setSaved: React.Dispatch<React.SetStateAction<Record<string, boolean>>>; ad?: AdCampaign; onAdClick: (campaign: AdCampaign) => void; footer?: React.ReactNode; userName: string; founder?: boolean }) {
   const [liked,setLiked]=useState(false);
-  return <div className="orbit-scroll moments-home"><div className="moments-layout"><main className="moments-feed"><section className="moments-intro"><div><span>AUJOURD&apos;HUI · BRAZZAVILLE</span><h2>Ce qui se passe<br/><em>maintenant.</em></h2><p>Des personnes, des idées, des directs et des opportunités — réunis dans un fil vivant.</p></div><button onClick={()=>setModal("live")}>● Passer en direct</button></section><section className="story-line"><button className="add-story"><span>＋</span><strong>Votre moment</strong><small>Partager</small></button>{messages.slice(0,3).map((person,index)=><button key={person.name} onClick={()=>notify(`Moment de ${person.name} ouvert`)}><span>{person.mark}<i>{index===2?"●":""}</i></span><strong>{person.name.split(" ")[0]}</strong><small>{index===2?"EN DIRECT":"Nouveau"}</small></button>)}<button onClick={()=>go("live")}><span className="story-more">→</span><strong>Explorer</strong><small>Tout voir</small></button></section><article className="moment-card sponsored-moment"><header><span className="moment-avatar">{ad?ad.pageName.split(/\s+/).map((word)=>word[0]).join("").slice(0,2):"MS"}<i/></span><div><strong>{ad?.pageName||"Mokabi Studio"} <b>✓</b></strong><small>Publication sponsorisée · WHAPPY ADS</small></div><button>•••</button></header><div className="moment-visual"><span>{ad?"WHAPPY ADS":"WHAPPY LIVE"}</span><div><small>{ad?`${ad.audience} · ${ad.city}`:"COLLECTION N'TELA 2026"}</small><h3>{ad?.title||<>Porter son histoire.<br/>Vivre son style.</>}</h3><button onClick={()=>ad?onAdClick(ad):setLiveIndex(0)}>{ad?.cta||"Rejoindre le direct ●"}</button></div><b>{ad?"Sponsorisé":"2,8 k regardent"}</b></div><p>{ad?.creative||"La nouvelle collection est là. Découvrez chaque pièce en direct, posez vos questions et commandez sans quitter la vidéo."}</p><footer>{ad?<><button className="ad-cta" onClick={()=>onAdClick(ad)}>{ad.cta} →</button><span>Publicité · {ad.pageName}</span></>:<><button className={liked?"liked":""} onClick={()=>setLiked(v=>!v)}>{liked?"♥":"♡"} {liked?"1 205":"1 204"}</button><button onClick={()=>notify("Commentaires ouverts")}>◫ 86 commentaires</button><button onClick={()=>notify("Publication partagée")}>↗ Partager</button></>}</footer></article><article className="moment-card community-moment"><header><span className="moment-avatar">AM<i/></span><div><strong>Amina M. <b>✓</b></strong><small>Poto-Poto · il y a 24 min</small></div><button>•••</button></header><p className="moment-copy">Je transforme mon salon et je cherche une table artisanale locale. Budget raisonnable ou échange possible. Vous connaissez quelqu&apos;un ?</p><div className="moment-request"><span>⌖</span><div><small>RECHERCHE ACTIVE</small><strong>Table artisanale · Brazzaville</strong></div><button onClick={()=>notify("Réponse envoyée à Amina")}>Je peux aider</button></div><footer><button onClick={()=>notify("Vous aimez cette publication")}>♡ 48</button><button onClick={()=>notify("Commentaires ouverts")}>◫ 12 commentaires</button><button onClick={()=>notify("Publication partagée")}>↗ Partager</button></footer></article></main><aside className="moments-side"><section className="quick-publish"><span>CB</span><div><strong>Bonjour Cyril</strong><small>Quoi de neuf aujourd&apos;hui ?</small></div><button onClick={()=>notify("Créateur de publication ouvert")}>＋ Publier</button></section><section className="side-card"><header><div><small>EN DIRECT</small><strong>Ça bouge maintenant</strong></div><button onClick={()=>go("live")}>Tout voir</button></header>{lives.slice(0,2).map((live,index)=><button className="side-live" key={live.host} onClick={()=>setLiveIndex(index)}><span>{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}<i/></span><div><strong>{live.title}</strong><small>{live.viewers} spectateurs</small></div><b>→</b></button>)}</section><section className="side-card"><header><div><small>WHAPPY MARKET</small><strong>Pour vous</strong></div><button onClick={()=>go("market")}>Explorer</button></header>{listings.slice(0,2).map(item=><div className="side-product" role="button" tabIndex={0} key={item.id} onClick={()=>go("market")} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();go("market");}}}><span>{item.mark}</span><div><strong>{item.title}</strong><small>{item.price}</small></div><button className={saved[String(item.id)]?"saved":""} aria-label={`Enregistrer ${item.title}`} onClick={event=>{event.stopPropagation();setSaved(current=>({...current,[String(item.id)]:!current[String(item.id)]}))}}>♡</button></div>)}</section><button className="home-create-ad" onClick={()=>go("business")}>✦ Promouvoir une publication</button></aside></div>{footer}</div>;
+  return <div className="orbit-scroll moments-home"><div className="moments-layout"><main className="moments-feed"><section className="moments-intro"><div><span>AUJOURD&apos;HUI · BRAZZAVILLE</span><h2>Ce qui se passe<br/><em>maintenant.</em></h2><p>Des personnes, des idées, des directs et des opportunités — réunis dans un fil vivant.</p></div><button onClick={()=>setModal("live")}>● Passer en direct</button></section><section className="story-line"><button className="add-story"><span>＋</span><strong>Votre moment</strong><small>Partager</small></button>{messages.slice(0,3).map((person,index)=><button key={person.name} onClick={()=>notify(`Moment de ${person.name} ouvert`)}><span>{person.mark}<i>{index===2?"●":""}</i></span><strong>{person.name.split(" ")[0]}</strong><small>{index===2?"EN DIRECT":"Nouveau"}</small></button>)}<button onClick={()=>go("live")}><span className="story-more">→</span><strong>Explorer</strong><small>Tout voir</small></button></section><article className="moment-card sponsored-moment"><header><span className="moment-avatar">{ad?ad.pageName.split(/\s+/).map((word)=>word[0]).join("").slice(0,2):"MS"}<i/></span><div><strong>{ad?.pageName||"Mokabi Studio"} <b>✓</b></strong><small>Publication sponsorisée · WHAPPY ADS</small></div><button>•••</button></header><div className="moment-visual"><span>{ad?"WHAPPY ADS":"WHAPPY LIVE"}</span><div><small>{ad?`${ad.audience} · ${ad.city}`:"COLLECTION N'TELA 2026"}</small><h3>{ad?.title||<>Porter son histoire.<br/>Vivre son style.</>}</h3><button onClick={()=>ad?onAdClick(ad):setLiveIndex(0)}>{ad?.cta||"Rejoindre le direct ●"}</button></div><b>{ad?"Sponsorisé":"2,8 k regardent"}</b></div><p>{ad?.creative||"La nouvelle collection est là. Découvrez chaque pièce en direct, posez vos questions et commandez sans quitter la vidéo."}</p><footer>{ad?<><button className="ad-cta" onClick={()=>onAdClick(ad)}>{ad.cta} →</button><span>Publicité · {ad.pageName}</span></>:<><button className={liked?"liked":""} onClick={()=>setLiked(v=>!v)}>{liked?"♥":"♡"} {liked?"1 205":"1 204"}</button><button onClick={()=>notify("Commentaires ouverts")}>◫ 86 commentaires</button><button onClick={()=>notify("Publication partagée")}>↗ Partager</button></>}</footer></article><article className="moment-card community-moment"><header><span className="moment-avatar">AM<i/></span><div><strong>Amina M. <b>✓</b></strong><small>Poto-Poto · il y a 24 min</small></div><button>•••</button></header><p className="moment-copy">Je transforme mon salon et je cherche une table artisanale locale. Budget raisonnable ou échange possible. Vous connaissez quelqu&apos;un ?</p><div className="moment-request"><span>⌖</span><div><small>RECHERCHE ACTIVE</small><strong>Table artisanale · Brazzaville</strong></div><button onClick={()=>notify("Réponse envoyée à Amina")}>Je peux aider</button></div><footer><button onClick={()=>notify("Vous aimez cette publication")}>♡ 48</button><button onClick={()=>notify("Commentaires ouverts")}>◫ 12 commentaires</button><button onClick={()=>notify("Publication partagée")}>↗ Partager</button></footer></article></main><aside className="moments-side"><section className="quick-publish"><span>CB</span><div><strong>Bonjour {userName}</strong>{founder ? <i className="founder-grey-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}<small>Quoi de neuf aujourd&apos;hui ?</small></div><button onClick={()=>notify("Créateur de publication ouvert")}>＋ Publier</button></section><section className="side-card"><header><div><small>EN DIRECT</small><strong>Ça bouge maintenant</strong></div><button onClick={()=>go("live")}>Tout voir</button></header>{lives.slice(0,2).map((live,index)=><button className="side-live" key={live.host} onClick={()=>setLiveIndex(index)}><span>{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}<i/></span><div><strong>{live.title}</strong><small>{live.viewers} spectateurs</small></div><b>→</b></button>)}</section><section className="side-card"><header><div><small>WHAPPY MARKET</small><strong>Pour vous</strong></div><button onClick={()=>go("market")}>Explorer</button></header>{listings.slice(0,2).map(item=><div className="side-product" role="button" tabIndex={0} key={item.id} onClick={()=>go("market")} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();go("market");}}}><span>{item.mark}</span><div><strong>{item.title}</strong><small>{item.price}</small></div><button className={saved[String(item.id)]?"saved":""} aria-label={`Enregistrer ${item.title}`} onClick={event=>{event.stopPropagation();setSaved(current=>({...current,[String(item.id)]:!current[String(item.id)]}))}}>♡</button></div>)}</section><button className="home-create-ad" onClick={()=>go("business")}>✦ Promouvoir une publication</button></aside></div>{footer}</div>;
 }
 
 function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => void; setLiveIndex: (index: number) => void }) {
@@ -771,7 +1015,7 @@ function MarketSpace({ search, filter, setFilter, items, shopCount, saved, setSa
     { value:"< 5 min", label:"pour publier une annonce" },
     { value:"24/7", label:"messages entre acheteurs et vendeurs" },
   ];
-  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={onOpenShop}>Ma boutique ↗</button></div><div className="market-hero-note"><i/> Une marketplace pensée pour les vraies conversations.</div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>{shopCount}</strong><span>{shopCount>1?"annonces publiées":"annonce publiée"}</span><div><b>{shopCount*37}</b><small>Vues</small><b>{shopCount*4}</b><small>Messages</small></div><button onClick={shopCount?onOpenShop:()=>setModal("sell")}>{shopCount?"Gérer ma boutique":"Publier mon premier produit"}</button></div></section><section className="space-content"><section className="market-intent-rail" aria-labelledby="market-intent-title"><div className="market-section-heading"><div><small>CHOISIR SON PARCOURS</small><h3 id="market-intent-title">Votre prochaine bonne affaire commence ici.</h3></div><span><i/> Marketplace en mouvement</span></div><div className="market-intents">{intentCards.map(card=><button key={card.title} onClick={card.action}><span className="intent-icon">{card.icon}</span><span><small>{card.eyebrow}</small><strong>{card.title}</strong><em>{card.detail}</em></span><b>↗</b></button>)}</div></section><div className="market-proof-grid" aria-label="Les indicateurs Whappy Marketplace">{proofPoints.map(point=><div key={point.label}><strong>{point.value}</strong><span>{point.label}</span></div>)}<div className="proof-live"><i/> <span>Transactions<br/><b>conversationnelles</b></span></div></div><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Préparez votre moyen d&apos;encaissement</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Le paiement à la livraison est sélectionné")}>Choisir ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button className={nearby?"active":""} onClick={()=>{setNearby(v=>!v);notify(nearby?"Filtre de proximité retiré":"Produits proches affichés")}}>⌖ {nearby?"À proximité":"Autour de moi"}</button><button onClick={()=>setSort(v=>v==="near"?"trust":"near")}>≡ {sort==="near"?"Trier par confiance":"Trier par proximité"}</button></div><div className="results-line"><span>{sortedItems.length} produits et services {search && `pour « ${search} »`}</span><small>{nearby?"Dans un rayon de 5 km":"Vendeurs particuliers et professionnels"}</small></div><div className="listing-grid market-listings">{sortedItems.map(item=><ListingCard key={item.id} item={item} saved={!!saved[String(item.id)]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[String(item.id)]}))} onOpen={()=>onOpen(item)}/>)}</div>{sortedItems.length===0&&<div className="market-empty"><span>⌕</span><h3>Aucun résultat</h3><p>Essayez une autre catégorie ou publiez votre propre annonce.</p><button onClick={()=>setModal("sell")}>＋ Publier une annonce</button></div>}<button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
+  return <div className="space-scroll market-space"><section className="market-banner marketplace-banner"><div><span>WHAPPY MARKETPLACE · OUVERT À TOUS</span><h2>Tout le monde peut<br/>ouvrir sa boutique.</h2><p>Vendez un objet, un service ou une création. Discutez avec l&apos;acheteur et préparez un paiement protégé.</p><div className="market-hero-actions"><button onClick={()=>setModal("sell")}>＋ Commencer à vendre</button><button onClick={onOpenShop}>Ma boutique ↗</button></div><div className="market-hero-note"><i/> Une marketplace pensée pour les vraies conversations.</div></div><div className="seller-console"><small>VOTRE BOUTIQUE WHAPPY</small><strong>{shopCount}</strong><span>{shopCount>1?"annonces publiées":"annonce publiée"}</span><div><b>{shopCount*37}</b><small>Vues</small><b>{shopCount*4}</b><small>Messages</small></div><button onClick={shopCount?onOpenShop:()=>setModal("sell")}>{shopCount?"Gérer ma boutique":"Publier mon premier produit"}</button></div></section><section className="space-content"><section className="market-intent-rail" aria-labelledby="market-intent-title"><div className="market-section-heading"><div><small>CHOISIR SON PARCOURS</small><h3 id="market-intent-title">Votre prochaine bonne affaire commence ici.</h3></div><span><i/> Marketplace en mouvement</span></div><div className="market-intents">{intentCards.map(card=><button key={card.title} onClick={card.action}><span className="intent-icon">{card.icon}</span><span><small>{card.eyebrow}</small><strong>{card.title}</strong><em>{card.detail}</em></span><b>↗</b></button>)}</div></section><div className="market-proof-grid" aria-label="Les indicateurs Whappy Marketplace">{proofPoints.map(point=><div key={point.label}><strong>{point.value}</strong><span>{point.label}</span></div>)}<div className="proof-live"><i/> <span>Transactions<br/><b>conversationnelles</b></span></div></div><section className="market-pulse" aria-labelledby="market-pulse-title"><header><div><small>EN CE MOMENT À BRAZZAVILLE</small><h3 id="market-pulse-title">Le marché bouge autour de vous.</h3></div><button onClick={()=>{setNearby(true);setSort("near");notify("Les nouveautés proches sont affichées")}}>Explorer les nouveautés ↗</button></header><div className="market-pulse-stats"><span><b>12</b><small>nouvelles annonces aujourd&apos;hui</small></span><span><b>5</b><small>services disponibles à moins de 5 km</small></span><span><b>3</b><small>échanges ouverts maintenant</small></span><span><b>2</b><small>boutiques répondent en direct</small></span></div></section><div className="payment-ready"><div><span>◆</span><div><small>PAIEMENTS À CONNECTER</small><strong>Préparez votre moyen d&apos;encaissement</strong></div></div><div className="payment-methods"><span>Mobile Money</span><span>Carte bancaire</span><span>Whappy Pay</span><span>Paiement à la livraison</span></div><button onClick={()=>notify("Le paiement à la livraison est sélectionné")}>Choisir ↗</button></div><div className="market-toolbar"><div>{filters.map(x=><button aria-pressed={filter===x} className={filter===x?"active":""} key={x} onClick={()=>setFilter(x)}>{x}</button>)}</div><button aria-pressed={nearby} className={nearby?"active":""} onClick={()=>{setNearby(v=>!v);notify(nearby?"Filtre de proximité retiré":"Produits proches affichés")}}>⌖ {nearby?"À proximité":"Autour de moi"}</button><button onClick={()=>setSort(v=>v==="near"?"trust":"near")}>≡ {sort==="near"?"Trier par confiance":"Trier par proximité"}</button></div><div className="results-line"><span>{sortedItems.length} produits et services {search && `pour « ${search} »`}</span><small>{nearby?"Dans un rayon de 5 km":"Vendeurs particuliers et professionnels"}</small></div><div className="listing-grid market-listings">{sortedItems.map(item=><ListingCard key={item.id} item={item} saved={!!saved[String(item.id)]} onSave={()=>setSaved(c=>({...c,[item.id]:!c[String(item.id)]}))} onOpen={()=>onOpen(item)}/>)}</div>{sortedItems.length===0&&<div className="market-empty"><span>⌕</span><h3>Aucun résultat</h3><p>Essayez une autre catégorie ou publiez votre propre annonce.</p><button onClick={()=>setModal("sell")}>＋ Publier une annonce</button></div>}<button className="market-sell-fab" onClick={()=>setModal("sell")}>＋ Vendre sur Whappy</button></section></div>;
 }
 
 function BarterSpace({ notify, setModal }: { notify:(text:string)=>void; setModal:(type:"sell")=>void }) {
@@ -832,47 +1076,586 @@ function TwinSpace({ step, setStep, consent, setConsent, notify }: { step:number
 void TwinSpace;
 
 function ListingCard({ item, saved, onSave, onOpen }: { item:Listing; saved:boolean; onSave:()=>void; onOpen:()=>void }) {
-  return <article className="listing-card"><button className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button className={`listing-art ${item.tone} ${item.mediaUrl?"has-media":""}`} style={item.mediaUrl?{backgroundImage:`linear-gradient(180deg,transparent 45%,rgba(2,13,18,.72)),url(${item.mediaUrl})`}:undefined} onClick={onOpen}>{!item.mediaUrl&&<span>{item.mark}</span>}<small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}{item.status==="reserved"&&<em className="reserved-badge">RÉSERVÉ</em>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><small className="listing-reach">◉ Ouvert à toute la communauté · pas besoin d’être ami</small><button onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Contacter le vendeur"} ↗</button></div></article>;
+  return <article className="listing-card"><button type="button" aria-label={`${saved?"Retirer des favoris":"Enregistrer"} : ${item.title}`} aria-pressed={saved} className={`save ${saved?"active":""}`} onClick={onSave}>{saved?"♥":"♡"}</button><button type="button" aria-label={`Ouvrir l’annonce : ${item.title}`} className={`listing-art ${item.tone} ${item.mediaUrl?"has-media":""}`} style={item.mediaUrl?{backgroundImage:`linear-gradient(180deg,transparent 45%,rgba(2,13,18,.72)),url(${item.mediaUrl})`}:undefined} onClick={onOpen}>{!item.mediaUrl&&<span>{item.mark}</span>}<small>{item.category}</small>{item.mode==="troc"&&<b>⇄ TROC</b>}{item.status==="reserved"&&<em className="reserved-badge">RÉSERVÉ</em>}</button><div><span className="seller"><i>{item.mark}</i>{item.seller}<b>✓</b><small>{item.trust}% fiable</small></span><h3>{item.title}</h3><strong>{item.price}</strong><p>⌖ {item.place}</p><small className="listing-reach">◉ Ouvert à toute la communauté · pas besoin d’être ami</small><button type="button" onClick={onOpen}>{item.mode==="troc"?"Proposer un échange":"Contacter le vendeur"} ↗</button></div></article>;
 }
 
 function SectionTitle({ overline,title,action,onClick }: { overline:string;title:string;action:string;onClick:()=>void }) { return <div className="section-title"><div><small>{overline}</small><h3>{title}</h3></div><button onClick={onClick}>{action} ↗</button></div>; }
 
-function LiveViewer({ live,onClose,notify,onAdd }: { live:(typeof lives)[number];onClose:()=>void;notify:(text:string)=>void;onAdd:(live:(typeof lives)[number],quantity:number)=>void }) {
-  const videoRef=useRef<HTMLVideoElement>(null);
-  const [heart,setHeart]=useState(false); const [heartCount,setHeartCount]=useState(1284); const [heartBurst,setHeartBurst]=useState(0);
-  const [following,setFollowing]=useState(false);const [quantity,setQuantity]=useState(1);const [playing,setPlaying]=useState(true);const [elapsed,setElapsed]=useState(0);const [connection,setConnection]=useState<"Excellente"|"Stable">("Excellente");const [captions,setCaptions]=useState(true);const [message,setMessage]=useState("");const [comments,setComments]=useState([{name:"Amina",text:"Livraison possible ?"},{name:"Junior",text:"Je prends en bleu 🔥"},{name:"Grâce",text:"Très beau produit !"}]);const [giftBalance,setGiftBalance]=useState(75000);const [selectedGift,setSelectedGift]=useState<(typeof liveGifts)[number]|null>(null);const [giftNote,setGiftNote]=useState("");const [giftReveal,setGiftReveal]=useState<{gift:(typeof liveGifts)[number];note:string}|null>(null);const [featuredGift,setFeaturedGift]=useState<{gift:(typeof liveGifts)[number];note:string}|null>(null);const [stageGuests,setStageGuests]=useState<string[]>([]);const [stageOpen,setStageOpen]=useState(false);const [mutedGuests,setMutedGuests]=useState<string[]>([]);const [spotlight,setSpotlight]=useState<string|null>(null);
-  useEffect(()=>{const timer=window.setInterval(()=>{if(playing){setElapsed(value=>value+1);setConnection(Math.random()>.16?"Excellente":"Stable");}},1000);return()=>window.clearInterval(timer);},[playing]);
-  useEffect(()=>{const player=videoRef.current;if(!player)return;if(playing)void player.play().catch(()=>setPlaying(false));else player.pause();},[playing]);
-  useEffect(()=>{if(!giftReveal)return;const timer=window.setTimeout(()=>setGiftReveal(null),2400);return()=>window.clearTimeout(timer);},[giftReveal]);
-  const clock=`${Math.floor(elapsed/60).toString().padStart(2,"0")}:${(elapsed%60).toString().padStart(2,"0")}`;
+function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[number];onClose:()=>void;notify:(text:string)=>void;onAdd:(live:(typeof lives)[number],quantity:number)=>void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [heart,setHeart] = useState(false);
+  const [heartCount,setHeartCount] = useState(1284);
+  const [heartBurst,setHeartBurst] = useState(0);
+  const [following,setFollowing] = useState(false);
+  const [quantity,setQuantity] = useState(1);
+  const [playing,setPlaying] = useState(true);
+  const [elapsed,setElapsed] = useState(0);
+  const [connection,setConnection] = useState<"Excellente"|"Stable">("Excellente");
+  const [captions,setCaptions] = useState(true);
+  const [message,setMessage] = useState("");
+  const [replyTarget,setReplyTarget] = useState<{ id:string; name:string }|null>(null);
+
+  const [comments,setComments] = useState<LiveComment[]>([
+    { id:"l-com-1",name:"Amina",text:"Livraison possible ?",hearts:2,sentAt:LIVE_NOW-420000 },
+    { id:"l-com-2",name:"Junior",text:"Je prends en bleu 🔥",hearts:4,sentAt:LIVE_NOW-290000 },
+    { id:"l-com-3",name:"Grâce",text:"Très beau produit !",hearts:5,sentAt:LIVE_NOW-180000 },
+  ]);
+
+  const [giftWallets,setGiftWallets] = useState<Record<GiftCarrier, number>>({ acheteur: 125000,offreur: 80000 });
+  const [giftLedger,setGiftLedger] = useState<GiftWalletLedger>({
+    acheteur: { count: 0, amount: 0 },
+    offreur: { count: 0, amount: 0 },
+  });
+  const [giftTopUpLedger,setGiftTopUpLedger] = useState<GiftWalletLedger>({
+    acheteur: { count: 0, amount: 0 },
+    offreur: { count: 0, amount: 0 },
+  });
+  const [giftCarrier,setGiftCarrier] = useState<GiftCarrier>("acheteur");
+  const [selectedGift,setSelectedGift] = useState<LiveGift|null>(null);
+  const [giftNote,setGiftNote] = useState("");
+  const [giftReveal,setGiftReveal] = useState<LiveGiftCarrier|null>(null);
+  const [featuredGift,setFeaturedGift] = useState<LiveGiftCarrier|null>(null);
+  const [giftTopUp,setGiftTopUp] = useState<number>(liveGiftTopUps[1]);
+
+  const [stageGuests,setStageGuests] = useState<string[]>([]);
+  const [stageOpen,setStageOpen] = useState(false);
+  const [mutedGuests,setMutedGuests] = useState<string[]>([]);
+  const [spotlight,setSpotlight] = useState<string|null>(null);
+  const [moderationLog,setModerationLog] = useState<ModerationEvent[]>([]);
+  const [showHiddenComments,setShowHiddenComments] = useState(false);
+
+  const hostInitials = live.host.split(" ").map((x)=>x[0]).join("").slice(0,2);
+  const giftBalance = giftWallets[giftCarrier];
+  const selectedCarrierLedger = giftLedger[giftCarrier];
+  const selectedCarrierTopUpLedger = giftTopUpLedger[giftCarrier];
+
+  const orderedComments = useMemo(() => {
+    return [...comments].sort((left,right)=> (left.pinned === right.pinned ? right.sentAt - left.sentAt : left.pinned ? -1 : 1));
+  }, [comments]);
+  const visibleComments = useMemo(() => orderedComments.filter((comment)=>!comment.hidden), [orderedComments]);
+  const hiddenComments = useMemo(() => orderedComments.filter((comment)=>comment.hidden), [orderedComments]);
+  const discussionComments = showHiddenComments ? orderedComments : visibleComments;
+
+  const canAfford = selectedGift ? giftWallets[giftCarrier] >= selectedGift.price : true;
+  const canBuyFromCarrier = (gift:LiveGift) => giftWallets[giftCarrier] >= gift.price;
+  const stageGuestsMax = LIVE_STAGE_MAX - 1;
+  const stageCount = Math.min(stageGuests.length + 1, LIVE_STAGE_MAX);
+  const stageSlotsRemaining = Math.max(0, stageGuestsMax - stageGuests.length);
+  const previewSlots = Math.min(stageSlotsRemaining, 4);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!playing) return;
+      setElapsed((value) => value + 1);
+      setConnection(Math.random() > .16 ? "Excellente" : "Stable");
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [playing]);
+
+  useEffect(() => {
+    const player = videoRef.current;
+    if (!player) return;
+    if (playing) void player.play().catch(() => setPlaying(false));
+    else player.pause();
+  }, [playing]);
+
+  useEffect(() => {
+    if (!giftReveal) return;
+    const timer = window.setTimeout(() => setGiftReveal(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [giftReveal]);
+
+  const clock = `${Math.floor(elapsed/60).toString().padStart(2,"0")}:${(elapsed%60).toString().padStart(2,"0")}`;
+
   function fullscreen(){
     const request = videoRef.current?.closest(".live-video")?.requestFullscreen?.();
     if (!request) { notify("Le plein écran n’est pas disponible dans ce navigateur"); return; }
     void request.catch(() => notify("Le plein écran n’est pas disponible dans ce navigateur"));
   }
-  function sendComment(event:FormEvent){event.preventDefault();const text=message.trim();if(!text)return;setComments(current=>[...current,{name:"Vous",text}]);setMessage("");notify("Votre message est visible dans le direct");}
-  function sendGift(){if(!selectedGift)return;if(giftBalance<selectedGift.price){notify("Solde de démonstration insuffisant pour ce cadeau");return;}const reveal={gift:selectedGift,note:giftNote.trim()};setGiftBalance(balance=>balance-selectedGift.price);setComments(current=>[...current,{name:"Vous",text:`a envoyé ${selectedGift.icon} ${selectedGift.name}${reveal.note?` · ${reveal.note}`:""}`}]);setFeaturedGift(reveal);setGiftReveal(reveal);notify(`${selectedGift.name} envoyé à ${live.host}`);setSelectedGift(null);setGiftNote("");}
-  function sendHeart(){setHeart(true);setHeartCount(value=>value+1);setHeartBurst(value=>value+1);}
-  function toggleStageGuest(name:string){const isOnStage=stageGuests.includes(name);if(isOnStage){setStageGuests(current=>current.filter(guest=>guest!==name));setMutedGuests(current=>current.filter(guest=>guest!==name));setSpotlight(current=>current===name?null:current);notify(`${name} est retiré de la scène`);return;}if(stageGuests.length>=9){notify("La scène est complète : 10 personnes maximum avec l’hôte");return;}setStageGuests(current=>[...current,name]);notify(name==="Vous"?"Vous êtes monté sur le live":"Invité ajouté à la scène du live");}
-  function toggleGuestMute(name:string){setMutedGuests(current=>current.includes(name)?current.filter(guest=>guest!==name):[...current,name]);}
-  async function shareLive(){const share={title:live.title,text:`Rejoignez ${live.host} sur Whappy Live`,url:window.location.href};try{if(navigator.share)await navigator.share(share);else{await navigator.clipboard.writeText(share.url);notify("Lien du direct copié");}}catch(error){if(!(error instanceof DOMException&&error.name==="AbortError"))notify("Le partage n’est pas disponible actuellement");}}
-  const caption=live.tone==="food"?"Je vous montre chaque étape, puis vous pourrez réserver la masterclass.":live.tone==="tech"?"On compare l’écran, la caméra et l’autonomie en conditions réelles.":"La veste N’Tela est disponible en plusieurs tailles et coloris.";
+
+  function cancelReply() {
+    setReplyTarget(null);
+    setMessage("");
+  }
+
+  function sendComment(event:FormEvent){
+    event.preventDefault();
+    const text = message.trim();
+    if(!text) return;
+    const formattedText = replyTarget ? `@${replyTarget.name} ${text}` : text;
+    setComments(current => [...current,{id:`comment-${Date.now()}`,name:"Vous",text:formattedText,hearts:0,sentAt:Date.now()}]);
+    setMessage("");
+    setReplyTarget(null);
+    notify("Votre message est visible dans le direct");
+  }
+
+  function sendGiftTopUp() {
+    if (giftTopUp <= 0) return;
+    setGiftWallets(current => ({ ...current, [giftCarrier]: current[giftCarrier] + giftTopUp }));
+    setGiftTopUpLedger(current => ({
+      ...current,
+      [giftCarrier]: {
+        ...current[giftCarrier],
+        count: current[giftCarrier].count + 1,
+        amount: current[giftCarrier].amount + giftTopUp,
+      },
+    }));
+    notify(`Crédit ajouté : +${formatLiveMoney(giftTopUp)} FCFA au porteur ${giftCarrier}`);
+  }
+
+  function sendGift() {
+    if(!selectedGift) return;
+    const balance = giftWallets[giftCarrier];
+    if(balance < selectedGift.price) {
+      notify(`Solde insuffisant pour un cadeau ${giftCarrier === "acheteur" ? "acheteur" : "offreur"}`);
+      return;
+    }
+    const payload = { gift: selectedGift, note: giftNote.trim(), carrier: giftCarrier };
+    const carrierLabel = giftCarrier === "acheteur" ? "Acheteur" : "Offreur";
+
+    setGiftWallets(current=>({ ...current, [giftCarrier]: balance - selectedGift.price }));
+    setGiftLedger(current=>({
+      ...current,
+      [giftCarrier]: {
+        ...current[giftCarrier],
+        count: current[giftCarrier].count + 1,
+        amount: current[giftCarrier].amount + selectedGift.price,
+      },
+    }));
+    setComments(current=>[
+      ...current,
+      {
+        id:`gift-${Date.now()}`,
+        name:"Vous",
+        text:`${selectedGift.icon} ${selectedGift.name} (${carrierLabel})${payload.note ? ` · ${payload.note}` : ""}`,
+        hearts:selectedGift.hearts,
+        sentAt:Date.now(),
+      },
+    ]);
+
+    setFeaturedGift(payload);
+    setGiftReveal(payload);
+    notify(`Cadeau ${selectedGift.name} envoyé à ${live.host} par ${carrierLabel}`);
+    setSelectedGift(null);
+    setGiftNote("");
+  }
+
+  function sendLiveHeart() {
+    setHeart(true);
+    setHeartCount((value) => value + 1);
+    setHeartBurst((value) => value + 1);
+  }
+
+  function sendCommentHeart(commentId:string) {
+    setComments(current => current.map((comment) => comment.id === commentId ? { ...comment, hearts: comment.hearts + 1 } : comment));
+    sendLiveHeart();
+  }
+
+  function logModeration(action: ModerationAction, comment: LiveComment) {
+    setModerationLog(current => [{
+      id: Date.now(),
+      action,
+      commentId: comment.id,
+      commentName: comment.name,
+      by: "Animateur",
+      at: Date.now(),
+    }, ...current].slice(0, 8));
+  }
+
+  function replyToComment(comment:LiveComment) {
+    setReplyTarget({ id: comment.id, name: comment.name });
+    notify(`Réponse préparée pour ${comment.name}`);
+  }
+
+  function pinComment(commentId:string) {
+    const comment = comments.find((item)=>item.id===commentId);
+    if(!comment) return;
+    const nextPinned = !comment.pinned;
+    setComments(current => current.map((item)=> item.id === commentId ? {
+      ...item,
+      pinned: nextPinned,
+      hidden: nextPinned ? false : item.hidden,
+    } : item));
+    logModeration(nextPinned ? "pin" : "unpin", comment);
+    notify(nextPinned ? `Commentaire de ${comment.name} épinglé` : `Épinglage retiré pour ${comment.name}`);
+  }
+
+  function hideComment(commentId:string) {
+    const comment = comments.find((item)=>item.id===commentId);
+    if(!comment) return;
+    setComments(current => current.map((item)=> item.id === commentId ? { ...item, hidden: true } : item));
+    logModeration("hide", comment);
+    notify(`Commentaire de ${comment.name} masqué`);
+  }
+
+  function restoreComment(commentId:string) {
+    const comment = comments.find((item)=>item.id===commentId);
+    if(!comment) return;
+    setComments(current => current.map((item)=> item.id === commentId ? { ...item, hidden: false } : item));
+    logModeration("restore", comment);
+    notify(`Commentaire de ${comment.name} restauré`);
+  }
+
+  function moderationLabel(action: ModerationAction) {
+    if (action === "pin") return "épinglé";
+    if (action === "unpin") return "désépinglé";
+    if (action === "restore") return "restauré";
+    return "masqué";
+  }
+
+  function toggleStageGuest(name:string) {
+    const isOnStage = stageGuests.includes(name);
+    if (isOnStage) {
+      setStageGuests(current => current.filter((guest) => guest !== name));
+      setMutedGuests(current => current.filter((guest) => guest !== name));
+      setSpotlight(current => current === name ? null : current);
+      notify(`${name} est retiré de la scène`);
+      return;
+    }
+    if (stageGuests.length >= stageGuestsMax) {
+      notify(`La scène est complète : ${LIVE_STAGE_MAX} personnes maximum avec l’hôte`);
+      return;
+    }
+    setStageGuests(current => [...current,name]);
+    notify(name === "Vous" ? "Vous êtes monté sur le live" : `Invité ajouté à la scène du live`);
+  }
+
+  function toggleGuestMute(name:string) {
+    setMutedGuests(current => current.includes(name) ? current.filter(guest => guest !== name) : [...current, name]);
+  }
+
+  async function shareLive() {
+    const share = { title: live.title, text: `Rejoignez ${live.host} sur Whappy Live`, url: window.location.href };
+    try {
+      if (navigator.share) await navigator.share(share);
+      else {
+        await navigator.clipboard.writeText(share.url);
+        notify("Lien du direct copié");
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) notify("Le partage n’est pas disponible actuellement");
+    }
+  }
+
+  const caption = live.tone === "food"
+    ? "Je vous montre chaque étape, puis vous pourrez réserver la masterclass."
+    : live.tone === "tech"
+      ? "On compare l’écran, la caméra et l’autonomie en conditions réelles."
+      : "La veste N’Tela est disponible en plusieurs tailles et coloris.";
+
   return <div className="live-viewer">
     <div className={`live-video ${live.tone}`}>
-      <video ref={videoRef} className="viewer-stream" src={live.stream} poster={live.poster} autoPlay loop muted playsInline preload="metadata" onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)}/><div className="viewer-scrim"/>
-      <button className="viewer-close" onClick={onClose} aria-label="Fermer le direct">×</button><header><span><i/> EN DIRECT</span><b><i className="connection-dot"/> {live.viewers} spectateurs</b></header><div className="viewer-meta"><span>{clock}</span><span>HD · 1080p</span><span>{connection}</span></div>
-      {featuredGift&&<aside className="featured-gift" aria-live="polite"><span className="gift-bearer">VOUS <i>{featuredGift.gift.icon}</i></span><div><small>CADEAU PORTÉ PAR VOUS</small><strong>{featuredGift.gift.name} pour {live.host}</strong>{featuredGift.note&&<p>“{featuredGift.note}”</p>}</div><button onClick={sendHeart} aria-label="Envoyer un cœur au cadeau">♥</button></aside>}
-      {stageGuests.length>0&&<div className="live-stage-strip" aria-label={`${stageGuests.length+1} personnes sur la scène`}><span className="stage-host">{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}</span>{stageGuests.map(guest=><span key={guest}>{guest.slice(0,2).toUpperCase()}</span>)}<small>{stageGuests.length+1}/10 sur scène</small></div>}
-      {stageGuests.length>0&&<section className="live-stage-grid" aria-label="Intervenants du live">{stageGuests.map(guest=><article className={spotlight===guest?"spotlight":""} key={guest}><button className="stage-focus" onClick={()=>setSpotlight(current=>current===guest?null:guest)} aria-label={`Mettre ${guest} en avant`}><span>{guest.slice(0,2).toUpperCase()}</span><strong>{guest}</strong><small>{spotlight===guest?"À l’écran":"Intervenant"}</small></button><button className={`stage-mic ${mutedGuests.includes(guest)?"muted":""}`} onClick={()=>toggleGuestMute(guest)} aria-label={mutedGuests.includes(guest)?`Activer le micro de ${guest}`:`Couper le micro de ${guest}`}>{mutedGuests.includes(guest)?"⌁":"◉"}</button></article>)}</section>}
-      {captions&&<p className="live-captions" aria-live="polite">{caption}</p>}<div className="floating-chat" aria-live="polite">{comments.slice(-3).map((comment,index)=><span key={`${comment.name}-${comment.text}-${index}`}><b>{comment.name}</b> {comment.text}</span>)}</div>
-      <div className="viewer-controls"><button onClick={()=>setPlaying(value=>!value)} aria-label={playing?"Mettre en pause":"Lire le direct"}>{playing?"Ⅱ":"▶"}</button><div><i className="live-progress"/><span>Lecture en direct</span></div><button onClick={()=>setCaptions(value=>!value)} className={captions?"active":""} aria-label={captions?"Masquer les sous-titres":"Afficher les sous-titres"}>CC</button><button onClick={fullscreen} aria-label="Afficher le direct en plein écran">⛶</button></div>
-      <div className="viewer-bottom"><div><small>{live.host} · {live.location}</small><h2>{live.title}</h2></div><button aria-label="Envoyer un cœur au direct" onClick={sendHeart} className={heart?"hearted":""}>♥<small>{formatLiveMoney(heartCount)}</small>{heartBurst>0&&<span className="heart-burst" key={heartBurst}>♥ ♥ ♥</span>}</button></div>
+      <video ref={videoRef} className="viewer-stream" src={live.stream} poster={live.poster} autoPlay loop muted playsInline preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
+      <div className="viewer-scrim" />
+      <button className="viewer-close" onClick={onClose} aria-label="Fermer le direct">×</button>
+      <header>
+        <span><i/> EN DIRECT</span>
+        <b><i className="connection-dot"/> {live.viewers} spectateurs</b>
+      </header>
+      <div className="viewer-meta">
+        <span>{clock}</span>
+        <span>HD · 1080p</span>
+        <span>{connection}</span>
+      </div>
+
+      {featuredGift && (
+        <aside className="featured-gift" aria-live="polite">
+          <span className="gift-bearer">VOUS <i>{featuredGift.gift.icon}</i></span>
+          <div>
+            <small>CADEAU PORTÉ PAR {featuredGift.carrier === "acheteur" ? "L’ACHETEUR" : "L’OFFREUR"}</small>
+            <strong>{featuredGift.gift.name} pour {live.host}</strong>
+            {featuredGift.note && <p>“{featuredGift.note}”</p>}
+          </div>
+          <button onClick={sendLiveHeart} aria-label="Envoyer un cœur au cadeau">♥</button>
+        </aside>
+      )}
+
+      {stageGuests.length > 0 && (
+        <div className="live-stage-strip" aria-label={`${stageCount} personnes sur la scène`}>
+          <span className="stage-host">{hostInitials}</span>
+          {stageGuests.map((guest) => <span key={guest}>{guest.slice(0,2).toUpperCase()}</span>)}
+          <small>{stageCount}/{LIVE_STAGE_MAX} sur scène</small>
+        </div>
+      )}
+
+      {stageGuests.length > 0 && (
+        <section className="live-stage-grid" aria-label="Intervenants du live">
+          {stageGuests.map((guest) => (
+            <article className={spotlight === guest ? "spotlight" : ""} key={guest}>
+              <button className="stage-focus" onClick={() => setSpotlight((current) => current === guest ? null : guest)} aria-label={`Mettre ${guest} en avant`}>
+                <span>{guest.slice(0,2).toUpperCase()}</span>
+                <strong>{guest}</strong>
+                <small>{spotlight === guest ? "À l’écran" : "Intervenant"}</small>
+              </button>
+              <button className={`stage-mic ${mutedGuests.includes(guest) ? "muted" : ""}`} onClick={() => toggleGuestMute(guest)} aria-label={mutedGuests.includes(guest) ? `Activer le micro de ${guest}` : `Couper le micro de ${guest}`}>
+                {mutedGuests.includes(guest) ? "⌁" : "◉"}
+              </button>
+            </article>
+          ))}
+        </section>
+      )}
+
+      {captions && <p className="live-captions" aria-live="polite">{caption}</p>}
+      <div className="floating-chat" aria-live="polite">
+        {visibleComments.slice(-3).map((comment) => (
+          <article key={comment.id} className={`floating-comment ${comment.pinned ? "floating-comment-pinned" : ""}`}>
+            <b>{comment.name}</b>
+            {comment.text}
+            <button type="button" onClick={() => sendCommentHeart(comment.id)} aria-label={`Envoyer un cœur au commentaire de ${comment.name}`}>
+              ❤ {comment.hearts}
+            </button>
+          </article>
+        ))}
+      </div>
+
+      <div className="viewer-controls">
+        <button onClick={() => setPlaying((value) => !value)} aria-label={playing ? "Mettre en pause" : "Lire le direct"}>{playing ? "Ⅱ" : "▶"}</button>
+        <div>
+          <i className="live-progress" />
+          <span>Lecture en direct</span>
+        </div>
+        <button onClick={() => setCaptions((value) => !value)} className={captions ? "active" : ""} aria-label={captions ? "Masquer les sous-titres" : "Afficher les sous-titres"}>CC</button>
+        <button onClick={fullscreen} aria-label="Afficher le direct en plein écran">⛶</button>
+      </div>
+
+      <div className="viewer-bottom">
+        <div>
+          <small>{live.host} · {live.location}</small>
+          <h2>{live.title}</h2>
+        </div>
+        <button aria-label="Envoyer un cœur au direct" onClick={sendLiveHeart} className={heart ? "hearted" : ""}>
+          ♥
+          <small>{formatLiveMoney(heartCount)}</small>
+          {heartBurst > 0 && <span className="heart-burst" key={heartBurst}>♥ ♥ ♥</span>}
+        </button>
+      </div>
     </div>
-    <aside className="live-cart"><header className="live-seller"><span>{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}</span><div><strong>{live.host}</strong><small>Créateur vérifié · répond en direct</small></div><button onClick={()=>setFollowing(value=>!value)} className={following?"following":""}>{following?"✓ Suivi":"Suivre"}</button></header><section className="live-stage-manager"><header><div><small>SCÈNE MULTI-INVITÉS</small><strong>{stageGuests.length+1} / 10 personnes</strong></div><button type="button" onClick={()=>toggleStageGuest("Vous")}>{stageGuests.includes("Vous")?"Descendre":"Monter sur le live"}</button></header><div className="stage-preview"><span className="stage-host">{live.host.split(" ").map(x=>x[0]).join("").slice(0,2)}</span>{stageGuests.map(guest=><span key={guest}>{guest.slice(0,2).toUpperCase()}</span>)}{Array.from({length:Math.max(0,4-stageGuests.length)},(_,index)=><i key={index}>＋</i>)}</div><button className="stage-manage" type="button" onClick={()=>setStageOpen(value=>!value)}>{stageOpen?"Fermer la scène":"Gérer les intervenants"}</button>{stageOpen&&<div className="stage-candidates">{liveStageCandidates.map(guest=><button type="button" key={guest} onClick={()=>toggleStageGuest(guest)} className={stageGuests.includes(guest)?"on-stage":""}><span>{guest.slice(0,2).toUpperCase()}</span><strong>{guest}</strong><small>{stageGuests.includes(guest)?"Retirer":"Faire monter"}</small></button>)}</div>}</section><span>PRODUIT DU DIRECT</span><div className="cart-product" style={{backgroundImage:`linear-gradient(145deg,rgba(7,20,27,.2),rgba(7,20,27,.76)),url(${live.poster})`}}>◇</div><h3>{live.product}</h3><strong>{live.price} FCFA</strong><p>Stock limité · Livraison disponible</p><div className="quantity"><button type="button" onClick={()=>setQuantity(value=>Math.max(1,value-1))}>−</button><b>{quantity}</b><button type="button" onClick={()=>setQuantity(value=>Math.min(9,value+1))}>＋</button></div><button className="buy" onClick={()=>{onAdd(live,quantity);onClose()}}>Ajouter {quantity} au panier</button><button className="offer" onClick={()=>notify("Offre préparée — vous pouvez maintenant écrire au vendeur")}>Faire une offre</button><button className="share-live" onClick={()=>void shareLive()}>↗ Partager ce direct</button><section className="live-gifts" aria-labelledby="live-gifts-title"><header><div><small>CADEAUX PAYANTS</small><strong id="live-gifts-title">Soutenir ce direct</strong></div><span>{formatLiveMoney(giftBalance)} FCFA <em>démo</em></span></header><div className="gift-grid">{liveGifts.map(gift=><button type="button" key={gift.id} onClick={()=>setSelectedGift(gift)}><i>{gift.icon}</i><strong>{gift.name}</strong><small>{formatLiveMoney(gift.price)} FCFA</small></button>)}</div><p>Le montant est confirmé avant paiement.</p>{selectedGift&&<div className="gift-confirm" role="status"><div><i>{selectedGift.icon}</i><span><strong>{selectedGift.name}</strong><small>{selectedGift.detail} · {formatLiveMoney(selectedGift.price)} FCFA</small></span><button type="button" onClick={()=>{setSelectedGift(null);setGiftNote("")}} aria-label="Annuler le cadeau">×</button></div><input value={giftNote} onChange={event=>setGiftNote(event.target.value.slice(0,100))} placeholder="Ajouter un mot (facultatif)" aria-label="Message avec le cadeau"/><button type="button" onClick={sendGift}>Envoyer en démo · {formatLiveMoney(selectedGift.price)} FCFA</button></div>}</section><section className="live-discussion"><header><strong>Discussion</strong><span>{comments.length} messages</span></header><div>{comments.slice(-4).map((comment,index)=><p key={`${comment.name}-${comment.text}-${index}`}><b>{comment.name}</b>{comment.text}</p>)}</div><form onSubmit={sendComment}><input value={message} onChange={event=>setMessage(event.target.value.slice(0,240))} placeholder="Écrire dans le direct…" aria-label="Écrire dans le direct"/><button disabled={!message.trim()} aria-label="Envoyer le message">➤</button></form></section><small>◆ Les paiements réels s’activent avec un prestataire sécurisé</small></aside>
-    {giftReveal&&<div className="gift-reveal" role="status" aria-live="assertive"><div className="gift-cinematic"><small>CADEAU ENVOYÉ PAR VOUS</small><div className="gift-box-cinematic" aria-hidden="true"><i className="gift-box-lid"/><i className="gift-box-base"/><b>{giftReveal.gift.icon}</b></div><strong>{giftReveal.gift.name} pour {live.host}</strong><p>Votre cadeau arrive sur le direct…</p></div></div>}
+
+    <aside className="live-cart">
+      <header className="live-seller">
+        <span>{hostInitials}</span>
+        <div>
+          <strong>{live.host}</strong>
+          <small>Créateur vérifié · répond en direct</small>
+        </div>
+        <button onClick={() => setFollowing((value) => !value)} className={following ? "following" : ""}>
+          {following ? "✓ Suivi" : "Suivre"}
+        </button>
+      </header>
+
+      <section className="live-stage-manager">
+        <header>
+          <div>
+            <small>SCÈNE MULTI-INVITÉS</small>
+            <strong>{stageCount} / {LIVE_STAGE_MAX} personnes</strong>
+          </div>
+          <button type="button" onClick={() => toggleStageGuest("Vous")}>
+            {stageGuests.includes("Vous") ? "Descendre" : "Monter sur le live"}
+          </button>
+        </header>
+        <div className="stage-preview">
+          <span className="stage-host">{hostInitials}</span>
+          {stageGuests.map((guest) => <span key={guest}>{guest.slice(0,2).toUpperCase()}</span>)}
+          {Array.from({ length: previewSlots }, (_, index) => <i key={index}>＋</i>)}
+        </div>
+        <button className="stage-manage" type="button" onClick={() => setStageOpen((value) => !value)}>
+          {stageOpen ? "Fermer la scène" : "Gérer les intervenants"}
+        </button>
+        {stageOpen && (
+          <div className="stage-candidates">
+            {liveStageCandidates.map((guest) => (
+              <button type="button" key={guest} onClick={() => toggleStageGuest(guest)} className={stageGuests.includes(guest) ? "on-stage" : ""}>
+                <span>{guest.slice(0,2).toUpperCase()}</span>
+                <strong>{guest}</strong>
+                <small>{stageGuests.includes(guest) ? "Retirer" : "Faire monter"}</small>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <span>PRODUIT DU DIRECT</span>
+      <div className="cart-product" style={{ backgroundImage: `linear-gradient(145deg,rgba(7,20,27,.2),rgba(7,20,27,.76)),url(${live.poster})` }}>◇</div>
+      <h3>{live.product}</h3>
+      <strong>{live.price} FCFA</strong>
+      <p>Stock limité · Livraison disponible</p>
+      <div className="quantity">
+        <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))}>−</button>
+        <b>{quantity}</b>
+        <button type="button" onClick={() => setQuantity((value) => Math.min(9, value + 1))}>＋</button>
+      </div>
+      <button className="buy" onClick={() => { onAdd(live, quantity); onClose(); }}>Ajouter {quantity} au panier</button>
+      <button className="offer" onClick={() => notify("Offre préparée — vous pouvez maintenant écrire au vendeur")}>Faire une offre</button>
+      <button className="share-live" onClick={() => void shareLive()}>↗ Partager ce direct</button>
+
+      <section className="live-gifts" aria-labelledby="live-gifts-title">
+        <header>
+          <div>
+            <small>CADEAUX PAYANTS</small>
+            <strong id="live-gifts-title">Soutenir ce direct</strong>
+          </div>
+          <div className="live-gift-ledger">
+            <span><b>⚡</b> Solde actif : {formatLiveMoney(giftBalance)} FCFA</span>
+            <span>Porteur : <b>{giftCarrier}</b></span>
+          </div>
+        </header>
+
+        <div className="live-gift-topup" aria-label="Rechargement du porte-monnaie">
+          <small>Recharger le solde de {giftCarrier === "acheteur" ? "l’acheteur" : "l’offreur"}</small>
+          <div className="live-gift-topup-grid">
+            {liveGiftTopUps.map((value) => (
+              <button
+                type="button"
+                key={value}
+                className={giftTopUp === value ? "active" : ""}
+                onClick={() => setGiftTopUp(value)}
+              >
+                +{formatLiveMoney(value)} FCFA
+              </button>
+            ))}
+            <button className="confirm-topup" type="button" onClick={sendGiftTopUp}>
+              Recharger {formatLiveMoney(giftTopUp)} FCFA
+            </button>
+          </div>
+        </div>
+
+        <div className="gift-summary">
+              <span><b>Acheteur</b> {giftLedger.acheteur.count} cadeau{giftLedger.acheteur.count > 1 ? "x" : ""} · {formatLiveMoney(giftLedger.acheteur.amount)} FCFA</span>
+              <span><b>Offreur</b> {giftLedger.offreur.count} cadeau{giftLedger.offreur.count > 1 ? "x" : ""} · {formatLiveMoney(giftLedger.offreur.amount)} FCFA</span>
+              <span><b>Recharge Acheteur</b> {giftTopUpLedger.acheteur.count} fois · {formatLiveMoney(giftTopUpLedger.acheteur.amount)} FCFA</span>
+              <span><b>Recharge Offreur</b> {giftTopUpLedger.offreur.count} fois · {formatLiveMoney(giftTopUpLedger.offreur.amount)} FCFA</span>
+            </div>
+
+        <div className="live-gift-carriers">
+          <div className="gift-carrier-selector">
+            <label>
+              <input type="radio" value="acheteur" checked={giftCarrier === "acheteur"} onChange={() => setGiftCarrier("acheteur")} />Acheteur
+            </label>
+            <label>
+              <input type="radio" value="offreur" checked={giftCarrier === "offreur"} onChange={() => setGiftCarrier("offreur")} />Offreur
+            </label>
+          </div>
+          <p>Le montant est engagé avant validation.</p>
+        </div>
+
+        <div className="gift-grid">
+          {liveGifts.map((gift) => (
+            <button
+              type="button"
+              key={gift.id}
+              onClick={() => setSelectedGift(gift)}
+              disabled={!canBuyFromCarrier(gift)}
+              className={gift.price > giftBalance ? "gift-disabled" : ""}
+            >
+              <i>{gift.icon}</i>
+              <strong>{gift.name}</strong>
+              <small>{formatLiveMoney(gift.price)} FCFA · {gift.hearts} ❤</small>
+            </button>
+          ))}
+        </div>
+
+        {selectedGift && (
+          <div className="gift-confirm" role="status">
+                <div>
+                  <i>{selectedGift.icon}</i>
+                  <span>
+                    <strong>{selectedGift.name}</strong>
+                    <small>{selectedGift.detail} · {formatLiveMoney(selectedGift.price)} FCFA</small>
+                  </span>
+                  <button type="button" onClick={() => { setSelectedGift(null); setGiftNote(""); }} aria-label="Annuler le cadeau">×</button>
+                </div>
+              <small className="gift-carry-note">Porteur : {giftCarrier === "acheteur" ? "Acheteur" : "Offreur"} · Solde : {formatLiveMoney(giftBalance)} FCFA{selectedCarrierLedger.count > 0 ? ` · Total ${selectedCarrierLedger.count} cadeau${selectedCarrierLedger.count > 1 ? "x" : ""}` : ""}{selectedCarrierTopUpLedger.count > 0 ? ` · Recharges : ${selectedCarrierTopUpLedger.count}` : ""}</small>
+              <input value={giftNote} onChange={(event) => setGiftNote(event.target.value.slice(0, 100))} placeholder="Ajouter un mot (facultatif)" aria-label="Message avec le cadeau" />
+              <button type="button" onClick={sendGift} disabled={!canAfford}>
+                Confirmer le paiement · {formatLiveMoney(selectedGift.price)} FCFA
+              </button>
+            </div>
+          )}
+      </section>
+
+      <section className="live-discussion">
+        <header>
+          <strong>Discussion</strong>
+          <span>{showHiddenComments ? orderedComments.length : visibleComments.length} messages {hiddenComments.length ? `(${hiddenComments.length} masqués)` : ""}</span>
+        </header>
+
+        {replyTarget && (
+          <div className="live-reply-indicator">
+            <small>Réponse à <b>{replyTarget.name}</b></small>
+            <button type="button" onClick={cancelReply}>Annuler</button>
+          </div>
+        )}
+
+        {hiddenComments.length > 0 && (
+          <label className="live-show-hidden">
+            <input type="checkbox" checked={showHiddenComments} onChange={event => setShowHiddenComments(event.target.checked)} />
+            Afficher les messages masqués ({hiddenComments.length})
+          </label>
+        )}
+
+        <div>
+          {discussionComments.slice(-4).map((comment) => (
+            <article key={comment.id} className={`live-comment ${comment.pinned ? "pinned" : ""} ${comment.hidden ? "hidden" : ""}`}>
+              <div>
+                <b>{comment.name}</b>
+                {comment.text}
+              </div>
+              <div className="live-comment-actions">
+                <button className="live-comment-heart" type="button" onClick={() => sendCommentHeart(comment.id)} aria-label={`Envoyer un cœur à ${comment.name}`}>
+                  ❤ {comment.hearts}
+                </button>
+                <button type="button" onClick={() => replyToComment(comment)} aria-label={`Répondre à ${comment.name}`}>↩</button>
+                <button type="button" onClick={() => pinComment(comment.id)} aria-label={comment.pinned ? `Retirer l’épinglage de ${comment.name}` : `Épingler le commentaire de ${comment.name}`}>
+                  {comment.pinned ? "📌" : "📍"}
+                </button>
+                <button type="button" onClick={() => comment.hidden ? restoreComment(comment.id) : hideComment(comment.id)} aria-label={comment.hidden ? `Restaurer le commentaire de ${comment.name}` : `Masquer le commentaire de ${comment.name}`}>
+                  {comment.hidden ? "↺" : "✖"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {moderationLog.length > 0 && (
+          <details className="live-moderation-log">
+            <summary>Journal modération ({moderationLog.length})</summary>
+            <ul>
+              {moderationLog.map((entry) => (
+                <li key={entry.id}>
+                  <span>{new Date(entry.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                  <strong> {entry.by}</strong> {moderationLabel(entry.action)} un message de <b>{entry.commentName}</b>
+                  <small>#{entry.commentId}</small>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        <form onSubmit={sendComment}>
+          <input value={message} onChange={(event) => setMessage(event.target.value.slice(0, 240))} placeholder="Écrire dans le direct…" aria-label="Écrire dans le direct" />
+          <button disabled={!message.trim()} aria-label="Envoyer le message">➤</button>
+        </form>
+      </section>
+
+      <small>◆ Les paiements réels s’activent avec un prestataire sécurisé</small>
+    </aside>
+
+    {giftReveal && (
+      <div className="gift-reveal" role="status" aria-live="assertive">
+        <div className="gift-cinematic">
+          <small>CADEAU ENVOYÉ PAR {giftReveal.carrier === "acheteur" ? "L’ACHETEUR" : "L’OFFREUR"}</small>
+          <div className="gift-box-cinematic" aria-hidden="true">
+            <i className="gift-box-lid" />
+            <i className="gift-box-base" />
+            <b>{giftReveal.gift.icon}</b>
+          </div>
+          <strong>{giftReveal.gift.name} pour {live.host}</strong>
+          <p>Votre cadeau arrive sur le direct…</p>
+        </div>
+      </div>
+    )}
   </div>;
 }
-
 function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep,go,notify }: { type:"sell"|"seek"|"live"|"message";busy:boolean;onClose:()=>void;onSubmit:(e:FormEvent)=>void;consent:boolean;setConsent:(v:boolean)=>void;setTwinStep:(v:number)=>void;go:(s:Space)=>void;notify:(t:string)=>void }) {
   const [liveMode,setLiveMode]=useState<"human"|"twin">("human");
   const [fileCount,setFileCount]=useState(0);
@@ -880,6 +1663,6 @@ function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep
   return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><div className="modal-row"><label>Catégorie<select name="category"><option>Tech</option><option>Mode</option><option>Maison</option><option>Services</option></select></label><label>Lieu<input name="place" required placeholder="Ex. Poto-Poto"/></label></div><label className={`upload-zone ${fileCount?"selected":""}`}>{fileCount?"✓ Média prêt à être téléversé":"＋ Ajouter une photo ou vidéo"}<input name="media" type="file" accept="image/*,video/*" onChange={e=>{const count=e.target.files?.length||0;setFileCount(count);if(count)notify("Média prêt à être téléversé")}}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<input name="title" required placeholder="Ex. Un développeur Flutter disponible"/></label><label>Détails<textarea name="details" required placeholder="Décrivez précisément votre besoin…"/></label><div className="modal-row"><label>Catégorie<select name="category"><option>Produits</option><option>Services</option><option>Situations</option></select></label><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label></div><div className="modal-row"><label>Budget ou échange<input name="reward" placeholder="Ex. 150 000 FCFA"/></label><label className="urgent-check"><input type="checkbox" name="urgent"/> Besoin urgent</label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={busy||(type==="live"&&!consent)}>{busy?"Synchronisation…":type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
 }
 
-function ProfilePanel({ name,phone,onClose,go,onOpenShop,onOpenOrders,onSignOut }: { name:string;phone:string;onClose:()=>void;go:(space:Space)=>void;onOpenShop:()=>void;onOpenOrders:()=>void;onSignOut:()=>void }) {
-  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>COMPTE WHAPPY</small><strong>{name}</strong><p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("business")}><span>▥</span><div><strong>Business Suite</strong><small>Pages professionnelles et publicités</small></div><b>→</b></button><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={onOpenOrders}><span>▤</span><div><strong>Mes commandes</strong><small>Suivi, reçus et points de remise</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>Identité protégée</strong><small>Un numéro unique pour votre compte</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
+function ProfilePanel({ name,phone,founder,onClose,go,onOpenShop,onOpenOrders,onSignOut }: { name:string;phone:string;founder:boolean;onClose:()=>void;go:(space:Space)=>void;onOpenShop:()=>void;onOpenOrders:()=>void;onSignOut:()=>void }) {
+  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>{founder ? "COMPTE OFFICIEL WHAPPY" : "COMPTE WHAPPY"}</small><strong>{name} {founder && <i className="founder-grey-badge" title="Compte certifié">✓</i>}</strong>{founder && <em className="founder-title">Fondateur</em>}<p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("business")}><span>▥</span><div><strong>{founder ? "Dashboard Whappy by BCA" : "Business Suite"}</strong><small>{founder ? "Pilotage de Whappy by BCA et de l’équipe" : "Pages professionnelles et publicités"}</small></div><b>→</b></button><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={onOpenOrders}><span>▤</span><div><strong>Mes commandes</strong><small>Suivi, reçus et points de remise</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>{founder ? "Compte fondateur certifié" : "Identité protégée"}</strong><small>{founder ? "Badge gris officiel · Whappy by BCA" : "Un numéro unique pour votre compte"}</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
 }
