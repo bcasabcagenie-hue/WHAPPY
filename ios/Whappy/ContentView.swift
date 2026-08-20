@@ -59,7 +59,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 22) {
                 BrandHeader(subtitle: "Vos opportunités, maintenant")
                 ZStack(alignment: .bottomLeading) {
-                    LinearGradient(colors: [.whappyBlue, Color(red: 0, green: 0.37, blue: 0.62)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    LinearGradient(colors: [.whappyBlue, .whappyBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Circle().fill(.white.opacity(0.12)).frame(width: 170).offset(x: 220, y: -50)
                     VStack(alignment: .leading, spacing: 9) {
                         Label("WHAPPY PULSE", systemImage: "waveform.path.ecg").font(.caption.bold()).foregroundStyle(.white.opacity(0.85))

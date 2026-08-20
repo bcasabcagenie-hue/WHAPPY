@@ -2,9 +2,9 @@ import Foundation
 import SwiftUI
 
 extension Color {
-    static let whappyBlue = Color(red: 0.0, green: 0.486, blue: 0.969)
-    static let whappyInk = Color(red: 0.027, green: 0.102, blue: 0.204)
-    static let whappyBackground = Color(red: 0.961, green: 0.984, blue: 0.988)
+    static let whappyBlue = Color(red: 0.110, green: 0.110, blue: 0.345)
+    static let whappyInk = Color.black
+    static let whappyBackground = Color.white
 }
 
 let whappyFounderPhone = "+242065465808"

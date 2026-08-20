@@ -12,8 +12,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.FirebaseException
@@ -28,11 +30,13 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private var incomingLink by mutableStateOf<String?>(null)
+    private lateinit var callController: WhappyCallController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
+        callController = WhappyCallController(this)
         val preview = BuildConfig.DEBUG && intent.getBooleanExtra("preview_home", false)
         incomingLink = intent?.dataString
         setContent {
@@ -45,14 +49,17 @@ class MainActivity : ComponentActivity() {
                     incomingLink = null
                 }
             }
+            LaunchedEffect(state.user?.uid) { callController.bindUser(state.user?.uid) }
             val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                 if (granted) {
                     WhappyNotifications.ensureChannel(this)
                     model.registerPushNotifications()
                 }
             }
-            WhappyTheme {
-                WhappyRoot(
+            CompositionLocalProvider(LocalWhappyCalls provides callController) {
+                WhappyTheme {
+                    Box {
+                        WhappyRoot(
                     state = state,
                     preview = preview,
                     phoneAuth = phoneAuth,
@@ -69,6 +76,7 @@ class MainActivity : ComponentActivity() {
                     onOpenChannel = model::openChannel,
                     onCloseChannel = model::closeChannel,
                     onCreateChannel = model::createChannel,
+                    onCreateGroup = model::createGroup,
                     onSubscribeChannel = model::setChannelSubscription,
                     onPublishChannelPost = model::publishChannelPost,
                     onReactChannelPost = model::reactToChannelPost,
@@ -92,7 +100,7 @@ class MainActivity : ComponentActivity() {
                     onUpdateDealStatus = model::updateDealStatus,
                     onMarkPaymentRead = model::markPaymentNoticeRead,
                     onEnableNotifications = {
-                        WhappyNotifications.ensureChannel(this)
+                        WhappyNotifications.ensureChannel(this@MainActivity)
                         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         else model.registerPushNotifications()
                     },
@@ -105,7 +113,10 @@ class MainActivity : ComponentActivity() {
                     onDismissError = model::clearError,
                     onSignOut = model::signOut,
                     onProfileSaved = model::refreshAccountProfile,
-                )
+                        )
+                        WhappyCallOverlay(callController)
+                    }
+                }
             }
         }
     }
@@ -114,6 +125,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         incomingLink = intent.dataString
+    }
+
+    override fun onDestroy() {
+        if (::callController.isInitialized) callController.release()
+        super.onDestroy()
     }
 }
 

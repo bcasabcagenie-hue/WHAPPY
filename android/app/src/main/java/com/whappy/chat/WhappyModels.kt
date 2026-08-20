@@ -29,6 +29,8 @@ data class WhappyConversation(
     val unread: Boolean,
     val peerTyping: Boolean = false,
     val peerReadAt: Long = 0L,
+    val isGroup: Boolean = false,
+    val memberCount: Int = 2,
 )
 
 data class WhappyContact(

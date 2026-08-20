@@ -511,7 +511,7 @@ class WhappyRepository(
         db.collection("conversations").document(conversationId).update("typingBy.$userId", typing).await()
     }
 
-    suspend fun createChannel(userId: String, ownerName: String, name: String, description: String, category: String) {
+    suspend fun createChannel(userId: String, ownerName: String, name: String, description: String, category: String): WhappyChannel {
         val cleanName = name.trim()
         val cleanDescription = description.trim()
         require(cleanName.length in 3..80 && cleanDescription.length in 10..300)
@@ -532,6 +532,52 @@ class WhappyRepository(
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
+        return WhappyChannel(
+            id = reference.id,
+            name = cleanName,
+            description = cleanDescription,
+            category = category.take(40),
+            ownerId = userId,
+            ownerName = ownerName.take(80),
+            memberIds = listOf(userId),
+            memberCount = 1,
+            postCount = 0,
+            lastPost = "Bienvenue sur $cleanName",
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
+    suspend fun createGroup(current: WhappyMember, name: String, selectedMembers: List<WhappyMember>): WhappyConversation {
+        val cleanName = name.trim()
+        val members = (listOf(current) + selectedMembers)
+            .distinctBy { it.uid }
+            .take(64)
+        require(cleanName.length in 2..80 && members.size >= 3)
+        val reference = db.collection("conversations").document()
+        reference.set(
+            mapOf(
+                "ownerId" to current.uid,
+                "conversationType" to "group",
+                "title" to cleanName,
+                "memberIds" to members.map { it.uid },
+                "members" to members.map { member -> mapOf("uid" to member.uid, "displayName" to member.displayName, "phoneNumber" to member.phoneNumber) },
+                "typingBy" to emptyMap<String, Boolean>(),
+                "readBy" to emptyMap<String, Any>(),
+                "lastMessage" to "Groupe créé",
+                "lastSenderId" to current.uid,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+        return WhappyConversation(
+            id = reference.id,
+            peer = WhappyMember(reference.id, cleanName),
+            lastMessage = "Groupe créé",
+            updatedAt = System.currentTimeMillis(),
+            unread = false,
+            isGroup = true,
+            memberCount = members.size,
+        )
     }
 
     suspend fun setChannelSubscription(channelId: String, userId: String, subscribed: Boolean) {
@@ -1018,8 +1064,14 @@ class WhappyRepository(
         val ids = get("memberIds") as? List<String> ?: return null
         if (userId !in ids) return null
         val rawMembers = get("members") as? List<Map<String, Any?>>
+        val isGroup = getString("conversationType") == "group" || ids.size > 2
         val peerMap = rawMembers?.firstOrNull { it["uid"] != userId }
-        val peer = if (peerMap != null) {
+        val peer = if (isGroup) {
+            WhappyMember(
+                uid = id,
+                displayName = getString("title")?.trim()?.ifBlank { "Groupe WHAPPY" } ?: "Groupe WHAPPY",
+            )
+        } else if (peerMap != null) {
             WhappyMember(
                 uid = peerMap["uid"]?.toString().orEmpty(),
                 displayName = peerMap["displayName"]?.toString()?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
@@ -1033,7 +1085,7 @@ class WhappyRepository(
         }
         val readBy = get("readBy") as? Map<String, Any?>
         val readAt = (readBy?.get(userId) as? Timestamp)?.toDate()?.time ?: 0L
-        val peerReadAt = (readBy?.get(peer.uid) as? Timestamp)?.toDate()?.time ?: 0L
+        val peerReadAt = if (isGroup) 0L else (readBy?.get(peer.uid) as? Timestamp)?.toDate()?.time ?: 0L
         val updatedAt = timestampMillis("updatedAt")
         val typingBy = get("typingBy") as? Map<String, Any?>
         return WhappyConversation(
@@ -1042,8 +1094,10 @@ class WhappyRepository(
             lastMessage = getString("lastMessage") ?: "Nouvelle conversation",
             updatedAt = updatedAt,
             unread = updatedAt > readAt && getString("lastSenderId") != userId,
-            peerTyping = typingBy?.get(peer.uid) == true,
+            peerTyping = if (isGroup) typingBy?.any { (uid, value) -> uid != userId && value == true } == true else typingBy?.get(peer.uid) == true,
             peerReadAt = peerReadAt,
+            isGroup = isGroup,
+            memberCount = ids.size,
         )
     }
 

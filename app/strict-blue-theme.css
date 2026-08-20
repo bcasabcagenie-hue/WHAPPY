@@ -1,32 +1,32 @@
-/* Palette finale Whappy : un seul bleu (#007CF7), blanc et neutres. */
+/* Palette finale Whappy : un seul bleu (#1C1C58), extrait du logo officiel, blanc et neutres. */
 :root,
 .whappy-blue {
-  --neon: #007cf7;
-  --neon2: #007cf7;
-  --night: #ffffff;
-  --deep: #ffffff;
-  --panel: #ffffff;
-  --card: #ffffff;
+  --neon: #1C1C58;
+  --neon2: #1C1C58;
+  --night: #FFFFFF;
+  --deep: #FFFFFF;
+  --panel: #FFFFFF;
+  --card: #FFFFFF;
   --text: #111111;
   --muted: #667085;
-  --warm: #007cf7;
-  --ready: #007cf7;
-  --line: rgba(0, 124, 247, .17);
-  --whappy-blue: #007cf7;
-  --whappy-blue-2: #007cf7;
-  --whappy-blue-3: #007cf7;
-  --whappy-coral: #007cf7;
-  --whappy-gold: #007cf7;
-  --whappy-indigo: #007cf7;
-  --whappy-indigo-light: #ffffff;
-  --whappy-indigo-soft: #ffffff;
+  --warm: #1C1C58;
+  --ready: #1C1C58;
+  --line: rgba(28, 28, 88, .17);
+  --whappy-blue: #1C1C58;
+  --whappy-blue-2: #1C1C58;
+  --whappy-blue-3: #1C1C58;
+  --whappy-coral: #1C1C58;
+  --whappy-gold: #1C1C58;
+  --whappy-indigo: #1C1C58;
+  --whappy-indigo-light: #FFFFFF;
+  --whappy-indigo-soft: #FFFFFF;
   --whappy-ink: #111111;
-  --whappy-ink-2: #303030;
+  --whappy-ink-2: #111111;
   --whappy-muted: #667085;
-  --whappy-paper: #ffffff;
-  --whappy-cream: #ffffff;
-  --whappy-line: rgba(0, 124, 247, .16);
-  --whappy-glow: rgba(0, 124, 247, .18);
+  --whappy-paper: #FFFFFF;
+  --whappy-cream: #FFFFFF;
+  --whappy-line: rgba(28, 28, 88, .16);
+  --whappy-glow: rgba(28, 28, 88, .18);
 }
 
 html,
@@ -42,15 +42,15 @@ body,
 .whappy-blue .super-hub,
 .whappy-blue .twin-engine,
 .whappy-blue .calls-preview-space {
-  background-color: #ffffff !important;
+  background-color: #FFFFFF !important;
   color: #111111 !important;
 }
 
-.access-brand { background: #007cf7 !important; }
-.access-promise h1 em { color: #ffffff !important; }
+.access-brand { background: #1C1C58 !important; }
+.access-promise h1 em { color: #FFFFFF !important; }
 .access-panel,
 .access-card,
-.android-download { background: #ffffff !important; }
+.android-download { background: #FFFFFF !important; }
 
 .whappy-blue :is(
   .orbit-hero,.live-command,.barter-hero,.seek-hero,.twin-hero,.market-banner,
@@ -58,7 +58,7 @@ body,
   .rooms-hero,.room-detail,.room-card,.games-hero,.business-hero,
   .contact-summary,.super-hero,.pulse-center,.experience-panel
 ) {
-  background-color: #ffffff !important;
+  background-color: #FFFFFF !important;
   background-image: none !important;
   color: #111111 !important;
 }
@@ -70,10 +70,10 @@ body,
   .room-card,.direct-account-card,.group-room,.contact-book,.contact-tools,
   .business-metrics>article,.service-requests,.quick-publish,.realtime-panel
 ) {
-  border-color: rgba(0,124,247,.17) !important;
-  background-color: #ffffff !important;
+  border-color: rgba(28, 28, 88,.17) !important;
+  background-color: #FFFFFF !important;
   color: #111111 !important;
-  box-shadow: 0 14px 38px rgba(0,124,247,.09) !important;
+  box-shadow: 0 14px 38px rgba(28, 28, 88,.09) !important;
 }
 
 .whappy-blue :is(
@@ -82,9 +82,9 @@ body,
   .artist-avatar,.room-avatar,.world-cup-badge,.world-game-mark,.team-mark,
   .founder-mark,.direct-live-avatar,.realtime-panel>aside>button>span
 ) {
-  background-color: #007cf7 !important;
+  background-color: #1C1C58 !important;
   background-image: none !important;
-  color: #ffffff !important;
+  color: #FFFFFF !important;
 }
 
 .whappy-blue :is(
@@ -93,8 +93,8 @@ body,
   .live-pill,.signal,.sync-badge,.room-verified,.founder-grey-badge,
   .wepi-contact-badge,.conversation-founder-role,.status-badge
 ) {
-  border-color: rgba(0,124,247,.22) !important;
-  color: #007cf7 !important;
+  border-color: rgba(28, 28, 88,.22) !important;
+  color: #1C1C58 !important;
 }
 
 .whappy-blue :is(
@@ -103,7 +103,7 @@ body,
   .conversation-founder-role,.empty-readiness,.one-account,.profile-pulse,
   .direct-trust-note,.message-empty,.realtime-empty>span,.call-summary>span
 ) {
-  background-color: #ffffff !important;
+  background-color: #FFFFFF !important;
   background-image: none !important;
 }
 
@@ -111,67 +111,67 @@ body,
   button,.access-primary,.access-apk,.modal-submit,.group-send,.send-action,
   .sell,.match,.quick-start,.create-tournament
 ):focus-visible {
-  outline: 3px solid rgba(0,124,247,.28) !important;
+  outline: 3px solid rgba(28, 28, 88,.28) !important;
   outline-offset: 2px;
 }
 
 .whappy-blue input,
 .whappy-blue textarea,
 .whappy-blue select {
-  border-color: rgba(0,124,247,.18) !important;
-  background-color: #ffffff !important;
+  border-color: rgba(28, 28, 88,.18) !important;
+  background-color: #FFFFFF !important;
   color: #111111 !important;
-  accent-color: #007cf7;
+  accent-color: #1C1C58;
 }
 
 .whappy-blue :is(.realtime-panel>aside,.inbox-list,.groups-list,.nova-topbar) {
-  border-color: rgba(0,124,247,.14) !important;
-  background-color: #ffffff !important;
+  border-color: rgba(28, 28, 88,.14) !important;
+  background-color: #FFFFFF !important;
 }
 
 .whappy-blue .nova-rail {
-  border-color: #007cf7 !important;
-  background: #007cf7 !important;
-  color: #ffffff !important;
+  border-color: #1C1C58 !important;
+  background: #1C1C58 !important;
+  color: #FFFFFF !important;
 }
-.whappy-blue .nova-rail :is(button,small,strong,span) { color: #ffffff !important; }
+.whappy-blue .nova-rail :is(button,small,strong,span) { color: #FFFFFF !important; }
 .whappy-blue .nova-rail :is(button.active,.rail-tools>button.active) {
-  border: 1px solid #ffffff !important;
-  background: #007cf7 !important;
-  color: #ffffff !important;
+  border: 1px solid #FFFFFF !important;
+  background: #1C1C58 !important;
+  color: #FFFFFF !important;
   box-shadow: none !important;
 }
 
 .whappy-blue :is(.realtime-panel>aside>button.active,.inbox-list>button.active,.groups-list>button.active) {
-  background-color: #ffffff !important;
-  box-shadow: inset 4px 0 0 #007cf7 !important;
+  background-color: #FFFFFF !important;
+  box-shadow: inset 4px 0 0 #1C1C58 !important;
 }
 
 .whappy-blue :is(.realtime-messages article.mine,.deal-messages>div.mine) {
-  background-color: #007cf7 !important;
-  color: #ffffff !important;
+  background-color: #1C1C58 !important;
+  color: #FFFFFF !important;
 }
 
 .whappy-blue :is(.realtime-messages article:not(.mine),.deal-messages>div:not(.mine)) {
-  background-color: #ffffff !important;
+  background-color: #FFFFFF !important;
   color: #111111 !important;
 }
 
 .whappy-blue :is(.error,.access-error,.danger,.urgent,.missed) {
-  border-color: rgba(0,124,247,.22) !important;
-  background-color: #ffffff !important;
-  color: #007cf7 !important;
+  border-color: rgba(28, 28, 88,.22) !important;
+  background-color: #FFFFFF !important;
+  color: #1C1C58 !important;
 }
 
 .whappy-blue :is(.top-actions button,.direct-tabs button,.direct-composer button,.realtime-panel main>header button) {
-  border-color: rgba(0,124,247,.24) !important;
-  background: #ffffff !important;
-  color: #007cf7 !important;
+  border-color: rgba(28, 28, 88,.24) !important;
+  background: #FFFFFF !important;
+  color: #1C1C58 !important;
 }
 .whappy-blue :is(.top-actions button.sell,.direct-composer .send-action,.realtime-panel aside header button) {
-  border-color: #007cf7 !important;
-  background: #007cf7 !important;
-  color: #ffffff !important;
+  border-color: #1C1C58 !important;
+  background: #1C1C58 !important;
+  color: #FFFFFF !important;
 }
 
-::selection { background: #007cf7; color: #ffffff; }
+::selection { background: #1C1C58; color: #FFFFFF; }

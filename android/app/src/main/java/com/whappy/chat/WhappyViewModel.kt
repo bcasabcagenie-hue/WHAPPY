@@ -100,8 +100,36 @@ class WhappyViewModel(
         _uiState.update { it.copy(actionBusy = true, error = null) }
         viewModelScope.launch {
             runCatching { repository.createChannel(user.uid, accountName(), name, description, category) }
-                .onSuccess { _uiState.update { it.copy(actionBusy = false, online = true) } }
+                .onSuccess { channel ->
+                    _uiState.update { it.copy(actionBusy = false, online = true) }
+                    openChannel(channel)
+                }
                 .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La chaîne n’a pas pu être créée") } }
+        }
+    }
+
+    fun createGroup(name: String, memberIds: List<String>) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        val selected = _uiState.value.contacts.map { it.member }.filter { it.uid in memberIds }
+        if (selected.size < 2) {
+            _uiState.update { it.copy(error = "Choisissez au moins deux contacts pour créer le groupe") }
+            return
+        }
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.createGroup(
+                    current = WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    name = name,
+                    selectedMembers = selected,
+                )
+            }.onSuccess { conversation ->
+                _uiState.update { it.copy(actionBusy = false, online = true) }
+                openConversation(conversation)
+            }.onFailure {
+                _uiState.update { it.copy(actionBusy = false, error = "Le groupe n’a pas pu être créé") }
+            }
         }
     }
 
