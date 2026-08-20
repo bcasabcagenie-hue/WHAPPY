@@ -148,7 +148,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
     readFile(new URL("../lib/whappy-wepi.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /src="\/whappy-logo\.svg"/);
+  assert.match(page, /src="\/whappy-app-icon\.png"/);
   assert.match(page, /type Space = .*"business"/);
   assert.match(page, /useState<Space>\("inbox"\)/);
   assert.match(page, /Votre image, votre contrôle/i);

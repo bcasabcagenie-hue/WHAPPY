@@ -670,7 +670,7 @@ export default function Home() {
 
   return <main className="nova-shell whappy-blue">
     <aside className="nova-rail">
-      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={50} height={50} priority /></button>
+      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-app-icon.png" alt="Logo Whappy" width={50} height={50} priority /></button>
       <nav aria-label="Espaces Whappy App">
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
         <Rail active={space === "calls"} icon="☎" label="Appels" onClick={() => go("calls")} />
@@ -693,7 +693,7 @@ export default function Home() {
       <header className="nova-topbar">
         <div className="topbar-identity">
           <button className="mobile-logo" onClick={() => go("inbox")} aria-label="Messages Whappy">
-            <Image src="/whappy-logo.svg" alt="Logo officiel Whappy" width={40} height={40} priority />
+            <Image src="/whappy-app-icon.png" alt="Logo officiel Whappy" width={40} height={40} priority />
           </button>
           <div key={space} className="topbar-copy"><span className="kicker">WHAPPY APP / {space.toUpperCase()}</span><h1>{titles[space][0]} {founderProfile && <i className="founder-grey-badge" title="Compte Whappy App by BCA certifié">✓</i>}</h1><p>{founderProfile ? `${businessName} · Fondateur · Compte officiel certifié` : titles[space][1]}</p></div>
         </div>
