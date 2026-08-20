@@ -988,6 +988,8 @@ struct GamesView: View {
     @State private var selected = "Défi du jour"
     @State private var score = 0
     @State private var streak = 1
+    @State private var answer: String?
+    @State private var round = 1
     private let games = [("Défi du jour", "Quiz rapide · 60 secondes", "bolt.fill"), ("Duel WHAPPY", "Affrontez un ami en direct", "person.2.fill"), ("Mots & idées", "Trouvez la solution ensemble", "sparkles")]
 
     var body: some View {
@@ -996,16 +998,25 @@ struct GamesView: View {
                 VStack(alignment: .leading, spacing: 9) {
                     Label("WHAPPY PLAY", systemImage: "bolt.fill").font(.caption.bold()).foregroundStyle(Color.whappyBlue)
                     Text("Jouez. Progressez.\nRestez connecté.").font(.system(size: 30, weight: .black, design: .rounded)).foregroundStyle(.white)
-                    Text("Des mini-jeux à lancer seul ou avec votre communauté.").foregroundStyle(.white.opacity(.8))
-                    HStack { StatPill(title: "Série", value: "\(streak) jour\(streak > 1 ? \"s\" : \"\")"); StatPill(title: "Score", value: "\(score) XP") }
-                }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [.whappyInk, .whappyBlue.opacity(.75)], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 26))
+                    Text("Des mini-jeux à lancer seul ou avec votre communauté.").foregroundStyle(.white.opacity(0.8))
+                    HStack { StatPill(title: "Série", value: "\(streak) jour\(streak > 1 ? "s" : "")"); StatPill(title: "Score", value: "\(score) XP") }
+                }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [.whappyInk, .whappyBlue.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 26))
                 Text("Choisir un jeu").font(.title3.bold()).foregroundStyle(Color.whappyInk)
                 ForEach(games, id: \.0) { game in
                     Button { selected = game.0 } label: {
-                        HStack(spacing: 13) { Image(systemName: game.2).font(.title2).foregroundStyle(selected == game.0 ? .white : Color.whappyBlue).frame(width: 48, height: 48).background(selected == game.0 ? Color.whappyBlue : Color.whappyBlue.opacity(.1)).clipShape(RoundedRectangle(cornerRadius: 14)); VStack(alignment: .leading) { Text(game.0).font(.headline).foregroundStyle(Color.whappyInk); Text(game.1).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(selected == game.0 ? "PRÊT" : "JOUER ›").font(.caption.bold()).foregroundStyle(Color.whappyBlue) }.padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
+                        HStack(spacing: 13) { Image(systemName: game.2).font(.title2).foregroundStyle(selected == game.0 ? .white : Color.whappyBlue).frame(width: 48, height: 48).background(selected == game.0 ? Color.whappyBlue : Color.whappyBlue.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14)); VStack(alignment: .leading) { Text(game.0).font(.headline).foregroundStyle(Color.whappyInk); Text(game.1).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(selected == game.0 ? "PRÊT" : "JOUER ›").font(.caption.bold()).foregroundStyle(Color.whappyBlue) }.padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
                     }.buttonStyle(.plain)
                 }
-                VStack(alignment: .leading, spacing: 9) { Text(selected.uppercased()).font(.caption.bold()).foregroundStyle(Color.whappyBlue); Text("Votre partie est prête").font(.title3.bold()).foregroundStyle(Color.whappyInk); Text("Lancez une manche locale. Les duels en temps réel seront synchronisés avec vos contacts WHAPPY.").font(.subheadline).foregroundStyle(.secondary); Button { score += 25; streak += 1 } label: { Label("Lancer une manche", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.whappyBlue) }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.white).clipShape(RoundedRectangle(cornerRadius: 20))
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(selected.uppercased()).font(.caption.bold()).foregroundStyle(Color.whappyBlue)
+                    Text("Manche \(round) · question 1/3").font(.caption).foregroundStyle(.secondary)
+                    Text("Quel espace WHAPPY permet de diffuser en direct?").font(.title3.bold()).foregroundStyle(Color.whappyInk)
+                    ForEach(["Le Live", "Le Marché", "Les Services"], id: \.self) { option in
+                        Button { answer = option; if option == "Le Live" { score += 25; streak += 1 } } label: { HStack { Text(option); Spacer(); if answer == option { Image(systemName: "checkmark.circle.fill") } }.foregroundStyle(answer == option ? Color.whappyBlue : Color.whappyInk).padding(.vertical, 9).padding(.horizontal, 11).background(answer == option ? Color.whappyBlue.opacity(0.1) : Color.whappyBackground).clipShape(RoundedRectangle(cornerRadius: 11)) }.buttonStyle(.plain)
+                    }
+                    if let answer { Text(answer == "Le Live" ? "Bonne réponse · +25 XP" : "Pas grave. Rejouez pour progresser.").font(.caption.bold()).foregroundStyle(answer == "Le Live" ? .green : .orange) }
+                    Button { round += 1; answer = nil } label: { Label("Question suivante", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.whappyBlue).disabled(answer == nil)
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.white).clipShape(RoundedRectangle(cornerRadius: 20))
             }.padding()
         }.background(Color.whappyBackground).navigationTitle("Jeux")
     }
@@ -1013,7 +1024,7 @@ struct GamesView: View {
 
 private struct StatPill: View {
     let title: String; let value: String
-    var body: some View { VStack(alignment: .leading, spacing: 2) { Text(title.uppercased()).font(.caption2.bold()).foregroundStyle(.white.opacity(.65)); Text(value).font(.subheadline.bold()).foregroundStyle(.white) }.padding(.horizontal, 11).padding(.vertical, 8).background(.white.opacity(.13)).clipShape(RoundedRectangle(cornerRadius: 10)) }
+    var body: some View { VStack(alignment: .leading, spacing: 2) { Text(title.uppercased()).font(.caption2.bold()).foregroundStyle(.white.opacity(0.65)); Text(value).font(.subheadline.bold()).foregroundStyle(.white) }.padding(.horizontal, 11).padding(.vertical, 8).background(.white.opacity(0.13)).clipShape(RoundedRectangle(cornerRadius: 10)) }
 }
 
 struct ServicesView: View {

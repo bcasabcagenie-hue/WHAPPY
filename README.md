@@ -1,6 +1,6 @@
 # Whappy
 
-Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, chercher, négocier et présenter ses produits en direct. Le projet est prêt à être développé dans Visual Studio Code et utilise la nouvelle identité bleue `#00A2E6` de Whappy.
+Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, chercher, négocier et présenter ses produits en direct. Le projet est prêt à être développé dans Visual Studio Code et utilise l'identité bleue `#007CF7` de Whappy.
 
 ## Expérience disponible
 

@@ -4,7 +4,7 @@
     <style>
       .cls-1 { font-family: HiraKakuStd-W8-83pv-RKSJ-H, 'Hiragino Kaku Gothic Std'; font-size: 455.05px; }
       .cls-1, .cls-2, .cls-3 { fill: #fff; }
-      .cls-4, .cls-5 { fill: #2d2e83; }
+      .cls-4, .cls-5 { fill: #007cf7; }
       .cls-6 { isolation: isolate; }
       .cls-5, .cls-3 { mix-blend-mode: multiply; opacity: .51; }
     </style>

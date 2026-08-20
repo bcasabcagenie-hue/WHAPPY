@@ -195,8 +195,8 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFF2D2E83)
-private val WhappyDark = Color(0xFF1B1C58)
+private val WhappyBlue = Color(0xFF007CF7)
+private val WhappyDark = Color(0xFF053A88)
 private val WhappyInk = Color(0xFF152D37)
 private val WhappyMuted = Color(0xFF717D82)
 private val WhappyBackground = Color(0xFFF5F9FA)
@@ -1209,6 +1209,8 @@ private fun GamesScreen(onBack: () -> Unit) {
     var selected by rememberSaveable { mutableStateOf("Défi du jour") }
     var score by rememberSaveable { mutableStateOf(0) }
     var streak by rememberSaveable { mutableStateOf(1) }
+    var answer by rememberSaveable { mutableStateOf<String?>(null) }
+    var round by rememberSaveable { mutableStateOf(1) }
     val games = listOf(
         Triple("Défi du jour", "Quiz rapide · 60 secondes", "⚡"),
         Triple("Duel WHAPPY", "Affrontez un ami en direct", "♟"),
@@ -1242,9 +1244,13 @@ private fun GamesScreen(onBack: () -> Unit) {
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text(selected, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text("Votre partie est prête", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black)
-                    Text("Lancez une manche locale maintenant. Les duels en temps réel seront synchronisés avec vos contacts WHAPPY.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 17.sp)
-                    Button(onClick = { score += 25; streak += 1 }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("  Lancer une manche", fontWeight = FontWeight.Bold) }
+                    Text("Manche $round · question 1/3", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("Quel espace WHAPPY permet de diffuser en direct ?", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black, lineHeight = 23.sp)
+                    listOf("Le Live", "Le Marché", "Les Services").forEach { option ->
+                        OutlinedButton(onClick = { answer = option; if (option == "Le Live") { score += 25; streak += 1 } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (answer == option) Color(0xFFEAF7FC) else Color.White, contentColor = if (answer == option) WhappyBlue else WhappyDark)) { Text(option, Modifier.weight(1f), textAlign = TextAlign.Start); if (answer == option) Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(17.dp)) }
+                    }
+                    if (answer != null) Text(if (answer == "Le Live") "Bonne réponse · +25 XP" else "Pas grave. Rejouez pour progresser.", color = if (answer == "Le Live") Color(0xFF12824B) else Color(0xFFB56A00), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Button(enabled = answer != null, onClick = { round += 1; answer = null }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("  Question suivante", fontWeight = FontWeight.Bold) }
                 }
             }
         }

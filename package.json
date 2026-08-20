@@ -1,7 +1,7 @@
 {
-  "name": "wepal-app",
+  "name": "whappy",
   "version": "0.1.0",
-  "description": "Application locale de messagerie Wepal App",
+  "description": "Application locale de messagerie Whappy App",
   "private": true,
   "engines": {
     "node": ">=22.13.0"

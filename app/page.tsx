@@ -40,9 +40,9 @@ type Listing = { id: string | number; title: string; price: string; place: strin
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const ANDROID_APP = {
-  url: "/WHAPPY-Android-1.4.2-native.apk",
-  version: "1.4.2",
-  size: "23 Mo",
+  url: "/WHAPPY-Android-1.4.3-native.apk",
+  version: "1.4.3",
+  size: "24 Mo",
   minimum: "Android 8.0+",
 } as const;
 
@@ -68,8 +68,8 @@ const lives = [
 
 const WHAPPY_FOUNDER_PHONE = "242065465808";
 const WHAPPY_FOUNDER_NAME = "Happy";
-const WHAPPY_BUSINESS_NAME = "Wepal by BCA";
-const WHAPPY_FALLBACK_NAME = "Utilisateur WEPAL";
+const WHAPPY_BUSINESS_NAME = "Whappy by BCA";
+const WHAPPY_FALLBACK_NAME = "Utilisateur WHAPPY";
 
 type GiftCarrier = "acheteur" | "offreur";
 type LiveGift = {
@@ -122,12 +122,12 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
 }
 
 const messages = [
-  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#00a2e6", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
-  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#00a2e6", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
-  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#00a2e6", unread: 0, mood: "Collection N'Tela en direct ce soir", badge: "BOUTIQUE PRO", streak: 54 },
-  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#00a2e6", unread: 0, mood: "Créateurs disponibles cette semaine", badge: "GROUPE ACTIF", streak: 19 },
-  { name: "Maison Noki", text: "Canapé disponible pour échange ou vente.", time: "10:26", mark: "MN", color: "#00a2e6", unread: 0, mood: "Maison et décoration à Bacongo", badge: "VENDEUR VÉRIFIÉ", streak: 17 },
-  { name: "Nadia M.", text: "Studio photo disponible cette semaine.", time: "09:14", mark: "NM", color: "#00a2e6", unread: 0, mood: "Service local · Moungali", badge: "PROFESSIONNELLE VÉRIFIÉE", streak: 21 },
+  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#007cf7", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
+  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#007cf7", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
+  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#007cf7", unread: 0, mood: "Collection N'Tela en direct ce soir", badge: "BOUTIQUE PRO", streak: 54 },
+  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#007cf7", unread: 0, mood: "Créateurs disponibles cette semaine", badge: "GROUPE ACTIF", streak: 19 },
+  { name: "Maison Noki", text: "Canapé disponible pour échange ou vente.", time: "10:26", mark: "MN", color: "#007cf7", unread: 0, mood: "Maison et décoration à Bacongo", badge: "VENDEUR VÉRIFIÉ", streak: 17 },
+  { name: "Nadia M.", text: "Studio photo disponible cette semaine.", time: "09:14", mark: "NM", color: "#007cf7", unread: 0, mood: "Service local · Moungali", badge: "PROFESSIONNELLE VÉRIFIÉE", streak: 21 },
 ];
 
 function Mark({ children, color, small = false }: { children: React.ReactNode; color?: string; small?: boolean }) {
@@ -180,7 +180,7 @@ export default function Home() {
   const [demoContactName, setDemoContactName] = useState("");
   const [activeAds, setActiveAds] = useState<AdCampaign[]>([]);
   const [call, setCall] = useState<{ contact:string; video:boolean; peer?:DirectMember; incoming?:CallSignal } | null>(null);
-  const [radioSession, setRadioSession] = useState<RadioSession>({ status: "offline", title: "Wepal FM", elapsed: 0, listeners: 0, micOn: false });
+  const [radioSession, setRadioSession] = useState<RadioSession>({ status: "offline", title: "Whappy FM", elapsed: 0, listeners: 0, micOn: false });
   const [demoReady, setDemoReady] = useState(false);
   const isFounderAccount = isHappyFounderPhone(auth.currentUser?.phoneNumber);
   const demoMode = authenticated && !userId;
@@ -567,14 +567,14 @@ export default function Home() {
 
   const titles: Record<Space, [string, string]> = {
     orbit: ["Accueil", "Publicités, nouveautés et opportunités du moment"],
-    live: ["Wepal Live", "Regardez, échangez et achetez en temps réel"],
-    market: ["Wepal Marketplace", "Tout le monde peut vendre, acheter ou négocier"],
+    live: ["Whappy Live", "Regardez, échangez et achetez en temps réel"],
+    market: ["Whappy Marketplace", "Tout le monde peut vendre, acheter ou négocier"],
     barter: ["Troc intelligent", "Échangez de la valeur, sans limite"],
     seek: ["Je cherche", "Publiez un besoin, la communauté répond"],
     inbox: ["Connexions", "Vos conversations, commandes et offres"],
-    calls: ["Appels", "Historique audio et vidéo de vos contacts Wepal"],
+    calls: ["Appels", "Historique audio et vidéo de vos contacts Whappy"],
     contacts: ["Contacts", "Personnes, groupes et professionnels autour de vous"],
-    rooms: ["Salles Wepal", "Des communautés de foi, de technologie, d’apprentissage et d’entraide"],
+    rooms: ["Salles Whappy", "Des communautés de foi, de technologie, d’apprentissage et d’entraide"],
     radio: ["Radio & Podcasts", "Diffusez votre voix, créez vos podcasts et gardez le lien avec vos auditeurs"],
     services: ["Services", "Payez, achetez, trouvez et gérez votre quotidien"],
     twin: ["Studio Double", "Votre vendeur numérique, créé avec votre accord"],
@@ -588,7 +588,7 @@ export default function Home() {
     rooms: "Rechercher une salle, une communauté ou un thème…",
     radio: "Rechercher un podcast, une émission ou un auditeur…",
     orbit: "Rechercher dans les Moments…",
-    services: "Rechercher un service Wepal…",
+    services: "Rechercher un service Whappy…",
     live: "Rechercher un direct…",
     market: "Rechercher un produit ou une boutique…",
     barter: "Rechercher un échange…",
@@ -602,8 +602,8 @@ export default function Home() {
 
   return <main className="nova-shell whappy-blue">
     <aside className="nova-rail">
-      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Wepal App"><Image src="/wepal-logo.svg" alt="Icône Wepal App" width={50} height={50} priority /></button>
-      <nav aria-label="Espaces Wepal App">
+      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-logo.svg" alt="Logo Whappy" width={50} height={50} priority /></button>
+      <nav aria-label="Espaces Whappy App">
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
         <Rail active={space === "calls"} icon="☎" label="Appels" onClick={() => go("calls")} />
         <Rail active={space === "contacts"} icon="◎" label="Contacts" onClick={() => go("contacts")} />
@@ -624,10 +624,10 @@ export default function Home() {
     <section className="nova-stage">
       <header className="nova-topbar">
         <div className="topbar-identity">
-          <button className="mobile-logo" onClick={() => go("inbox")} aria-label="Messages Wepal App">
-            <Image src="/wepal-logo.svg" alt="Logo officiel Wepal App" width={40} height={40} priority />
+          <button className="mobile-logo" onClick={() => go("inbox")} aria-label="Messages Whappy">
+            <Image src="/whappy-logo.svg" alt="Logo officiel Whappy" width={40} height={40} priority />
           </button>
-          <div key={space} className="topbar-copy"><span className="kicker">WEPAL APP / {space.toUpperCase()}</span><h1>{titles[space][0]} {founderProfile && <i className="founder-grey-badge" title="Compte Wepal App by BCA certifié">✓</i>}</h1><p>{founderProfile ? `${businessName} · Fondateur · Compte officiel certifié` : titles[space][1]}</p></div>
+          <div key={space} className="topbar-copy"><span className="kicker">WHAPPY APP / {space.toUpperCase()}</span><h1>{titles[space][0]} {founderProfile && <i className="founder-grey-badge" title="Compte Whappy App by BCA certifié">✓</i>}</h1><p>{founderProfile ? `${businessName} · Fondateur · Compte officiel certifié` : titles[space][1]}</p></div>
         </div>
         <label className="nova-search"><span>⌕</span><input id="whappy-global-search" aria-label="Rechercher dans l’espace actuel" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholders[space]} />{search && <button onClick={() => setSearch("")} aria-label="Effacer la recherche">×</button>}</label>
       <div className="top-actions">{demoMode&&<button className="demo-exit" onClick={()=>{setAuthenticated(false);setSpace("inbox");}}><span>×</span><small>Quitter la démo</small></button>}<span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Mode démonstration sans envoi de données"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Démo"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "calls" ? <><button onClick={() => go("contacts")}><span>◎</span><small>Contacts</small></button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "radio" ? <><button onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>◫</span><small>Messages</small></button><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
@@ -687,12 +687,12 @@ export default function Home() {
 
 function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,status,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;status:string;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
   const fullNumber=`${countryCode} ${phone || "—"}`;
-  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/wepal-logo.svg" alt="Logo Wepal App" width={70} height={70} priority/><strong>WEPAL APP</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Wepal App utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Wepal App</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Wepal App →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Wepal App et confirmez être propriétaire de ce numéro.</small></div></section></main>;
+  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-app-icon.png" alt="Logo Whappy App" width={70} height={70} priority/><strong>WHAPPY APP</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy App utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy App</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy App →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy App et confirmez être propriétaire de ce numéro.</small></div></section></main>;
 }
 
 function AndroidDownload() {
   const [started, setStarted] = useState(false);
-  return <section className="android-download" aria-labelledby="android-download-title"><Image src="/wepal-app-icon.svg" alt="" width={54} height={54}/><div className="android-download-copy"><small>APPLICATION ANDROID</small><strong id="android-download-title">Wepal App {ANDROID_APP.version}</strong><span>{ANDROID_APP.size} · {ANDROID_APP.minimum}</span></div><a className="access-apk" href={ANDROID_APP.url} download onClick={()=>setStarted(true)}>↓ Télécharger l&apos;application</a>{started&&<p className="download-status" role="status">✓ Téléchargement lancé. Ouvrez ensuite le fichier APK.</p>}<details><summary>Le téléchargement ne démarre pas ?</summary><p>Appuyez sur le lien direct, puis autorisez le téléchargement dans votre navigateur Android.</p><a href={ANDROID_APP.url} target="_blank" rel="noreferrer">Ouvrir le lien direct de l&apos;APK ↗</a></details></section>;
+  return <section className="android-download" aria-labelledby="android-download-title"><Image src="/whappy-app-icon.png" alt="" width={54} height={54}/><div className="android-download-copy"><small>APPLICATION ANDROID</small><strong id="android-download-title">Whappy App {ANDROID_APP.version}</strong><span>{ANDROID_APP.size} · {ANDROID_APP.minimum}</span></div><a className="access-apk" href={ANDROID_APP.url} download onClick={()=>setStarted(true)}>↓ Télécharger l&apos;application</a>{started&&<p className="download-status" role="status">✓ Téléchargement lancé. Ouvrez ensuite le fichier APK.</p>}<details><summary>Le téléchargement ne démarre pas ?</summary><p>Appuyez sur le lien direct, puis autorisez le téléchargement dans votre navigateur Android.</p><a href={ANDROID_APP.url} target="_blank" rel="noreferrer">Ouvrir le lien direct de l&apos;APK ↗</a></details></section>;
 }
 
 function Rail({ active, icon, label, count, live, onClick }: { active: boolean; icon: string; label: string; count?: number; live?: boolean; onClick: () => void }) {

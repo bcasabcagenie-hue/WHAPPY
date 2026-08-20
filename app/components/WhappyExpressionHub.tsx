@@ -49,7 +49,7 @@ const whappies = [
   { face: "🤯", name: "Choc", line: "Attends… QUOI ?!", colors: ["#24b9ff", "#2946a5"] },
   { face: "🦁", name: "Fierté", line: "Le courage parle maintenant", colors: ["#e4a116", "#74440b"] },
   { face: "👑", name: "Royal", line: "La classe ne se discute pas", colors: ["#d6af32", "#331b55"] },
-  { face: "🚀", name: "Fusée", line: "Direction le sommet", colors: ["#00a2e6", "#075173"] },
+  { face: "🚀", name: "Fusée", line: "Direction le sommet", colors: ["#007cf7", "#075173"] },
 ];
 
 const languages = [

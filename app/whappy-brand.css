@@ -1,11 +1,11 @@
-/* Wepal App identity: the interface follows the supplied indigo logo. */
+/* Whappy identity: the interface follows the supplied blue logo. */
 :root {
-  --wepal-indigo: #2d2e83;
-  --wepal-indigo-light: #7476d5;
-  --wepal-indigo-soft: #a8a9f0;
-  --wepal-glow: rgba(45, 46, 131, .38);
-  --neon: var(--wepal-indigo-light);
-  --neon2: var(--wepal-indigo-soft);
+  --whappy-indigo: #007cf7;
+  --whappy-indigo-light: #50a5ff;
+  --whappy-indigo-soft: #b9dcff;
+  --whappy-glow: rgba(0, 124, 247, .38);
+  --neon: var(--whappy-indigo-light);
+  --neon2: var(--whappy-indigo-soft);
   --line: rgba(214, 214, 255, .14);
 }
 
@@ -19,7 +19,7 @@ body { background: #080914; }
 .mobile-logo {
   overflow: hidden;
   border-radius: 16px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 12px 30px var(--wepal-glow);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 12px 30px var(--whappy-glow);
 }
 
 .nova-logo img,
@@ -32,13 +32,13 @@ body { background: #080914; }
 
 .nova-rail nav button.active,
 .rail-tools > button.active {
-  background: linear-gradient(135deg, rgba(116, 118, 213, .28), rgba(45, 46, 131, .12));
-  color: var(--wepal-indigo-light);
+  background: linear-gradient(135deg, rgba(80, 165, 255, .28), rgba(0, 124, 247, .12));
+  color: var(--whappy-indigo-light);
 }
 
 .nova-rail nav button.active:before {
-  background: var(--wepal-indigo-light);
-  box-shadow: 0 0 14px var(--wepal-indigo-light);
+  background: var(--whappy-indigo-light);
+  box-shadow: 0 0 14px var(--whappy-indigo-light);
 }
 
 .nova-rail nav button b,
@@ -49,7 +49,7 @@ body { background: #080914; }
 .whappy-blue .live-label,
 .whappy-blue .big-live > span,
 .sync-badge.synced i {
-  background: var(--wepal-indigo-light);
+  background: var(--whappy-indigo-light);
 }
 
 .kicker,
@@ -61,7 +61,7 @@ body { background: #080914; }
 .topbar-copy .founder-grey-badge,
 .whappy-blue .inbox-title small,
 .whappy-blue .home-ads-head small {
-  color: var(--wepal-indigo-light);
+  color: var(--whappy-indigo-light);
 }
 
 .hero-copy h2 em,
@@ -76,7 +76,7 @@ body { background: #080914; }
 .trust-orbit strong,
 .market-sell-fab,
 .market-hero-note i {
-  color: var(--wepal-indigo-light);
+  color: var(--whappy-indigo-light);
 }
 
 .top-actions .sell,
@@ -92,10 +92,10 @@ body { background: #080914; }
 .growth-submit,
 .story-publish,
 .access-apk {
-  border-color: var(--wepal-indigo);
-  background: var(--wepal-indigo);
+  border-color: var(--whappy-indigo);
+  background: var(--whappy-indigo);
   color: #fff;
-  box-shadow: 0 12px 28px rgba(45, 46, 131, .28);
+  box-shadow: 0 12px 28px rgba(0, 124, 247, .28);
 }
 
 .top-actions .sell:hover,
@@ -109,8 +109,8 @@ body { background: #080914; }
 .growth-submit:hover,
 .story-publish:hover,
 .access-apk:hover {
-  background: #4244a0;
-  border-color: #4244a0;
+  background: #006ee8;
+  border-color: #006ee8;
 }
 
 .whappy-blue .listing-art.blue,
@@ -120,7 +120,7 @@ body { background: #080914; }
 .whappy-blue .barter-art.amber,
 .whappy-blue .market-banner,
 .whappy-blue .need-ribbon {
-  background: linear-gradient(135deg, #18194e, #2d2e83 58%, #5355b8);
+  background: linear-gradient(135deg, #003a80, #007cf7 58%, #006ee8);
 }
 
 .whappy-blue .action-strip > button,
@@ -129,7 +129,7 @@ body { background: #080914; }
 .whappy-blue .live-features > div,
 .whappy-blue .builder-card,
 .whappy-blue .shift-explainer {
-  border-color: rgba(116, 118, 213, .2);
+  border-color: rgba(80, 165, 255, .2);
 }
 
 .whappy-blue .action-strip .op-mark,
@@ -140,9 +140,9 @@ body { background: #080914; }
 .whappy-blue .match-result,
 .whappy-blue .market-toolbar button.active,
 .whappy-blue .seek-tabs button.active {
-  background: rgba(116, 118, 213, .16);
-  color: var(--wepal-indigo-light);
-  border-color: rgba(116, 118, 213, .36);
+  background: rgba(80, 165, 255, .16);
+  color: var(--whappy-indigo-light);
+  border-color: rgba(80, 165, 255, .36);
 }
 
 .whappy-blue .radar .ring,
@@ -150,23 +150,23 @@ body { background: #080914; }
 .whappy-blue .studio-preview,
 .whappy-blue .trust-orbit,
 .whappy-blue .match-result {
-  border-color: rgba(116, 118, 213, .36);
-  box-shadow: 0 0 0 8px rgba(116, 118, 213, .07), 0 0 55px rgba(45, 46, 131, .3);
+  border-color: rgba(80, 165, 255, .36);
+  box-shadow: 0 0 0 8px rgba(80, 165, 255, .07), 0 0 55px rgba(0, 124, 247, .3);
 }
 
 .whappy-blue .nova-search:focus-within,
 .whappy-blue .deal-chat form:focus-within,
 .whappy-blue .deal-chat form input:focus {
-  border-color: rgba(116, 118, 213, .62);
-  box-shadow: 0 0 0 3px rgba(116, 118, 213, .12);
+  border-color: rgba(80, 165, 255, .62);
+  box-shadow: 0 0 0 3px rgba(80, 165, 255, .12);
 }
 
 .phone-access {
-  background: radial-gradient(circle at 16% 20%, rgba(45, 46, 131, .42), transparent 34%), #080914;
+  background: radial-gradient(circle at 16% 20%, rgba(0, 124, 247, .42), transparent 34%), #080914;
 }
 
 .access-brand {
-  background: linear-gradient(150deg, #11134a 0%, #17185a 44%, #2d2e83 100%);
+  background: linear-gradient(150deg, #061936 0%, #003a80 44%, #007cf7 100%);
 }
 
 .access-logo img,
@@ -181,93 +181,93 @@ body { background: #080914; }
 .access-card label,
 .access-card .access-link,
 .android-download-copy small {
-  color: var(--wepal-indigo-light);
+  color: var(--whappy-indigo-light);
 }
 
 .access-flow span.active b,
 .access-flow span.done b,
 .access-primary,
 .access-apk {
-  background: var(--wepal-indigo);
+  background: var(--whappy-indigo);
 }
 
 .access-card {
-  border-color: rgba(116, 118, 213, .26);
-  box-shadow: 0 28px 85px rgba(0, 0, 0, .32), 0 0 0 1px rgba(116, 118, 213, .05);
+  border-color: rgba(80, 165, 255, .26);
+  box-shadow: 0 28px 85px rgba(0, 0, 0, .32), 0 0 0 1px rgba(80, 165, 255, .05);
 }
 
 .access-card input:focus,
 .access-card select:focus,
 .phone-field:focus-within,
 .access-card .otp-field:focus {
-  border-color: var(--wepal-indigo-light);
-  box-shadow: 0 0 0 3px rgba(116, 118, 213, .14);
+  border-color: var(--whappy-indigo-light);
+  box-shadow: 0 0 0 3px rgba(80, 165, 255, .14);
 }
 
 /* Keep the app name visible in the main browser chrome even when a feature label is shown. */
-.topbar-copy .kicker::first-line { color: var(--wepal-indigo-light); }
+.topbar-copy .kicker::first-line { color: var(--whappy-indigo-light); }
 
 @media (max-width: 700px) {
   .nova-logo { border-radius: 14px; }
   .mobile-logo { border-radius: 12px; }
 }
 
-/* Wepal 2026 visual refresh: indigo first, no green accents. */
+/* Whappy 2026 visual refresh: blue first, no green accents. */
 :root {
-  --wepal-ink: #111238;
-  --wepal-ink-2: #191a55;
-  --wepal-blue: #2d2e83;
-  --wepal-blue-2: #494bb5;
-  --wepal-blue-3: #6f72e8;
-  --wepal-cream: #f7f4ee;
-  --wepal-paper: #fffefa;
-  --wepal-line: rgba(45, 46, 131, .14);
-  --wepal-muted: #696b8f;
-  --wepal-gold: #f1b84f;
-  --wepal-coral: #ff6f61;
-  --neon: var(--wepal-blue-2);
-  --neon2: var(--wepal-blue-3);
+  --whappy-ink: #071a34;
+  --whappy-ink-2: #053a88;
+  --whappy-blue: #007cf7;
+  --whappy-blue-2: #005bd8;
+  --whappy-blue-3: #50a5ff;
+  --whappy-cream: #f5faff;
+  --whappy-paper: #ffffff;
+  --whappy-line: rgba(0, 124, 247, .14);
+  --whappy-muted: #5c6f87;
+  --whappy-gold: #9bd0ff;
+  --whappy-coral: #005bd8;
+  --neon: var(--whappy-blue-2);
+  --neon2: var(--whappy-blue-3);
 }
 
 body {
   background:
-    linear-gradient(135deg, rgba(45, 46, 131, .08), transparent 36%),
-    var(--wepal-cream);
+    linear-gradient(135deg, rgba(0, 124, 247, .08), transparent 36%),
+    var(--whappy-cream);
 }
 
 .nova-shell.whappy-blue {
-  --night: var(--wepal-cream);
-  --deep: #ececff;
+  --night: var(--whappy-cream);
+  --deep: #e5f1ff;
   --panel: rgba(255, 254, 250, .88);
-  --card: var(--wepal-paper);
-  --line: var(--wepal-line);
-  --text: var(--wepal-ink);
-  --muted: var(--wepal-muted);
-  --warm: var(--wepal-blue);
+  --card: var(--whappy-paper);
+  --line: var(--whappy-line);
+  --text: var(--whappy-ink);
+  --muted: var(--whappy-muted);
+  --warm: var(--whappy-blue);
   position: relative;
   overflow: hidden;
   background:
-    linear-gradient(90deg, rgba(45, 46, 131, .07) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(45, 46, 131, .05) 1px, transparent 1px),
-    linear-gradient(145deg, #f8f6f1 0%, #f2f3ff 54%, #fffefa 100%);
+    linear-gradient(90deg, rgba(0, 124, 247, .07) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(0, 124, 247, .05) 1px, transparent 1px),
+    linear-gradient(145deg, #f6fbff 0%, #eaf4ff 54%, #ffffff 100%);
   background-size: 34px 34px, 34px 34px, auto;
-  color: var(--wepal-ink);
+  color: var(--whappy-ink);
 }
 
 .whappy-blue .nova-rail {
   background:
-    linear-gradient(180deg, #10113f 0%, #191a55 54%, #0c0d2b 100%);
+    linear-gradient(180deg, #001a44 0%, #053a88 54%, #00112e 100%);
   border-color: rgba(255, 255, 255, .12);
-  box-shadow: 14px 0 38px rgba(45, 46, 131, .18);
+  box-shadow: 14px 0 38px rgba(0, 124, 247, .18);
 }
 
 .nova-logo,
 .mobile-logo {
   border-radius: 15px;
-  background: var(--wepal-blue);
+  background: var(--whappy-blue);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, .2),
-    0 16px 34px rgba(45, 46, 131, .28);
+    0 16px 34px rgba(0, 124, 247, .28);
 }
 
 .nova-logo:after,
@@ -282,7 +282,7 @@ body {
 }
 
 .motion-pointer {
-  background: radial-gradient(circle, rgba(45, 46, 131, .12), transparent 64%);
+  background: radial-gradient(circle, rgba(0, 124, 247, .12), transparent 64%);
   filter: blur(10px);
 }
 
@@ -301,21 +301,21 @@ body {
 
 .whappy-blue .nova-rail nav button.active,
 .whappy-blue .rail-tools > button.active {
-  background: linear-gradient(135deg, rgba(255, 255, 255, .2), rgba(111, 114, 232, .24));
+  background: linear-gradient(135deg, rgba(255, 255, 255, .2), rgba(80, 165, 255, .24));
   color: #fff;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .13);
 }
 
 .whappy-blue .nova-rail nav button.active:before {
-  background: var(--wepal-gold);
+  background: var(--whappy-gold);
   box-shadow: 0 0 18px rgba(241, 184, 79, .55);
 }
 
 .whappy-blue .nova-rail nav button b,
 .whappy-blue .rail-tools .me i,
 .sync-badge.synced i {
-  background: var(--wepal-gold);
-  color: var(--wepal-ink);
+  background: var(--whappy-gold);
+  color: var(--whappy-ink);
 }
 
 .whappy-blue .rail-tools .me {
@@ -327,12 +327,12 @@ body {
 .whappy-blue .nova-topbar {
   min-height: 82px;
   background: rgba(255, 254, 250, .84);
-  border-color: rgba(45, 46, 131, .11);
-  box-shadow: 0 10px 34px rgba(45, 46, 131, .08);
+  border-color: rgba(0, 124, 247, .11);
+  box-shadow: 0 10px 34px rgba(0, 124, 247, .08);
 }
 
 .whappy-blue .nova-topbar:after {
-  background: linear-gradient(90deg, transparent, rgba(45, 46, 131, .26), transparent);
+  background: linear-gradient(90deg, transparent, rgba(0, 124, 247, .26), transparent);
   animation: none;
 }
 
@@ -347,23 +347,23 @@ body {
 .contact-summary > div > span,
 .hub-hero > div > span,
 .calls-preview-body header small {
-  color: var(--wepal-blue);
+  color: var(--whappy-blue);
 }
 
 .whappy-blue .nova-topbar h1,
 .whappy-blue .section-title h3,
 .whappy-blue .contact-summary h2,
 .whappy-blue .hub-hero h2 {
-  color: var(--wepal-ink);
+  color: var(--whappy-ink);
 }
 
 .whappy-blue .nova-search,
 .whappy-blue .top-actions button,
 .sync-badge {
-  border-color: rgba(45, 46, 131, .12);
+  border-color: rgba(0, 124, 247, .12);
   background: rgba(255, 255, 255, .72);
-  color: var(--wepal-ink);
-  box-shadow: 0 8px 24px rgba(45, 46, 131, .06);
+  color: var(--whappy-ink);
+  box-shadow: 0 8px 24px rgba(0, 124, 247, .06);
 }
 
 .whappy-blue .nova-search:focus-within,
@@ -371,8 +371,8 @@ body {
 .whappy-blue input:focus,
 .whappy-blue textarea:focus,
 .whappy-blue select:focus {
-  border-color: rgba(45, 46, 131, .55);
-  box-shadow: 0 0 0 3px rgba(45, 46, 131, .12);
+  border-color: rgba(0, 124, 247, .55);
+  box-shadow: 0 0 0 3px rgba(0, 124, 247, .12);
 }
 
 .top-actions .sell,
@@ -389,10 +389,10 @@ body {
 .story-publish,
 .access-apk,
 .calls-preview-hero > div > button {
-  border-color: var(--wepal-blue);
-  background: linear-gradient(135deg, var(--wepal-blue), var(--wepal-blue-2));
+  border-color: var(--whappy-blue);
+  background: linear-gradient(135deg, var(--whappy-blue), var(--whappy-blue-2));
   color: #fff;
-  box-shadow: 0 16px 34px rgba(45, 46, 131, .24);
+  box-shadow: 0 16px 34px rgba(0, 124, 247, .24);
 }
 
 .top-actions .sell:hover,
@@ -406,18 +406,18 @@ body {
 .growth-submit:hover,
 .story-publish:hover,
 .access-apk:hover {
-  background: linear-gradient(135deg, #25266d, #4446ad);
-  border-color: #25266d;
+  background: linear-gradient(135deg, #005bd8, #4446ad);
+  border-color: #005bd8;
   transform: translateY(-1px);
 }
 
 .whappy-now {
   margin: 12px clamp(14px, 2.7vw, 34px) 0;
-  border: 1px solid rgba(45, 46, 131, .14);
+  border: 1px solid rgba(0, 124, 247, .14);
   background:
     linear-gradient(120deg, rgba(255, 254, 250, .94), rgba(239, 239, 255, .9)),
-    var(--wepal-paper);
-  box-shadow: 0 18px 42px rgba(45, 46, 131, .1);
+    var(--whappy-paper);
+  box-shadow: 0 18px 42px rgba(0, 124, 247, .1);
 }
 
 .whappy-now:before,
@@ -429,13 +429,13 @@ body {
 .now-copy small,
 .now-content > b,
 .now-controls button.active {
-  color: var(--wepal-blue);
+  color: var(--whappy-blue);
 }
 
 .now-label i,
 .now-icon,
 .now-progress i {
-  background: linear-gradient(135deg, var(--wepal-blue), var(--wepal-blue-3));
+  background: linear-gradient(135deg, var(--whappy-blue), var(--whappy-blue-3));
 }
 
 .now-progress i {
@@ -452,7 +452,7 @@ body {
 .contact-summary,
 .hub-hero {
   background:
-    linear-gradient(135deg, rgba(17, 18, 56, .95) 0%, rgba(45, 46, 131, .93) 58%, rgba(73, 75, 181, .88) 100%);
+    linear-gradient(135deg, rgba(7, 26, 52, .95) 0%, rgba(0, 124, 247, .93) 58%, rgba(0, 91, 216, .88) 100%);
   color: #fff;
 }
 
@@ -476,7 +476,7 @@ body {
 .contact-summary h2 em,
 .hub-hero h2 em,
 .calls-preview-hero h2 em {
-  color: var(--wepal-gold);
+  color: var(--whappy-gold);
 }
 
 .whappy-blue .hero-copy p,
@@ -505,9 +505,9 @@ body {
 .calls-preview-body .call-history > article,
 .business-growth-tools,
 .growth-offer-grid article {
-  border-color: rgba(45, 46, 131, .12);
+  border-color: rgba(0, 124, 247, .12);
   background: rgba(255, 254, 250, .88);
-  box-shadow: 0 16px 40px rgba(45, 46, 131, .08);
+  box-shadow: 0 16px 40px rgba(0, 124, 247, .08);
 }
 
 .listing-card:hover,
@@ -520,7 +520,7 @@ body {
 .growth-offer-grid article:hover,
 .world-event-card:hover,
 .game-mode-card:hover {
-  box-shadow: 0 18px 46px rgba(45, 46, 131, .14);
+  box-shadow: 0 18px 46px rgba(0, 124, 247, .14);
   transform: translateY(-3px);
 }
 
@@ -534,14 +534,14 @@ body {
 .wepi-card-mark,
 .wallet-card,
 .wallet-balance {
-  background: linear-gradient(135deg, #17184b, #2d2e83 58%, #6f72e8);
+  background: linear-gradient(135deg, #003a80, #007cf7 58%, #50a5ff);
 }
 
 .whappy-blue .listing-art > b,
 .live-label,
 .big-live > span,
 .preview-live {
-  background: var(--wepal-coral);
+  background: var(--whappy-coral);
   color: #fff;
 }
 
@@ -556,9 +556,9 @@ body {
 
 .whappy-blue .inbox-space {
   margin: 12px 18px 18px;
-  border: 1px solid rgba(45, 46, 131, .13);
+  border: 1px solid rgba(0, 124, 247, .13);
   background: rgba(255, 254, 250, .75);
-  box-shadow: 0 18px 50px rgba(45, 46, 131, .1);
+  box-shadow: 0 18px 50px rgba(0, 124, 247, .1);
 }
 
 .whappy-blue .inbox-list,
@@ -569,9 +569,9 @@ body {
 
 .whappy-blue .deal-chat {
   background:
-    linear-gradient(90deg, rgba(45, 46, 131, .05) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(45, 46, 131, .04) 1px, transparent 1px),
-    #f7f4ee;
+    linear-gradient(90deg, rgba(0, 124, 247, .05) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(0, 124, 247, .04) 1px, transparent 1px),
+    #f5faff;
   background-size: 28px 28px;
 }
 
@@ -581,13 +581,13 @@ body {
 }
 
 .whappy-blue .deal-messages > div {
-  background: #fffefa;
-  color: var(--wepal-ink);
-  border: 1px solid rgba(45, 46, 131, .09);
+  background: #ffffff;
+  color: var(--whappy-ink);
+  border: 1px solid rgba(0, 124, 247, .09);
 }
 
 .whappy-blue .deal-messages > div.mine {
-  background: #e7e8ff;
+  background: #dcecff;
 }
 
 .whappy-blue .inbox-presence button > span,
@@ -600,9 +600,9 @@ body {
 .contact-tools button > span,
 .hub-shortcuts span,
 .service-grid > button > span {
-  background: rgba(45, 46, 131, .1);
-  color: var(--wepal-blue);
-  border-color: rgba(45, 46, 131, .22);
+  background: rgba(0, 124, 247, .1);
+  color: var(--whappy-blue);
+  border-color: rgba(0, 124, 247, .22);
 }
 
 .moments-home,
@@ -610,21 +610,21 @@ body {
 .contact-space,
 .super-hub {
   background:
-    linear-gradient(90deg, rgba(45, 46, 131, .045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(45, 46, 131, .04) 1px, transparent 1px),
-    #f7f4ee;
+    linear-gradient(90deg, rgba(0, 124, 247, .045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(0, 124, 247, .04) 1px, transparent 1px),
+    #f5faff;
   background-size: 34px 34px;
 }
 
 .moments-intro,
 .quick-publish {
-  border-color: rgba(45, 46, 131, .14);
+  border-color: rgba(0, 124, 247, .14);
   background: rgba(255, 254, 250, .88);
-  box-shadow: 0 14px 34px rgba(45, 46, 131, .08);
+  box-shadow: 0 14px 34px rgba(0, 124, 247, .08);
 }
 
 .moment-visual {
-  background: linear-gradient(135deg, #111238, #2d2e83 56%, #6f72e8);
+  background: linear-gradient(135deg, #071a34, #007cf7 56%, #50a5ff);
 }
 
 .moment-visual h3,
@@ -641,22 +641,22 @@ body {
 .hub-shortcuts button,
 .local-services button,
 .service-grid > button {
-  border-color: rgba(45, 46, 131, .12);
+  border-color: rgba(0, 124, 247, .12);
   background: rgba(255, 254, 250, .9);
-  box-shadow: 0 14px 34px rgba(45, 46, 131, .07);
+  box-shadow: 0 14px 34px rgba(0, 124, 247, .07);
 }
 
 .phone-access {
   background:
-    linear-gradient(90deg, rgba(45, 46, 131, .055) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(45, 46, 131, .045) 1px, transparent 1px),
-    #f7f4ee;
+    linear-gradient(90deg, rgba(0, 124, 247, .055) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(0, 124, 247, .045) 1px, transparent 1px),
+    #f5faff;
   background-size: 32px 32px;
 }
 
 .access-brand {
   background:
-    linear-gradient(140deg, #111238 0%, #2d2e83 60%, #6f72e8 100%);
+    linear-gradient(140deg, #071a34 0%, #007cf7 60%, #50a5ff 100%);
   color: #fff;
 }
 
@@ -672,16 +672,16 @@ body {
 
 .access-card,
 .android-download {
-  border-color: rgba(45, 46, 131, .14);
+  border-color: rgba(0, 124, 247, .14);
   background: rgba(255, 254, 250, .94);
-  box-shadow: 0 24px 70px rgba(45, 46, 131, .14);
+  box-shadow: 0 24px 70px rgba(0, 124, 247, .14);
 }
 
 .access-card h2,
 .access-card label,
 .android-download-copy strong,
 .one-account strong {
-  color: var(--wepal-ink);
+  color: var(--whappy-ink);
 }
 
 .access-step,
@@ -690,31 +690,31 @@ body {
 .phone-field > span,
 .download-status,
 .android-download details a {
-  color: var(--wepal-blue);
+  color: var(--whappy-blue);
 }
 
 .access-code-icon,
 .profile-create,
 .one-account,
 .access-demo:hover {
-  background: #ececff;
-  color: var(--wepal-blue);
+  background: #e5f1ff;
+  color: var(--whappy-blue);
 }
 
 .one-account > span {
-  background: var(--wepal-blue);
+  background: var(--whappy-blue);
 }
 
 .access-card input,
 .access-card select,
 .phone-field {
-  border-color: rgba(45, 46, 131, .14);
-  background: #fffefa;
-  color: var(--wepal-ink);
+  border-color: rgba(0, 124, 247, .14);
+  background: #ffffff;
+  color: var(--whappy-ink);
 }
 
 .android-download {
-  background: linear-gradient(135deg, #fffefa, #ececff);
+  background: linear-gradient(135deg, #ffffff, #e5f1ff);
 }
 
 .calls-preview-hero > aside {
@@ -724,7 +724,7 @@ body {
 
 .calls-preview-body .call-history article > button:last-child,
 .contact-rows article > button.contact-message {
-  background: var(--wepal-blue);
+  background: var(--whappy-blue);
   color: #fff;
 }
 
@@ -756,7 +756,7 @@ body {
   }
 
   .phone-access {
-    background: #f7f4ee;
+    background: #f5faff;
   }
 }
 
@@ -775,10 +775,10 @@ body {
   align-items: center;
   margin-left: 6px;
   padding: 3px 5px;
-  border: 1px solid rgba(116, 118, 213, 0.35);
+  border: 1px solid rgba(80, 165, 255, 0.35);
   border-radius: 6px;
-  background: rgba(116, 118, 213, 0.16);
-  color: var(--wepal-indigo-light);
+  background: rgba(80, 165, 255, 0.16);
+  color: var(--whappy-indigo-light);
   font-size: 6px;
   font-style: normal;
   font-weight: 900;
@@ -789,10 +789,10 @@ body {
 .wepi-contact-action {
   flex: 0 0 auto;
   padding: 7px 9px;
-  border: 1px solid rgba(116, 118, 213, 0.42);
+  border: 1px solid rgba(80, 165, 255, 0.42);
   border-radius: 9px;
-  background: rgba(116, 118, 213, 0.14);
-  color: var(--wepal-indigo-light);
+  background: rgba(80, 165, 255, 0.14);
+  color: var(--whappy-indigo-light);
   font-size: 7px;
   font-weight: 900;
   cursor: pointer;
@@ -800,7 +800,7 @@ body {
 
 .wepi-contact-action:hover,
 .wepi-contact-action:focus-visible {
-  background: var(--wepal-indigo);
+  background: var(--whappy-indigo);
   color: #fff;
   outline: none;
 }

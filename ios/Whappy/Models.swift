@@ -2,8 +2,8 @@ import Foundation
 import SwiftUI
 
 extension Color {
-    static let whappyBlue = Color(red: 0.176, green: 0.180, blue: 0.514)
-    static let whappyInk = Color(red: 0.082, green: 0.176, blue: 0.216)
+    static let whappyBlue = Color(red: 0.0, green: 0.486, blue: 0.969)
+    static let whappyInk = Color(red: 0.027, green: 0.102, blue: 0.204)
     static let whappyBackground = Color(red: 0.961, green: 0.984, blue: 0.988)
 }
 

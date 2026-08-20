@@ -930,24 +930,25 @@ class WhappyRepository(
         val conversationId = "direct-${listOf(current.uid, peer.uid).sorted().joinToString("-")}"
         val conversation = db.collection("conversations").document(conversationId)
         val user = db.collection("users").document(current.uid)
-        db.runTransaction { transaction ->
-            if (!transaction.get(conversation).exists()) {
-                transaction.set(
-                    conversation,
-                    mapOf(
-                        "ownerId" to current.uid,
-                        "memberIds" to listOf(current.uid, peer.uid).sorted(),
-                        "members" to listOf(
-                            mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
-                            mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
-                        ),
-                        "typingBy" to emptyMap<String, Boolean>(),
-                        "readBy" to emptyMap<String, Any>(),
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                    ),
-                )
-            }
-            transaction.set(
+        // Do not read the conversation before writing it. A new direct document
+        // cannot be read by either member until it exists, so a transaction's
+        // initial get is rejected by Firestore rules. A merge batch is atomic,
+        // creates the document when absent, and preserves an existing thread's
+        // messages when the contact is added again.
+        val conversationData = mapOf(
+            "ownerId" to current.uid,
+            "memberIds" to listOf(current.uid, peer.uid).sorted(),
+            "members" to listOf(
+                mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
+                mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
+            ),
+            "typingBy" to emptyMap<String, Boolean>(),
+            "readBy" to emptyMap<String, Any>(),
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        db.batch().apply {
+            set(conversation, conversationData, com.google.firebase.firestore.SetOptions.merge())
+            set(
                 user,
                 mapOf(
                     "contacts" to mapOf(
@@ -961,7 +962,7 @@ class WhappyRepository(
                 ),
                 com.google.firebase.firestore.SetOptions.merge(),
             )
-        }.await()
+        }.commit().await()
         return WhappyConversation(conversationId, peer, "Nouvelle conversation", System.currentTimeMillis(), false)
     }
 
@@ -990,21 +991,23 @@ class WhappyRepository(
         require(current.uid != peer.uid)
         val id = "direct-${listOf(current.uid, peer.uid).sorted().joinToString("-")}" 
         val reference = db.collection("conversations").document(id)
-        if (!reference.get().await().exists()) {
-            reference.set(
-                mapOf(
-                    "ownerId" to current.uid,
-                    "memberIds" to listOf(current.uid, peer.uid).sorted(),
-                    "members" to listOf(
-                        mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
-                        mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
-                    ),
-                    "typingBy" to emptyMap<String, Boolean>(),
-                    "readBy" to emptyMap<String, Any>(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
+        // The document may not exist yet. An initial get is denied for a
+        // non-member, while an atomic merge is allowed to create the direct
+        // conversation and is harmless when it already exists.
+        reference.set(
+            mapOf(
+                "ownerId" to current.uid,
+                "memberIds" to listOf(current.uid, peer.uid).sorted(),
+                "members" to listOf(
+                    mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
+                    mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
                 ),
-            ).await()
-        }
+                "typingBy" to emptyMap<String, Boolean>(),
+                "readBy" to emptyMap<String, Any>(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            com.google.firebase.firestore.SetOptions.merge(),
+        ).await()
         return WhappyConversation(id, peer, "Nouvelle conversation", System.currentTimeMillis(), false)
     }
 

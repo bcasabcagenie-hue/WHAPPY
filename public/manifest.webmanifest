@@ -1,16 +1,16 @@
 {
-  "name": "Wepal App",
-  "short_name": "Wepal",
+  "name": "Whappy App",
+  "short_name": "Whappy",
   "description": "Messages, appels, opportunités, ventes et services dans une seule application.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#080914",
-  "theme_color": "#2D2E83",
+  "theme_color": "#007cf7",
   "icons": [
     {
-      "src": "/wepal-app-icon.svg",
+      "src": "/whappy-app-icon.png",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

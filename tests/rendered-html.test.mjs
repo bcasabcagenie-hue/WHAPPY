@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.4\.0-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.4\.3-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -173,7 +173,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);
   assert.match(readme, /prêt à être développé dans Visual Studio Code/i);
-  assert.match(logo, /#00a2e6/i);
+  assert.match(logo, /#007cf7/i);
   assert.match(firebase, /getFirestore/);
   assert.match(firebase, /getAuth/);
   assert.match(rules, /request\.auth\.uid/);
