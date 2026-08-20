@@ -325,6 +325,7 @@ fun WhappyRoot(
     onOpenConversation: (WhappyConversation) -> Unit,
     onCloseConversation: () -> Unit,
     onSendMessage: (String, String, String) -> Unit,
+    onRetryMessages: () -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
     onReactMessage: (String, String) -> Unit,
     onDeleteMessage: (String) -> Unit,
@@ -391,6 +392,7 @@ fun WhappyRoot(
         onOpenConversation = onOpenConversation,
         onCloseConversation = onCloseConversation,
         onSendMessage = onSendMessage,
+        onRetryMessages = onRetryMessages,
         onSendMedia = onSendMedia,
         onReactMessage = onReactMessage,
         onDeleteMessage = onDeleteMessage,
@@ -817,6 +819,7 @@ private fun WhappyMain(
     onOpenConversation: (WhappyConversation) -> Unit,
     onCloseConversation: () -> Unit,
     onSendMessage: (String, String, String) -> Unit,
+    onRetryMessages: () -> Unit,
     onSendMedia: (Uri, String, String, String, Int) -> Unit,
     onReactMessage: (String, String) -> Unit,
     onDeleteMessage: (String) -> Unit,
@@ -957,6 +960,7 @@ private fun WhappyMain(
                         else onEditMessage(message.id, value)
                     },
                     onTyping = { if (!preview) onTyping(it) },
+                    onRetryPending = { if (!preview) onRetryMessages() },
                 )
             } else if (showTwinStudio) {
                 WhappyStudioScreen(
@@ -3278,6 +3282,7 @@ private fun ChatScreen(
     onDelete: (WhappyMessage) -> Unit,
     onEdit: (WhappyMessage, String) -> Unit,
     onTyping: (Boolean) -> Unit,
+    onRetryPending: () -> Unit,
 ) {
     val context = LocalContext.current
     val draftPrefs = remember { WhappyFastStorage.preferences(context, "whappy_chat_drafts") }
@@ -3405,6 +3410,23 @@ private fun ChatScreen(
                 }
             }
         }
+        val pendingCount = messages.count { it.deliveryState != "sent" }
+        if (pendingCount > 0) {
+            Row(
+                Modifier.fillMaxWidth().background(WhappyBlue.copy(alpha = .08f)).padding(horizontal = 14.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Schedule, null, tint = WhappyBlue, modifier = Modifier.size(17.dp))
+                Text(
+                    "$pendingCount message${if (pendingCount > 1) "s" else ""} en attente de connexion",
+                    Modifier.weight(1f).padding(horizontal = 9.dp),
+                    color = WhappyBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                TextButton(onClick = onRetryPending) { Text("Réessayer") }
+            }
+        }
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
         else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleMessages.isEmpty() && searchQuery.isNotBlank()) item { Text("Aucun message ne correspond à « $searchQuery ».", Modifier.padding(24.dp), color = WhappyMuted) }
@@ -3415,7 +3437,7 @@ private fun ChatScreen(
                         Text(formatMessageDay(message.createdAt), Modifier.align(Alignment.CenterHorizontally).padding(vertical = 7.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(horizontal = 10.dp, vertical = 4.dp), color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
-                        Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted) { selectedMessage = message }) {
+                        Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted && message.deliveryState == "sent") { selectedMessage = message }) {
                             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                 if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (mine) Color.White.copy(alpha = .16f) else Color.White).padding(8.dp)) { Text("↩ ${message.replyText}", color = if (mine) Color.White.copy(alpha = .9f) else WhappyMuted, fontSize = 10.sp, maxLines = 2) }
                                 if (message.replyText.isNotBlank()) {
@@ -3449,7 +3471,27 @@ private fun ChatScreen(
                                     }
                                 }
                                 if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { message.reactions.values.groupingBy { it }.eachCount().forEach { (emoji, count) -> Text("$emoji${if (count > 1) " $count" else ""}", modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (mine) Color.White.copy(alpha = .18f) else Color.White).padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp) } }
-                                Row(Modifier.align(Alignment.End).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) { if (message.edited) Text("modifié · ", color = if (mine) Color.White.copy(alpha = .68f) else WhappyMuted, fontSize = 9.sp); Text(formatTime(message.createdAt), color = if (mine) Color.White.copy(alpha = .75f) else WhappyMuted, fontSize = 9.sp); if (mine) { val read = message.createdAt > 0L && conversation.peerReadAt >= message.createdAt; Text(if (read) " · Lu" else " · Envoyé", color = Color.White.copy(alpha = if (read) .95f else .68f), fontSize = 9.sp); Icon(Icons.Rounded.CheckCircle, null, tint = Color.White.copy(alpha = if (read) 1f else .65f), modifier = Modifier.padding(start = 3.dp).size(12.dp)) } }
+                                Row(Modifier.align(Alignment.End).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (message.edited) Text("modifié · ", color = if (mine) Color.White.copy(alpha = .68f) else WhappyMuted, fontSize = 9.sp)
+                                    Text(formatTime(message.createdAt), color = if (mine) Color.White.copy(alpha = .75f) else WhappyMuted, fontSize = 9.sp)
+                                    if (mine) {
+                                        val pending = message.deliveryState != "sent"
+                                        val read = !pending && message.createdAt > 0L && conversation.peerReadAt >= message.createdAt
+                                        val label = when {
+                                            message.deliveryState == "retrying" -> " · Nouvelle tentative…"
+                                            pending -> " · En attente…"
+                                            read -> " · Lu"
+                                            else -> " · Envoyé"
+                                        }
+                                        Text(label, color = Color.White.copy(alpha = if (read) .95f else .72f), fontSize = 9.sp)
+                                        Icon(
+                                            if (pending) Icons.Rounded.Schedule else Icons.Rounded.CheckCircle,
+                                            null,
+                                            tint = Color.White.copy(alpha = if (read) 1f else .7f),
+                                            modifier = Modifier.padding(start = 3.dp).size(12.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

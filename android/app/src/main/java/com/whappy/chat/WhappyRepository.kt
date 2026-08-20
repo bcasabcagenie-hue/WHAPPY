@@ -30,6 +30,22 @@ class WhappyRepository(
 
     fun schedulePendingMessageSync() = WhappyMessageSync.schedule(appContext)
 
+    suspend fun pendingMessages(conversationId: String, userId: String): List<WhappyMessage> =
+        messageOutbox.pending().asSequence()
+            .filter { it.conversationId == conversationId && it.senderId == userId }
+            .map { pending ->
+                WhappyMessage(
+                    id = pending.id,
+                    text = pending.text,
+                    senderId = pending.senderId,
+                    createdAt = pending.createdAt,
+                    replyToId = pending.replyToId,
+                    replyText = pending.replyText,
+                    deliveryState = if (pending.attempts > 1) "retrying" else "queued",
+                )
+            }
+            .toList()
+
     suspend fun syncAccountRecord(user: FirebaseUser, displayName: String = user.displayName.orEmpty()) {
         val phone = user.phoneNumber.orEmpty()
         val normalized = PhoneNumberFormatter.normalize("+242", phone).orEmpty()
@@ -234,6 +250,7 @@ class WhappyRepository(
                     reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
                     deleted = document.getBoolean("deleted") == true,
                     edited = document.getBoolean("edited") == true,
+                    deliveryState = "sent",
                 )
             })
         }

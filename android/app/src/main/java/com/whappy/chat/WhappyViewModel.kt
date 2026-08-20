@@ -36,6 +36,7 @@ class WhappyViewModel(
     private var twinRendersListener: ListenerRegistration? = null
     private var contactSearchRequest = 0
     private var pendingChannelId: String? = null
+    private var remoteConversationMessages: List<WhappyMessage> = emptyList()
     private var typingState = false
     private val authListener = FirebaseAuth.AuthStateListener { refreshSession(it.currentUser) }
 
@@ -48,6 +49,7 @@ class WhappyViewModel(
         _uiState.update { it.copy(tab = tab, selectedConversation = null, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), error = null) }
         messagesListener?.remove()
         messagesListener = null
+        remoteConversationMessages = emptyList()
         channelPostsListener?.remove()
         channelPostsListener = null
     }
@@ -58,11 +60,14 @@ class WhappyViewModel(
         channelPostsListener?.remove()
         channelPostsListener = null
         messagesListener?.remove()
+        remoteConversationMessages = emptyList()
         _uiState.update { it.copy(selectedConversation = conversation, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), loading = true, error = null) }
         messagesListener = repository.observeMessages(
             conversation.id,
             onChange = { messages ->
+                remoteConversationMessages = messages
                 _uiState.update { it.copy(messages = messages, loading = false, online = true) }
+                refreshPendingMessages(conversation.id, user.uid)
                 viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid) } }
             },
             onError = { _uiState.update { it.copy(loading = false, online = false, error = "Messages momentanément indisponibles") } },
@@ -73,6 +78,7 @@ class WhappyViewModel(
         stopTyping()
         messagesListener?.remove()
         messagesListener = null
+        remoteConversationMessages = emptyList()
         _uiState.update { it.copy(selectedConversation = null, messages = emptyList(), error = null) }
     }
 
@@ -189,8 +195,37 @@ class WhappyViewModel(
                     _uiState.update { current ->
                         current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT)
                     }
+                    refreshPendingMessages(conversation.id, user.uid)
                 }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le message n’a pas été envoyé") } }
+        }
+    }
+
+    fun retryPendingMessages() {
+        val state = _uiState.value
+        val conversation = state.selectedConversation ?: return
+        val user = state.user ?: return
+        repository.schedulePendingMessageSync()
+        viewModelScope.launch {
+            val delivered = runCatching { repository.flushPendingMessages() }.getOrDefault(false)
+            _uiState.update { current -> current.copy(online = delivered || current.online) }
+            refreshPendingMessages(conversation.id, user.uid)
+        }
+    }
+
+    private fun refreshPendingMessages(conversationId: String, userId: String) {
+        viewModelScope.launch {
+            val pending = runCatching { repository.pendingMessages(conversationId, userId) }.getOrDefault(emptyList())
+            _uiState.update { current ->
+                if (current.selectedConversation?.id != conversationId) current
+                else {
+                    val remoteIds = remoteConversationMessages.mapTo(hashSetOf()) { it.id }
+                    current.copy(
+                        messages = (remoteConversationMessages + pending.filterNot { it.id in remoteIds })
+                            .sortedBy { it.createdAt },
+                    )
+                }
+            }
         }
     }
 

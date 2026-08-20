@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     onOpenConversation = model::openConversation,
                     onCloseConversation = model::closeConversation,
                     onSendMessage = model::sendMessage,
+                    onRetryMessages = model::retryPendingMessages,
                     onSendMedia = model::sendMedia,
                     onReactMessage = model::reactToMessage,
                     onDeleteMessage = model::deleteMessage,

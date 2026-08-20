@@ -55,6 +55,7 @@ data class WhappyMessage(
     val reactions: Map<String, String> = emptyMap(),
     val deleted: Boolean = false,
     val edited: Boolean = false,
+    val deliveryState: String = "sent",
 )
 
 data class WhappyChannel(
