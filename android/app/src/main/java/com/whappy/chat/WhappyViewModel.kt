@@ -28,6 +28,7 @@ class WhappyViewModel(
     private var businessListener: ListenerRegistration? = null
     private var campaignsListener: ListenerRegistration? = null
     private var livesListener: ListenerRegistration? = null
+    private var statusesListener: ListenerRegistration? = null
     private var dealsListener: ListenerRegistration? = null
     private var paymentNoticesListener: ListenerRegistration? = null
     private var twinProfileListener: ListenerRegistration? = null
@@ -533,6 +534,14 @@ class WhappyViewModel(
         repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
     }
 
+    fun publishStatus(text: String, tone: String) = runBusinessAction("Le statut n’a pas été publié") { user ->
+        repository.publishStatus(user.uid, accountName(), text, tone)
+    }
+
+    fun deleteStatus(statusId: String) = runBusinessAction("Le statut n’a pas été supprimé") { user ->
+        repository.deleteStatus(user.uid, statusId)
+    }
+
     fun updateProfilePhoto(uri: Uri, contentType: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.actionBusy) return
@@ -648,6 +657,7 @@ class WhappyViewModel(
         businessListener?.remove()
         campaignsListener?.remove()
         livesListener?.remove()
+        statusesListener?.remove()
         dealsListener?.remove()
         paymentNoticesListener?.remove()
         twinProfileListener?.remove()
@@ -662,6 +672,7 @@ class WhappyViewModel(
         businessListener = null
         campaignsListener = null
         livesListener = null
+        statusesListener = null
         dealsListener = null
         paymentNoticesListener = null
         twinProfileListener = null
@@ -707,6 +718,10 @@ class WhappyViewModel(
         livesListener = repository.observeLives(
             onChange = { items -> _uiState.update { it.copy(lives = items, online = true) } },
             onError = { _uiState.update { it.copy(online = false) } },
+        )
+        statusesListener = repository.observeStatuses(
+            onChange = { items -> _uiState.update { it.copy(statuses = items, online = true) } },
+            onError = { _uiState.update { it.copy(online = false, error = "Les statuts sont momentanément indisponibles") } },
         )
         dealsListener = repository.observeDeals(
             user.uid,
@@ -771,6 +786,7 @@ class WhappyViewModel(
         businessListener?.remove()
         campaignsListener?.remove()
         livesListener?.remove()
+        statusesListener?.remove()
         dealsListener?.remove()
         paymentNoticesListener?.remove()
         twinProfileListener?.remove()

@@ -94,6 +94,8 @@ class MainActivity : ComponentActivity() {
                     onUpdateBusinessPage = model::updateBusinessPage,
                     onCreateCampaign = model::createCampaign,
                     onCreateLive = model::createLive,
+                    onPublishStatus = model::publishStatus,
+                    onDeleteStatus = model::deleteStatus,
                     onUpdateProfilePhoto = model::updateProfilePhoto,
                     onEndLive = model::endLive,
                     onUpdateLiveStatus = model::updateLiveStatus,

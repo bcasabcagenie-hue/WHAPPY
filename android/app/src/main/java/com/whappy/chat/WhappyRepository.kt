@@ -332,6 +332,31 @@ class WhappyRepository(
             }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt }))
         }
 
+    fun observeStatuses(
+        onChange: (List<WhappyStatus>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("whaptexts")
+        .whereEqualTo("kind", "status")
+        .limit(80)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().mapNotNull { document ->
+                val authorId = document.getString("authorId").orEmpty()
+                val text = document.getString("text").orEmpty()
+                if (authorId.isBlank() || text.isBlank()) null else WhappyStatus(
+                    id = document.id,
+                    authorId = authorId,
+                    authorName = document.getString("authorName") ?: "Utilisateur WHAPPY",
+                    text = text,
+                    tone = document.getString("tone") ?: "community",
+                    createdAt = document.timestampMillis("createdAt"),
+                )
+            }.sortedByDescending { it.createdAt })
+        }
+
     fun observeDeals(
         ownerId: String,
         onChange: (List<WhappyDeal>) -> Unit,
@@ -778,6 +803,31 @@ class WhappyRepository(
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
+    }
+
+    suspend fun publishStatus(userId: String, authorName: String, text: String, tone: String) {
+        require(auth.currentUser?.uid == userId)
+        val value = text.trim()
+        require(value.length in 3..600)
+        require(tone in setOf("hope", "action", "community", "warning"))
+        db.collection("whaptexts").add(
+            mapOf(
+                "authorId" to userId,
+                "authorName" to authorName.trim().take(80),
+                "text" to value,
+                "tone" to tone,
+                "kind" to "status",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
+    suspend fun deleteStatus(userId: String, statusId: String) {
+        val reference = db.collection("whaptexts").document(statusId)
+        val document = reference.get().await()
+        require(document.getString("authorId") == userId)
+        reference.delete().await()
     }
 
     suspend fun endLive(userId: String, liveId: String) {
