@@ -171,7 +171,7 @@ export function SuperHub({ go, orderCount, onOrders, notify, search = "" }: { go
   useEffect(() => {
     if (panel !== "receive") return;
     const payload = `whappy://receive?amount=${encodeURIComponent(receiveAmount || "libre")}&note=${encodeURIComponent(receiveNote || "Paiement Whappy")}`;
-    void QRCode.toDataURL(payload, { width: 280, margin: 1, color: { dark: "#08384d", light: "#ffffff" } }).then(setQrUrl).catch(() => setQrUrl(""));
+    void QRCode.toDataURL(payload, { width: 280, margin: 1, color: { dark: "#1C1C58", light: "#FFFFFF" } }).then(setQrUrl).catch(() => setQrUrl(""));
   }, [panel, receiveAmount, receiveNote]);
 
   function connectWallet(event: FormEvent<HTMLFormElement>) {

@@ -42,14 +42,14 @@ const emojiGroups = [
 
 const symbols = "✓ ✔ ✦ ✧ ★ ☆ ◆ ◇ ● ○ ◉ ◎ ⌁ ≋ ∞ → ← ↑ ↓ ↗ ↘ ⇄ + − × ÷ = ≠ ≤ ≥ @ # % & © ® ™ € $ £ ¥ ₣ ♫ ♪ ☀ ☾ ♡ ♥ ⚡ ☎ ⌘ ⌖".split(" ");
 const whappies = [
-  { face: "😎", name: "Boss", line: "On passe au niveau supérieur !", colors: ["#169dd6", "#06394f"] },
-  { face: "🤩", name: "Star", line: "C’est du lourd ✦", colors: ["#8a40ff", "#ef3cae"] },
-  { face: "😂", name: "Mdr", line: "Je ne peux plus respirer !", colors: ["#ffb21b", "#ff5f28"] },
-  { face: "🫶", name: "Love", line: "Force et amour à toi", colors: ["#ff477d", "#b51455"] },
-  { face: "🤯", name: "Choc", line: "Attends… QUOI ?!", colors: ["#24b9ff", "#2946a5"] },
-  { face: "🦁", name: "Fierté", line: "Le courage parle maintenant", colors: ["#e4a116", "#74440b"] },
-  { face: "👑", name: "Royal", line: "La classe ne se discute pas", colors: ["#d6af32", "#331b55"] },
-  { face: "🚀", name: "Fusée", line: "Direction le sommet", colors: ["#007cf7", "#075173"] },
+  { face: "😎", name: "Boss", line: "On passe au niveau supérieur !", colors: ["#1C1C58", "#111111"] },
+  { face: "🤩", name: "Star", line: "C’est du lourd ✦", colors: ["#1C1C58", "#111111"] },
+  { face: "😂", name: "Mdr", line: "Je ne peux plus respirer !", colors: ["#1C1C58", "#111111"] },
+  { face: "🫶", name: "Love", line: "Force et amour à toi", colors: ["#1C1C58", "#111111"] },
+  { face: "🤯", name: "Choc", line: "Attends… QUOI ?!", colors: ["#1C1C58", "#111111"] },
+  { face: "🦁", name: "Fierté", line: "Le courage parle maintenant", colors: ["#1C1C58", "#111111"] },
+  { face: "👑", name: "Royal", line: "La classe ne se discute pas", colors: ["#1C1C58", "#111111"] },
+  { face: "🚀", name: "Fusée", line: "Direction le sommet", colors: ["#1C1C58", "#111111"] },
 ];
 
 const languages = [
@@ -123,9 +123,9 @@ async function memeFile(file: File, caption: string, effect: MediaEffect, symbol
   const scale = Math.max(1080 / image.width, 1080 / image.height); const width = image.width * scale; const height = image.height * scale;
   context.drawImage(image, (1080 - width) / 2, (1080 - height) / 2, width, height); context.filter = "none";
   const shade = context.createLinearGradient(0, 560, 0, 1080); shade.addColorStop(0, "transparent"); shade.addColorStop(1, "rgba(0,0,0,.88)"); context.fillStyle = shade; context.fillRect(0, 0, 1080, 1080);
-  context.strokeStyle = "#07161c"; context.lineWidth = 18; context.fillStyle = "#fff"; context.textAlign = "center"; context.font = "900 76px Arial";
+  context.strokeStyle = "#111111"; context.lineWidth = 18; context.fillStyle = "#FFFFFF"; context.textAlign = "center"; context.font = "900 76px Arial";
   wrapText(context, caption || "ÇA, C’EST WHAPPY !", 920).forEach((text, index) => { const y = 800 + index * 84; context.strokeText(text.toUpperCase(), 540, y); context.fillText(text.toUpperCase(), 540, y); });
-  context.font = "110px system-ui"; context.textAlign = "right"; context.fillText(symbol, 1010, 145); context.textAlign = "left"; context.font = "900 25px Arial"; context.fillStyle = "#55cdff"; context.fillText("WHAPPY MEME LAB", 44, 62);
+  context.font = "110px system-ui"; context.textAlign = "right"; context.fillText(symbol, 1010, 145); context.textAlign = "left"; context.font = "900 25px Arial"; context.fillStyle = "#FFFFFF"; context.fillText("WHAPPY MEME LAB", 44, 62);
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", .9));
   if (!blob) throw new Error("canvas-export"); return new File([blob], `whappy-meme-${Date.now()}.jpg`, { type: "image/jpeg" });
 }
