@@ -1,6 +1,6 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { enableMultiTabIndexedDbPersistence, getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -18,3 +18,14 @@ export const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseC
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
 export const storage = getStorage(firebaseApp);
+
+// Firestore becomes the durable offline queue for messages and cloud data.
+// The localStorage snapshots complement it for fast first paint and previews.
+if (typeof window !== "undefined") {
+  void enableMultiTabIndexedDbPersistence(db).catch((error: unknown) => {
+    const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+    if (code !== "failed-precondition" && code !== "unimplemented") {
+      console.warn("WHAPPY: la persistance locale Firestore est indisponible", error);
+    }
+  });
+}

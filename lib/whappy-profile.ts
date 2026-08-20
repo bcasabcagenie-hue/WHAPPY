@@ -5,6 +5,8 @@ export type WhappyProfile = {
   uid: string;
   displayName: string;
   phoneNumber: string;
+  accountType?: "personal" | "business";
+  verified?: boolean;
 };
 
 export async function saveWhappyProfile(profile: WhappyProfile) {
@@ -14,6 +16,8 @@ export async function saveWhappyProfile(profile: WhappyProfile) {
     phoneNumber: profile.phoneNumber,
     phoneLookup: profile.phoneNumber,
     phoneDigits,
+    accountType: profile.accountType || "personal",
+    verified: profile.verified ?? true,
     updatedAt: serverTimestamp(),
   }, { merge: true });
 }

@@ -5,16 +5,20 @@ import dynamic from "next/dynamic";
 import { browserLocalPersistence, ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, setPersistence, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
-import { cancelOrder, createGroup, createOrder, findWhappyUserById, publishListing, publishRequest, removeListing, requestGroupJoin, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
+import { cancelOrder, createGroup, createOrder, findWhappyUserById, publishListing, publishRequest, removeListing, requestGroupJoin, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, watchWhappyUsersById, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
+import { callingCountries } from "@/lib/countries";
 
 function messageTime(message: CloudMessage) {
   return message.createdAt?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "À l’instant";
 }
 import { saveWhappyProfile } from "@/lib/whappy-profile";
+import { readWhappyCache, writeWhappyCache } from "@/lib/whappy-local-cache";
 import type { BroadcastConfig } from "@/app/components/BroadcastStudio";
 import type { RadioSession } from "@/app/components/RadioStudio";
 import type { CartLine, CheckoutDraft } from "@/app/components/CommercePanels";
 import { RealTimeInbox } from "@/app/components/RealTimeInbox";
+import { NotificationCenter } from "@/app/components/NotificationCenter";
+import { SocialControlDeck } from "@/app/components/SocialControlDeck";
 import type { CallSignal } from "@/lib/whappy-calls";
 import { watchIncomingCalls } from "@/lib/whappy-calls";
 import { recordAdEvent, watchActiveCampaigns, type AdCampaign } from "@/lib/whappy-business";
@@ -130,12 +134,12 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
 }
 
 const messages = [
-  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#1C1C74", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
-  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#1C1C74", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
-  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#1C1C74", unread: 0, mood: "Collection N'Tela en direct ce soir", badge: "BOUTIQUE PRO", streak: 54 },
-  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#1C1C74", unread: 0, mood: "Créateurs disponibles cette semaine", badge: "GROUPE ACTIF", streak: 19 },
-  { name: "Maison Noki", text: "Canapé disponible pour échange ou vente.", time: "10:26", mark: "MN", color: "#1C1C74", unread: 0, mood: "Maison et décoration à Bacongo", badge: "VENDEUR VÉRIFIÉ", streak: 17 },
-  { name: "Nadia M.", text: "Studio photo disponible cette semaine.", time: "09:14", mark: "NM", color: "#1C1C74", unread: 0, mood: "Service local · Moungali", badge: "PROFESSIONNELLE VÉRIFIÉE", streak: 21 },
+  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#1C1C74", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12, verified: true, accountType: "personal" as const },
+  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#1C1C74", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28, verified: true, accountType: "personal" as const },
+  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#1C1C74", unread: 0, mood: "Collection N'Tela en direct ce soir", badge: "BOUTIQUE PRO", streak: 54, verified: true, accountType: "business" as const },
+  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#1C1C74", unread: 0, mood: "Créateurs disponibles cette semaine", badge: "GROUPE ACTIF", streak: 19, verified: true, accountType: "community" as const },
+  { name: "Maison Noki", text: "Canapé disponible pour échange ou vente.", time: "10:26", mark: "MN", color: "#1C1C74", unread: 0, mood: "Maison et décoration à Bacongo", badge: "VENDEUR VÉRIFIÉ", streak: 17, verified: true, accountType: "business" as const },
+  { name: "Nadia M.", text: "Studio photo disponible cette semaine.", time: "09:14", mark: "NM", color: "#1C1C74", unread: 0, mood: "Service local · Moungali", badge: "PROFESSIONNELLE VÉRIFIÉE", streak: 21, verified: true, accountType: "personal" as const },
 ];
 
 function Mark({ children, color, small = false }: { children: React.ReactNode; color?: string; small?: boolean }) {
@@ -149,7 +153,12 @@ export default function Home() {
   const [phone, setPhone] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [profileName, setProfileName] = useState("");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  // Start with the server-safe access shell; Firebase replaces it silently
+  // as soon as its persisted session is observed on the client.
+  const [authReady, setAuthReady] = useState(true);
+  const [captchaMode, setCaptchaMode] = useState<"invisible" | "visible">("invisible");
   const [authStatus, setAuthStatus] = useState("");
   const [authError, setAuthError] = useState("");
   const confirmationRef = useRef<ConfirmationResult | null>(null);
@@ -158,6 +167,7 @@ export default function Home() {
   const recordedAdsRef = useRef(new Set<string>());
   const handledGroupInviteRef = useRef(false);
   const [space, setSpace] = useState<Space>("inbox");
+  const [accountMode, setAccountMode] = useState<"personal" | "business">("personal");
   const [search, setSearch] = useState("");
   const [marketFilter, setMarketFilter] = useState("Tout");
   const [saved, setSaved] = useState<Record<string, boolean>>({});
@@ -197,7 +207,7 @@ export default function Home() {
   const userDisplayName = authDisplayName || WHAPPY_FALLBACK_NAME;
   const accountName = founderProfile ? WHAPPY_FOUNDER_NAME : userDisplayName;
   const businessName = founderProfile ? WHAPPY_BUSINESS_NAME : accountName;
-  const directUser = useMemo<DirectMember | null>(() => userId ? { uid: userId, displayName: userDisplayName, phoneNumber: auth.currentUser?.phoneNumber || "" } : null, [userId, profileName, isFounderAccount, auth.currentUser?.phoneNumber, userDisplayName]);
+  const directUser = useMemo<DirectMember | null>(() => userId ? { uid: userId, displayName: userDisplayName, phoneNumber: auth.currentUser?.phoneNumber || "", photoUrl: profilePhotoUrl || undefined, verified: true, accountType: accountMode, businessName: businessName } : null, [userId, profilePhotoUrl, userDisplayName, accountMode, businessName]);
 
   useEffect(() => {
     let active = true;
@@ -247,10 +257,21 @@ export default function Home() {
     // Subscribe first: Firebase can restore an existing browser session while
     // persistence is being configured, avoiding a needless logout screen.
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-        const hasPhone = Boolean(user?.phoneNumber);
-        const hasProfile = Boolean(user?.displayName?.trim());
+        setAuthReady(true);
+        if (!user) {
+          setProfileName("");
+          setProfilePhotoUrl("");
+          setUserId("");
+          setSyncStatus("local");
+          setAuthenticated(false);
+          setAuthStep("phone");
+          return;
+        }
+        const hasPhone = Boolean(user.phoneNumber);
+        const hasProfile = Boolean(user.displayName?.trim());
         const accountReady = hasPhone && hasProfile;
         setProfileName(user?.displayName?.trim() || "");
+        setProfilePhotoUrl(user?.photoURL || "");
         if (user?.phoneNumber) {
           try { localStorage.setItem("whappy-last-phone-e164", user.phoneNumber); } catch { /* optional convenience only */ }
         }
@@ -274,6 +295,7 @@ export default function Home() {
           if (disposed || !profile?.displayName?.trim()) return;
           const restoredName = profile.displayName.trim();
           setProfileName(restoredName);
+          setProfilePhotoUrl(profile.photoUrl || user.photoURL || "");
           void updateProfile(user, { displayName: restoredName }).catch(() => {});
           setAuthenticated(true);
         }).catch(() => {});
@@ -287,6 +309,16 @@ export default function Home() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    return watchWhappyUsersById([userId], (profiles) => {
+      const liveProfile = profiles[userId];
+      if (!liveProfile) return;
+      if (liveProfile.displayName?.trim()) setProfileName(liveProfile.displayName.trim());
+      setProfilePhotoUrl(liveProfile.photoUrl || auth.currentUser?.photoURL || "");
+    }, () => {});
+  }, [userId]);
 
   useEffect(() => () => {
     recaptchaRef.current?.clear();
@@ -302,23 +334,79 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const updateConnectivity = () => {
+      if (!navigator.onLine) setSyncStatus("offline");
+      else if (userId) setSyncStatus("syncing");
+    };
+    window.addEventListener("online", updateConnectivity);
+    window.addEventListener("offline", updateConnectivity);
+    return () => {
+      window.removeEventListener("online", updateConnectivity);
+      window.removeEventListener("offline", updateConnectivity);
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    const cachedListings = readWhappyCache<Listing[]>("listings", userId);
+    const cachedRequests = readWhappyCache<RequestItem[]>("requests", userId);
+    const cachedOrders = readWhappyCache<CloudOrder[]>("orders", userId);
+    const cachedGroups = readWhappyCache<CloudGroup[]>("groups", userId);
+    queueMicrotask(() => {
+      if (!active) return;
+      if (cachedListings) setCustomListings(cachedListings);
+      if (cachedRequests) setCustomRequests(cachedRequests);
+      if (cachedOrders) setOrders(cachedOrders);
+      if (cachedGroups) setGroups(cachedGroups);
+      if (!navigator.onLine) setSyncStatus("offline");
+    });
+    return () => { active = false; };
+  }, [userId]);
+
+  useEffect(() => {
     if (!userId) return;
     return watchWhappyData(
-      (items) => { setCustomListings(items.map((item) => ({ ...item, tone: "blue" }))); setSyncStatus("synced"); },
-      (items) => { setCustomRequests(items); setSyncStatus("synced"); },
+      (items) => {
+        const next = items.map((item) => ({ ...item, tone: "blue" as const }));
+        setCustomListings(next);
+        writeWhappyCache("listings", userId, next);
+        setSyncStatus("synced");
+      },
+      (items) => { setCustomRequests(items); writeWhappyCache("requests", userId, items); setSyncStatus("synced"); },
       () => setSyncStatus("offline"),
     );
   }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
-    return watchUserOrders(userId, setOrders, () => setSyncStatus("offline"));
+    return watchUserOrders(userId, (items) => { setOrders(items); writeWhappyCache("orders", userId, items); setSyncStatus("synced"); }, () => setSyncStatus("offline"));
   }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
-    return watchUserGroups(userId, setGroups, () => setSyncStatus("offline"));
+    return watchUserGroups(userId, (items) => { setGroups(items); writeWhappyCache("groups", userId, items); setSyncStatus("synced"); }, () => setSyncStatus("offline"));
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    writeWhappyCache("listings", userId, customListings);
+  }, [customListings, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    writeWhappyCache("requests", userId, customRequests);
+  }, [customRequests, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    writeWhappyCache("orders", userId, orders);
+  }, [orders, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    writeWhappyCache("groups", userId, groups);
+  }, [groups, userId]);
 
   useEffect(() => {
     if (!userId || handledGroupInviteRef.current) return;
@@ -350,6 +438,8 @@ export default function Home() {
 
   function go(next: Space) {
     setSpace(next);
+    if (next === "business") setAccountMode("business");
+    else if (next !== "inbox" || accountMode === "business") setAccountMode("personal");
     setSearch("");
   }
 
@@ -457,9 +547,9 @@ export default function Home() {
     }
   }
 
-  async function createTrackedGroup(name: string, description: string, members: string[]) {
+  async function createTrackedGroup(name: string, description: string, members: string[], kind: "community" | "business" = "community", photo?: File | null) {
     try {
-      const created = userId ? await createGroup(userId, name, description, members) : { id: `local-group-${Date.now()}`, name, description, mark: name.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase(), ownerId: "local", memberIds: ["local"], memberNames: members.map((member) => member.trim()).filter(Boolean), createdAt: { toDate: () => new Date() } };
+      const created = userId ? await createGroup(userId, name, description, members, kind, photo) : { id: `local-group-${Date.now()}`, name, description, kind, photoUrl: photo ? URL.createObjectURL(photo) : undefined, mark: name.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase(), ownerId: "local", memberIds: ["local"], memberNames: members.map((member) => member.trim()).filter(Boolean), createdAt: { toDate: () => new Date() } };
       setGroups((current) => current.some((group) => group.id === created.id) ? current : [created, ...current]);
       notify(userId ? `Le groupe « ${name} » est synchronisé` : `Le groupe « ${name} » est prêt dans la démonstration`);
       return true;
@@ -554,9 +644,9 @@ export default function Home() {
       if (recaptchaContainer) recaptchaContainer.replaceChildren();
       auth.languageCode = "fr";
       const verifier = new RecaptchaVerifier(auth, "whappy-recaptcha", {
-        // A visible challenge is more reliable in in-app browsers where
-        // third-party cookies can make invisible reCAPTCHA fail.
-        size: "normal",
+        // Keep the normal flow interruption-free. Firebase can still promote
+        // this to a visible challenge when its risk engine needs more proof.
+        size: captchaMode,
         theme: "light",
         tabindex: 0,
         callback: () => setAuthStatus("Vérification réussie. Envoi du SMS…"),
@@ -579,7 +669,7 @@ export default function Home() {
           : code.includes("too-many-requests") || code.includes("quota-exceeded") ? "Trop de tentatives ou quota SMS atteint. Patientez quelques minutes."
             : code.includes("invalid-phone-number") ? "Ce numéro n'est pas reconnu. Vérifiez le pays et les chiffres saisis."
               : code.includes("unauthorized-domain") || code.includes("app-not-authorized") ? "Ce domaine n'est pas autorisé dans Firebase Authentication."
-                : code.includes("captcha-check-failed") || code.includes("invalid-app-credential") ? "Cochez la vérification anti-robot puis réessayez."
+                  : code.includes("captcha-check-failed") || code.includes("invalid-app-credential") ? (setCaptchaMode("visible"), "La vérification automatique n’a pas abouti. Un contrôle renforcé sera affiché au prochain essai.")
                   : code.includes("network-request-failed") ? "Connexion internet interrompue. Vérifiez votre réseau puis réessayez."
                     : code.includes("verification-timeout") ? "La vérification a pris trop de temps. Relancez l’envoi du SMS."
                     : `Le SMS n'a pas pu être envoyé${code ? ` (${code.replace("auth/", "")})` : ""}. Réessayez.`,
@@ -674,6 +764,7 @@ export default function Home() {
     games: "Rechercher un joueur, un tournoi ou une leçon…",
   };
 
+  if (!authReady) return <ReconnectScreen />;
   if (!authenticated) return <PhoneAccess step={authStep} countryCode={countryCode} setCountryCode={setCountryCode} phone={phone} setPhone={setPhone} code={verificationCode} setCode={setVerificationCode} profileName={profileName} setProfileName={setProfileName} busy={authBusy} status={authStatus} error={authError} requestSms={requestSms} verifySms={verifySms} finishProfile={finishProfile} back={()=>{setAuthError("");setAuthStatus("");setAuthStep("phone")}} preview={()=>setAuthenticated(true)} />;
 
   return <main className="nova-shell whappy-blue">
@@ -693,7 +784,7 @@ export default function Home() {
       <div className="rail-tools">
         <button className="pulse-rail" onClick={() => setPulseOpen(true)}><span>✦</span><small>Pulse</small><b>{messages.reduce((sum,item)=>sum+item.unread,0)}</b></button>
         <button className={space === "twin" ? "active" : ""} onClick={() => go("twin")}><span>◎</span><small>Mon Double</small></button>
-        <button className="me" onClick={() => setProfileOpen(true)} aria-label="Ouvrir mon profil">CB<i /></button>
+        <button className={`me ${profilePhotoUrl ? "has-photo" : ""}`} onClick={() => setProfileOpen(true)} aria-label="Ouvrir mon profil"><span style={profilePhotoUrl ? { backgroundImage: `url(${profilePhotoUrl})` } : undefined}>{profilePhotoUrl ? "" : accountName.split(/\s+/).map((part)=>part[0]).join("").slice(0,2).toUpperCase()}</span><i /></button>
       </div>
     </aside>
 
@@ -706,8 +797,10 @@ export default function Home() {
           <div key={space} className="topbar-copy"><span className="kicker">WHAPPY APP / {space.toUpperCase()}</span><h1>{titles[space][0]} {founderProfile && <i className="founder-grey-badge" title="Compte Whappy App by BCA certifié">✓</i>}</h1><p>{founderProfile ? `${businessName} · Fondateur · Compte officiel certifié` : titles[space][1]}</p></div>
         </div>
         <label className="nova-search"><span>⌕</span><input id="whappy-global-search" aria-label="Rechercher dans l’espace actuel" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholders[space]} />{search && <button onClick={() => setSearch("")} aria-label="Effacer la recherche">×</button>}</label>
-      <div className="top-actions">{demoMode&&<button className="demo-exit" onClick={()=>{setAuthenticated(false);setSpace("inbox");}}><span>×</span><small>Quitter la démo</small></button>}<span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Mode démonstration sans envoi de données"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Démo"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "calls" ? <><button onClick={() => go("contacts")}><span>◎</span><small>Contacts</small></button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "radio" ? <><button onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>◫</span><small>Messages</small></button><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
+      <div className="top-actions">{demoMode&&<button className="demo-exit" onClick={()=>{setAuthenticated(false);setSpace("inbox");}}><span>×</span><small>Quitter la démo</small></button>}<span className={`account-mode ${accountMode}`}><i/>{accountMode === "business" ? "Compte Business" : "Compte personnel"}</span><NotificationCenter unread={messages.reduce((sum,item)=>sum+item.unread,0)} onNotify={notify}/><span className={`sync-badge ${syncStatus}`} title={syncStatus==="synced"?"Données synchronisées":syncStatus==="syncing"?"Synchronisation en cours":syncStatus==="offline"?"Synchronisation indisponible":"Mode démonstration sans envoi de données"}><i/>{syncStatus==="synced"?"Cloud":syncStatus==="syncing"?"Sync…":syncStatus==="offline"?"Hors ligne":"Démo"}</span>{space === "inbox" ? <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "calls" ? <><button onClick={() => go("contacts")}><span>◎</span><small>Contacts</small></button><button className="sell" onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>＋</span><small>Nouveau</small></button></> : space === "radio" ? <><button onClick={() => { setDirectPeer(null); setDirectPhone(""); go("inbox"); setDirectCompose((value)=>value+1); }}><span>◫</span><small>Messages</small></button><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></> : <><button onClick={() => setOrdersOpen(true)}><span>▤</span><small>Commandes</small>{orders.length>0&&<b className="action-count">{orders.length}</b>}</button><button className="cart-action" onClick={()=>setCartOpen(true)}><span>◇</span><small>Panier</small>{cart.length>0&&<b>{cart.reduce((sum,line)=>sum+line.quantity,0)}</b>}</button><button className="sell" onClick={() => setModal("sell")}><span>＋</span><small>Vendre</small></button></>}</div>
       </header>
+
+      <AccountSwitcher mode={accountMode} onToggle={() => go(accountMode === "business" ? "inbox" : "business")} />
 
       <WhappyNow
         unread={messages.reduce((sum,item)=>sum+item.unread,0)}
@@ -716,6 +809,12 @@ export default function Home() {
         cloud={Boolean(userId)}
         onNavigate={go}
       />
+
+      {(space === "orbit" || space === "inbox" || space === "business" || space === "twin") && <SocialControlDeck current={space} onNavigate={go} onCreate={() => {
+        if (space === "business") go("business");
+        else if (space === "twin") go("twin");
+        else setModal(space === "inbox" ? "message" : space === "orbit" ? "live" : "live");
+      }} />}
 
       {space === "orbit" && <Orbit go={go} setModal={setModal} setLiveIndex={setLiveIndex} notify={notify} saved={saved} setSaved={setSaved} ad={activeAds[0]} onAdClick={(campaign)=>{void recordAdEvent(campaign,userId,"click").catch(()=>{});notify(`Page ${campaign.pageName} ouverte`);}} userName={accountName} founder={founderProfile} footer={<><StoryStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/><WhapTextStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/></>} />}
       {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
@@ -747,7 +846,7 @@ export default function Home() {
     {liveIndex !== null && <LiveViewerPro live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Whappy",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
     {modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
-    {profileOpen && <ProfilePanel name={accountName} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} founder={founderProfile} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
+    {profileOpen && <ProfilePanel name={accountName} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} photoUrl={profilePhotoUrl} founder={founderProfile} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
     {shopOpen && <SellerDashboard items={shopListings} cloud={Boolean(userId)} onClose={() => setShopOpen(false)} onCreate={() => { setShopOpen(false); setModal("sell"); }} onUpdate={manageListing} onDelete={deleteShopListing} notify={notify} />}
     {selectedProduct&&<ProductPanel item={selectedProduct} saved={!!saved[String(selectedProduct.id)]} onSave={()=>setSaved(current=>({...current,[selectedProduct.id]:!current[String(selectedProduct.id)]}))} onClose={()=>setSelectedProduct(null)} onContact={(item)=>void contactListing(item)} onAdd={(quantity)=>addToCart(selectedProduct,quantity)}/>}
     {cartOpen&&<CartPanel lines={cart} onClose={()=>setCartOpen(false)} onQuantity={(id,quantity)=>setCart(current=>current.map(line=>line.item.id===id?{...line,quantity}:line))} onRemove={(id)=>setCart(current=>current.filter(line=>line.item.id!==id))} onCheckout={checkout} notify={notify}/>}
@@ -761,9 +860,21 @@ export default function Home() {
   </main>;
 }
 
+function ReconnectScreen() {
+  return <main className="whappy-reconnect" aria-live="polite">
+    <div className="whappy-reconnect-card">
+      <span className="whappy-reconnect-mark">W</span>
+      <strong>Reconnexion sécurisée</strong>
+      <p>Whappy restaure votre session et prépare vos données locales avant de contacter le cloud.</p>
+      <i aria-hidden="true" />
+      <small>Vos messages restent protégés pendant la reprise.</small>
+    </div>
+  </main>;
+}
+
 function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,status,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;status:string;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
   const fullNumber=`${countryCode} ${phone || "—"}`;
-  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-app-icon.png" alt="Logo Whappy App" width={70} height={70} priority/><strong>WHAPPY APP</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy App utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-box"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":phone.trim()?"Continuer avec ce numéro →":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy App</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy App →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy App et confirmez être propriétaire de ce numéro.</small></div></section></main>;
+  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-app-icon.png" alt="Logo Whappy App" width={70} height={70} priority/><strong>WHAPPY APP</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy App utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)} aria-label="Pays et indicatif téléphonique">{callingCountries.map((country)=><option key={country.iso} value={country.dialCode}>{`${country.name} (${country.dialCode})`}</option>)}</select><small className="country-count">{callingCountries.length} pays disponibles</small></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-box"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":phone.trim()?"Continuer avec ce numéro →":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy App</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Votre photo Firestore apparaîtra automatiquement sur tous vos appareils.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy App →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy App et confirmez être propriétaire de ce numéro.</small></div></section></main>;
 }
 
 function AndroidDownload() {
@@ -1739,6 +1850,17 @@ function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep
   return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={data[0]}><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">{type==="sell"?"◇":type==="seek"?"⌖":type==="live"?"●":"⇄"}</span><small>WHAPPY ACTION</small><h2>{data[0]}</h2><p>{data[1]}</p>{type==="sell"&&<><label>Titre de l&apos;annonce<input name="title" required placeholder="Ex. Appareil photo hybride"/></label><div className="modal-row"><label>Mode<select name="mode" defaultValue="sell"><option value="sell">Vendre</option><option value="barter">Troquer</option><option value="both">Vendre ou troquer</option></select></label><label>Prix<input name="price" required placeholder="FCFA ou échange souhaité"/></label></div><div className="modal-row"><label>Catégorie<select name="category"><option>Tech</option><option>Mode</option><option>Maison</option><option>Services</option></select></label><label>Lieu<input name="place" required placeholder="Ex. Poto-Poto"/></label></div><label className={`upload-zone ${fileCount?"selected":""}`}>{fileCount?"✓ Média prêt à être téléversé":"＋ Ajouter une photo ou vidéo"}<input name="media" type="file" accept="image/*,video/*" onChange={e=>{const count=e.target.files?.length||0;setFileCount(count);if(count)notify("Média prêt à être téléversé")}}/></label></>}{type==="seek"&&<><label>Que recherchez-vous ?<input name="title" required placeholder="Ex. Un développeur Flutter disponible"/></label><label>Détails<textarea name="details" required placeholder="Décrivez précisément votre besoin…"/></label><div className="modal-row"><label>Catégorie<select name="category"><option>Produits</option><option>Services</option><option>Situations</option></select></label><label>Zone<input name="area" required placeholder="Quartier, ville ou à distance"/></label></div><div className="modal-row"><label>Budget ou échange<input name="reward" placeholder="Ex. 150 000 FCFA"/></label><label className="urgent-check"><input type="checkbox" name="urgent"/> Besoin urgent</label></div></>}{type==="live"&&<><label>Titre du direct<input name="title" required placeholder="Ex. Découverte de ma nouvelle collection"/></label><label>Produit à présenter<input name="product" placeholder="Sélectionner dans ma boutique"/></label><input type="hidden" name="liveMode" value={liveMode}/><div className="live-mode"><button type="button" className={liveMode==="human"?"active":""} onClick={()=>setLiveMode("human")}>▣ Caméra réelle</button><button type="button" className={liveMode==="twin"?"active":""} onClick={()=>setLiveMode("twin")}>◎ Mon Double IA</button></div><label className="mini-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> J&apos;utilise ma propre image ou un Double dont je contrôle les droits.</label></>}{type==="message"&&<><label>Votre proposition<input name="offer" required placeholder="Votre prix ou ce que vous proposez en échange"/></label><label>Message<textarea name="message" placeholder="Ajoutez les détails de votre offre…"/></label></>}<button className="modal-submit" type="submit" onClick={()=>{if(type==="live"&&!consent)notify("Confirmez les droits sur la vidéo avant de continuer")}} disabled={busy||(type==="live"&&!consent)}>{busy?"Synchronisation…":type==="live"?"Entrer dans le studio":type==="seek"?"Activer ma recherche":type==="message"?"Envoyer l'offre":"Publier l'annonce"} ↗</button>{type==="live"&&<button type="button" className="twin-link" onClick={()=>{onClose();go("twin");setTwinStep(1)}}>Créer d&apos;abord mon Double consentant</button>}</form></div>;
 }
 
-function ProfilePanel({ name,phone,founder,onClose,go,onOpenShop,onOpenOrders,onSignOut }: { name:string;phone:string;founder:boolean;onClose:()=>void;go:(space:Space)=>void;onOpenShop:()=>void;onOpenOrders:()=>void;onSignOut:()=>void }) {
-  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><span>{name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()}</span><div><small>{founder ? "COMPTE OFFICIEL WHAPPY" : "COMPTE WHAPPY"}</small><strong>{name} {founder && <i className="founder-grey-badge" title="Compte certifié">✓</i>}</strong>{founder && <em className="founder-title">Fondateur</em>}<p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("business")}><span>▥</span><div><strong>{founder ? "Dashboard Whappy by BCA" : "Business Suite"}</strong><small>{founder ? "Pilotage de Whappy by BCA et de l’équipe" : "Pages professionnelles et publicités"}</small></div><b>→</b></button><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={onOpenOrders}><span>▤</span><div><strong>Mes commandes</strong><small>Suivi, reçus et points de remise</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>{founder ? "Compte fondateur certifié" : "Identité protégée"}</strong><small>{founder ? "Badge gris officiel · Whappy by BCA" : "Un numéro unique pour votre compte"}</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside></div>;
+function AccountSwitcher({ mode, onToggle }: { mode: "personal" | "business"; onToggle: () => void }) {
+  const business = mode === "business";
+  return <button className={`account-switcher ${business ? "business" : "personal"}`} onClick={onToggle} aria-label={business ? "Revenir au compte personnel" : "Ouvrir le compte Business"}>
+    <span className="account-switcher-icon">{business ? "▥" : "◎"}</span>
+    <span><small>ESPACE ACTIF</small><strong>{business ? "Compte Business" : "Compte personnel"}</strong></span>
+    <b>↔</b>
+  </button>;
+}
+
+function ProfilePanel({ name,phone,photoUrl,founder,onClose,go,onOpenShop,onOpenOrders,onSignOut }: { name:string;phone:string;photoUrl:string;founder:boolean;onClose:()=>void;go:(space:Space)=>void;onOpenShop:()=>void;onOpenOrders:()=>void;onSignOut:()=>void }) {
+  const [photoExpanded,setPhotoExpanded]=useState(false);
+  const initials=name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase();
+  return <div className="profile-layer"><button className="profile-dismiss" onClick={onClose} aria-label="Fermer le profil"/><aside className="profile-panel" role="dialog" aria-modal="true" aria-label="Mon profil"><header><button type="button" className={`profile-photo-button ${photoUrl?"has-photo":""}`} onClick={()=>photoUrl&&setPhotoExpanded(true)} disabled={!photoUrl} aria-label={photoUrl?"Agrandir ma photo de profil":"Aucune photo de profil"}><span style={photoUrl?{backgroundImage:`url(${photoUrl})`}:undefined}>{photoUrl?"":initials}</span>{photoUrl&&<small>AGRANDIR</small>}</button><div><small>{founder ? "COMPTE OFFICIEL WHAPPY" : "COMPTE WHAPPY"}</small><strong>{name} {founder && <i className="founder-grey-badge" title="Compte certifié">✓</i>}</strong>{founder && <em className="founder-title">Fondateur</em>}<p>{phone} · Vérifié</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><section><button onClick={()=>go("business")}><span>▥</span><div><strong>{founder ? "Dashboard Whappy by BCA" : "Business Suite"}</strong><small>{founder ? "Pilotage de Whappy by BCA et de l’équipe" : "Pages professionnelles et publicités"}</small></div><b>→</b></button><button onClick={onOpenShop}><span>◇</span><div><strong>Ma boutique</strong><small>Gérer mes annonces et mes ventes</small></div><b>→</b></button><button onClick={onOpenOrders}><span>▤</span><div><strong>Mes commandes</strong><small>Suivi, reçus et points de remise</small></div><b>→</b></button><button onClick={()=>go("twin")}><span>◎</span><div><strong>Mon Double</strong><small>Capsule, produits et autorisations</small></div><b>→</b></button><button onClick={()=>go("inbox")}><span>◫</span><div><strong>Mes conversations</strong><small>Messages, offres et commandes</small></div><b>→</b></button></section><div className="profile-safety"><span>✓</span><div><strong>{founder ? "Compte fondateur certifié" : "Identité protégée"}</strong><small>{founder ? "Badge gris officiel · Whappy by BCA" : "Un numéro unique pour votre compte"}</small></div></div><button className="profile-signout" onClick={onSignOut}>Se déconnecter</button></aside>{photoExpanded&&<div className="profile-photo-viewer" role="dialog" aria-modal="true" aria-label="Photo de profil agrandie"><button className="profile-photo-dismiss" onClick={()=>setPhotoExpanded(false)} aria-label="Fermer la photo"/><section><button onClick={()=>setPhotoExpanded(false)} aria-label="Fermer">×</button><div style={{backgroundImage:`url(${photoUrl})`}} role="img" aria-label={`Photo de profil de ${name}`}/><strong>{name}</strong><small>Photo synchronisée avec votre compte WHAPPY</small></section></div>}</div>;
 }

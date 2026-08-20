@@ -35,6 +35,19 @@ service firebase.storage {
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
+    match /groups/{groupId}/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && firestore.get(/databases/(default)/documents/groups/$(groupId)).data.ownerId == userId
+        && request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && request.resource.size < 8 * 1024 * 1024;
+      allow update: if false;
+      allow delete: if request.auth != null
+        && request.auth.uid == userId
+        && firestore.get(/databases/(default)/documents/groups/$(groupId)).data.ownerId == userId;
+    }
+
     match /conversations/{conversationId}/{userId}/{fileName} {
       allow read: if conversationMember(conversationId);
       allow create: if conversationMember(conversationId)

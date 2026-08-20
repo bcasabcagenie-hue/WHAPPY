@@ -24,6 +24,7 @@ import {
   type DirectMember,
 } from "@/lib/whappy-data";
 import { buildWepiReply, watchWepiSettings, type WepiSettings } from "@/lib/whappy-wepi";
+import { playMessageSound } from "@/lib/whappy-sounds";
 
 type RealTimeInboxProps = {
   user: DirectMember | null;
@@ -52,6 +53,10 @@ function normalizePhone(value = "") {
 
 function isHappyFounderPhone(value?: string | null) {
   return normalizePhone(value || "") === "242065465808";
+}
+
+function isVerifiedMember(person: DirectMember | null | undefined) {
+  return Boolean(person?.verified || person?.accountType === "business" || isHappyFounderPhone(person?.phoneNumber));
 }
 
 function formatLastSeenLabel(value: { toDate?: () => Date } | null | undefined) {
@@ -144,6 +149,8 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const wepiReadyRef = useRef(false);
   const wepiConversationRef = useRef("");
   const itemsConversationRef = useRef("");
+  const lastMessageSoundIds = useRef<Record<string, string>>({});
+  const pendingMessageRef = useRef<{ conversationId: string; text: string; clientMessageId: string } | null>(null);
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
   useEffect(() => { openRef.current = open; }, [open]);
@@ -212,7 +219,12 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     return watchDirectMessages(currentId, (messages) => {
       itemsConversationRef.current = subscribedConversationId;
       const now = Date.now();
-      setItems(messages.filter((message) => (message.expiresAt?.toDate?.()?.getTime() || now + 1) > now));
+      const visibleMessages = messages.filter((message) => (message.expiresAt?.toDate?.()?.getTime() || now + 1) > now);
+      const latest = visibleMessages[visibleMessages.length - 1];
+      const previousLatestId = lastMessageSoundIds.current[subscribedConversationId];
+      if (previousLatestId && latest && latest.id !== previousLatestId && latest.senderId !== userId) playMessageSound();
+      if (latest) lastMessageSoundIds.current[subscribedConversationId] = latest.id;
+      setItems(visibleMessages);
       void purgeExpiredDirectMessages(currentId, messages);
       if (openRef.current) void markDirectConversationRead(currentId, userId);
     }, () => notifyRef.current("Messages momentanément hors ligne"));
@@ -471,8 +483,13 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     setText("");
     stopTyping(current.id);
     setBusy(true);
+    const pending = pendingMessageRef.current?.conversationId === current.id && pendingMessageRef.current.text === value
+      ? pendingMessageRef.current
+      : { conversationId: current.id, text: value, clientMessageId: globalThis.crypto.randomUUID() };
+    pendingMessageRef.current = pending;
     try {
-      await sendDirectMessage(current.id, user.uid, value, ephemeralSeconds);
+      await sendDirectMessage(current.id, user.uid, value, ephemeralSeconds, pending.clientMessageId);
+      if (pendingMessageRef.current?.clientMessageId === pending.clientMessageId) pendingMessageRef.current = null;
     } catch {
       setText(value);
       notify("Le message n’a pas été envoyé");
@@ -594,7 +611,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
               return <button className={current?.id === conversation.id ? "active" : ""} key={conversation.id} onClick={() => { stopTyping(); stopRecording(true); setOptimisticConversation(null); setSelected(conversation.id); }}>
                 <DirectAvatar person={person} />
                 <div>
-                  <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{personIsFounder ? <><i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i><em className="conversation-founder-role">Fondateur</em></> : null}{person?.wepiEnabled ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>
+                  <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{isVerifiedMember(person) ? <i className="verified-grey-badge" title="Identité Whappy certifiée" aria-label="Identité Whappy certifiée">✓</i> : null}{personIsFounder ? <em className="conversation-founder-role">Fondateur</em> : null}{person?.accountType === "business" ? <em className="business-account-badge">BUSINESS</em> : null}{person?.wepiEnabled ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>
                   <small>{conversation.typingBy?.[person?.uid || ""] ? "écrit…" : conversation.lastMessage || person?.phoneNumber}</small>
                   <small className="conversation-meta">{presenceLine || "• Chargement des infos..."}</small>
                 </div>
@@ -634,7 +651,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             const peerSeen = Boolean(peer && timestampMillis(current.readBy?.[peer.uid]) >= timestampMillis(current.updatedAt));
             const peerPresence = buildDirectPresenceLine(peer, current.presenceBy?.[peer.uid], Boolean(current.typingBy?.[peer.uid]), peerOnline, peerSeen);
             return <header>
-              <DirectAvatar person={activePeerProfile || peer} /><div><strong>{activePeerProfile?.displayName || peer.displayName}{peerIsFounder ? <i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}{peerHasWepi ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}<small className="direct-message-subline">{peerHasWepi ? `${peerPresence} · Assistant disponible` : peerPresence}</small></div>
+              <DirectAvatar person={activePeerProfile || peer} /><div><strong>{activePeerProfile?.displayName || peer.displayName}{isVerifiedMember(activePeerProfile || peer) ? <i className="verified-grey-badge" title="Identité Whappy certifiée" aria-label="Identité Whappy certifiée">✓</i> : null}{peerHasWepi ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}{(activePeerProfile || peer).accountType === "business" ? <span className="conversation-business-role">Compte Business</span> : null}<small className="direct-message-subline">{peerHasWepi ? `${peerPresence} · Assistant disponible` : peerPresence}</small></div>
               {peerHasWepi && <button type="button" className="wepi-contact-action" onClick={writeToWepi} aria-label={`Écrire à ${activePeerProfile?.wepiName || "WEPI"}`}>✦ WEPI</button>}
               <button onClick={() => onCall(peer, false)} aria-label={`Appeler ${peer.displayName}`}>☎</button><button onClick={() => onCall(peer, true)} aria-label={`Appel vidéo avec ${peer.displayName}`}>▣</button>{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
             </header>;
@@ -651,7 +668,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
               const sentReadTimestamp = peer && message.senderId === user.uid ? messageTime({ toDate: () => new Date(Math.max(timestampMillis(current.readBy?.[peer.uid]), timestampMillis(message.createdAt)) ) }) : "";
               return <article className={`${message.senderId === user.uid ? "mine" : ""} ${message.kind === "image" ? "image" : ""} ${message.kind === "video" ? "video" : ""}`} key={message.id}>
                 {message.kind === "link" && message.linkUrl ? <a className="message-link-card" href={message.linkUrl} target="_blank" rel="noreferrer"><span>↗</span><div><small>LIEN PARTAGÉ · {linkHost(message.linkUrl)}</small><strong>{message.text === message.linkUrl ? "Ouvrir le lien partagé" : message.text}</strong><p>{message.linkUrl}</p></div></a> : message.kind === "image" && message.mediaUrl ? viewOncePending ? <button type="button" className="message-view-once" onClick={() => void openViewOnce(message)}><span>1</span><strong>Photo à vue unique</strong><small>Appuyez pour ouvrir</small></button> : viewOnceConsumed ? <div className="message-viewed-once"><span>✓</span><strong>Photo déjà ouverte</strong><small>Ce média ne peut être vu qu’une fois.</small></div> : <button type="button" className="message-photo" onClick={() => { setPhotoPreview(message.mediaUrl || ""); setPhotoZoom(1); }} style={{ backgroundImage: `url(${message.mediaUrl})` }} aria-label="Agrandir la photo"/> : message.kind === "video" && message.mediaUrl ? viewOncePending ? <button type="button" className="message-view-once" onClick={() => void openViewOnce(message)}><span>1</span><strong>Vidéo à vue unique</strong><small>Appuyez pour ouvrir</small></button> : viewOnceOpen ? <div className="message-view-once"><span>1</span><strong>Lecture unique en cours</strong><small>Vue dans l’écran dédié</small></div> : viewOnceConsumed ? <div className="message-viewed-once"><span>✓</span><strong>Vidéo déjà ouverte</strong><small>Ce média ne peut être vu qu’une fois.</small></div> : <div className="message-video"><video controls playsInline preload="metadata" src={message.mediaUrl} className={message.effect || "pop"}/>{message.caption && <strong>{message.caption}</strong>}<i>✦ WHAPPY VIDEO {message.quality === "hd" ? "· HD" : ""}</i></div> : message.kind === "audio" && message.mediaUrl ? <div className="message-vocal"><span>▶</span><audio controls preload="metadata" src={message.mediaUrl}/><b>{message.duration || 0}s</b></div> : <><p>{message.text}</p>{translated && <p className="message-translation"><b>{translationTarget.toUpperCase()}</b>{translated}</p>}<div className="message-translation-tools"><button type="button" className={translationTarget === "fr" ? "active" : ""} onClick={() => setTranslationTarget("fr")}>FR</button><button type="button" className={translationTarget === "en" ? "active" : ""} onClick={() => setTranslationTarget("en")}>EN</button><button type="button" className="message-translate" onClick={() => void translateMessage(message)}>{translatingMessage === message.id ? "Traduction…" : translated ? "Masquer" : `文 Traduire en ${translationTarget === "fr" ? "français" : "anglais"}`}</button></div></>}
-                {message.viewOnce && <em className="view-once-badge">1× VUE UNIQUE</em>}<small><time>{messageTime(message.createdAt)}</time>{message.senderId === user.uid && <><span> · </span><b className={read ? "message-seen" : "message-sent"}>{read ? `✓✓ Vu ${sentReadTimestamp}` : "✓ Envoyé"}</b></>}</small>
+                {message.viewOnce && <em className="view-once-badge">1× VUE UNIQUE</em>}<small><time>{messageTime(message.createdAt)}</time>{message.senderId === user.uid && <><span> · </span><b className={message.pending ? "message-pending" : read ? "message-seen" : "message-sent"}>{message.pending ? "⟳ Envoi…" : read ? `✓✓ Vu ${sentReadTimestamp}` : "✓ Envoyé"}</b></>}</small>
               </article>;
             })}<div ref={messagesEnd}/>
           </div>

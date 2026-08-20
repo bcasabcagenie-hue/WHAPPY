@@ -30,6 +30,8 @@ export type CloudRequest = {
 
 export type CloudMessage = {
   id: string;
+  clientMessageId?: string;
+  pending?: boolean;
   text: string;
   senderId: string;
   kind?: "text" | "image" | "audio" | "video" | "link";
@@ -46,7 +48,18 @@ export type CloudMessage = {
   createdAt?: { toDate?: () => Date } | null;
 };
 
-export type DirectMember = { uid:string; displayName:string; phoneNumber:string; photoUrl?: string; wepiEnabled?: boolean; wepiName?: string; wepiBusinessName?: string };
+export type DirectMember = {
+  uid:string;
+  displayName:string;
+  phoneNumber:string;
+  photoUrl?: string;
+  verified?: boolean;
+  accountType?: "personal" | "business";
+  businessName?: string;
+  wepiEnabled?: boolean;
+  wepiName?: string;
+  wepiBusinessName?: string;
+};
 type CloudTimestamp = { toDate?: () => Date } | null;
 export type CloudConversation = {
   id:string;
@@ -69,6 +82,8 @@ export type CloudGroup = {
   ownerId: string;
   memberIds: string[];
   memberNames: string[];
+  kind?: "community" | "business";
+  photoUrl?: string;
   inviteToken?: string;
   createdAt?: { toDate?: () => Date } | null;
 };
@@ -343,20 +358,27 @@ export function watchDirectConversations(userId:string,onItems:(items:CloudConve
 
 export function watchDirectMessages(conversationId:string,onItems:(items:CloudMessage[])=>void,onError:()=>void) {
   const messagesQuery=query(collection(db,"conversations",conversationId,"messages"),orderBy("createdAt","asc"));
-  return onSnapshot(messagesQuery,(snapshot)=>onItems(snapshot.docs.map((item)=>({id:item.id,...item.data()} as CloudMessage))),onError);
+  return onSnapshot(messagesQuery,{includeMetadataChanges:true},(snapshot)=>onItems(snapshot.docs.map((item)=>({id:item.id,...item.data(),pending:item.metadata.hasPendingWrites} as CloudMessage))),onError);
 }
 
 function expiryTimestamp(ephemeralSeconds:number) {
   return ephemeralSeconds > 0 ? Timestamp.fromMillis(Date.now() + ephemeralSeconds * 1000) : null;
 }
 
-export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0) {
+export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0,clientMessageId=newClientMessageId()) {
   const value=text.trim();
   if(!value||value.length>4000)throw new Error("invalid-message");
   if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
-  const payload:Record<string,unknown>={text:value,senderId:userId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()};
-  await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
+  const safeClientMessageId=clientMessageId.replace(/[^a-zA-Z0-9_-]/g,"-").slice(0,120);
+  if(!safeClientMessageId)throw new Error("invalid-message-id");
+  const payload:Record<string,unknown>={text:value,senderId:userId,clientMessageId:safeClientMessageId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()};
+  await setDoc(doc(db,"conversations",conversationId,"messages",safeClientMessageId),payload,{merge:true});
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false}).catch(() => undefined);
+  return safeClientMessageId;
+}
+
+function newClientMessageId() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="",ephemeralSeconds=0,viewOnce=false,quality:"standard"|"hd"="hd") {
@@ -412,7 +434,7 @@ export function watchUserGroups(userId: string, onGroups: (items: CloudGroup[]) 
   }, onError);
 }
 
-export async function createGroup(userId: string, name: string, description: string, memberNames: string[]) {
+export async function createGroup(userId: string, name: string, description: string, memberNames: string[], kind: "community" | "business" = "community", photo?: File | null) {
   const cleanName = name.trim();
   if (cleanName.length < 2 || cleanName.length > 80) throw new Error("invalid-group-name");
   const uniqueMembers = [...new Set(memberNames.map((member) => member.trim()).filter(Boolean))].slice(0, 999);
@@ -424,12 +446,30 @@ export async function createGroup(userId: string, name: string, description: str
     ownerId: userId,
     memberIds: [userId],
     memberNames: uniqueMembers,
+    kind,
     inviteToken: newInviteToken(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
   const document = await addDoc(collection(db, "groups"), payload);
-  return { ...payload, id: document.id, createdAt: null } satisfies CloudGroup;
+  let photoUrl = "";
+  if (photo) {
+    if (!/^image\/(jpeg|png|webp)$/.test(photo.type) || photo.size > 8 * 1024 * 1024) {
+      await deleteDoc(document).catch(() => {});
+      throw new Error("invalid-group-photo");
+    }
+    try {
+      const extension = photo.type.split("/")[1].replace("jpeg", "jpg");
+      const fileRef = ref(storage, `groups/${document.id}/${userId}/cover-${crypto.randomUUID()}.${extension}`);
+      await uploadBytes(fileRef, photo, { contentType: photo.type });
+      photoUrl = await getDownloadURL(fileRef);
+      await updateDoc(document, { photoUrl, updatedAt: serverTimestamp() });
+    } catch (error) {
+      await deleteDoc(document).catch(() => {});
+      throw error;
+    }
+  }
+  return { ...payload, id: document.id, photoUrl: photoUrl || undefined, createdAt: null } satisfies CloudGroup;
 }
 
 function newInviteToken() {

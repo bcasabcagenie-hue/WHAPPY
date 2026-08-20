@@ -17,18 +17,18 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://whappy-chat.docile-mesa-9203.chatgpt.site"),
   manifest: "/manifest.webmanifest",
-  title: "WHAPPY 1.5.1 — Android professionnel",
-  description: "Téléchargez WHAPPY Android 1.5.1 : live vocal, cadeaux gratuits expérimentaux, groupes, chaînes, messagerie, jeux et Ludo.",
+  title: "Whappy — Tout peut devenir une opportunité",
+  description: "Whappy réunit messages privés, communautés, vidéos personnalisées, Business et doubles IA avec contrôle humain.",
   openGraph: {
-    title: "WHAPPY 1.5.1 — Android",
-    description: "Live vocal, cadeaux gratuits en test, groupes, chaînes, messagerie, jeux et Ludo.",
+    title: "Whappy — Tout peut devenir une opportunité",
+    description: "Messages, communautés, vidéos et Business dans une même expérience Whappy.",
     locale: "fr_FR",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "WHAPPY 1.5.1 — Android",
-    description: "Téléchargez la version Android professionnelle de WHAPPY.",
+    title: "Whappy — Tout peut devenir une opportunité",
+    description: "Messages, communautés, vidéos et Business dans une même expérience Whappy.",
   },
 };
 

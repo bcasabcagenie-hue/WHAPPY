@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { addCallCandidate, answerCall, startCall, updateCallStatus, watchCall, watchCallCandidates, type CallSignal } from "@/lib/whappy-calls";
 import type { DirectMember } from "@/lib/whappy-data";
+import { playCallConnectedSound, startRingtone } from "@/lib/whappy-sounds";
 
 const rtcConfiguration: RTCConfiguration = {
   iceServers: [
@@ -184,8 +185,14 @@ export function CallRoom({ contact, video, currentUser, peer, incoming, onClose 
 
   useEffect(() => {
     if (status !== "connected") return;
+    playCallConnectedSound();
     const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== "incoming" && status !== "ringing") return;
+    return startRingtone(status === "incoming" ? "incoming" : "outgoing");
   }, [status]);
 
   useEffect(() => {

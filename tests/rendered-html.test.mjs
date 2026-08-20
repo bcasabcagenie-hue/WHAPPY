@@ -402,3 +402,29 @@ test("prépare les notifications serveur sans les déployer", async () => {
   assert.match(notificationFunctions, /priority: "high"/);
   assert.match(functionsPackage, /"uuid": "\^11\.1\.1"/);
 });
+
+test("renforce les bases internationales, les profils, les groupes et les sons", async () => {
+  const [page, countries, inbox, calls, sounds, groups, data, storageRules] = await Promise.all([
+    readFile(new URL("../app/components/WhappyClientApp.tsx", import.meta.url), "utf8"),
+    import(new URL("../lib/countries.ts", import.meta.url)),
+    readFile(new URL("../app/components/RealTimeInbox.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/CallRoom.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-sounds.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SuperHub.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../storage.rules", import.meta.url), "utf8"),
+  ]);
+  assert.ok(countries.callingCountries.length >= 195);
+  assert.ok(countries.callingCountries.some((country) => country.iso === "CG" && country.dialCode === "+242"));
+  assert.ok(countries.callingCountries.some((country) => country.iso === "US" && country.dialCode === "+1"));
+  assert.match(page, /callingCountries\.map/);
+  assert.match(page, /profilePhotoUrl/);
+  assert.match(page, /Photo de profil agrandie/);
+  assert.match(inbox, /playMessageSound/);
+  assert.match(calls, /startRingtone/);
+  assert.match(calls, /playCallConnectedSound/);
+  assert.match(sounds, /createOscillator/);
+  assert.match(groups, /group-photo-picker/);
+  assert.match(data, /photoUrl/);
+  assert.match(storageRules, /match \/groups\/\{groupId\}/);
+});

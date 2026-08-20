@@ -158,6 +158,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1108,6 +1109,7 @@ private fun WhappyMain(
                             onOpenWhappies = { showTwinStudio = true },
                             onSignOut = onSignOut,
                             onEnableNotifications = onEnableNotifications,
+                            onOpenSpace = onTab,
                             language = appLanguage,
                             onLanguageChange = { next -> appLanguage = next; languagePrefs.edit().putString("code", next.code).apply() },
                         )
@@ -1125,7 +1127,15 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
         modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(painterResource(R.drawable.whappy_icon), "Logo WHAPPY", Modifier.size(50.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
+        Box(
+            Modifier
+                .size(50.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(WhappyDark),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("W", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black, letterSpacing = 0.4.sp)
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("WHAPPY", color = WhappyBlue, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
@@ -4613,6 +4623,7 @@ private fun ProfileScreen(
     onOpenWhappies: () -> Unit,
     onSignOut: () -> Unit,
     onEnableNotifications: () -> Unit,
+    onOpenSpace: (WhappyTab) -> Unit,
     language: WhappyLanguage,
     onLanguageChange: (WhappyLanguage) -> Unit,
 ) {
@@ -4626,6 +4637,9 @@ private fun ProfileScreen(
     var messageNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_messages", true)) }
     var callNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_calls", true)) }
     var dataSaver by rememberSaveable { mutableStateOf(prefs.getBoolean("data_saver", false)) }
+    var compactMode by rememberSaveable { mutableStateOf(prefs.getBoolean("compact_mode", false)) }
+    var protectPreview by rememberSaveable { mutableStateOf(prefs.getBoolean("protect_preview", true)) }
+    var experimentalTools by rememberSaveable { mutableStateOf(prefs.getBoolean("experimental_tools", true)) }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -4656,8 +4670,40 @@ private fun ProfileScreen(
         item {
             Card(Modifier.fillMaxWidth().clickable(onClick = onOpenWhappies), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White) }; Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text("MON WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Mon double numérique", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp); Text(if (twinReadiness > 0) "Profil prêt à $twinReadiness %" else "Image, voix, mouvements et missions", color = Color.White, fontSize = 11.sp) }; Text("›", color = WhappyBlue, fontSize = 26.sp) } }
         }
+        item { ProfileControlCenter(onOpenSpace = onOpenSpace) }
+        item {
+            ProfileQuickSettings(
+                messageNotifications = messageNotifications,
+                onMessageNotifications = { enabled ->
+                    messageNotifications = enabled
+                    prefs.edit().putBoolean("notify_messages", enabled).apply()
+                    if (enabled) onEnableNotifications()
+                },
+                callNotifications = callNotifications,
+                onCallNotifications = { enabled ->
+                    callNotifications = enabled
+                    prefs.edit().putBoolean("notify_calls", enabled).apply()
+                    if (enabled) onEnableNotifications()
+                },
+                dataSaver = dataSaver,
+                onDataSaver = { enabled ->
+                    dataSaver = enabled
+                    prefs.edit().putBoolean("data_saver", enabled).apply()
+                },
+                compactMode = compactMode,
+                onCompactMode = { enabled ->
+                    compactMode = enabled
+                    prefs.edit().putBoolean("compact_mode", enabled).apply()
+                },
+                protectPreview = protectPreview,
+                onProtectPreview = { enabled ->
+                    protectPreview = enabled
+                    prefs.edit().putBoolean("protect_preview", enabled).apply()
+                },
+            )
+        }
         item { Card(Modifier.fillMaxWidth().clickable { settingDialog = "Langue" }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Language, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(t("Langue de l’application", "App language", "Lokota ya application"), fontWeight = FontWeight.Bold, color = WhappyDark); Text(language.label, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } } }
-        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
+        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Live & cadeaux test" to "Audio du direct, cadeaux gratuits et modération", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
             Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
@@ -4700,12 +4746,178 @@ private fun ProfileScreen(
                         OutlinedButton(onClick = onEnableNotifications, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Notifications, null); Text("  Vérifier l’autorisation Android") }
                         Text("Les appels utilisent une alerte prioritaire ; les messages restent masqués sur l’écran verrouillé.", color = WhappyMuted, fontSize = 11.sp)
                     }
+                    "Live & cadeaux test" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text("Mode expérimental gratuit", color = WhappyMuted, fontSize = 12.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text("Cadeaux live gratuits", fontWeight = FontWeight.Bold); Text("Les spectateurs peuvent envoyer des cadeaux sans paiement pendant la phase test.", color = WhappyMuted, fontSize = 10.sp) }
+                            Switch(experimentalTools, { enabled -> experimentalTools = enabled; prefs.edit().putBoolean("experimental_tools", enabled).apply() })
+                        }
+                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7FF))) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LiveTv, null, tint = WhappyBlue); Text("  Voix du live active", fontWeight = FontWeight.Bold, color = WhappyDark) }
+                                Text("Le direct doit sortir sur le haut-parleur de l’appareil. Si Android bloque le son, vérifiez le volume média et les permissions audio.", color = WhappyMuted, fontSize = 11.sp)
+                            }
+                        }
+                        Text("Cette option prépare l’interface avant le paiement réel : les cadeaux sont marqués TEST pour éviter toute confusion.", color = WhappyMuted, fontSize = 11.sp)
+                    }
                     "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }; Text("Les photos et notes vocales choisies restent accessibles depuis leurs conversations.", color = WhappyMuted, fontSize = 11.sp) }
                     else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("WHAPPY réunit vos conversations, appels, achats, directs et services. En cas de problème, contactez l’assistance depuis cet appareil.", color = WhappyDark); OutlinedButton(onClick = { uriHandler.openUri("mailto:support@whappy.chat?subject=Aide%20WHAPPY") }, Modifier.fillMaxWidth()) { Text("Contacter l’assistance") } }
                 }
             },
             confirmButton = { TextButton(onClick = { settingDialog = null }) { Text("Terminé") } },
         )
+    }
+}
+
+@Composable
+private fun ProfileControlCenter(onOpenSpace: (WhappyTab) -> Unit) {
+    val options = listOf(
+        Triple(WhappyTab.MESSAGES, "Messages", "Discussions et demandes"),
+        Triple(WhappyTab.CALLS, "Appels", "Voix, vidéo et historique"),
+        Triple(WhappyTab.CONTACTS, "Groupes & chaînes", "Communautés internes"),
+        Triple(WhappyTab.LIVE, "Live", "Directs, audio et cadeaux"),
+        Triple(WhappyTab.GAMES, "Jeux", "Ludo et défis WHAPPY"),
+        Triple(WhappyTab.BUSINESS, "Business", "Pages, deals et campagnes"),
+        Triple(WhappyTab.SERVICES, "Services", "Paiements et outils utiles"),
+        Triple(WhappyTab.MARKET, "Marché", "Boutiques et offres"),
+    )
+    val icons = mapOf<WhappyTab, ImageVector>(
+        WhappyTab.MESSAGES to Icons.Rounded.ChatBubble,
+        WhappyTab.CALLS to Icons.Rounded.Phone,
+        WhappyTab.CONTACTS to Icons.Rounded.Groups,
+        WhappyTab.LIVE to Icons.Rounded.LiveTv,
+        WhappyTab.GAMES to Icons.Rounded.Bolt,
+        WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
+        WhappyTab.SERVICES to Icons.Rounded.Payments,
+        WhappyTab.MARKET to Icons.Rounded.Storefront,
+    )
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8FF)),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyDark), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White)
+                }
+                Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                    Text("Centre de contrôle", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                    Text("Toutes les options internes au même endroit", color = WhappyMuted, fontSize = 11.sp)
+                }
+            }
+            options.chunked(2).forEach { rowOptions ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rowOptions.forEach { option ->
+                        ProfileOptionTile(
+                            title = option.second,
+                            subtitle = option.third,
+                            icon = icons.getValue(option.first),
+                            modifier = Modifier.weight(1f),
+                            onClick = { onOpenSpace(option.first) },
+                        )
+                    }
+                    if (rowOptions.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileOptionTile(title: String, subtitle: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(
+        modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(34.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFEDEEFF)), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = WhappyBlue, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.weight(1f))
+                Text("›", color = WhappyMuted, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(title, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = WhappyMuted, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun ProfileQuickSettings(
+    messageNotifications: Boolean,
+    onMessageNotifications: (Boolean) -> Unit,
+    callNotifications: Boolean,
+    onCallNotifications: (Boolean) -> Unit,
+    dataSaver: Boolean,
+    onDataSaver: (Boolean) -> Unit,
+    compactMode: Boolean,
+    onCompactMode: (Boolean) -> Unit,
+    protectPreview: Boolean,
+    onProtectPreview: (Boolean) -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Text("Réglages rapides", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            QuickSwitchRow(
+                icon = Icons.Rounded.Notifications,
+                title = "Messages",
+                subtitle = "Badges et alertes de conversation",
+                checked = messageNotifications,
+                onCheckedChange = onMessageNotifications,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.Phone,
+                title = "Appels entrants",
+                subtitle = "Sonnerie et alerte prioritaire",
+                checked = callNotifications,
+                onCheckedChange = onCallNotifications,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.Visibility,
+                title = "Aperçu privé",
+                subtitle = "Masque les contenus sensibles dans les aperçus",
+                checked = protectPreview,
+                onCheckedChange = onProtectPreview,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.Bolt,
+                title = "Mode compact",
+                subtitle = "Interface plus serrée pour petits écrans",
+                checked = compactMode,
+                onCheckedChange = onCompactMode,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.AudioFile,
+                title = "Économiseur de données",
+                subtitle = "Charge moins de médias en arrière-plan",
+                checked = dataSaver,
+                onCheckedChange = onDataSaver,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickSwitchRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFFEDEEFF)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = WhappyBlue, modifier = Modifier.size(19.dp))
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
+            Text(title, color = WhappyDark, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = WhappyMuted, fontSize = 10.sp, lineHeight = 12.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
