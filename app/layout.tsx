@@ -4,6 +4,7 @@ import "./globals.css";
 import "./blue-brand.css";
 import "./studio.css";
 import "./whappy-brand.css";
+import "./strict-blue-theme.css";
 
 const geist = Geist({
   variable: "--font-geist",
