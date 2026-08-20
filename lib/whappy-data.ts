@@ -338,15 +338,13 @@ function expiryTimestamp(ephemeralSeconds:number) {
   return ephemeralSeconds > 0 ? Timestamp.fromMillis(Date.now() + ephemeralSeconds * 1000) : null;
 }
 
-export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0,linkUrl="") {
+export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0) {
   const value=text.trim();
   if(!value||value.length>4000)throw new Error("invalid-message");
   if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
-  const safeLink=linkUrl.trim();
   const payload:Record<string,unknown>={text:value,senderId:userId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()};
-  if(safeLink) { payload.kind="link"; payload.linkUrl=safeLink; }
   await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
-  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
+  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false}).catch(() => undefined);
 }
 
 export async function sendDirectAttachment(conversationId:string,userId:string,file:File,kind:"image"|"audio"|"video",duration=0,effect="",caption="",ephemeralSeconds=0,viewOnce=false,quality:"standard"|"hd"="hd") {
@@ -364,7 +362,7 @@ export async function sendDirectAttachment(conversationId:string,userId:string,f
   const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),quality:kind === "audio" ? "standard" : quality,duration:Math.max(0,Math.round(duration)),expiresAt:expiryTimestamp(ephemeralSeconds),viewOnce:viewOnce && kind !== "audio",viewedBy:{},createdAt:serverTimestamp()};
   if(kind==="video"){payload.effect=["comic","neon","ink","pop"].includes(effect)?effect:"pop";payload.caption=caption.trim().slice(0,100);}
   await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
-  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"🎨 Création WHAPPY":kind==="video"?"🎬 Vidéo WHAPPY":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false});
+  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"🎨 Création WHAPPY":kind==="video"?"🎬 Vidéo WHAPPY":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false}).catch(() => undefined);
 }
 
 export async function setDirectEphemeralMode(conversationId:string,ephemeralSeconds:0|86400|604800) {

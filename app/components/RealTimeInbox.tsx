@@ -71,13 +71,6 @@ function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "WH";
 }
 
-function firstHttpUrl(value: string) {
-  const match = value.match(/https?:\/\/[^\s<]+/i)?.[0]?.replace(/[),.;!?]+$/, "");
-  if (!match) return "";
-  try { return new URL(match).protocol === "https:" || new URL(match).protocol === "http:" ? match : ""; }
-  catch { return ""; }
-}
-
 function linkHost(value: string) {
   try { return new URL(value).hostname.replace(/^www\./, ""); }
   catch { return "Lien partagé"; }
@@ -385,23 +378,28 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       notify("C’est votre propre compte Whappy");
       return;
     }
-    const id = `direct-${[user.uid, found.uid].sort().join("-")}`;
-    setOptimisticConversation({
-      id,
-      ownerId: user.uid,
-      memberIds: [user.uid, found.uid].sort(),
-      members: [user, found],
-      typingBy: {},
-      readBy: {},
-      ephemeralSeconds: 0,
-      updatedAt: null,
-    });
-    setSelected(id);
-    setView("messages");
-    setAdding(false);
-    setOpen(true);
-    await ensureDirectConversation(user, found);
-    notify(`Conversation en temps réel avec ${found.displayName} ouverte`);
+    setBusy(true);
+    try {
+      const id = `direct-${[user.uid, found.uid].sort().join("-")}`;
+      setOptimisticConversation({
+        id,
+        ownerId: user.uid,
+        memberIds: [user.uid, found.uid].sort(),
+        members: [user, found],
+        typingBy: {},
+        readBy: {},
+        ephemeralSeconds: 0,
+        updatedAt: null,
+      });
+      setSelected(id);
+      setView("messages");
+      setAdding(false);
+      setOpen(true);
+      await ensureDirectConversation(user, found);
+      notify(`Conversation en temps réel avec ${found.displayName} ouverte`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function openConversationWithPhone(phone: string) {
@@ -455,12 +453,11 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     event.preventDefault();
     if (!current || !user || !text.trim() || busy) return;
     const value = text.trim();
-    const linkUrl = firstHttpUrl(value);
     setText("");
     stopTyping(current.id);
     setBusy(true);
     try {
-      await sendDirectMessage(current.id, user.uid, value, ephemeralSeconds, linkUrl);
+      await sendDirectMessage(current.id, user.uid, value, ephemeralSeconds);
     } catch {
       setText(value);
       notify("Le message n’a pas été envoyé");
