@@ -219,21 +219,33 @@ export default function Home() {
   }, [demoMode, demoReady, customListings, customRequests, cart, orders, groups, saved]);
 
   useEffect(() => {
-    let disposed = false;
-    let unsubscribe = () => {};
-    const restoreWebSession = async () => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
       try {
-        await setPersistence(auth, browserLocalPersistence);
+        const savedCountry = localStorage.getItem("whappy-last-country-code");
+        const savedPhone = localStorage.getItem("whappy-last-phone");
+        if (savedCountry) setCountryCode(savedCountry);
+        if (savedPhone) setPhone(savedPhone);
       } catch {
-        // Some privacy-focused browsers block IndexedDB/local persistence. Firebase
-        // still keeps the active tab authenticated, so the flow remains usable.
+        // Private browsing can disable local storage; Firebase auth still works.
       }
-      if (disposed) return;
-      unsubscribe = onAuthStateChanged(auth, (user) => {
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    // Subscribe first: Firebase can restore an existing browser session while
+    // persistence is being configured, avoiding a needless logout screen.
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
         const hasPhone = Boolean(user?.phoneNumber);
         const hasProfile = Boolean(user?.displayName?.trim());
         const accountReady = hasPhone && hasProfile;
         setProfileName(user?.displayName?.trim() || "");
+        if (user?.phoneNumber) {
+          try { localStorage.setItem("whappy-last-phone-e164", user.phoneNumber); } catch { /* optional convenience only */ }
+        }
         setUserId(user?.uid || "");
         setSyncStatus(user?.uid ? "syncing" : "local");
         if (!hasPhone) {
@@ -257,9 +269,11 @@ export default function Home() {
           void updateProfile(user, { displayName: restoredName }).catch(() => {});
           setAuthenticated(true);
         }).catch(() => {});
-      });
-    };
-    void restoreWebSession();
+    });
+    void setPersistence(auth, browserLocalPersistence).catch(() => {
+      // Some privacy-focused browsers block IndexedDB/local persistence. Firebase
+      // still keeps the active tab authenticated, so the flow remains usable.
+    });
     return () => {
       disposed = true;
       unsubscribe();
@@ -521,6 +535,10 @@ export default function Home() {
     setAuthStatus("Préparation de l’envoi sécurisé…");
     try {
       const e164Phone = `${countryCode}${digits}`;
+      try {
+        localStorage.setItem("whappy-last-country-code", countryCode);
+        localStorage.setItem("whappy-last-phone", phone);
+      } catch { /* optional convenience only */ }
       auth.settings.appVerificationDisabledForTesting =
         process.env.NODE_ENV !== "production" && e164Phone === "+242060000099";
       recaptchaRef.current?.clear();
@@ -731,7 +749,7 @@ export default function Home() {
 
 function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCode,profileName,setProfileName,busy,status,error,requestSms,verifySms,finishProfile,back,preview }: { step:"phone"|"code"|"profile";countryCode:string;setCountryCode:(value:string)=>void;phone:string;setPhone:(value:string)=>void;code:string;setCode:(value:string)=>void;profileName:string;setProfileName:(value:string)=>void;busy:boolean;status:string;error:string;requestSms:(event:FormEvent)=>void;verifySms:(event:FormEvent)=>void;finishProfile:(event:FormEvent)=>void;back:()=>void;preview:()=>void }) {
   const fullNumber=`${countryCode} ${phone || "—"}`;
-  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-app-icon.png" alt="Logo Whappy App" width={70} height={70} priority/><strong>WHAPPY APP</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy App utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy App</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy App →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy App et confirmez être propriétaire de ce numéro.</small></div></section></main>;
+  return <main className="phone-access"><section className="access-brand"><div className="access-logo"><Image src="/whappy-app-icon.png" alt="Logo Whappy App" width={70} height={70} priority/><strong>WHAPPY APP</strong></div><div className="access-promise"><span>UN NUMÉRO. UN COMPTE.</span><h1>Votre monde,<br/>au bout du <em>fil.</em></h1><p>Vos messages, vos appels, vos directs et votre boutique vous suivent sur tous vos appareils.</p><div className="access-highlights"><span>◫ Messages privés</span><span>☎ Appels HD</span><span>◇ Marketplace</span></div></div><div className="access-flow"><span className={step==="phone"?"active":"done"}><b>{step==="phone"?"1":"✓"}</b> Numéro</span><i/><span className={step==="code"?"active":step==="profile"?"done":""}><b>{step==="profile"?"✓":"2"}</b> Code SMS</span><i/><span className={step==="profile"?"active":""}><b>3</b> Profil</span></div><small className="access-secure">◆ Chiffrement · Identité téléphonique · Aucun mot de passe</small></section><section className="access-panel"><div className="access-card">{step!=="phone"&&<button className="access-back" onClick={back} aria-label="Modifier le numéro">←</button>}<span className="access-step">ÉTAPE {step==="phone"?"1 SUR 3":step==="code"?"2 SUR 3":"3 SUR 3"}</span>{step==="phone"&&<form onSubmit={requestSms}><h2>Entrez votre numéro</h2><p>Whappy App utilise votre numéro pour créer et retrouver votre compte. Un même numéro ne peut appartenir qu&apos;à un seul compte.</p><label>Pays<select value={countryCode} onChange={event=>setCountryCode(event.target.value)}><option value="+242">🇨🇬 Congo (+242)</option><option value="+243">🇨🇩 RD Congo (+243)</option><option value="+33">🇫🇷 France (+33)</option><option value="+225">🇨🇮 Côte d&apos;Ivoire (+225)</option><option value="+221">🇸🇳 Sénégal (+221)</option><option value="+237">🇨🇲 Cameroun (+237)</option></select></label><label>Numéro de téléphone<div className="phone-field"><span>{countryCode}</span><input inputMode="tel" autoComplete="tel-national" value={phone} onChange={event=>setPhone(event.target.value)} placeholder="06 123 45 67"/></div></label><div id="whappy-recaptcha" className="recaptcha-invisible"/>{status&&<p className="sms-status">{status}</p>}<button className="access-primary" disabled={busy}>{busy?"Envoi du SMS…":phone.trim()?"Continuer avec ce numéro →":"Continuer par SMS →"}</button><div className="one-account"><span>1</span><div><strong>Un numéro = un compte Whappy App</strong><small>Cette règle protège votre identité, vos contacts et vos transactions.</small></div></div></form>}{step==="code"&&<form onSubmit={verifySms}><span className="access-code-icon">✦</span><h2>Vérifiez votre numéro</h2><p>Nous avons envoyé un code à 6 chiffres au <strong>{fullNumber}</strong>.</p><label>Code reçu par SMS<input className="otp-field" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))} placeholder="— — — — — —"/></label><button className="access-primary" disabled={busy}>{busy?"Vérification…":"Vérifier le code →"}</button><button className="access-link" type="button" onClick={()=>setCode("")}>Saisir un nouveau code</button></form>}{step==="profile"&&<form onSubmit={finishProfile}><span className="profile-create">＋</span><h2>Créez votre profil</h2><p>Ajoutez le nom que vos contacts verront. Vous pourrez ajouter votre photo ensuite.</p><label>Votre nom<input autoComplete="name" value={profileName} onChange={event=>setProfileName(event.target.value)} placeholder="Ex. Happy"/></label><button className="access-primary" disabled={busy}>{busy?"Création…":"Entrer dans Whappy App →"}</button></form>}{error&&<p className="access-error">! {error}</p>}<div className="access-divider"><span>ou</span></div><AndroidDownload/><button className="access-demo" type="button" onClick={preview}>Explorer la démo sans créer de compte →</button><small className="access-legal">Le mode test n’envoie aucune donnée. En continuant, vous acceptez les conditions Whappy App et confirmez être propriétaire de ce numéro.</small></div></section></main>;
 }
 
 function AndroidDownload() {
