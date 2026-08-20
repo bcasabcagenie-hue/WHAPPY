@@ -12,8 +12,10 @@ const geist = Geist({
   subsets: ["latin"],
 });
 
+export const dynamic = "force-static";
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://whappy-chat.docile-mesa-9203.chatgpt.site"),
   manifest: "/manifest.webmanifest",
   title: "Whappy — Tout peut devenir une opportunité",
   description: "Whappy rapproche les personnes, les opportunités, les produits, les services et les conversations.",
