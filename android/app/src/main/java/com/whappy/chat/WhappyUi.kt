@@ -93,6 +93,7 @@ import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QrCode
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Schedule
@@ -1017,6 +1018,7 @@ private fun WhappyMain(
                             onUpdateLiveStatus = onUpdateLiveStatus,
                             onOpenTwin = { showTwinStudio = true },
                         )
+                        WhappyTab.RADIO -> RadioScreen(accountDisplayName)
                         WhappyTab.GAMES -> GamesScreen(onBack = { onTab(WhappyTab.MOMENTS) })
                         WhappyTab.SERVICES -> ServicesScreen(
                             userName = accountDisplayName,
@@ -1120,12 +1122,13 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
         WhappyTab.CALLS to Icons.Rounded.Phone,
         WhappyTab.MARKET to Icons.Rounded.Storefront,
         WhappyTab.LIVE to Icons.Rounded.LiveTv,
+        WhappyTab.RADIO to Icons.Rounded.Radio,
         WhappyTab.GAMES to Icons.Rounded.Bolt,
         WhappyTab.SERVICES to Icons.Rounded.Payments,
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.CONTACTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.GAMES, WhappyTab.SERVICES)
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.CONTACTS, WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.MARKET, WhappyTab.LIVE, WhappyTab.RADIO, WhappyTab.GAMES)
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
@@ -1189,8 +1192,9 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
                         SpaceCard("Marketplace", "Acheter et vendre", Icons.Rounded.Storefront, cell) { onTab(WhappyTab.MARKET) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Live", "Voir les directs", Icons.Rounded.LiveTv, cell) { onTab(WhappyTab.LIVE) }; SpaceCard("Business", "Deals et paiements", Icons.Rounded.BusinessCenter, cell) { onTab(WhappyTab.BUSINESS) } }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Jeux", "Défis et duels", Icons.Rounded.Bolt, cell) { onTab(WhappyTab.GAMES) }; SpaceCard("Services", "Payer et demander", Icons.Rounded.Payments, cell) { onTab(WhappyTab.SERVICES) } }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Profil", "Compte et sécurité", Icons.Rounded.Person, cell) { onTab(WhappyTab.PROFILE) }; SpaceCard("Mon WHAPPY", "Votre double créatif", Icons.Rounded.AutoAwesome, cell) { onOpenWhappies() } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Radio", "Créer une émission", Icons.Rounded.Radio, cell) { onTab(WhappyTab.RADIO) }; SpaceCard("Jeux", "Défis et duels", Icons.Rounded.Bolt, cell) { onTab(WhappyTab.GAMES) } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Services", "Payer et demander", Icons.Rounded.Payments, cell) { onTab(WhappyTab.SERVICES) }; SpaceCard("Profil", "Compte et sécurité", Icons.Rounded.Person, cell) { onTab(WhappyTab.PROFILE) } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { SpaceCard("Business", "Deals et paiements", Icons.Rounded.BusinessCenter, cell) { onTab(WhappyTab.BUSINESS) }; SpaceCard("Mon WHAPPY", "Votre double créatif", Icons.Rounded.AutoAwesome, cell) { onOpenWhappies() } }
                 }
             }
         }
@@ -1209,6 +1213,215 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
         confirmButton = { Button(enabled = momentTitle.trim().length >= 2 && momentBody.trim().length >= 3, onClick = { val entry = "${System.currentTimeMillis()}|${momentTitle.trim().replace("|", " ")}|${momentBody.trim().replace("|", " ")}"; personalMoments = (listOf(entry) + personalMoments).take(20); prefs.edit().putStringSet("moments", personalMoments.toSet()).apply(); momentTitle = ""; momentBody = ""; composing = false }) { Text("Publier") } },
         dismissButton = { TextButton(onClick = { composing = false }) { Text("Annuler") } },
     )
+}
+
+@Composable
+private fun RadioScreen(accountDisplayName: String) {
+    val context = LocalContext.current
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_native_radio") }
+    var stationName by rememberSaveable { mutableStateOf(prefs.getString("station_name", "Radio de $accountDisplayName").orEmpty()) }
+    var topic by rememberSaveable { mutableStateOf(prefs.getString("station_topic", "Actualité, culture et communauté").orEmpty()) }
+    var broadcasting by rememberSaveable { mutableStateOf(false) }
+    var paused by rememberSaveable { mutableStateOf(false) }
+    var startedAt by remember { mutableStateOf(0L) }
+    var pausedAt by remember { mutableStateOf(0L) }
+    var totalPausedMillis by remember { mutableStateOf(0L) }
+    var elapsedSeconds by remember { mutableStateOf(0L) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var lastRecording by remember { mutableStateOf<File?>(null) }
+    var feedback by rememberSaveable { mutableStateOf<String?>(null) }
+    var showScheduleDialog by rememberSaveable { mutableStateOf(false) }
+    var scheduleTitle by rememberSaveable { mutableStateOf("") }
+    var scheduleTime by rememberSaveable { mutableStateOf("") }
+    var programmes by remember {
+        mutableStateOf(prefs.getStringSet("programmes", emptySet()).orEmpty().toList().sorted())
+    }
+
+    fun saveIdentity() {
+        prefs.edit().putString("station_name", stationName.trim()).putString("station_topic", topic.trim()).apply()
+        feedback = "Les informations de la radio sont enregistrées."
+    }
+
+    fun startBroadcast() {
+        runCatching { createVoiceRecorder(context) }
+            .onSuccess { (activeRecorder, file) ->
+                recorder = activeRecorder
+                recordingFile = file
+                startedAt = System.currentTimeMillis()
+                pausedAt = 0L
+                totalPausedMillis = 0L
+                elapsedSeconds = 0L
+                broadcasting = true
+                paused = false
+                feedback = "Votre radio est en direct sur cet appareil."
+            }
+            .onFailure { feedback = "Le microphone n’a pas pu démarrer. Vérifiez son autorisation puis réessayez." }
+    }
+
+    fun finishBroadcast() {
+        val active = recorder
+        val file = recordingFile
+        val stopped = runCatching { active?.stop() }.isSuccess
+        active?.release()
+        recorder = null
+        recordingFile = null
+        broadcasting = false
+        paused = false
+        if (stopped && file != null && file.exists() && file.length() > 0L) {
+            lastRecording = file
+            feedback = "Émission terminée et enregistrée. Vous pouvez maintenant la partager."
+        } else {
+            file?.delete()
+            feedback = "L’émission est terminée, mais l’enregistrement était trop court pour être conservé."
+        }
+    }
+
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startBroadcast() else feedback = "Le microphone est nécessaire pour diffuser une émission."
+    }
+
+    LaunchedEffect(broadcasting, paused) {
+        while (broadcasting) {
+            if (!paused) elapsedSeconds = (System.currentTimeMillis() - startedAt - totalPausedMillis).coerceAtLeast(0L) / 1_000
+            delay(1_000)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { recorder?.stop() }
+            recorder?.release()
+        }
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize().background(Color.White),
+        contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 34.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Card(
+                shape = RoundedCornerShape(30.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            ) {
+                Column(Modifier.padding(22.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(19.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Radio, null, tint = Color.White, modifier = Modifier.size(30.dp))
+                        }
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Text("WHAPPY RADIO", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                            Text(if (broadcasting) if (paused) "Émission en pause" else "En direct maintenant" else "Studio prêt", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        }
+                        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if (broadcasting && !paused) WhappyBlue else Color.White).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                            Text(if (broadcasting && !paused) "LIVE" else "PRÊT", color = if (broadcasting && !paused) Color.White else WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                    OutlinedTextField(stationName, { stationName = it.take(60) }, Modifier.fillMaxWidth().padding(top = 20.dp), label = { Text("Nom de la radio") }, singleLine = true, shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(topic, { topic = it.take(100) }, Modifier.fillMaxWidth().padding(top = 10.dp), label = { Text("Sujet de l’émission") }, minLines = 2, shape = RoundedCornerShape(16.dp))
+                    TextButton(onClick = ::saveIdentity, modifier = Modifier.align(Alignment.End)) { Text("Enregistrer les informations") }
+                }
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                RadioMetric("STATUT", if (broadcasting) if (paused) "Pause" else "Direct" else "Hors ligne", Modifier.weight(1f))
+                RadioMetric("DURÉE", "%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60), Modifier.weight(1f))
+                RadioMetric("QUALITÉ", "HD", Modifier.weight(1f))
+            }
+        }
+        item {
+            Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyBlue)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text(if (broadcasting) "Votre studio est actif" else "Lancez votre émission", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    Text(if (broadcasting) "Le son est capturé en qualité AAC et sera disponible à la fin." else "Le microphone démarre uniquement après votre autorisation.", Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .82f), fontSize = 12.sp)
+                    Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (!broadcasting) {
+                            Button(
+                                onClick = {
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startBroadcast()
+                                    else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue),
+                                shape = RoundedCornerShape(17.dp),
+                            ) { Icon(Icons.Rounded.Mic, null); Text("  Démarrer le direct", fontWeight = FontWeight.Black) }
+                        } else {
+                            Button(
+                                onClick = {
+                                    if (paused) runCatching { recorder?.resume() }.onSuccess { totalPausedMillis += (System.currentTimeMillis() - pausedAt).coerceAtLeast(0L); paused = false; feedback = "Le direct reprend." }
+                                    else runCatching { recorder?.pause() }.onSuccess { pausedAt = System.currentTimeMillis(); paused = true; feedback = "Le direct est en pause." }
+                                },
+                                Modifier.weight(1f).height(54.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue),
+                                shape = RoundedCornerShape(17.dp),
+                            ) { Icon(if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Mic, null); Text(if (paused) "  Reprendre" else "  Pause", fontWeight = FontWeight.Black) }
+                            Button(
+                                onClick = ::finishBroadcast,
+                                Modifier.weight(1f).height(54.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue),
+                                shape = RoundedCornerShape(17.dp),
+                            ) { Icon(Icons.Rounded.Stop, null); Text("  Terminer", fontWeight = FontWeight.Black) }
+                        }
+                    }
+                }
+            }
+        }
+        feedback?.let { message ->
+            item { Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Text(message, Modifier.padding(16.dp), color = WhappyDark, fontWeight = FontWeight.SemiBold) } }
+        }
+        lastRecording?.let { file ->
+            item {
+                Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)) {
+                    Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(48.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AudioFile, null, tint = Color.White) }
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Dernière émission", color = WhappyDark, fontWeight = FontWeight.Black); Text("${file.length() / 1024} Ko · prête à partager", color = WhappyMuted, fontSize = 11.sp) }
+                        IconButton(onClick = { shareRadioRecording(context, file, stationName) }) { Icon(Icons.Rounded.Share, "Partager", tint = WhappyBlue) }
+                    }
+                }
+            }
+        }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text("Programmation", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black); Text("Préparez les prochaines émissions", color = WhappyMuted, fontSize = 11.sp) }
+                Button(onClick = { showScheduleDialog = true }, shape = RoundedCornerShape(15.dp)) { Icon(Icons.Rounded.Add, null); Text("  Ajouter") }
+            }
+        }
+        if (programmes.isEmpty()) {
+            item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.Schedule, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)); Text("Aucune émission programmée", Modifier.padding(top = 9.dp), color = WhappyDark, fontWeight = FontWeight.Bold); Text("Ajoutez un titre et une heure pour commencer.", color = WhappyMuted, fontSize = 11.sp) } } }
+        } else {
+            items(programmes, key = { it }) { raw ->
+                val parts = raw.split("|", limit = 3)
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Schedule, null, tint = Color.White) }
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(parts.getOrElse(1) { "Émission" }, color = WhappyDark, fontWeight = FontWeight.Black); Text(parts.getOrElse(2) { "Heure à définir" }, color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        IconButton(onClick = { programmes = programmes.filterNot { it == raw }; prefs.edit().putStringSet("programmes", programmes.toSet()).apply() }) { Icon(Icons.Rounded.Delete, "Supprimer", tint = WhappyBlue) }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showScheduleDialog) AlertDialog(
+        onDismissRequest = { showScheduleDialog = false },
+        title = { Text("Programmer une émission", fontWeight = FontWeight.Black) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { OutlinedTextField(scheduleTitle, { scheduleTitle = it.take(70) }, Modifier.fillMaxWidth(), label = { Text("Titre") }, singleLine = true); OutlinedTextField(scheduleTime, { scheduleTime = it.take(40) }, Modifier.fillMaxWidth(), label = { Text("Jour et heure") }, placeholder = { Text("Ex. samedi, 18:30") }, singleLine = true) } },
+        confirmButton = { Button(enabled = scheduleTitle.trim().length >= 2 && scheduleTime.trim().length >= 2, onClick = { val entry = "${System.currentTimeMillis()}|${scheduleTitle.trim().replace("|", " ")}|${scheduleTime.trim().replace("|", " ")}"; programmes = (programmes + entry).sorted(); prefs.edit().putStringSet("programmes", programmes.toSet()).apply(); scheduleTitle = ""; scheduleTime = ""; showScheduleDialog = false; feedback = "L’émission a été ajoutée à votre programmation." }) { Text("Programmer") } },
+        dismissButton = { TextButton(onClick = { showScheduleDialog = false }) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun RadioMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, color = WhappyMuted, fontSize = 8.sp, fontWeight = FontWeight.Black)
+            Text(value, Modifier.padding(top = 4.dp), color = WhappyBlue, fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        }
+    }
 }
 
 @Composable
@@ -3739,6 +3952,17 @@ private fun shareWhappyLink(context: Context, title: String, link: String) {
     val appLink = link.replace("https://whappy.chat/", "whappy://")
     val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_SUBJECT, title); putExtra(Intent.EXTRA_TEXT, "$title\n$appLink\n$link") }
     context.startActivity(Intent.createChooser(intent, "Partager avec…"))
+}
+
+private fun shareRadioRecording(context: Context, file: File, stationName: String) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "audio/mp4"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, stationName.ifBlank { "WHAPPY Radio" })
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Partager l’émission…"))
 }
 
 private fun createWhappyQr(phone: String): Bitmap = QRCodeWriter().encode(
