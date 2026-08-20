@@ -47,6 +47,7 @@ yarn-error.log*
 /releases/*.apk
 /releases/*.aab
 /releases/*.apk.idsig
+/public-hosting/*.apk
 /outputs/
 /work/
 *.tsbuildinfo
