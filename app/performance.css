@@ -1,5 +1,5 @@
 /* WHAPPY interaction layer — GPU-friendly, responsive and strictly on-brand. */
-:root{--whappy-blue:#1C1C58;--whappy-white:#FFFFFF;--whappy-ink:#111111;--whappy-muted:#667085;--whappy-ease:cubic-bezier(.2,.8,.2,1)}
+:root{--whappy-blue:#1C1C74;--whappy-white:#FFFFFF;--whappy-ink:#111111;--whappy-muted:#667085;--whappy-ease:cubic-bezier(.2,.8,.2,1)}
 html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button,a{touch-action:manipulation}
 .orbit-scroll,.space-scroll,.deal-messages,.inbox-list,.channel-posts,.group-messages,[class*="scroll"]{overscroll-behavior:contain;scrollbar-gutter:stable;-webkit-overflow-scrolling:touch}
 .inbox-space,.deal-chat,.nova-topbar,.nova-rail,.channel-shell,.group-shell,.profile-shell{contain:layout paint style}
@@ -8,6 +8,16 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .nova-shell button:active,.nova-shell a:active,.nova-shell [role="button"]:active{transform:scale(.975)}
 @media (max-width:900px),(pointer:coarse){.nova-topbar,.map-node,.action-strip>button,.live-info>span,.preview-product,.deal-chat>header,.profile-pulse,.deal-context,.deal-chat>form,.smart-replies button,.experience-tools button{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}.deal-chat:before,.deal-chat:after,.nova-logo:after{animation:none!important}.inbox-space,.listing-card,.deal-messages>div{box-shadow:none}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}
+
+/* Conversations lisibles : surface blanche, bulles propres, aucun quadrillage. */
+.whappy-blue :is(.deal-chat,.realtime-panel>main,.realtime-messages) {
+  background:#FFFFFF!important;
+  background-image:none!important;
+}
+.whappy-blue :is(.deal-messages>div,.realtime-messages>article) {
+  border:0!important;
+  box-shadow:none!important;
+}
 
 /* Premium surface system: no decorative grids or technical-looking rules. */
 .nova-shell.whappy-blue,
@@ -110,7 +120,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 }
 .whappy-blue .radio-hero h2 { color:#111111; }
 .whappy-blue .radio-hero h2 em,
-.whappy-blue .radio-hero>div>span { color:#1C1C58; }
+.whappy-blue .radio-hero>div>span { color:#1C1C74; }
 .whappy-blue .radio-hero>aside {
   border:0!important;
   background:#FFFFFF!important;
@@ -119,7 +129,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
   backdrop-filter:none;
 }
 .whappy-blue .radio-hero aside small,
-.whappy-blue .radio-wave i { color:#1C1C58; background:#1C1C58; }
+.whappy-blue .radio-wave i { color:#1C1C74; background:#1C1C74; }
 
 .whappy-blue .radio-tabs button {
   border:0!important;
@@ -128,7 +138,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 }
 .whappy-blue .radio-tabs button.active {
   background:rgba(28,28,88,.08)!important;
-  color:#1C1C58!important;
+  color:#1C1C74!important;
   box-shadow:none!important;
 }
 
@@ -184,13 +194,13 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .whappy-blue .podcast-item-actions button {
   border:0!important;
   background:rgba(28,28,88,.06)!important;
-  color:#1C1C58!important;
+  color:#1C1C74!important;
 }
 .whappy-blue .radio-actions button.active,
 .whappy-blue .radio-live-button,
 .whappy-blue .radio-pause-button {
   border:0!important;
-  background:#1C1C58!important;
+  background:#1C1C74!important;
   color:#FFFFFF!important;
 }
 .whappy-blue .radio-end-button,
@@ -198,18 +208,18 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .whappy-blue .podcast-item-actions button.danger {
   border:0!important;
   background:rgba(28,28,88,.09)!important;
-  color:#1C1C58!important;
+  color:#1C1C74!important;
 }
 .whappy-blue .radio-messages form button,
 .whappy-blue .podcast-create form button {
-  background:#1C1C58!important;
+  background:#1C1C74!important;
   color:#FFFFFF!important;
 }
 
 .whappy-blue :is(.radio-message-actions button,.radio-gift-button) {
   border:0!important;
   background:#FFFFFF!important;
-  color:#1C1C58!important;
+  color:#1C1C74!important;
 }
 .whappy-blue :is(.radio-queue-item b,.radio-lineup-list article b,.radio-lineup-list article strong) {
   color:#111111!important;
@@ -226,7 +236,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .radio-dock-message {
   border:0!important;
   background:rgba(28,28,88,.06)!important;
-  color:#1C1C58!important;
+  color:#1C1C74!important;
 }
 
 @media (max-width:760px) {

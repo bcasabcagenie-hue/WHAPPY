@@ -121,7 +121,7 @@ class WhappyViewModel(
         viewModelScope.launch {
             runCatching {
                 repository.createGroup(
-                    current = WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    current = currentMember(user),
                     name = name,
                     selectedMembers = selected,
                 )
@@ -279,7 +279,7 @@ class WhappyViewModel(
                 peer
             }.onSuccess { peer ->
                 if (request != contactSearchRequest) return@onSuccess
-                val current = WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty())
+                val current = currentMember(user)
                 // A registered number is an unambiguous destination: create (or
                 // reuse) the direct thread and take the user there immediately.
                 // This keeps the number flow as fast as messaging an existing contact.
@@ -370,7 +370,7 @@ class WhappyViewModel(
         val peer = state.contactSearchResult ?: return
         if (state.contactBusy) return
 
-        val current = WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty())
+        val current = currentMember(user)
         if (state.contacts.any { it.member.uid == peer.uid }) {
             _uiState.update {
                 it.copy(
@@ -438,7 +438,7 @@ class WhappyViewModel(
         viewModelScope.launch {
             runCatching {
                 repository.ensureDirectConversation(
-                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    currentMember(user),
                     contact.member,
                 )
             }.onSuccess { conversation ->
@@ -469,7 +469,7 @@ class WhappyViewModel(
                 val peer = repository.findUserById(page.ownerId) ?: error("not-found")
                 if (peer.uid == user.uid) error("self")
                 repository.ensureDirectConversation(
-                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    currentMember(user),
                     peer,
                 )
             }.onSuccess { conversation ->
@@ -493,7 +493,7 @@ class WhappyViewModel(
         viewModelScope.launch {
             runCatching {
                 repository.publishListing(
-                    WhappyMember(user.uid, accountName(), user.phoneNumber.orEmpty()),
+                    currentMember(user),
                     title,
                     price,
                     place,
@@ -774,6 +774,13 @@ class WhappyViewModel(
         val phone = _uiState.value.user?.phoneNumber.orEmpty()
         if (WhappyIdentity.isFounder(phone)) WhappyIdentity.founderName else "Utilisateur WHAPPY"
     }
+
+    private fun currentMember(user: com.google.firebase.auth.FirebaseUser): WhappyMember = WhappyMember(
+        uid = user.uid,
+        displayName = accountName(),
+        phoneNumber = user.phoneNumber.orEmpty(),
+        photoUrl = _uiState.value.accountPhotoUrl.ifBlank { user.photoUrl?.toString().orEmpty() },
+    )
 
     override fun onCleared() {
         FirebaseAuth.getInstance().removeAuthStateListener(authListener)

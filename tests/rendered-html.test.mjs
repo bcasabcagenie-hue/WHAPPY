@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.4\.7-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.4\.8-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -63,6 +63,8 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(repository, /sendMediaMessage/);
   assert.match(repository, /FirebaseStorage/);
   assert.match(ui, /EmojiTray/);
+  assert.match(ui, /Compatibles Android/);
+  assert.match(ui, /CreateGroupDialog/);
   assert.match(ui, /createVoiceRecorder/);
   assert.match(ui, /autoCorrectEnabled = true/);
   assert.match(ui, /WhappyStudioScreen/);
@@ -123,6 +125,24 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(models, /sessionRestoring/);
   assert.match(models, /accountDisplayName/);
   assert.match(manifest, /androidx\.core\.content\.FileProvider/);
+  assert.match(manifest, /USE_FULL_SCREEN_INTENT/);
+  const [notifications, calls, androidBuild] = await Promise.all([
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyMessagingService.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyCalls.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/build.gradle", import.meta.url), "utf8"),
+  ]);
+  assert.match(notifications, /NotificationCompat\.CallStyle\.forIncomingCall/);
+  assert.match(notifications, /whappy_messages_v3/);
+  assert.match(notifications, /whappy_calls_v3/);
+  assert.match(notifications, /TYPE_NOTIFICATION/);
+  assert.match(notifications, /USAGE_NOTIFICATION_COMMUNICATION_INSTANT/);
+  assert.match(calls, /Sonnerie…/);
+  assert.match(calls, /Décrocher/);
+  assert.match(calls, /0xFF22C55E/);
+  assert.match(calls, /0xFFEF4444/);
+  assert.match(calls, /ToneGenerator\.TONE_SUP_RINGTONE/);
+  assert.match(androidBuild, /emoji2-bundled:1\.5\.0/);
+  assert.match(androidBuild, /versionName "1\.4\.8-native"/);
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
@@ -180,7 +200,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
   assert.match(packageJson, /"name": "whappy"/);
   assert.match(readme, /réseau d'opportunités autonome/i);
   assert.match(readme, /prêt à être développé dans Visual Studio Code/i);
-  assert.match(logo, /#1C1C58/i);
+  assert.match(logo, /#1C1C74/i);
   assert.match(firebase, /getFirestore/);
   assert.match(firebase, /getAuth/);
   assert.match(rules, /request\.auth\.uid/);
@@ -349,4 +369,18 @@ test("expose les Salles Whappy et leur modèle de communautés", async () => {
   assert.match(rules, /match \/channels\/\{channelId\}/);
   assert.match(rules, /match \/pilot\/\{settingsId\}/);
   assert.match(rules, /match \/posts\/\{postId\}/);
+});
+
+test("prépare les notifications serveur sans les déployer", async () => {
+  const [firebaseConfig, notificationFunctions, functionsPackage] = await Promise.all([
+    readFile(new URL("../firebase.json", import.meta.url), "utf8"),
+    readFile(new URL("../functions/src/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../functions/package.json", import.meta.url), "utf8"),
+  ]);
+  assert.match(firebaseConfig, /"source": "functions"/);
+  assert.match(notificationFunctions, /notifyNewMessage/);
+  assert.match(notificationFunctions, /notifyIncomingCall/);
+  assert.match(notificationFunctions, /sendEachForMulticast/);
+  assert.match(notificationFunctions, /priority: "high"/);
+  assert.match(functionsPackage, /"uuid": "\^11\.1\.1"/);
 });

@@ -48,9 +48,9 @@ type Listing = { id: string | number; title: string; price: string; place: strin
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const ANDROID_APP = {
-  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.4.7-native.apk",
-  version: "1.4.7",
-  size: "66 Mo",
+  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.4.8-native.apk",
+  version: "1.4.8",
+  size: "79 Mo",
   minimum: "Android 8.0+",
 } as const;
 
@@ -130,12 +130,12 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
 }
 
 const messages = [
-  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#1C1C58", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
-  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#1C1C58", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
-  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#1C1C58", unread: 0, mood: "Collection N'Tela en direct ce soir", badge: "BOUTIQUE PRO", streak: 54 },
-  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#1C1C58", unread: 0, mood: "Créateurs disponibles cette semaine", badge: "GROUPE ACTIF", streak: 19 },
-  { name: "Maison Noki", text: "Canapé disponible pour échange ou vente.", time: "10:26", mark: "MN", color: "#1C1C58", unread: 0, mood: "Maison et décoration à Bacongo", badge: "VENDEUR VÉRIFIÉ", streak: 17 },
-  { name: "Nadia M.", text: "Studio photo disponible cette semaine.", time: "09:14", mark: "NM", color: "#1C1C58", unread: 0, mood: "Service local · Moungali", badge: "PROFESSIONNELLE VÉRIFIÉE", streak: 21 },
+  { name: "Amina M.", text: "Le troc est accepté pour le canapé ?", time: "Maintenant", mark: "AM", color: "#1C1C74", unread: 2, mood: "Cherche une belle pièce pour son salon", badge: "ACHETEUSE FIABLE", streak: 12 },
+  { name: "Junior K.", text: "Je peux livrer le MacBook cet après-midi.", time: "12:08", mark: "JK", color: "#1C1C74", unread: 1, mood: "Disponible pour une livraison rapide", badge: "VENDEUR VÉRIFIÉ", streak: 28 },
+  { name: "Mokabi Store", text: "Votre commande est prête ✦", time: "11:42", mark: "MS", color: "#1C1C74", unread: 0, mood: "Collection N'Tela en direct ce soir", badge: "BOUTIQUE PRO", streak: 54 },
+  { name: "Design Crew", text: "Nadia : rendez-vous confirmé demain", time: "Hier", mark: "DC", color: "#1C1C74", unread: 0, mood: "Créateurs disponibles cette semaine", badge: "GROUPE ACTIF", streak: 19 },
+  { name: "Maison Noki", text: "Canapé disponible pour échange ou vente.", time: "10:26", mark: "MN", color: "#1C1C74", unread: 0, mood: "Maison et décoration à Bacongo", badge: "VENDEUR VÉRIFIÉ", streak: 17 },
+  { name: "Nadia M.", text: "Studio photo disponible cette semaine.", time: "09:14", mark: "NM", color: "#1C1C74", unread: 0, mood: "Service local · Moungali", badge: "PROFESSIONNELLE VÉRIFIÉE", streak: 21 },
 ];
 
 function Mark({ children, color, small = false }: { children: React.ReactNode; color?: string; small?: boolean }) {

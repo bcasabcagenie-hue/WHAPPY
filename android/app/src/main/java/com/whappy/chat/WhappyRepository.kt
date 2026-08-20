@@ -122,18 +122,56 @@ class WhappyRepository(
         userId: String,
         onChange: (List<WhappyConversation>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("conversations")
-        .whereArrayContains("memberIds", userId)
-        .addSnapshotListener { snapshot, error ->
+    ): ListenerRegistration {
+        val profileListeners = mutableMapOf<String, ListenerRegistration>()
+        var conversations = emptyList<WhappyConversation>()
+        var removed = false
+        fun emit() {
+            if (!removed) onChange(conversations.sortedByDescending { it.updatedAt })
+        }
+        val conversationListener = db.collection("conversations")
+            .whereArrayContains("memberIds", userId)
+            .addSnapshotListener { snapshot, error ->
             if (error != null) {
                 onError(error)
                 return@addSnapshotListener
             }
-            val conversations = snapshot?.documents.orEmpty()
+            conversations = snapshot?.documents.orEmpty()
                 .mapNotNull { it.toConversation(userId) }
                 .sortedByDescending { it.updatedAt }
-            onChange(conversations)
+            emit()
+
+            val peerIds = conversations.asSequence()
+                .filterNot { it.isGroup }
+                .map { it.peer.uid }
+                .filter { it.isNotBlank() && it != userId }
+                .toSet()
+            (profileListeners.keys - peerIds).forEach { peerId ->
+                profileListeners.remove(peerId)?.remove()
+            }
+            (peerIds - profileListeners.keys).forEach { peerId ->
+                profileListeners[peerId] = db.collection("users").document(peerId)
+                    .addSnapshotListener { profile, _ ->
+                        if (removed || profile == null || !profile.exists()) return@addSnapshotListener
+                        val liveMember = profile.toMember()
+                        conversations = conversations.map { conversation ->
+                            if (!conversation.isGroup && conversation.peer.uid == peerId) {
+                                conversation.copy(peer = liveMember)
+                            } else conversation
+                        }
+                        emit()
+                    }
+            }
         }
+        return object : ListenerRegistration {
+            override fun remove() {
+                removed = true
+                conversationListener.remove()
+                profileListeners.values.forEach { it.remove() }
+                profileListeners.clear()
+            }
+        }
+    }
 
     fun observeContacts(
         userId: String,
@@ -150,7 +188,12 @@ class WhappyRepository(
             onChange(contacts.mapNotNull { (uid, value) ->
                 val name = value["displayName"]?.toString()?.trim().orEmpty()
                 if (uid.isBlank() || name.isBlank()) null else WhappyContact(
-                    member = WhappyMember(uid, name, value["phoneNumber"]?.toString().orEmpty()),
+                    member = WhappyMember(
+                        uid = uid,
+                        displayName = name,
+                        phoneNumber = value["phoneNumber"]?.toString().orEmpty(),
+                        photoUrl = value["photoUrl"]?.toString().orEmpty(),
+                    ),
                     addedAt = (value["addedAt"] as? Timestamp)?.toDate()?.time ?: 0L,
                 )
             }.sortedBy { it.member.displayName.lowercase() })
@@ -585,7 +628,14 @@ class WhappyRepository(
                 "conversationType" to "group",
                 "title" to cleanName,
                 "memberIds" to members.map { it.uid },
-                "members" to members.map { member -> mapOf("uid" to member.uid, "displayName" to member.displayName, "phoneNumber" to member.phoneNumber) },
+                "members" to members.map { member ->
+                    mapOf(
+                        "uid" to member.uid,
+                        "displayName" to member.displayName,
+                        "phoneNumber" to member.phoneNumber,
+                        "photoUrl" to member.photoUrl,
+                    )
+                },
                 "typingBy" to emptyMap<String, Boolean>(),
                 "readBy" to emptyMap<String, Any>(),
                 "lastMessage" to "Groupe créé",
@@ -1012,6 +1062,7 @@ class WhappyRepository(
                     peer.uid to mapOf(
                         "displayName" to peer.displayName,
                         "phoneNumber" to peer.phoneNumber,
+                        "photoUrl" to peer.photoUrl,
                         "addedAt" to FieldValue.serverTimestamp(),
                     ),
                 ),
@@ -1035,8 +1086,8 @@ class WhappyRepository(
             "ownerId" to current.uid,
             "memberIds" to listOf(current.uid, peer.uid).sorted(),
             "members" to listOf(
-                mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
-                mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
+                mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl),
+                mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber, "photoUrl" to peer.photoUrl),
             ),
             "typingBy" to emptyMap<String, Boolean>(),
             "readBy" to emptyMap<String, Any>(),
@@ -1051,6 +1102,7 @@ class WhappyRepository(
                         peer.uid to mapOf(
                             "displayName" to peer.displayName,
                             "phoneNumber" to peer.phoneNumber,
+                            "photoUrl" to peer.photoUrl,
                             "addedAt" to FieldValue.serverTimestamp(),
                         ),
                     ),
@@ -1095,8 +1147,8 @@ class WhappyRepository(
                 "ownerId" to current.uid,
                 "memberIds" to listOf(current.uid, peer.uid).sorted(),
                 "members" to listOf(
-                    mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber),
-                    mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber),
+                    mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl),
+                    mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber, "photoUrl" to peer.photoUrl),
                 ),
                 "typingBy" to emptyMap<String, Boolean>(),
                 "readBy" to emptyMap<String, Any>(),
@@ -1126,6 +1178,7 @@ class WhappyRepository(
                 uid = peerMap["uid"]?.toString().orEmpty(),
                 displayName = peerMap["displayName"]?.toString()?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
                 phoneNumber = peerMap["phoneNumber"]?.toString().orEmpty(),
+                photoUrl = peerMap["photoUrl"]?.toString().orEmpty(),
             )
         } else {
             WhappyMember(
@@ -1158,6 +1211,7 @@ class WhappyRepository(
         uid = id,
         displayName = getString("displayName")?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
         phoneNumber = getString("phoneNumber").orEmpty(),
+        photoUrl = getString("photoUrl").orEmpty(),
     )
 
     private fun DocumentSnapshot.toBusinessPage(): WhappyBusinessPage = WhappyBusinessPage(

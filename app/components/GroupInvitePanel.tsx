@@ -14,7 +14,7 @@ export function GroupInvitePanel({ groupName, link, onClose }: { groupName: stri
       errorCorrectionLevel: "M",
       margin: 1,
       width: 480,
-      color: { dark: "#1C1C58", light: "#FFFFFF" },
+      color: { dark: "#1C1C74", light: "#FFFFFF" },
     }).then((value) => { if (active) setQr({ link, value, error: "" }); }).catch(() => { if (active) setQr({ link, value: "", error: "Le code QR n’a pas pu être généré. Utilisez le lien ci-dessous." }); });
     return () => { active = false; };
   }, [link]);

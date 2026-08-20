@@ -21,6 +21,7 @@ data class WhappyMember(
     val uid: String,
     val displayName: String,
     val phoneNumber: String = "",
+    val photoUrl: String = "",
 )
 
 data class WhappyConversation(

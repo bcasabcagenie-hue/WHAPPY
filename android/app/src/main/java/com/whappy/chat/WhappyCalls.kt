@@ -4,6 +4,12 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.Ringtone
+import android.media.RingtoneManager
+import android.media.ToneGenerator
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -82,7 +88,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
-private const val BRAND_BLUE = 0xFF1C1C58
+private const val BRAND_BLUE = 0xFF1C1C74
 
 data class WhappyCallUiState(
     val visible: Boolean = false,
@@ -133,6 +139,19 @@ class WhappyCallController(private val activity: ComponentActivity) {
     private var callId = ""
     private var pendingCallId = ""
     private var pendingIncoming: DocumentSnapshot? = null
+    private var ringtone: Ringtone? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val ringbackToneDelegate = lazy(LazyThreadSafetyMode.NONE) {
+        ToneGenerator(AudioManager.STREAM_VOICE_CALL, 72)
+    }
+    private val ringbackLoop = object : Runnable {
+        override fun run() {
+            if (state.visible && !state.incoming && state.status == "Sonnerie…") {
+                runCatching { ringbackToneDelegate.value.startTone(ToneGenerator.TONE_SUP_RINGTONE, 1_800) }
+                mainHandler.postDelayed(this, 4_000)
+            }
+        }
+    }
     private var remoteDescriptionReady = false
     private var answerApplied = false
     private val queuedRemoteCandidates = mutableListOf<IceCandidate>()
@@ -171,8 +190,15 @@ class WhappyCallController(private val activity: ComponentActivity) {
                     incoming = true,
                     video = recent.getBoolean("video") == true,
                     peerName = recent.getString("callerName") ?: "Contact Whappy",
-                    status = if (recent.getBoolean("video") == true) "Appel vidéo entrant" else "Appel audio entrant",
+                    status = "Sonnerie…",
                 )
+                val notificationRings = WhappyNotifications.showIncomingCall(
+                    context = activity,
+                    callId = recent.id,
+                    callerName = recent.getString("callerName") ?: "Contact WHAPPY",
+                    video = recent.getBoolean("video") == true,
+                )
+                if (!notificationRings) startRinging()
                 watchCallDocument(recent.id)
             }
     }
@@ -208,6 +234,8 @@ class WhappyCallController(private val activity: ComponentActivity) {
 
     fun acceptIncoming() {
         val incoming = pendingIncoming ?: return
+        stopRinging()
+        WhappyNotifications.cancelCall(activity, incoming.id)
         withCallPermissions(incoming.getBoolean("video") == true) {
             activity.lifecycleScope.launch { beginIncoming(incoming) }
         }
@@ -312,6 +340,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             watchRemoteCandidates(reference.id, "calleeCandidates")
             watchCallDocument(reference.id)
             state = state.copy(status = "Sonnerie…")
+            startRingback()
         }.onFailure { failCall("L’appel Whappy n’a pas pu démarrer.") }
     }
 
@@ -410,6 +439,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 return@addSnapshotListener
             }
             if (status == "accepted" && !answerApplied && peerConnection != null) {
+                stopRingback()
                 val answer = snapshot.get("answer") as? Map<*, *> ?: return@addSnapshotListener
                 answerApplied = true
                 activity.lifecycleScope.launch {
@@ -458,6 +488,8 @@ class WhappyCallController(private val activity: ComponentActivity) {
     }
 
     private fun closeLocal() {
+        stopRinging()
+        WhappyNotifications.cancelCall(activity, callId.ifBlank { pendingCallId })
         closeConnectionsOnly()
         pendingIncoming = null
         pendingCallId = ""
@@ -465,7 +497,33 @@ class WhappyCallController(private val activity: ComponentActivity) {
         state = WhappyCallUiState()
     }
 
+    private fun startRinging() {
+        stopRinging()
+        ringtone = runCatching {
+            RingtoneManager.getRingtone(activity, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.also {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.isLooping = true
+                it.play()
+            }
+        }.getOrNull()
+    }
+
+    private fun stopRinging() {
+        runCatching { ringtone?.stop() }
+        ringtone = null
+    }
+
+    private fun startRingback() {
+        stopRingback()
+        mainHandler.post(ringbackLoop)
+    }
+
+    private fun stopRingback() {
+        mainHandler.removeCallbacks(ringbackLoop)
+        if (ringbackToneDelegate.isInitialized()) runCatching { ringbackToneDelegate.value.stopTone() }
+    }
+
     private fun closeConnectionsOnly(keepDocumentWatch: Boolean = false) {
+        stopRingback()
         if (!keepDocumentWatch) {
             registrations.forEach { it.remove() }
             registrations.clear()
@@ -500,6 +558,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         incomingRegistration = null
         if (factoryDelegate.isInitialized()) factory.dispose()
         if (eglBaseDelegate.isInitialized()) eglBase.release()
+        if (ringbackToneDelegate.isInitialized()) ringbackToneDelegate.value.release()
     }
 }
 
@@ -544,6 +603,8 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
     val call = controller.state
     if (!call.visible) return
     val context = LocalContext.current
+    val acceptGreen = Color(0xFF22C55E)
+    val declineRed = Color(0xFFEF4444)
     Box(Modifier.fillMaxSize().background(Color(BRAND_BLUE)), contentAlignment = Alignment.Center) {
         if (call.video && !call.incoming && call.error == null) {
             AndroidView(
@@ -564,13 +625,20 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                 }
             }
             Text(call.peerName.ifBlank { "WHAPPY CALL" }, Modifier.padding(top = 22.dp), color = Color.White, fontSize = 25.sp)
+            if (call.incoming) Text(if (call.video) "Appel vidéo entrant" else "Appel audio entrant", Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .72f), fontSize = 13.sp)
             Text(call.status, Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .8f))
             call.error?.let { Text(it, Modifier.padding(24.dp), color = Color.White, fontSize = 14.sp) }
             Spacer(Modifier.size(22.dp))
             if (call.incoming) {
                 Row(horizontalArrangement = Arrangement.spacedBy(30.dp)) {
-                    FilledIconButton(onClick = controller::declineIncoming, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(Icons.Rounded.CallEnd, "Refuser", tint = Color(BRAND_BLUE)) }
-                    FilledIconButton(onClick = controller::acceptIncoming, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.video) Icons.Rounded.Videocam else Icons.Rounded.Phone, "Accepter", tint = Color(BRAND_BLUE)) }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        FilledIconButton(onClick = controller::declineIncoming, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = declineRed)) { Icon(Icons.Rounded.CallEnd, "Refuser", tint = Color.White) }
+                        Text("Refuser", Modifier.padding(top = 7.dp), color = Color.White, fontSize = 12.sp)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        FilledIconButton(onClick = controller::acceptIncoming, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = acceptGreen)) { Icon(if (call.video) Icons.Rounded.Videocam else Icons.Rounded.Phone, "Décrocher", tint = Color.White) }
+                        Text("Décrocher", Modifier.padding(top = 7.dp), color = Color.White, fontSize = 12.sp)
+                    }
                 }
             } else if (call.error != null) {
                 Button(onClick = controller::dismissError, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(BRAND_BLUE))) { Text("Fermer") }
@@ -579,7 +647,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                     FilledIconButton(onClick = controller::toggleMicrophone, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, "Micro", tint = Color(BRAND_BLUE)) }
                     if (call.video) FilledIconButton(onClick = controller::toggleCamera, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", tint = Color(BRAND_BLUE)) }
                     if (call.video) FilledIconButton(onClick = controller::switchCamera, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(Icons.Rounded.Cameraswitch, "Changer de caméra", tint = Color(BRAND_BLUE)) }
-                    FilledIconButton(onClick = controller::hangUp, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(Icons.Rounded.CallEnd, "Raccrocher", tint = Color(BRAND_BLUE)) }
+                    FilledIconButton(onClick = controller::hangUp, colors = IconButtonDefaults.filledIconButtonColors(containerColor = declineRed)) { Icon(Icons.Rounded.CallEnd, "Raccrocher", tint = Color.White) }
                 }
             }
         }

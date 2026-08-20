@@ -1,12 +1,12 @@
 /* Whappy identity: the interface follows the supplied blue logo. */
 :root {
-  --whappy-indigo: #1C1C58;
-  --whappy-indigo-light: #1C1C58;
-  --whappy-indigo-soft: #1C1C58;
-  --whappy-glow: rgba(28, 28, 88, .38);
+  --whappy-indigo: #1C1C74;
+  --whappy-indigo-light: #1C1C74;
+  --whappy-indigo-soft: #1C1C74;
+  --whappy-glow: rgba(28, 28, 116, .38);
   --neon: var(--whappy-indigo-light);
   --neon2: var(--whappy-indigo-soft);
-  --line: rgba(28, 28, 88, .14);
+  --line: rgba(28, 28, 116, .14);
 }
 
 body { background: #111111; }
@@ -32,7 +32,7 @@ body { background: #111111; }
 
 .nova-rail nav button.active,
 .rail-tools > button.active {
-  background: linear-gradient(135deg, rgba(28, 28, 88, .28), rgba(28, 28, 88, .12));
+  background: linear-gradient(135deg, rgba(28, 28, 116, .28), rgba(28, 28, 116, .12));
   color: var(--whappy-indigo-light);
 }
 
@@ -95,7 +95,7 @@ body { background: #111111; }
   border-color: var(--whappy-indigo);
   background: var(--whappy-indigo);
   color: #fff;
-  box-shadow: 0 12px 28px rgba(28, 28, 88, .28);
+  box-shadow: 0 12px 28px rgba(28, 28, 116, .28);
 }
 
 .top-actions .sell:hover,
@@ -109,8 +109,8 @@ body { background: #111111; }
 .growth-submit:hover,
 .story-publish:hover,
 .access-apk:hover {
-  background: #1C1C58;
-  border-color: #1C1C58;
+  background: #1C1C74;
+  border-color: #1C1C74;
 }
 
 .whappy-blue .listing-art.blue,
@@ -120,7 +120,7 @@ body { background: #111111; }
 .whappy-blue .barter-art.amber,
 .whappy-blue .market-banner,
 .whappy-blue .need-ribbon {
-  background: linear-gradient(135deg, #1C1C58, #1C1C58 58%, #1C1C58);
+  background: linear-gradient(135deg, #1C1C74, #1C1C74 58%, #1C1C74);
 }
 
 .whappy-blue .action-strip > button,
@@ -129,7 +129,7 @@ body { background: #111111; }
 .whappy-blue .live-features > div,
 .whappy-blue .builder-card,
 .whappy-blue .shift-explainer {
-  border-color: rgba(28, 28, 88, .2);
+  border-color: rgba(28, 28, 116, .2);
 }
 
 .whappy-blue .action-strip .op-mark,
@@ -140,9 +140,9 @@ body { background: #111111; }
 .whappy-blue .match-result,
 .whappy-blue .market-toolbar button.active,
 .whappy-blue .seek-tabs button.active {
-  background: rgba(28, 28, 88, .16);
+  background: rgba(28, 28, 116, .16);
   color: var(--whappy-indigo-light);
-  border-color: rgba(28, 28, 88, .36);
+  border-color: rgba(28, 28, 116, .36);
 }
 
 .whappy-blue .radar .ring,
@@ -150,23 +150,23 @@ body { background: #111111; }
 .whappy-blue .studio-preview,
 .whappy-blue .trust-orbit,
 .whappy-blue .match-result {
-  border-color: rgba(28, 28, 88, .36);
-  box-shadow: 0 0 0 8px rgba(28, 28, 88, .07), 0 0 55px rgba(28, 28, 88, .3);
+  border-color: rgba(28, 28, 116, .36);
+  box-shadow: 0 0 0 8px rgba(28, 28, 116, .07), 0 0 55px rgba(28, 28, 116, .3);
 }
 
 .whappy-blue .nova-search:focus-within,
 .whappy-blue .deal-chat form:focus-within,
 .whappy-blue .deal-chat form input:focus {
-  border-color: rgba(28, 28, 88, .62);
-  box-shadow: 0 0 0 3px rgba(28, 28, 88, .12);
+  border-color: rgba(28, 28, 116, .62);
+  box-shadow: 0 0 0 3px rgba(28, 28, 116, .12);
 }
 
 .phone-access {
-  background: radial-gradient(circle at 16% 20%, rgba(28, 28, 88, .42), transparent 34%), #111111;
+  background: radial-gradient(circle at 16% 20%, rgba(28, 28, 116, .42), transparent 34%), #111111;
 }
 
 .access-brand {
-  background: linear-gradient(150deg, #1C1C58 0%, #1C1C58 44%, #1C1C58 100%);
+  background: linear-gradient(150deg, #1C1C74 0%, #1C1C74 44%, #1C1C74 100%);
 }
 
 .access-logo img,
@@ -192,8 +192,8 @@ body { background: #111111; }
 }
 
 .access-card {
-  border-color: rgba(28, 28, 88, .26);
-  box-shadow: 0 28px 85px rgba(17, 17, 17, .32), 0 0 0 1px rgba(28, 28, 88, .05);
+  border-color: rgba(28, 28, 116, .26);
+  box-shadow: 0 28px 85px rgba(17, 17, 17, .32), 0 0 0 1px rgba(28, 28, 116, .05);
 }
 
 .access-card input:focus,
@@ -201,7 +201,7 @@ body { background: #111111; }
 .phone-field:focus-within,
 .access-card .otp-field:focus {
   border-color: var(--whappy-indigo-light);
-  box-shadow: 0 0 0 3px rgba(28, 28, 88, .14);
+  box-shadow: 0 0 0 3px rgba(28, 28, 116, .14);
 }
 
 /* Keep the app name visible in the main browser chrome even when a feature label is shown. */
@@ -214,24 +214,24 @@ body { background: #111111; }
 
 /* Whappy 2026 visual refresh: blue first, no green accents. */
 :root {
-  --whappy-ink: #1C1C58;
-  --whappy-ink-2: #1C1C58;
-  --whappy-blue: #1C1C58;
-  --whappy-blue-2: #1C1C58;
-  --whappy-blue-3: #1C1C58;
+  --whappy-ink: #1C1C74;
+  --whappy-ink-2: #1C1C74;
+  --whappy-blue: #1C1C74;
+  --whappy-blue-2: #1C1C74;
+  --whappy-blue-3: #1C1C74;
   --whappy-cream: #FFFFFF;
   --whappy-paper: #FFFFFF;
-  --whappy-line: rgba(28, 28, 88, .14);
-  --whappy-muted: #1C1C58;
-  --whappy-gold: #1C1C58;
-  --whappy-coral: #1C1C58;
+  --whappy-line: rgba(28, 28, 116, .14);
+  --whappy-muted: #1C1C74;
+  --whappy-gold: #1C1C74;
+  --whappy-coral: #1C1C74;
   --neon: var(--whappy-blue-2);
   --neon2: var(--whappy-blue-3);
 }
 
 body {
   background:
-    linear-gradient(135deg, rgba(28, 28, 88, .08), transparent 36%),
+    linear-gradient(135deg, rgba(28, 28, 116, .08), transparent 36%),
     var(--whappy-cream);
 }
 
@@ -247,8 +247,8 @@ body {
   position: relative;
   overflow: hidden;
   background:
-    linear-gradient(90deg, rgba(28, 28, 88, .07) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(28, 28, 88, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 28, 116, .07) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .05) 1px, transparent 1px),
     linear-gradient(145deg, #FFFFFF 0%, #FFFFFF 54%, #FFFFFF 100%);
   background-size: 34px 34px, 34px 34px, auto;
   color: var(--whappy-ink);
@@ -256,9 +256,9 @@ body {
 
 .whappy-blue .nova-rail {
   background:
-    linear-gradient(180deg, #1C1C58 0%, #1C1C58 54%, #1C1C58 100%);
+    linear-gradient(180deg, #1C1C74 0%, #1C1C74 54%, #1C1C74 100%);
   border-color: rgba(255, 255, 255, .12);
-  box-shadow: 14px 0 38px rgba(28, 28, 88, .18);
+  box-shadow: 14px 0 38px rgba(28, 28, 116, .18);
 }
 
 .nova-logo,
@@ -267,7 +267,7 @@ body {
   background: var(--whappy-blue);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, .2),
-    0 16px 34px rgba(28, 28, 88, .28);
+    0 16px 34px rgba(28, 28, 116, .28);
 }
 
 .nova-logo:after,
@@ -282,7 +282,7 @@ body {
 }
 
 .motion-pointer {
-  background: radial-gradient(circle, rgba(28, 28, 88, .12), transparent 64%);
+  background: radial-gradient(circle, rgba(28, 28, 116, .12), transparent 64%);
   filter: blur(10px);
 }
 
@@ -301,14 +301,14 @@ body {
 
 .whappy-blue .nova-rail nav button.active,
 .whappy-blue .rail-tools > button.active {
-  background: linear-gradient(135deg, rgba(255, 255, 255, .2), rgba(28, 28, 88, .24));
+  background: linear-gradient(135deg, rgba(255, 255, 255, .2), rgba(28, 28, 116, .24));
   color: #fff;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .13);
 }
 
 .whappy-blue .nova-rail nav button.active:before {
   background: var(--whappy-gold);
-  box-shadow: 0 0 18px rgba(28, 28, 88, .55);
+  box-shadow: 0 0 18px rgba(28, 28, 116, .55);
 }
 
 .whappy-blue .nova-rail nav button b,
@@ -327,12 +327,12 @@ body {
 .whappy-blue .nova-topbar {
   min-height: 82px;
   background: rgba(255, 255, 255, .84);
-  border-color: rgba(28, 28, 88, .11);
-  box-shadow: 0 10px 34px rgba(28, 28, 88, .08);
+  border-color: rgba(28, 28, 116, .11);
+  box-shadow: 0 10px 34px rgba(28, 28, 116, .08);
 }
 
 .whappy-blue .nova-topbar:after {
-  background: linear-gradient(90deg, transparent, rgba(28, 28, 88, .26), transparent);
+  background: linear-gradient(90deg, transparent, rgba(28, 28, 116, .26), transparent);
   animation: none;
 }
 
@@ -360,10 +360,10 @@ body {
 .whappy-blue .nova-search,
 .whappy-blue .top-actions button,
 .sync-badge {
-  border-color: rgba(28, 28, 88, .12);
+  border-color: rgba(28, 28, 116, .12);
   background: rgba(255, 255, 255, .72);
   color: var(--whappy-ink);
-  box-shadow: 0 8px 24px rgba(28, 28, 88, .06);
+  box-shadow: 0 8px 24px rgba(28, 28, 116, .06);
 }
 
 .whappy-blue .nova-search:focus-within,
@@ -371,8 +371,8 @@ body {
 .whappy-blue input:focus,
 .whappy-blue textarea:focus,
 .whappy-blue select:focus {
-  border-color: rgba(28, 28, 88, .55);
-  box-shadow: 0 0 0 3px rgba(28, 28, 88, .12);
+  border-color: rgba(28, 28, 116, .55);
+  box-shadow: 0 0 0 3px rgba(28, 28, 116, .12);
 }
 
 .top-actions .sell,
@@ -392,7 +392,7 @@ body {
   border-color: var(--whappy-blue);
   background: linear-gradient(135deg, var(--whappy-blue), var(--whappy-blue-2));
   color: #fff;
-  box-shadow: 0 16px 34px rgba(28, 28, 88, .24);
+  box-shadow: 0 16px 34px rgba(28, 28, 116, .24);
 }
 
 .top-actions .sell:hover,
@@ -406,18 +406,18 @@ body {
 .growth-submit:hover,
 .story-publish:hover,
 .access-apk:hover {
-  background: linear-gradient(135deg, #1C1C58, #1C1C58);
-  border-color: #1C1C58;
+  background: linear-gradient(135deg, #1C1C74, #1C1C74);
+  border-color: #1C1C74;
   transform: translateY(-1px);
 }
 
 .whappy-now {
   margin: 12px clamp(14px, 2.7vw, 34px) 0;
-  border: 1px solid rgba(28, 28, 88, .14);
+  border: 1px solid rgba(28, 28, 116, .14);
   background:
     linear-gradient(120deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .9)),
     var(--whappy-paper);
-  box-shadow: 0 18px 42px rgba(28, 28, 88, .1);
+  box-shadow: 0 18px 42px rgba(28, 28, 116, .1);
 }
 
 .whappy-now:before,
@@ -452,7 +452,7 @@ body {
 .contact-summary,
 .hub-hero {
   background:
-    linear-gradient(135deg, rgba(28, 28, 88, .95) 0%, rgba(28, 28, 88, .93) 58%, rgba(28, 28, 88, .88) 100%);
+    linear-gradient(135deg, rgba(28, 28, 116, .95) 0%, rgba(28, 28, 116, .93) 58%, rgba(28, 28, 116, .88) 100%);
   color: #fff;
 }
 
@@ -505,9 +505,9 @@ body {
 .calls-preview-body .call-history > article,
 .business-growth-tools,
 .growth-offer-grid article {
-  border-color: rgba(28, 28, 88, .12);
+  border-color: rgba(28, 28, 116, .12);
   background: rgba(255, 255, 255, .88);
-  box-shadow: 0 16px 40px rgba(28, 28, 88, .08);
+  box-shadow: 0 16px 40px rgba(28, 28, 116, .08);
 }
 
 .listing-card:hover,
@@ -520,7 +520,7 @@ body {
 .growth-offer-grid article:hover,
 .world-event-card:hover,
 .game-mode-card:hover {
-  box-shadow: 0 18px 46px rgba(28, 28, 88, .14);
+  box-shadow: 0 18px 46px rgba(28, 28, 116, .14);
   transform: translateY(-3px);
 }
 
@@ -534,7 +534,7 @@ body {
 .wepi-card-mark,
 .wallet-card,
 .wallet-balance {
-  background: linear-gradient(135deg, #1C1C58, #1C1C58 58%, #1C1C58);
+  background: linear-gradient(135deg, #1C1C74, #1C1C74 58%, #1C1C74);
 }
 
 .whappy-blue .listing-art > b,
@@ -556,9 +556,9 @@ body {
 
 .whappy-blue .inbox-space {
   margin: 12px 18px 18px;
-  border: 1px solid rgba(28, 28, 88, .13);
+  border: 1px solid rgba(28, 28, 116, .13);
   background: rgba(255, 255, 255, .75);
-  box-shadow: 0 18px 50px rgba(28, 28, 88, .1);
+  box-shadow: 0 18px 50px rgba(28, 28, 116, .1);
 }
 
 .whappy-blue .inbox-list,
@@ -569,8 +569,8 @@ body {
 
 .whappy-blue .deal-chat {
   background:
-    linear-gradient(90deg, rgba(28, 28, 88, .05) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(28, 28, 88, .04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 28, 116, .05) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .04) 1px, transparent 1px),
     #FFFFFF;
   background-size: 28px 28px;
 }
@@ -583,7 +583,7 @@ body {
 .whappy-blue .deal-messages > div {
   background: #FFFFFF;
   color: var(--whappy-ink);
-  border: 1px solid rgba(28, 28, 88, .09);
+  border: 1px solid rgba(28, 28, 116, .09);
 }
 
 .whappy-blue .deal-messages > div.mine {
@@ -600,9 +600,9 @@ body {
 .contact-tools button > span,
 .hub-shortcuts span,
 .service-grid > button > span {
-  background: rgba(28, 28, 88, .1);
+  background: rgba(28, 28, 116, .1);
   color: var(--whappy-blue);
-  border-color: rgba(28, 28, 88, .22);
+  border-color: rgba(28, 28, 116, .22);
 }
 
 .moments-home,
@@ -610,21 +610,21 @@ body {
 .contact-space,
 .super-hub {
   background:
-    linear-gradient(90deg, rgba(28, 28, 88, .045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(28, 28, 88, .04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 28, 116, .045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .04) 1px, transparent 1px),
     #FFFFFF;
   background-size: 34px 34px;
 }
 
 .moments-intro,
 .quick-publish {
-  border-color: rgba(28, 28, 88, .14);
+  border-color: rgba(28, 28, 116, .14);
   background: rgba(255, 255, 255, .88);
-  box-shadow: 0 14px 34px rgba(28, 28, 88, .08);
+  box-shadow: 0 14px 34px rgba(28, 28, 116, .08);
 }
 
 .moment-visual {
-  background: linear-gradient(135deg, #1C1C58, #1C1C58 56%, #1C1C58);
+  background: linear-gradient(135deg, #1C1C74, #1C1C74 56%, #1C1C74);
 }
 
 .moment-visual h3,
@@ -641,22 +641,22 @@ body {
 .hub-shortcuts button,
 .local-services button,
 .service-grid > button {
-  border-color: rgba(28, 28, 88, .12);
+  border-color: rgba(28, 28, 116, .12);
   background: rgba(255, 255, 255, .9);
-  box-shadow: 0 14px 34px rgba(28, 28, 88, .07);
+  box-shadow: 0 14px 34px rgba(28, 28, 116, .07);
 }
 
 .phone-access {
   background:
-    linear-gradient(90deg, rgba(28, 28, 88, .055) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(28, 28, 88, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 28, 116, .055) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .045) 1px, transparent 1px),
     #FFFFFF;
   background-size: 32px 32px;
 }
 
 .access-brand {
   background:
-    linear-gradient(140deg, #1C1C58 0%, #1C1C58 60%, #1C1C58 100%);
+    linear-gradient(140deg, #1C1C74 0%, #1C1C74 60%, #1C1C74 100%);
   color: #fff;
 }
 
@@ -672,9 +672,9 @@ body {
 
 .access-card,
 .android-download {
-  border-color: rgba(28, 28, 88, .14);
+  border-color: rgba(28, 28, 116, .14);
   background: rgba(255, 255, 255, .94);
-  box-shadow: 0 24px 70px rgba(28, 28, 88, .14);
+  box-shadow: 0 24px 70px rgba(28, 28, 116, .14);
 }
 
 .access-card h2,
@@ -708,7 +708,7 @@ body {
 .access-card input,
 .access-card select,
 .phone-field {
-  border-color: rgba(28, 28, 88, .14);
+  border-color: rgba(28, 28, 116, .14);
   background: #FFFFFF;
   color: var(--whappy-ink);
 }
@@ -775,9 +775,9 @@ body {
   align-items: center;
   margin-left: 6px;
   padding: 3px 5px;
-  border: 1px solid rgba(28, 28, 88, 0.35);
+  border: 1px solid rgba(28, 28, 116, 0.35);
   border-radius: 6px;
-  background: rgba(28, 28, 88, 0.16);
+  background: rgba(28, 28, 116, 0.16);
   color: var(--whappy-indigo-light);
   font-size: 6px;
   font-style: normal;
@@ -789,9 +789,9 @@ body {
 .wepi-contact-action {
   flex: 0 0 auto;
   padding: 7px 9px;
-  border: 1px solid rgba(28, 28, 88, 0.42);
+  border: 1px solid rgba(28, 28, 116, 0.42);
   border-radius: 9px;
-  background: rgba(28, 28, 88, 0.14);
+  background: rgba(28, 28, 116, 0.14);
   color: var(--whappy-indigo-light);
   font-size: 7px;
   font-weight: 900;

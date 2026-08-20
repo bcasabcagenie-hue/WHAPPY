@@ -18,6 +18,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.emoji2.bundled.BundledEmojiCompatConfig
+import androidx.emoji2.text.EmojiCompat
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.PhoneAuthCredential
@@ -30,16 +32,19 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private var incomingLink by mutableStateOf<String?>(null)
+    private var pendingCallAction by mutableStateOf<String?>(null)
     private lateinit var callController: WhappyCallController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WhappyFastStorage.initialize(applicationContext)
+        if (!EmojiCompat.isConfigured()) EmojiCompat.init(BundledEmojiCompatConfig(applicationContext))
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         callController = WhappyCallController(this)
         val preview = BuildConfig.DEBUG && intent.getBooleanExtra("preview_home", false)
         incomingLink = intent?.dataString
+        pendingCallAction = intent?.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
         setContent {
             val model: WhappyViewModel = viewModel()
             val state by model.uiState.collectAsStateWithLifecycle()
@@ -51,6 +56,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(state.user?.uid) { callController.bindUser(state.user?.uid) }
+            val callState = callController.state
+            LaunchedEffect(pendingCallAction, callState.incoming) {
+                if (pendingCallAction == WhappyNotifications.ACTION_ACCEPT_CALL && callState.incoming) {
+                    callController.acceptIncoming()
+                    pendingCallAction = null
+                }
+            }
             val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                 if (granted) {
                     WhappyNotifications.ensureChannel(this)
@@ -128,6 +140,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         incomingLink = intent.dataString
+        pendingCallAction = intent.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
     }
 
     override fun onDestroy() {

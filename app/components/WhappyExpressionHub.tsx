@@ -42,14 +42,14 @@ const emojiGroups = [
 
 const symbols = "✓ ✔ ✦ ✧ ★ ☆ ◆ ◇ ● ○ ◉ ◎ ⌁ ≋ ∞ → ← ↑ ↓ ↗ ↘ ⇄ + − × ÷ = ≠ ≤ ≥ @ # % & © ® ™ € $ £ ¥ ₣ ♫ ♪ ☀ ☾ ♡ ♥ ⚡ ☎ ⌘ ⌖".split(" ");
 const whappies = [
-  { face: "😎", name: "Boss", line: "On passe au niveau supérieur !", colors: ["#1C1C58", "#111111"] },
-  { face: "🤩", name: "Star", line: "C’est du lourd ✦", colors: ["#1C1C58", "#111111"] },
-  { face: "😂", name: "Mdr", line: "Je ne peux plus respirer !", colors: ["#1C1C58", "#111111"] },
-  { face: "🫶", name: "Love", line: "Force et amour à toi", colors: ["#1C1C58", "#111111"] },
-  { face: "🤯", name: "Choc", line: "Attends… QUOI ?!", colors: ["#1C1C58", "#111111"] },
-  { face: "🦁", name: "Fierté", line: "Le courage parle maintenant", colors: ["#1C1C58", "#111111"] },
-  { face: "👑", name: "Royal", line: "La classe ne se discute pas", colors: ["#1C1C58", "#111111"] },
-  { face: "🚀", name: "Fusée", line: "Direction le sommet", colors: ["#1C1C58", "#111111"] },
+  { face: "😎", name: "Boss", line: "On passe au niveau supérieur !", colors: ["#1C1C74", "#111111"] },
+  { face: "🤩", name: "Star", line: "C’est du lourd ✦", colors: ["#1C1C74", "#111111"] },
+  { face: "😂", name: "Mdr", line: "Je ne peux plus respirer !", colors: ["#1C1C74", "#111111"] },
+  { face: "🫶", name: "Love", line: "Force et amour à toi", colors: ["#1C1C74", "#111111"] },
+  { face: "🤯", name: "Choc", line: "Attends… QUOI ?!", colors: ["#1C1C74", "#111111"] },
+  { face: "🦁", name: "Fierté", line: "Le courage parle maintenant", colors: ["#1C1C74", "#111111"] },
+  { face: "👑", name: "Royal", line: "La classe ne se discute pas", colors: ["#1C1C74", "#111111"] },
+  { face: "🚀", name: "Fusée", line: "Direction le sommet", colors: ["#1C1C74", "#111111"] },
 ];
 
 const languages = [

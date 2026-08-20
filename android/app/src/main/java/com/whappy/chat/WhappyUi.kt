@@ -13,6 +13,7 @@ import android.graphics.Bitmap
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -52,6 +53,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -208,7 +210,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFF1C1C58)
+private val WhappyBlue = Color(0xFF1C1C74)
 private val WhappyDark = WhappyBlue
 private val WhappyInk = Color(0xFF111111)
 private val WhappyMuted = Color(0xFF667085)
@@ -1102,6 +1104,7 @@ private fun WhappyMain(
                             onUpdatePhoto = onUpdateProfilePhoto,
                             onOpenWhappies = { showTwinStudio = true },
                             onSignOut = onSignOut,
+                            onEnableNotifications = onEnableNotifications,
                             language = appLanguage,
                             onLanguageChange = { next -> appLanguage = next; languagePrefs.edit().putString("code", next.code).apply() },
                         )
@@ -1582,55 +1585,272 @@ private fun RadioMetric(label: String, value: String, modifier: Modifier = Modif
 
 @Composable
 private fun GamesScreen(onBack: () -> Unit) {
-    var selected by rememberSaveable { mutableStateOf("Défi du jour") }
-    var score by rememberSaveable { mutableStateOf(0) }
-    var streak by rememberSaveable { mutableStateOf(1) }
+    var selected by rememberSaveable { mutableStateOf("Ludo WHAPPY") }
+    var xp by rememberSaveable { mutableStateOf(0) }
+    var wins by rememberSaveable { mutableStateOf(0) }
+    var dice by rememberSaveable { mutableStateOf(0) }
+    var activePlayer by rememberSaveable { mutableStateOf(0) }
+    var ludoPositions by rememberSaveable { mutableStateOf(listOf(-1, -1, -1, -1)) }
+    var ludoLog by rememberSaveable { mutableStateOf("Lancez le dé. Un 6 fait sortir votre pion de la maison.") }
     var answer by rememberSaveable { mutableStateOf<String?>(null) }
     var round by rememberSaveable { mutableStateOf(1) }
     val games = listOf(
-        Triple("Défi du jour", "Quiz rapide · 60 secondes", "⚡"),
-        Triple("Duel WHAPPY", "Affrontez un ami en direct", "♟"),
+        Triple("Ludo WHAPPY", "Plateau local · dé, pions, captures", "🎲"),
+        Triple("Défi du jour", "Quiz rapide · gagnez de l’XP", "⚡"),
+        Triple("Duel WHAPPY", "Mode duel prêt pour le multijoueur", "♟"),
         Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
     )
+    val ludoPlayers = listOf(
+        Triple("Vous", Color(0xFFE53935), "🔴"),
+        Triple("Amina", Color(0xFF1E88E5), "🔵"),
+        Triple("Junior", Color(0xFF43A047), "🟢"),
+        Triple("Mokabi", Color(0xFFF9A825), "🟡"),
+    )
+
+    fun nextPlayer(from: Int = activePlayer): Int = (from + 1) % ludoPlayers.size
+
+    fun resetLudo() {
+        ludoPositions = listOf(-1, -1, -1, -1)
+        dice = 0
+        activePlayer = 0
+        ludoLog = "Nouvelle partie. Sortez sur 6, capturez les adversaires et atteignez l’arrivée."
+    }
+
+    fun playLudoTurn() {
+        val roll = ((System.currentTimeMillis() / 37L) % 6L).toInt() + 1
+        dice = roll
+        val player = activePlayer
+        val playerName = ludoPlayers[player].first
+        val current = ludoPositions[player]
+        val starts = listOf(0, 13, 26, 39)
+        val safeSquares = setOf(0, 8, 13, 21, 26, 34, 39, 47)
+        val nextPositions = ludoPositions.toMutableList()
+        var message: String
+        var extraTurn = roll == 6
+
+        if (current == -1) {
+            if (roll == 6) {
+                nextPositions[player] = 0
+                message = "$playerName sort de la maison avec un 6."
+            } else {
+                message = "$playerName lance $roll. Il faut un 6 pour sortir."
+                extraTurn = false
+            }
+        } else {
+            val target = current + roll
+            if (target > 52) {
+                message = "$playerName lance $roll, mais doit tomber exactement sur l’arrivée."
+                extraTurn = false
+            } else {
+                nextPositions[player] = target
+                message = if (target == 52) "$playerName atteint l’arrivée !" else "$playerName avance de $roll case${if (roll > 1) "s" else ""}."
+                if (target == 52 && player == 0) {
+                    wins += 1
+                    xp += 150
+                    extraTurn = false
+                }
+                if (target in 0..51) {
+                    val absolute = (starts[player] + target) % 52
+                    ludoPositions.forEachIndexed { index, position ->
+                        if (index != player && position in 0..51) {
+                            val opponentAbsolute = (starts[index] + position) % 52
+                            if (opponentAbsolute == absolute && absolute !in safeSquares) {
+                                nextPositions[index] = -1
+                                message += " Capture de ${ludoPlayers[index].first} !"
+                                if (player == 0) xp += 40
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ludoPositions = nextPositions
+        if (player == 0 && roll == 6) xp += 10
+        activePlayer = if (extraTurn && nextPositions[player] != 52) player else nextPlayer(player)
+        ludoLog = message + if (extraTurn && nextPositions[player] != 52) " Rejouez." else " Tour suivant : ${ludoPlayers[activePlayer].first}."
+    }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
                 Column(Modifier.padding(22.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Bolt, null, tint = WhappyBlue); Text("  WHAPPY PLAY", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
-                    Text("Jouez. Progressez.\nRestez connecté.", Modifier.padding(top = 10.dp), color = Color.White, fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
-                    Text("Des mini-jeux simples à lancer seul ou avec votre communauté.", Modifier.padding(top = 8.dp), color = Color.White, lineHeight = 19.sp)
+                    Text("Jouez pour de vrai.\nAvec vos proches.", Modifier.padding(top = 10.dp), color = Color.White, fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
+                    Text("Ludo local, défis et mini-jeux prêts à évoluer vers le multijoueur WHAPPY.", Modifier.padding(top = 8.dp), color = Color.White, lineHeight = 19.sp)
                     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatPill("Série", "$streak jour${if (streak > 1) "s" else ""}")
-                        StatPill("Score", "$score XP")
+                        StatPill("Victoires", wins.toString())
+                        StatPill("XP", "$xp")
+                        StatPill("Mode", if (selected.startsWith("Ludo")) "Ludo" else "Arcade")
                     }
                 }
             }
         }
         item { Text("Choisir un jeu", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black) }
         items(games, key = { it.first }) { game ->
-            Card(Modifier.fillMaxWidth().clickable { selected = game.first }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (selected == game.first) Color.White else Color.White), border = CardDefaults.outlinedCardBorder()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(if (selected == game.first) WhappyBlue else Color.White), contentAlignment = Alignment.Center) { Text(game.third, fontSize = 22.sp, color = if (selected == game.first) Color.White else WhappyBlue) }
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(game.first, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp); Text(game.second, color = WhappyMuted, fontSize = 11.sp) }
-                    Text(if (selected == game.first) "PRÊT" else "JOUER ›", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            GameModeCard(game.first, game.second, game.third, selected == game.first) { selected = game.first }
+        }
+        if (selected == "Ludo WHAPPY") {
+            item {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("LUDO WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                Text("Tour de ${ludoPlayers[activePlayer].first}", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                                Text("Dé : ${if (dice == 0) "—" else dice} · 6 = sortie/rejouer", color = WhappyMuted, fontSize = 11.sp)
+                            }
+                            Box(Modifier.size(62.dp).clip(RoundedCornerShape(18.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                                Text(if (dice == 0) "🎲" else dice.toString(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        LudoBoard(players = ludoPlayers, positions = ludoPositions)
+                        LudoStatus(players = ludoPlayers, positions = ludoPositions)
+                        Text(ludoLog, color = WhappyInk, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(onClick = ::playLudoTurn, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Lancer le dé", fontWeight = FontWeight.Black) }
+                            OutlinedButton(onClick = ::resetLudo, modifier = Modifier.weight(.75f).height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Rejouer") }
+                        }
+                    }
                 }
             }
-        }
-        item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text(selected, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text("Manche $round · question 1/3", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text("Quel espace WHAPPY permet de diffuser en direct ?", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black, lineHeight = 23.sp)
-                    listOf("Le Live", "Le Marché", "Les Services").forEach { option ->
-                        OutlinedButton(onClick = { answer = option; if (option == "Le Live") { score += 25; streak += 1 } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (answer == option) Color.White else Color.White, contentColor = if (answer == option) WhappyBlue else WhappyDark)) { Text(option, Modifier.weight(1f), textAlign = TextAlign.Start); if (answer == option) Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(17.dp)) }
-                    }
-                    if (answer != null) Text(if (answer == "Le Live") "Bonne réponse · +25 XP" else "Pas grave. Rejouez pour progresser.", color = if (answer == "Le Live") WhappyBlue else WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Button(enabled = answer != null, onClick = { round += 1; answer = null }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("  Question suivante", fontWeight = FontWeight.Bold) }
-                }
+        } else {
+            item {
+                ArcadeChallengeCard(
+                    selected = selected,
+                    round = round,
+                    answer = answer,
+                    onAnswer = { option ->
+                        answer = option
+                        if (option == "Le Live") xp += 25
+                    },
+                    onNext = {
+                        round += 1
+                        answer = null
+                    },
+                )
             }
         }
         item { OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Retour à l’accueil") } }
+    }
+}
+
+@Composable
+private fun GameModeCard(title: String, subtitle: String, icon: String, active: Boolean, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(if (active) WhappyBlue else Color.White), contentAlignment = Alignment.Center) {
+                Text(icon, fontSize = 22.sp, color = if (active) Color.White else WhappyBlue)
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(title, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(subtitle, color = WhappyMuted, fontSize = 11.sp)
+            }
+            Text(if (active) "EN COURS" else "JOUER ›", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun LudoBoard(players: List<Triple<String, Color, String>>, positions: List<Int>) {
+    val path = remember {
+        listOf(
+            6 to 0, 6 to 1, 6 to 2, 6 to 3, 6 to 4, 6 to 5, 5 to 6, 4 to 6, 3 to 6, 2 to 6, 1 to 6, 0 to 6, 0 to 7,
+            0 to 8, 1 to 8, 2 to 8, 3 to 8, 4 to 8, 5 to 8, 6 to 9, 6 to 10, 6 to 11, 6 to 12, 6 to 13, 6 to 14, 7 to 14,
+            8 to 14, 8 to 13, 8 to 12, 8 to 11, 8 to 10, 8 to 9, 9 to 8, 10 to 8, 11 to 8, 12 to 8, 13 to 8, 14 to 8, 14 to 7,
+            14 to 6, 13 to 6, 12 to 6, 11 to 6, 10 to 6, 9 to 6, 8 to 5, 8 to 4, 8 to 3, 8 to 2, 8 to 1, 8 to 0, 7 to 0,
+        )
+    }
+    val starts = listOf(0, 13, 26, 39)
+    val base = listOf(2 to 2, 2 to 12, 12 to 12, 12 to 2)
+    val finish = listOf(7 to 6, 6 to 7, 7 to 8, 8 to 7)
+    val safe = setOf(0, 8, 13, 21, 26, 34, 39, 47)
+    BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color.White).padding(8.dp)) {
+        val cell = maxWidth / 15
+        Box(Modifier.size(maxWidth)) {
+            Column(Modifier.fillMaxSize()) {
+                repeat(15) { row ->
+                    Row(Modifier.weight(1f)) {
+                        repeat(15) { col ->
+                            val pathIndex = path.indexOf(row to col)
+                            val baseIndex = base.indexOf(row to col)
+                            val finishIndex = finish.indexOf(row to col)
+                            val color = when {
+                                baseIndex >= 0 -> players[baseIndex].second.copy(alpha = .22f)
+                                finishIndex >= 0 -> players[finishIndex].second.copy(alpha = .38f)
+                                row in 6..8 && col in 6..8 -> WhappyBlue.copy(alpha = .92f)
+                                pathIndex >= 0 && pathIndex in safe -> WhappyBlue.copy(alpha = .12f)
+                                pathIndex >= 0 -> Color(0xFFF4F6FF)
+                                (row < 5 && col < 5) -> players[0].second.copy(alpha = .10f)
+                                (row < 5 && col > 9) -> players[1].second.copy(alpha = .10f)
+                                (row > 9 && col > 9) -> players[2].second.copy(alpha = .10f)
+                                (row > 9 && col < 5) -> players[3].second.copy(alpha = .10f)
+                                else -> Color.White
+                            }
+                            Box(Modifier.weight(1f).fillMaxHeight().padding(1.dp).clip(RoundedCornerShape(4.dp)).background(color), contentAlignment = Alignment.Center) {
+                                if (row in 6..8 && col in 6..8) Text("★", color = Color.White, fontSize = 11.sp)
+                                else if (pathIndex in safe) Text("◆", color = WhappyBlue, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            positions.forEachIndexed { index, position ->
+                val coord = when {
+                    position < 0 -> base[index]
+                    position >= 52 -> finish[index]
+                    else -> path[(starts[index] + position) % path.size]
+                }
+                Box(
+                    Modifier
+                        .offset(x = cell * coord.second, y = cell * coord.first)
+                        .size(cell)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(players[index].second),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text((index + 1).toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LudoStatus(players: List<Triple<String, Color, String>>, positions: List<Int>) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        players.forEachIndexed { index, player ->
+            val position = positions[index]
+            val label = when {
+                position < 0 -> "Maison"
+                position >= 52 -> "Arrivé"
+                else -> "Case $position/52"
+            }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(player.second.copy(alpha = .08f)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(player.third, fontSize = 18.sp)
+                Text(player.first, Modifier.weight(1f).padding(start = 9.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
+                Text(label, color = player.second, fontSize = 11.sp, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArcadeChallengeCard(selected: String, round: Int, answer: String?, onAnswer: (String) -> Unit, onNext: () -> Unit) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(selected, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text("Manche $round · question 1/3", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("Quel espace WHAPPY permet de diffuser en direct ?", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black, lineHeight = 23.sp)
+            listOf("Le Live", "Le Marché", "Les Services").forEach { option ->
+                OutlinedButton(onClick = { onAnswer(option) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = if (answer == option) WhappyBlue else WhappyDark)) {
+                    Text(option, Modifier.weight(1f), textAlign = TextAlign.Start)
+                    if (answer == option) Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(17.dp))
+                }
+            }
+            if (answer != null) Text(if (answer == "Le Live") "Bonne réponse · +25 XP" else "Pas grave. Rejouez pour progresser.", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Button(enabled = answer != null, onClick = onNext, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("  Question suivante", fontWeight = FontWeight.Bold) }
+        }
     }
 }
 
@@ -2228,7 +2448,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                 val callable = conversation.peer.phoneNumber.isNotBlank()
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                     Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) { Text(initials(conversation.peer.displayName), color = WhappyBlue, fontWeight = FontWeight.Black) }
+                        UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 52.dp)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(conversation.peer.displayName, color = WhappyDark, fontWeight = FontWeight.Black)
                             Text(if (callable) "☎ ${conversation.peer.phoneNumber}" else "Numéro protégé", color = WhappyMuted, fontSize = 11.sp)
@@ -2306,6 +2526,12 @@ private fun MessagesScreen(
         ?: PhoneNumberFormatter.normalizeAny(phone)
     val isPhoneComplete = normalizedContactPhone != null
     val filteredConversations = conversations.filter { SearchNormalizer.matches(conversationSearch, it.peer.displayName, it.lastMessage, it.peer.phoneNumber) }
+    val groupConversations = conversations.filter { it.isGroup }
+    val directConversations = conversations.filterNot { it.isGroup }
+    val availableGroupContacts = (contacts + directConversations.map { WhappyContact(it.peer, it.updatedAt) })
+        .distinctBy { it.member.uid }
+        .filter { it.member.uid != currentUserId }
+        .sortedBy { SearchNormalizer.normalize(it.member.displayName) }
     val contactSuccess = contactSearchMessage != null && (
         contactSearchMessage.startsWith("Contact ajouté") ||
             contactSearchMessage.startsWith("Ce contact existe déjà")
@@ -2497,14 +2723,36 @@ private fun MessagesScreen(
             }
         } else if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
         else if (filteredConversations.isEmpty()) EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WHAPPY." else "Essayez un autre nom ou un mot du dernier message.")
-        else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)) {
+        else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (conversationSearch.isBlank()) {
+                item {
+                    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text("Groupes WHAPPY", color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                    Text("${groupConversations.size} groupe${if (groupConversations.size > 1) "s" else ""} · ${directConversations.size} discussion${if (directConversations.size > 1) "s" else ""} directe${if (directConversations.size > 1) "s" else ""}", color = Color.White.copy(alpha = .72f), fontSize = 11.sp)
+                                }
+                                TextButton(onClick = { creatingGroup = true }, colors = ButtonDefaults.textButtonColors(containerColor = Color.White, contentColor = WhappyBlue), shape = RoundedCornerShape(13.dp)) { Text("+ Groupe", fontWeight = FontWeight.Black) }
+                            }
+                            Text("Créez un salon privé pour famille, équipe, communauté ou projet. Les messages, notes vocales et fichiers restent dans la même discussion.", color = Color.White.copy(alpha = .82f), fontSize = 11.sp, lineHeight = 16.sp)
+                        }
+                    }
+                }
+            }
             items(filteredConversations, key = { it.id }) { conversation ->
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(conversation) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(52.dp).clip(CircleShape).background(if (conversation.unread) WhappyBlue else Color.White), contentAlignment = Alignment.Center) { Text(initials(conversation.peer.displayName), color = if (conversation.unread) Color.White else WhappyDark, fontWeight = FontWeight.Black) }
+                    if (conversation.isGroup) {
+                        Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                        }
+                    } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 52.dp)
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Row { Text(conversation.peer.displayName, Modifier.weight(1f), fontWeight = FontWeight.Bold, color = WhappyDark); Text(formatTime(conversation.updatedAt), color = WhappyMuted, fontSize = 11.sp) }
-                        Text(conversation.lastMessage, Modifier.padding(top = 4.dp), color = WhappyMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(if (conversation.isGroup) "${conversation.memberCount} membres · ${conversation.lastMessage}" else conversation.lastMessage, Modifier.padding(top = 4.dp), color = WhappyMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    if (conversation.isGroup) Text("GROUPE", Modifier.padding(start = 8.dp).clip(RoundedCornerShape(9.dp)).background(Color.White).padding(horizontal = 7.dp, vertical = 4.dp), color = WhappyBlue, fontSize = 8.sp, fontWeight = FontWeight.Black)
                     if (conversation.unread) Box(Modifier.padding(start = 8.dp).size(10.dp).clip(CircleShape).background(WhappyBlue))
                 }
                 HorizontalDivider(color = WhappyLine, modifier = Modifier.padding(start = 76.dp))
@@ -2644,26 +2892,20 @@ private fun MessagesScreen(
             text = { Text(scanError.orEmpty()) },
             confirmButton = { TextButton(onClick = { scanError = null }) { Text("Compris") } },
         )
-        if (creatingGroup) AlertDialog(
-            onDismissRequest = { if (!channelBusy) creatingGroup = false },
-            title = { Text("Nouveau groupe", fontWeight = FontWeight.Black) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Créez une discussion privée avec plusieurs contacts Whappy.", color = WhappyMuted, fontSize = 12.sp)
-                OutlinedTextField(groupName, { groupName = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Nom du groupe") }, singleLine = true)
-                Text("MEMBRES · ${groupMembers.size} sélectionné${if (groupMembers.size > 1) "s" else ""}", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                if (contacts.isEmpty()) Text("Ajoutez d’abord au moins deux contacts Whappy.", color = WhappyMuted, fontSize = 12.sp)
-                else LazyColumn(Modifier.height(220.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    items(contacts.distinctBy { it.member.uid }, key = { "group-member-${it.member.uid}" }) { contact ->
-                        val selected = contact.member.uid in groupMembers
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).clickable { groupMembers = if (selected) groupMembers - contact.member.uid else groupMembers + contact.member.uid }.background(if (selected) WhappyBlue else Color.White).padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.PersonAdd, null, tint = if (selected) Color.White else WhappyBlue)
-                            Column(Modifier.padding(start = 10.dp)) { Text(contact.member.displayName, color = if (selected) Color.White else WhappyInk, fontWeight = FontWeight.Bold); Text(contact.member.phoneNumber, color = if (selected) Color.White else WhappyMuted, fontSize = 10.sp) }
-                        }
-                    }
-                }
-            } },
-            confirmButton = { Button(enabled = !channelBusy && groupName.trim().length >= 2 && groupMembers.size >= 2, onClick = { onCreateGroup(groupName, groupMembers.toList()); creatingGroup = false; groupName = ""; groupMembers = emptySet() }) { if (channelBusy) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp) else Text("Créer le groupe") } },
-            dismissButton = { TextButton(enabled = !channelBusy, onClick = { creatingGroup = false }) { Text("Annuler") } },
+        if (creatingGroup) CreateGroupDialog(
+            groupName = groupName,
+            contacts = availableGroupContacts,
+            selectedIds = groupMembers,
+            busy = channelBusy,
+            onNameChange = { groupName = it.take(80) },
+            onToggle = { id -> groupMembers = if (id in groupMembers) groupMembers - id else groupMembers + id },
+            onDismiss = { creatingGroup = false },
+            onCreate = {
+                onCreateGroup(groupName.trim(), groupMembers.toList())
+                creatingGroup = false
+                groupName = ""
+                groupMembers = emptySet()
+            },
         )
         if (creatingChannel) AlertDialog(
             onDismissRequest = { if (!channelBusy) creatingChannel = false },
@@ -2682,6 +2924,101 @@ private fun MessagesScreen(
 }
 
 @Composable
+private fun CreateGroupDialog(
+    groupName: String,
+    contacts: List<WhappyContact>,
+    selectedIds: Set<String>,
+    busy: Boolean,
+    onNameChange: (String) -> Unit,
+    onToggle: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onCreate: () -> Unit,
+) {
+    val members = contacts.distinctBy { it.member.uid }
+    val ready = groupName.trim().length >= 2 && selectedIds.size >= 2
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = Color.White,
+            shadowElevation = 20.dp,
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 13.dp)) {
+                        Text("Nouveau groupe", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Text("Une conversation privée pour votre cercle", color = WhappyMuted, fontSize = 11.sp)
+                    }
+                    IconButton(enabled = !busy, onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fermer", tint = WhappyMuted) }
+                }
+                OutlinedTextField(
+                    value = groupName,
+                    onValueChange = onNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Nom du groupe") },
+                    placeholder = { Text("Ex. Équipe WHAPPY") },
+                    supportingText = { Text("${groupName.length}/80") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("MEMBRES", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Text("${selectedIds.size} sélectionné${if (selectedIds.size > 1) "s" else ""} · minimum 2", color = WhappyMuted, fontSize = 10.sp)
+                    }
+                    Box(Modifier.clip(CircleShape).background(WhappyBlue.copy(alpha = .08f)).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Text("${selectedIds.size}/64", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (members.isEmpty()) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(WhappyBlue.copy(alpha = .05f)).padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Rounded.PersonAdd, null, tint = WhappyBlue)
+                        Text("Ajoutez d’abord des contacts WHAPPY", Modifier.padding(top = 8.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
+                        Text("Deux contacts minimum sont nécessaires.", color = WhappyMuted, fontSize = 11.sp)
+                    }
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(members, key = { "group-member-${it.member.uid}" }) { contact ->
+                            val selected = contact.member.uid in selectedIds
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { onToggle(contact.member.uid) },
+                                shape = RoundedCornerShape(17.dp),
+                                color = if (selected) WhappyBlue.copy(alpha = .08f) else Color.White,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) WhappyBlue else WhappyBlue.copy(alpha = .12f)),
+                            ) {
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(42.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                                        Text(initials(contact.member.displayName), color = Color.White, fontWeight = FontWeight.Black)
+                                    }
+                                    Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                                        Text(contact.member.displayName, color = WhappyDark, fontWeight = FontWeight.Bold, maxLines = 1)
+                                        Text(contact.member.phoneNumber, color = WhappyMuted, fontSize = 10.sp)
+                                    }
+                                    Icon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.PersonAdd, null, tint = if (selected) WhappyBlue else WhappyMuted)
+                                }
+                            }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("Annuler") }
+                    Button(enabled = !busy && ready, onClick = onCreate, modifier = Modifier.weight(1.25f).height(50.dp), shape = RoundedCornerShape(15.dp)) {
+                        if (busy) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text(if (ready) "Créer le groupe" else "2 membres requis", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ChannelDirectory(
     channels: List<WhappyChannel>,
     currentUserId: String,
@@ -2689,17 +3026,39 @@ private fun ChannelDirectory(
     onOpen: (WhappyChannel) -> Unit,
     onSubscribe: (String, Boolean) -> Unit,
 ) {
-    val visible = channels.filter { SearchNormalizer.matches(search, it.name, it.description, it.category, it.ownerName) }
+    var selectedCategory by rememberSaveable { mutableStateOf("Toutes") }
+    val categories = remember(channels) { listOf("Toutes", "Suivies", "Mes chaînes") + channels.map { it.category.ifBlank { "Communauté" } }.distinct().sorted() }
+    val visible = channels.filter { channel ->
+        val categoryOk = when (selectedCategory) {
+            "Toutes" -> true
+            "Suivies" -> currentUserId in channel.memberIds
+            "Mes chaînes" -> channel.ownerId == currentUserId
+            else -> channel.category == selectedCategory
+        }
+        categoryOk && SearchNormalizer.matches(search, channel.name, channel.description, channel.category, channel.ownerName)
+    }
         .sortedWith(compareByDescending<WhappyChannel> { currentUserId in it.memberIds }.thenByDescending { it.memberCount })
     if (visible.isEmpty()) {
-        EmptyState(if (search.isBlank()) "Aucune chaîne" else "Aucune chaîne trouvée", if (search.isBlank()) "Créez la première chaîne WHAPPY et commencez à publier." else "Essayez un nom, une catégorie ou un autre mot-clé.")
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                categories.forEach { category -> TextButton(onClick = { selectedCategory = category }, colors = ButtonDefaults.textButtonColors(containerColor = if (selectedCategory == category) WhappyBlue else Color.White, contentColor = if (selectedCategory == category) Color.White else WhappyDark), shape = RoundedCornerShape(14.dp)) { Text(category, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }
+            }
+            EmptyState(if (search.isBlank()) "Aucune chaîne" else "Aucune chaîne trouvée", if (search.isBlank()) "Créez la première chaîne WHAPPY et commencez à publier." else "Essayez un nom, une catégorie ou un autre mot-clé.")
+        }
         return
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(WhappyDark).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = Color.White) }
-                Column(Modifier.padding(start = 12.dp)) { Text("CHAÎNES WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Des publications utiles, sans bruit", color = Color.White, fontWeight = FontWeight.Black); Text("${channels.size} chaîne${if (channels.size > 1) "s" else ""} à découvrir", color = Color.White.copy(alpha = .68f), fontSize = 11.sp) }
+                Column(Modifier.padding(start = 12.dp)) { Text("CHAÎNES WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Des publications utiles, sans bruit", color = Color.White, fontWeight = FontWeight.Black); Text("${visible.size}/${channels.size} chaîne${if (channels.size > 1) "s" else ""} · filtres rapides", color = Color.White.copy(alpha = .68f), fontSize = 11.sp) }
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                categories.forEach { category ->
+                    TextButton(onClick = { selectedCategory = category }, colors = ButtonDefaults.textButtonColors(containerColor = if (selectedCategory == category) WhappyBlue else Color.White, contentColor = if (selectedCategory == category) Color.White else WhappyDark), shape = RoundedCornerShape(14.dp)) { Text(category, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                }
             }
         }
         items(visible, key = { "channel-${it.id}" }) { channel ->
@@ -2718,6 +3077,10 @@ private fun ChannelDirectory(
                     }
                     Text(channel.description, color = WhappyInk, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (channel.lastPost.isNotBlank()) Text(channel.lastPost, Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(Color.White).padding(9.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${channel.postCount} publication${if (channel.postCount > 1) "s" else ""}", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("Ouvrir ›", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    }
                 }
             }
         }
@@ -2763,6 +3126,11 @@ private fun ChannelScreen(
         Column(Modifier.fillMaxWidth().background(WhappyDark).padding(horizontal = 16.dp, vertical = 13.dp)) {
             Text(channel.description, color = Color.White, fontSize = 12.sp, lineHeight = 17.sp)
             Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) { Text("Par ${channel.ownerName} · ${channel.category}", Modifier.weight(1f), color = Color.White.copy(alpha = .64f), fontSize = 10.sp); if (!owner) Button(onClick = { onSubscribe(!subscribed) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)) { Text(if (subscribed) "Abonné ✓" else "S’abonner", fontSize = 11.sp) } }
+            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatPill("Abonnés", formatCompactCount(channel.memberCount))
+                StatPill("Posts", channel.postCount.toString())
+                StatPill("Statut", if (owner) "Owner" else if (subscribed) "Suivie" else "Public")
+            }
         }
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
         else if (visible.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { EmptyState(if (search.isBlank()) "Aucune publication" else "Aucun résultat", if (owner && search.isBlank()) "Publiez la première actualité de votre chaîne." else "Les prochaines publications apparaîtront ici.") }
@@ -2778,9 +3146,21 @@ private fun ChannelScreen(
                 }
             }
         }
-        if (owner) Row(Modifier.fillMaxWidth().background(Color.White).padding(10.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(text, { text = it.take(4_000) }, Modifier.weight(1f), placeholder = { Text("Nouvelle publication…") }, maxLines = 6, supportingText = { Text("${text.length}/4000") }, shape = RoundedCornerShape(18.dp))
-            FilledIconButton(enabled = text.isNotBlank() && !sending, onClick = { onPublish(text); text = "" }, modifier = Modifier.padding(start = 8.dp).size(50.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { if (sending) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(Icons.AutoMirrored.Rounded.Send, "Publier", tint = Color.White) }
+        if (owner) Column(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 7.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf(
+                    "📌 Épingler une info" to "📌 À retenir : ",
+                    "🛍️ Offre" to "🛍️ Offre du jour : ",
+                    "🎙️ Vocal à venir" to "🎙️ Note vocale à venir : ",
+                    "📅 Programme" to "📅 Prochain rendez-vous : ",
+                ).forEach { option ->
+                    OutlinedButton(onClick = { text = (option.second + text.removePrefix(option.second)).take(4_000) }, shape = RoundedCornerShape(13.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) { Text(option.first, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                }
+            }
+            Row(verticalAlignment = Alignment.Bottom) {
+                OutlinedTextField(text, { text = it.take(4_000) }, Modifier.weight(1f), placeholder = { Text("Nouvelle publication…") }, maxLines = 6, supportingText = { Text("${text.length}/4000") }, shape = RoundedCornerShape(18.dp))
+                FilledIconButton(enabled = text.isNotBlank() && !sending, onClick = { onPublish(text); text = "" }, modifier = Modifier.padding(start = 8.dp).size(50.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { if (sending) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(Icons.AutoMirrored.Rounded.Send, "Publier", tint = Color.White) }
+            }
         } else if (!subscribed) Button(onClick = { onSubscribe(true) }, Modifier.fillMaxWidth().padding(12.dp), shape = RoundedCornerShape(15.dp)) { Icon(Icons.Rounded.Notifications, null); Text("  S’abonner à cette chaîne", fontWeight = FontWeight.Bold) }
     }
     selectedPost?.let { post ->
@@ -2968,8 +3348,15 @@ private fun ChatScreen(
     Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
-            Box(Modifier.size(42.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(conversation.peer.displayName), color = Color.White, fontWeight = FontWeight.Bold) }
-            Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(conversation.peer.displayName, fontWeight = FontWeight.Bold, color = WhappyDark); Text(if (conversation.peerTyping) "écrit…" else "WHAPPY · en ligne", color = WhappyBlue, fontSize = 11.sp, fontWeight = if (conversation.peerTyping) FontWeight.Bold else FontWeight.Normal) }
+            if (conversation.isGroup) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                }
+            } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 42.dp)
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                Text(conversation.peer.displayName, fontWeight = FontWeight.Bold, color = WhappyDark)
+                Text(if (conversation.isGroup) "Groupe WHAPPY · ${conversation.memberCount} membres" else if (conversation.peerTyping) "écrit…" else "WHAPPY · en ligne", color = WhappyBlue, fontSize = 11.sp, fontWeight = if (conversation.peerTyping) FontWeight.Bold else FontWeight.Normal)
+            }
             IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Icon(Icons.Rounded.Search, "Rechercher dans la discussion", tint = if (searchOpen) WhappyBlue else WhappyDark) }
             if (conversation.peer.phoneNumber.isNotBlank() && !conversation.isGroup) {
                 IconButton(enabled = calls != null, onClick = { calls?.start(conversation.peer, false) }) { Icon(Icons.Rounded.Phone, "Appel audio ${conversation.peer.displayName}") }
@@ -2977,6 +3364,25 @@ private fun ChatScreen(
             }
         }
         if (searchOpen) OutlinedTextField(searchQuery, { searchQuery = it.take(120) }, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher un message") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
+        if (conversation.isGroup) {
+            Row(Modifier.fillMaxWidth().background(Color.White).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "📌 Annonce" to "📌 Annonce : ",
+                    "🗳️ Sondage" to "🗳️ Sondage : ",
+                    "📅 Événement" to "📅 Événement : ",
+                    "📎 Fichier" to "📎 Pièce jointe : ",
+                ).forEach { option ->
+                    OutlinedButton(
+                        onClick = {
+                            text = (option.second + text.removePrefix(option.second)).take(4_000)
+                            draftPrefs.edit().putString(conversation.id, text).apply()
+                        },
+                        shape = RoundedCornerShape(13.dp),
+                        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 5.dp),
+                    ) { Text(option.first, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
         else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleMessages.isEmpty() && searchQuery.isNotBlank()) item { Text("Aucun message ne correspond à « $searchQuery ».", Modifier.padding(24.dp), color = WhappyMuted) }
@@ -3335,9 +3741,15 @@ private fun ImageZoomViewer(
 
 @Composable
 private fun EmojiTray(onEmoji: (String) -> Unit) {
-    val emojis = listOf("😀", "😂", "🥰", "😍", "🤩", "😎", "🥳", "😭", "😡", "👍", "🙏", "👏", "💪", "🤝", "❤️", "💙", "🔥", "✨", "🎉", "💯", "✅", "📍", "🎁", "🛍️", "💼", "🇨🇬")
-    FlowRow(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        emojis.forEach { emoji -> TextButton(onClick = { onEmoji(emoji) }, contentPadding = PaddingValues(5.dp)) { Text(emoji, fontSize = 22.sp) } }
+    val emojis = listOf("😀", "😄", "😂", "🥰", "😍", "🤩", "😎", "🥳", "😭", "😡", "🤔", "😮", "👍", "👎", "🙏", "👏", "💪", "🤝", "❤️", "💙", "🔥", "✨", "🎉", "💯", "✅", "📍", "🎁", "🛍️", "💼", "🚀", "📞", "🎥", "🇨🇬", "🇨🇩")
+    Column(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("EMOJIS", Modifier.weight(1f), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text("Compatibles Android", color = WhappyMuted, fontSize = 9.sp)
+        }
+        FlowRow(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            emojis.forEach { emoji -> TextButton(onClick = { onEmoji(emoji) }, contentPadding = PaddingValues(5.dp)) { Text(emoji, fontSize = 24.sp) } }
+        }
     }
 }
 
@@ -3587,11 +3999,92 @@ private fun LiveScreen(
 
 @Composable
 private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, onDismiss: () -> Unit, onEnd: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_live_lab") }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val tts = remember { TextToSpeech(context) { _ -> } }
     var reactionCount by remember(live.id) { mutableStateOf(live.viewerCount) }
     var message by remember(live.id) { mutableStateOf("") }
-    var comments by remember(live.id) { mutableStateOf(emptyList<String>()) }
+    var liveEvents by remember(live.id) { mutableStateOf(prefs.getStringSet("events-${live.id}", emptySet()).orEmpty().toList().sorted()) }
+    var giftPanel by rememberSaveable(live.id) { mutableStateOf(false) }
+    var soundOn by rememberSaveable(live.id) { mutableStateOf(true) }
+    var micOpen by rememberSaveable(live.id) { mutableStateOf(isOwner && live.status == "live") }
+    var voiceFeedback by rememberSaveable(live.id) { mutableStateOf<String?>(null) }
+    var liveRecorder by remember(live.id) { mutableStateOf<MediaRecorder?>(null) }
+    var liveRecordingFile by remember(live.id) { mutableStateOf<File?>(null) }
     var frontCamera by rememberSaveable(live.id) { mutableStateOf(true) }
     val youLabel = t("Vous", "You", "Yo")
+    val giftOptions = listOf(
+        Triple("Rose", "🌹", 1),
+        Triple("Étoile", "⭐", 3),
+        Triple("Feu", "🔥", 5),
+        Triple("Cœur", "💙", 10),
+        Triple("Couronne", "👑", 25),
+        Triple("WHAPPY", "🎁", 50),
+    )
+
+    fun saveLiveEvents(next: List<String>) {
+        liveEvents = next.sorted().takeLast(80)
+        prefs.edit().putStringSet("events-${live.id}", liveEvents.toSet()).apply()
+    }
+
+    fun appendLiveEvent(type: String, author: String, value: String, label: String = "", points: Int = 0) {
+        val entry = listOf(System.currentTimeMillis().toString(), type, author.replace("|", " "), value.replace("|", " "), label.replace("|", " "), points.toString()).joinToString("|")
+        saveLiveEvents(liveEvents + entry)
+    }
+
+    fun speakLive(text: String) {
+        if (!soundOn) return
+        tts.language = Locale.FRANCE
+        tts.speak(text, TextToSpeech.QUEUE_ADD, null, "whappy-live-${System.currentTimeMillis()}")
+    }
+
+    fun startLiveVoice() {
+        if (!isOwner || live.status != "live") return
+        runCatching { createVoiceRecorder(context) }
+            .onSuccess { (recorder, file) ->
+                liveRecorder = recorder
+                liveRecordingFile = file
+                micOpen = true
+                voiceFeedback = "Micro live activé · sortie audio en haut-parleur."
+            }
+            .onFailure {
+                micOpen = false
+                voiceFeedback = "Le micro n’a pas pu démarrer. Vérifiez l’autorisation audio."
+            }
+    }
+
+    fun stopLiveVoice() {
+        val recorder = liveRecorder
+        val file = liveRecordingFile
+        runCatching { recorder?.stop() }
+        recorder?.release()
+        liveRecorder = null
+        liveRecordingFile = null
+        micOpen = false
+        if (file != null && file.exists() && file.length() > 0L) {
+            voiceFeedback = "Voix live capturée pour ce test gratuit."
+        } else {
+            file?.delete()
+            voiceFeedback = "Micro live coupé."
+        }
+    }
+
+    LaunchedEffect(soundOn, live.id) {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        audioManager.isSpeakerphoneOn = soundOn
+        if (soundOn) speakLive("Son du live activé. ${live.title}")
+    }
+    DisposableEffect(live.id) {
+        onDispose {
+            runCatching { liveRecorder?.stop() }
+            liveRecorder?.release()
+            liveRecordingFile = null
+            tts.shutdown()
+            audioManager.mode = AudioManager.MODE_NORMAL
+            audioManager.isSpeakerphoneOn = false
+        }
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -3610,16 +4103,40 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
                     if (isOwner && live.status == "live") LiveCameraPreview(frontCamera)
                     else { Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(62.dp)); Text(if (live.status == "live") t("Le direct est en cours", "Live now", "Live ezali kotambola") else t("Direct à venir", "Upcoming live", "Live ekoya"), Modifier.align(Alignment.BottomCenter).padding(24.dp), color = Color.White, fontWeight = FontWeight.Bold) }
                     Row(Modifier.align(Alignment.TopStart).padding(14.dp).clip(RoundedCornerShape(10.dp)).background(WhappyBlue).padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("● LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("  👀 ${live.viewerCount}", color = Color.White, fontSize = 10.sp) }
+                    Row(Modifier.align(Alignment.TopEnd).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { soundOn = !soundOn }, colors = ButtonDefaults.textButtonColors(containerColor = Color.Black.copy(alpha = .48f), contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text(if (soundOn) "🔊 Son" else "🔇 Muet", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        if (isOwner && live.status == "live") TextButton(onClick = { if (micOpen) stopLiveVoice() else startLiveVoice() }, colors = ButtonDefaults.textButtonColors(containerColor = Color.Black.copy(alpha = .48f), contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text(if (micOpen) "🎙️ Micro ON" else "🎙️ Micro", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    }
                     if (isOwner) Text(t("Caméra de votre téléphone", "Your phone camera", "Caméra ya telefone na yo"), Modifier.align(Alignment.BottomCenter).padding(bottom = 15.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .55f)).padding(horizontal = 12.dp, vertical = 7.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
+                voiceFeedback?.let { value -> Text(value, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 7.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 if (isOwner && live.status == "live") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
                         FilledIconButton(onClick = { frontCamera = !frontCamera }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue, contentColor = Color.White)) { Icon(Icons.Rounded.FlipCameraAndroid, t("Retourner la caméra", "Flip camera", "Balola caméra")) }
                     }
                 }
-                if (live.productTitle.isNotBlank()) Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue); Column(Modifier.padding(start = 9.dp)) { Text(t("DEAL DU LIVE", "LIVE DEAL", "DEAL YA LIVE"), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(live.productTitle, color = WhappyDark, fontWeight = FontWeight.Bold) } } }
-                if (comments.isNotEmpty()) LazyColumn(Modifier.fillMaxWidth().heightIn(max = 86.dp).padding(horizontal = 16.dp, vertical = 5.dp)) { items(comments) { comment -> Text(comment, Modifier.padding(vertical = 3.dp), color = WhappyMuted, fontSize = 11.sp) } }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { message = it.take(180) }, Modifier.weight(1f), placeholder = { Text(t("Écrire dans le Live", "Write in the live", "Koma na Live")) }, singleLine = true, shape = RoundedCornerShape(15.dp)); IconButton(onClick = { if (message.isNotBlank()) { comments = comments + "$youLabel : ${message.trim()}"; message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, t("Envoyer", "Send", "Tinda"), tint = WhappyBlue) }; TextButton(onClick = { reactionCount += 1 }) { Text("💙 $reactionCount") } }
+                if (live.productTitle.isNotBlank()) Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 9.dp)) { Text(t("DEAL DU LIVE · TEST GRATUIT", "FREE LIVE DEAL TEST", "DEAL YA LIVE"), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(live.productTitle, color = WhappyDark, fontWeight = FontWeight.Bold) }; Text("0 FCFA", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) } }
+                if (liveEvents.isNotEmpty()) LazyColumn(Modifier.fillMaxWidth().heightIn(max = 116.dp).padding(horizontal = 16.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(liveEvents.takeLast(10), key = { it }) { raw ->
+                        val parts = raw.split("|", limit = 6)
+                        val type = parts.getOrElse(1) { "comment" }
+                        val author = parts.getOrElse(2) { youLabel }
+                        val value = parts.getOrElse(3) { "" }
+                        val label = parts.getOrElse(4) { "" }
+                        Text(if (type == "gift") "$value $author a envoyé $label · gratuit" else "$author : $value", color = if (type == "gift") WhappyBlue else WhappyMuted, fontSize = 11.sp, fontWeight = if (type == "gift") FontWeight.Bold else FontWeight.Normal)
+                    }
+                }
+                if (giftPanel) FlowRow(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    giftOptions.forEach { gift ->
+                        OutlinedButton(onClick = {
+                            appendLiveEvent("gift", youLabel, gift.second, gift.first, gift.third)
+                            reactionCount += gift.third
+                            speakLive("$youLabel a envoyé ${gift.first}")
+                            giftPanel = false
+                        }, shape = RoundedCornerShape(14.dp)) { Text("${gift.second} ${gift.first}", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { message = it.take(180) }, Modifier.weight(1f), placeholder = { Text(t("Écrire dans le Live", "Write in the live", "Koma na Live")) }, singleLine = true, shape = RoundedCornerShape(15.dp)); IconButton(onClick = { giftPanel = !giftPanel }) { Text("🎁", fontSize = 22.sp) }; IconButton(onClick = { if (message.isNotBlank()) { val value = message.trim(); appendLiveEvent("comment", youLabel, value); speakLive(value); message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, t("Envoyer", "Send", "Tinda"), tint = WhappyBlue) }; TextButton(onClick = { reactionCount += 1 }) { Text("💙 $reactionCount") } }
             }
         }
     }
@@ -4031,6 +4548,7 @@ private fun ProfileScreen(
     onUpdatePhoto: (Uri, String) -> Unit,
     onOpenWhappies: () -> Unit,
     onSignOut: () -> Unit,
+    onEnableNotifications: () -> Unit,
     language: WhappyLanguage,
     onLanguageChange: (WhappyLanguage) -> Unit,
 ) {
@@ -4106,7 +4624,18 @@ private fun ProfileScreen(
                         }
                     }
                     "Confidentialité" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Qui peut vous contacter ?", color = WhappyMuted); listOf("contacts" to "Mes contacts", "everyone" to "Tous les utilisateurs", "nobody" to "Personne").forEach { option -> OutlinedButton(onClick = { privacy = option.first; prefs.edit().putString("privacy", privacy).apply() }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (privacy == option.first) Color.White else Color.Transparent), shape = RoundedCornerShape(13.dp)) { Text(option.second) } } }
-                    "Notifications" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text("Nouveaux messages", Modifier.weight(1f)); Switch(messageNotifications, { messageNotifications = it; prefs.edit().putBoolean("notify_messages", it).apply() }) }; Row(verticalAlignment = Alignment.CenterVertically) { Text("Appels entrants", Modifier.weight(1f)); Switch(callNotifications, { callNotifications = it; prefs.edit().putBoolean("notify_calls", it).apply() }) }; Text("Les autorisations système restent contrôlées dans les réglages Android.", color = WhappyMuted, fontSize = 11.sp) }
+                    "Notifications" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text("Nouveaux messages", fontWeight = FontWeight.Bold); Text("Aperçu privé et badge de conversation", color = WhappyMuted, fontSize = 10.sp) }
+                            Switch(messageNotifications, { enabled -> messageNotifications = enabled; prefs.edit().putBoolean("notify_messages", enabled).apply(); if (enabled) onEnableNotifications() })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text("Appels entrants", fontWeight = FontWeight.Bold); Text("Sonnerie plein écran, décrocher ou refuser", color = WhappyMuted, fontSize = 10.sp) }
+                            Switch(callNotifications, { enabled -> callNotifications = enabled; prefs.edit().putBoolean("notify_calls", enabled).apply(); if (enabled) onEnableNotifications() })
+                        }
+                        OutlinedButton(onClick = onEnableNotifications, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Notifications, null); Text("  Vérifier l’autorisation Android") }
+                        Text("Les appels utilisent une alerte prioritaire ; les messages restent masqués sur l’écran verrouillé.", color = WhappyMuted, fontSize = 11.sp)
+                    }
                     "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }; Text("Les photos et notes vocales choisies restent accessibles depuis leurs conversations.", color = WhappyMuted, fontSize = 11.sp) }
                     else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("WHAPPY réunit vos conversations, appels, achats, directs et services. En cas de problème, contactez l’assistance depuis cet appareil.", color = WhappyDark); OutlinedButton(onClick = { uriHandler.openUri("mailto:support@whappy.chat?subject=Aide%20WHAPPY") }, Modifier.fillMaxWidth()) { Text("Contacter l’assistance") } }
                 }
