@@ -99,6 +99,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const [open, setOpen] = useState(embedded);
   const [view, setView] = useState<"messages" | "calls">(composeToken ? "messages" : initialView);
   const [conversations, setConversations] = useState<CloudConversation[]>([]);
+  const [optimisticConversation, setOptimisticConversation] = useState<CloudConversation | null>(null);
   const [calls, setCalls] = useState<CallSignal[]>([]);
   const [selected, setSelected] = useState("");
   const [items, setItems] = useState<CloudMessage[]>([]);
@@ -159,7 +160,8 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     return watchCallHistory(userId, setCalls, () => notifyRef.current("Historique des appels momentanément indisponible"));
   }, [userId]);
 
-  const current = conversations.find((item) => item.id === selected) || conversations[0];
+  const selectedConversation = conversations.find((item) => item.id === selected);
+  const current = selectedConversation || (selected && optimisticConversation?.id === selected ? optimisticConversation : conversations[0]);
   const currentId = current?.id;
   const peer = useMemo(() => current?.members.find((member) => member.uid !== userId) || null, [current, userId]);
   const activePeerProfile = peerProfile?.uid === peer?.uid ? peerProfile : null;
@@ -384,6 +386,16 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       return;
     }
     const id = await ensureDirectConversation(user, found);
+    setOptimisticConversation({
+      id,
+      ownerId: user.uid,
+      memberIds: [user.uid, found.uid].sort(),
+      members: [user, found],
+      typingBy: {},
+      readBy: {},
+      ephemeralSeconds: 0,
+      updatedAt: null,
+    });
     setSelected(id);
     setView("messages");
     setAdding(false);
@@ -565,7 +577,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
               const personOnline = Boolean(person && timestampMillis(conversation.presenceBy?.[person.uid]) > presenceTick - 90_000);
               const personSeen = Boolean(person && timestampMillis(conversation.readBy?.[person.uid]) >= timestampMillis(conversation.updatedAt));
               const presenceLine = buildDirectPresenceLine(person, person?.uid ? conversation.presenceBy?.[person.uid] : null, Boolean(person && conversation.typingBy?.[person.uid]), personOnline, personSeen);
-              return <button className={current?.id === conversation.id ? "active" : ""} key={conversation.id} onClick={() => { stopTyping(); stopRecording(true); setSelected(conversation.id); }}>
+              return <button className={current?.id === conversation.id ? "active" : ""} key={conversation.id} onClick={() => { stopTyping(); stopRecording(true); setOptimisticConversation(null); setSelected(conversation.id); }}>
                 <span>{initials(person?.displayName || "Whappy")}</span>
                 <div>
                   <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{personIsFounder ? <><i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i><em className="conversation-founder-role">Fondateur</em></> : null}{person?.wepiEnabled ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>
