@@ -46,7 +46,7 @@ export type CloudMessage = {
   createdAt?: { toDate?: () => Date } | null;
 };
 
-export type DirectMember = { uid:string; displayName:string; phoneNumber:string; wepiEnabled?: boolean; wepiName?: string; wepiBusinessName?: string };
+export type DirectMember = { uid:string; displayName:string; phoneNumber:string; photoUrl?: string; wepiEnabled?: boolean; wepiName?: string; wepiBusinessName?: string };
 type CloudTimestamp = { toDate?: () => Date } | null;
 export type CloudConversation = {
   id:string;
@@ -308,6 +308,18 @@ export async function findWhappyUserByPhone(phoneNumber:string) {
 export async function findWhappyUserById(userId:string) {
   const snapshot = await getDoc(doc(db, "users", userId));
   return snapshot.exists() ? ({ uid: snapshot.id, ...snapshot.data() } as DirectMember) : null;
+}
+
+export function watchWhappyUsersById(userIds:string[],onItems:(items:Record<string,DirectMember>)=>void,onError:()=>void) {
+  const profiles:Record<string,DirectMember>={};
+  const uniqueIds=[...new Set(userIds.filter(Boolean))];
+  if(!uniqueIds.length){onItems({});return()=>undefined;}
+  const stops=uniqueIds.map((userId)=>onSnapshot(doc(db,"users",userId),(snapshot)=>{
+    if(snapshot.exists())profiles[userId]={uid:snapshot.id,...snapshot.data()} as DirectMember;
+    else delete profiles[userId];
+    onItems({...profiles});
+  },onError));
+  return()=>stops.forEach((stop)=>stop());
 }
 
 export async function ensureDirectConversation(current:DirectMember,peer:DirectMember) {

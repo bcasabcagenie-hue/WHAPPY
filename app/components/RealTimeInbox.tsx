@@ -18,6 +18,7 @@ import {
   setDirectTyping,
   watchDirectConversations,
   watchDirectMessages,
+  watchWhappyUsersById,
   type CloudConversation,
   type CloudMessage,
   type DirectMember,
@@ -69,6 +70,11 @@ function buildDirectPresenceLine(person: DirectMember | null | undefined, lastSe
 
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "WH";
+}
+
+function DirectAvatar({ person }: { person: DirectMember | null | undefined }) {
+  const name = person?.displayName || "Whappy";
+  return <span className="direct-live-avatar">{initials(name)}{person?.photoUrl ? <img src={person.photoUrl} alt={name} /> : null}</span>;
 }
 
 function linkHost(value: string) {
@@ -133,6 +139,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const userId = user?.uid;
   const [wepiSettings, setWepiSettings] = useState<WepiSettings | null>(null);
   const [peerProfile, setPeerProfile] = useState<DirectMember | null>(null);
+  const [liveProfiles, setLiveProfiles] = useState<Record<string, DirectMember>>({});
   const wepiHandledRef = useRef(new Set<string>());
   const wepiReadyRef = useRef(false);
   const wepiConversationRef = useRef("");
@@ -144,6 +151,13 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     if (!userId) return;
     return watchDirectConversations(userId, setConversations, () => notifyRef.current("Messagerie directe momentanément hors ligne"));
   }, [userId]);
+  const profileIds = useMemo(() => [...new Set([userId || "", ...conversations.flatMap((conversation) => conversation.memberIds)].filter(Boolean))].sort(), [conversations, userId]);
+  const profileIdsKey = profileIds.join("|");
+  useEffect(() => {
+    return watchWhappyUsersById(profileIds, setLiveProfiles, () => notifyRef.current("Les photos de profil sont momentanément indisponibles"));
+  // The stable key prevents resubscribing when only conversation metadata changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileIdsKey]);
   useEffect(() => {
     if (!userId) return;
     return watchWepiSettings(userId, setWepiSettings, () => notifyRef.current("WEPI est momentanément indisponible"));
@@ -157,7 +171,8 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   const current = selectedConversation || (selected && optimisticConversation?.id === selected ? optimisticConversation : conversations[0]);
   const currentId = current?.id;
   const peer = useMemo(() => current?.members.find((member) => member.uid !== userId) || null, [current, userId]);
-  const activePeerProfile = peerProfile?.uid === peer?.uid ? peerProfile : null;
+  const livePeer = peer?.uid ? liveProfiles[peer.uid] || peer : null;
+  const activePeerProfile = livePeer || (peerProfile?.uid === peer?.uid ? peerProfile : null);
   useEffect(() => {
     if (!peer?.uid || peer.uid === userId) return;
     let active = true;
@@ -570,13 +585,14 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
           </nav>
           {view === "messages" ? <>
             {visibleConversations.map(({ conversation, unread }) => {
-              const person = conversation.members.find((member) => member.uid !== user.uid);
+              const storedPerson = conversation.members.find((member) => member.uid !== user.uid);
+              const person = storedPerson?.uid ? liveProfiles[storedPerson.uid] || storedPerson : storedPerson;
               const personIsFounder = isHappyFounderPhone(person?.phoneNumber);
               const personOnline = Boolean(person && timestampMillis(conversation.presenceBy?.[person.uid]) > presenceTick - 90_000);
               const personSeen = Boolean(person && timestampMillis(conversation.readBy?.[person.uid]) >= timestampMillis(conversation.updatedAt));
               const presenceLine = buildDirectPresenceLine(person, person?.uid ? conversation.presenceBy?.[person.uid] : null, Boolean(person && conversation.typingBy?.[person.uid]), personOnline, personSeen);
               return <button className={current?.id === conversation.id ? "active" : ""} key={conversation.id} onClick={() => { stopTyping(); stopRecording(true); setOptimisticConversation(null); setSelected(conversation.id); }}>
-                <span>{initials(person?.displayName || "Whappy")}</span>
+                <DirectAvatar person={person} />
                 <div>
                   <strong className="conversation-name">{person?.displayName || "Contact Whappy"}{personIsFounder ? <><i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i><em className="conversation-founder-role">Fondateur</em></> : null}{person?.wepiEnabled ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>
                   <small>{conversation.typingBy?.[person?.uid || ""] ? "écrit…" : conversation.lastMessage || person?.phoneNumber}</small>
@@ -618,7 +634,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
             const peerSeen = Boolean(peer && timestampMillis(current.readBy?.[peer.uid]) >= timestampMillis(current.updatedAt));
             const peerPresence = buildDirectPresenceLine(peer, current.presenceBy?.[peer.uid], Boolean(current.typingBy?.[peer.uid]), peerOnline, peerSeen);
             return <header>
-              <span>{initials(peer.displayName)}</span><div><strong>{peer.displayName}{peerIsFounder ? <i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}{peerHasWepi ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}<small className="direct-message-subline">{peerHasWepi ? `${peerPresence} · Assistant disponible` : peerPresence}</small></div>
+              <DirectAvatar person={activePeerProfile || peer} /><div><strong>{activePeerProfile?.displayName || peer.displayName}{peerIsFounder ? <i className="founder-grey-badge conversation-founder-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}{peerHasWepi ? <em className="wepi-contact-badge">WEPI</em> : null}</strong>{peerIsFounder ? <span className="conversation-founder-role">Fondateur</span> : null}<small className="direct-message-subline">{peerHasWepi ? `${peerPresence} · Assistant disponible` : peerPresence}</small></div>
               {peerHasWepi && <button type="button" className="wepi-contact-action" onClick={writeToWepi} aria-label={`Écrire à ${activePeerProfile?.wepiName || "WEPI"}`}>✦ WEPI</button>}
               <button onClick={() => onCall(peer, false)} aria-label={`Appeler ${peer.displayName}`}>☎</button><button onClick={() => onCall(peer, true)} aria-label={`Appel vidéo avec ${peer.displayName}`}>▣</button>{!embedded && <button onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
             </header>;
@@ -659,7 +675,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
           {!embedded && <button className="direct-onboarding-close" onClick={closePanel} aria-label="Fermer Whappy Direct">×</button>}
           <header className="direct-welcome-head">
             <div><small>VOTRE ESPACE DE COMMUNICATION</small><h2>Bonjour {user.displayName.split(/\s+/)[0]},<br/><em>tout est prêt.</em></h2><p>Lancez votre première conversation avec un numéro Whappy. Messages, médias et appels resteront regroupés ici.</p></div>
-            <div className="direct-account-card"><span>{initials(user.displayName)}</span><div><small>{founder ? "COMPTE FONDATEUR CERTIFIÉ" : "COMPTE WHAPPY VÉRIFIÉ"}</small><strong>{user.displayName}{founder ? <i className="founder-grey-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}</strong><p>{user.phoneNumber ? `${user.phoneNumber.slice(0, 4)} ••• •• ${user.phoneNumber.slice(-2)}` : "Identité téléphonique active"}</p></div><b>✓</b></div>
+            <div className="direct-account-card"><DirectAvatar person={liveProfiles[user.uid] || user} /><div><small>{founder ? "COMPTE FONDATEUR CERTIFIÉ" : "COMPTE WHAPPY VÉRIFIÉ"}</small><strong>{user.displayName}{founder ? <i className="founder-grey-badge" title="Compte fondateur Whappy by BCA">✓</i> : null}</strong><p>{user.phoneNumber ? `${user.phoneNumber.slice(0, 4)} ••• •• ${user.phoneNumber.slice(-2)}` : "Identité téléphonique active"}</p></div><b>✓</b></div>
           </header>
           <section className="direct-overview">
             <article><span>◫</span><div><small>DISCUSSIONS</small><strong>{conversations.length}</strong><p>Synchronisées en direct</p></div></article>

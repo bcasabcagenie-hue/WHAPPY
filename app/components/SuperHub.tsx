@@ -43,9 +43,8 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
     return synced;
   }, [cloudGroups]);
   const currentGroup=groups.find((group)=>group.id===selectedGroup)||groups[0];
-  useEffect(()=>{if(groups.length&&!groups.some((group)=>group.id===selectedGroup))setSelectedGroup(groups[0].id);},[groups,selectedGroup]);
-  useEffect(()=>{if(!userId||!cloudGroups.some((group)=>group.id===selectedGroup))return;return watchGroupMessages(selectedGroup,(items)=>setGroupMessages((current)=>({...current,[selectedGroup]:items})),()=>notifyRef.current("Discussion de groupe momentanément hors ligne"));},[userId,selectedGroup,cloudGroups]);
-  useEffect(()=>{if(!userId||!cloudGroups.some((group)=>group.id===selectedGroup))return;return watchGroupActivities(selectedGroup,(items)=>setActivities((current)=>({...current,[selectedGroup]:items})),()=>notifyRef.current("Activités de groupe momentanément hors ligne"));},[userId,selectedGroup,cloudGroups]);
+  useEffect(()=>{const groupId=currentGroup?.id;if(!userId||!groupId||!cloudGroups.some((group)=>group.id===groupId))return;return watchGroupMessages(groupId,(items)=>setGroupMessages((current)=>({...current,[groupId]:items})),()=>notifyRef.current("Discussion de groupe momentanément hors ligne"));},[userId,currentGroup?.id,cloudGroups]);
+  useEffect(()=>{const groupId=currentGroup?.id;if(!userId||!groupId||!cloudGroups.some((group)=>group.id===groupId))return;return watchGroupActivities(groupId,(items)=>setActivities((current)=>({...current,[groupId]:items})),()=>notifyRef.current("Activités de groupe momentanément hors ligne"));},[userId,currentGroup?.id,cloudGroups]);
 
   async function sendToGroup(event:FormEvent){event.preventDefault();const value=groupText.trim();if(!value||!currentGroup||busy)return;setGroupText("");if(!userId||!cloudGroups.some((group)=>group.id===currentGroup.id)){setGroupMessages((current)=>({...current,[currentGroup.id]:[...(current[currentGroup.id]||[]),{id:`local-${Date.now()}`,text:value,senderId:userId||"local",senderName:userName}]}));return;}setBusy(true);try{await sendGroupMessage(currentGroup.id,userId,userName,value);}catch{setGroupText(value);notify("Le message a été conservé : l’envoi a échoué.");}finally{setBusy(false);}}
 
