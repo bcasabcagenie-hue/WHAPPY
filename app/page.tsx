@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { browserLocalPersistence, ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, setPersistence, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
@@ -10,39 +11,46 @@ function messageTime(message: CloudMessage) {
   return message.createdAt?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "À l’instant";
 }
 import { saveWhappyProfile } from "@/lib/whappy-profile";
-import { BroadcastStudio, type BroadcastConfig } from "@/app/components/BroadcastStudio";
-import { RadioStudio, type RadioSession } from "@/app/components/RadioStudio";
-import { TwinRecorder } from "@/app/components/TwinRecorder";
-import { TwinEngineStudio } from "@/app/components/TwinEngineStudio";
-import { CallRoom } from "@/app/components/CallRoom";
-import { CartPanel, type CartLine, type CheckoutDraft, ProductPanel } from "@/app/components/CommercePanels";
-import { SellerDashboard } from "@/app/components/SellerDashboard";
-import { OrdersPanel } from "@/app/components/OrdersPanel";
-import { ContactsSpace, SuperHub } from "@/app/components/SuperHub";
+import type { BroadcastConfig } from "@/app/components/BroadcastStudio";
+import type { RadioSession } from "@/app/components/RadioStudio";
+import type { CartLine, CheckoutDraft } from "@/app/components/CommercePanels";
 import { RealTimeInbox } from "@/app/components/RealTimeInbox";
-import { BusinessStudio } from "@/app/components/BusinessStudio";
-import { BusinessGrowthTools } from "@/app/components/BusinessGrowthTools";
-import { RoomsSpace } from "@/app/components/RoomsSpace";
-import { HappyFounderDashboard } from "@/app/components/HappyFounderDashboard";
-import { WhappyPulse } from "@/app/components/WhappyPulse";
-import { WhappyNow } from "@/app/components/WhappyNow";
-import { WhappyExperience } from "@/app/components/WhappyExperience";
-import { WhappyMotion } from "@/app/components/WhappyMotion";
-import { WhapTextStudio } from "@/app/components/WhapTextStudio";
-import { StoryStudio } from "@/app/components/StoryStudio";
 import type { CallSignal } from "@/lib/whappy-calls";
 import { watchIncomingCalls } from "@/lib/whappy-calls";
 import { recordAdEvent, watchActiveCampaigns, type AdCampaign } from "@/lib/whappy-business";
 import type { DirectMember } from "@/lib/whappy-data";
+
+// Feature islands are downloaded only when opened. The inbox stays immediate.
+const BroadcastStudio = dynamic(() => import("@/app/components/BroadcastStudio").then((m) => m.BroadcastStudio), { ssr: false });
+const RadioStudio = dynamic(() => import("@/app/components/RadioStudio").then((m) => m.RadioStudio), { ssr: false });
+const TwinRecorder = dynamic(() => import("@/app/components/TwinRecorder").then((m) => m.TwinRecorder), { ssr: false });
+const TwinEngineStudio = dynamic(() => import("@/app/components/TwinEngineStudio").then((m) => m.TwinEngineStudio), { ssr: false });
+const CallRoom = dynamic(() => import("@/app/components/CallRoom").then((m) => m.CallRoom), { ssr: false });
+const CartPanel = dynamic(() => import("@/app/components/CommercePanels").then((m) => m.CartPanel), { ssr: false });
+const ProductPanel = dynamic(() => import("@/app/components/CommercePanels").then((m) => m.ProductPanel), { ssr: false });
+const SellerDashboard = dynamic(() => import("@/app/components/SellerDashboard").then((m) => m.SellerDashboard), { ssr: false });
+const OrdersPanel = dynamic(() => import("@/app/components/OrdersPanel").then((m) => m.OrdersPanel), { ssr: false });
+const ContactsSpace = dynamic(() => import("@/app/components/SuperHub").then((m) => m.ContactsSpace), { ssr: false });
+const SuperHub = dynamic(() => import("@/app/components/SuperHub").then((m) => m.SuperHub), { ssr: false });
+const BusinessStudio = dynamic(() => import("@/app/components/BusinessStudio").then((m) => m.BusinessStudio), { ssr: false });
+const BusinessGrowthTools = dynamic(() => import("@/app/components/BusinessGrowthTools").then((m) => m.BusinessGrowthTools), { ssr: false });
+const RoomsSpace = dynamic(() => import("@/app/components/RoomsSpace").then((m) => m.RoomsSpace), { ssr: false });
+const HappyFounderDashboard = dynamic(() => import("@/app/components/HappyFounderDashboard").then((m) => m.HappyFounderDashboard), { ssr: false });
+const WhappyPulse = dynamic(() => import("@/app/components/WhappyPulse").then((m) => m.WhappyPulse), { ssr: false });
+const WhappyNow = dynamic(() => import("@/app/components/WhappyNow").then((m) => m.WhappyNow), { ssr: false });
+const WhappyExperience = dynamic(() => import("@/app/components/WhappyExperience").then((m) => m.WhappyExperience), { ssr: false });
+const WhappyMotion = dynamic(() => import("@/app/components/WhappyMotion").then((m) => m.WhappyMotion), { ssr: false });
+const WhapTextStudio = dynamic(() => import("@/app/components/WhapTextStudio").then((m) => m.WhapTextStudio), { ssr: false });
+const StoryStudio = dynamic(() => import("@/app/components/StoryStudio").then((m) => m.StoryStudio), { ssr: false });
 
 type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "rooms" | "radio" | "services" | "twin" | "business" | "games";
 type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; sellerPhone?: string; status?: "active" | "reserved" | "sold"; };
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 
 const ANDROID_APP = {
-  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.4.4-native.apk",
-  version: "1.4.4",
-  size: "62 Mo",
+  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.4.5-native.apk",
+  version: "1.4.5",
+  size: "64 Mo",
   minimum: "Android 8.0+",
 } as const;
 

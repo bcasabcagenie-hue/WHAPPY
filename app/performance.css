@@ -1,0 +1,10 @@
+/* WHAPPY interaction layer — GPU-friendly, responsive and strictly on-brand. */
+:root{--whappy-blue:#1C1C58;--whappy-white:#FFFFFF;--whappy-ink:#111111;--whappy-muted:#667085;--whappy-ease:cubic-bezier(.2,.8,.2,1)}
+html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button,a{touch-action:manipulation}
+.orbit-scroll,.space-scroll,.deal-messages,.inbox-list,.channel-posts,.group-messages,[class*="scroll"]{overscroll-behavior:contain;scrollbar-gutter:stable;-webkit-overflow-scrolling:touch}
+.inbox-space,.deal-chat,.nova-topbar,.nova-rail,.channel-shell,.group-shell,.profile-shell{contain:layout paint style}
+.listing-card,.mini-live,.big-live,.barter-cards>div,.channel-card,.group-card,.growth-offer-grid article{content-visibility:auto;contain-intrinsic-size:260px}
+.nova-shell button,.nova-shell a,.nova-shell [role="button"]{transition:transform .18s var(--whappy-ease),background-color .18s var(--whappy-ease),border-color .18s var(--whappy-ease),box-shadow .18s var(--whappy-ease),opacity .18s var(--whappy-ease)}
+.nova-shell button:active,.nova-shell a:active,.nova-shell [role="button"]:active{transform:scale(.975)}
+@media (max-width:900px),(pointer:coarse){.nova-topbar,.map-node,.action-strip>button,.live-info>span,.preview-product,.deal-chat>header,.profile-pulse,.deal-context,.deal-chat>form,.smart-replies button,.experience-tools button{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}.deal-chat:before,.deal-chat:after,.nova-logo:after{animation:none!important}.inbox-space,.listing-card,.deal-messages>div{box-shadow:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}

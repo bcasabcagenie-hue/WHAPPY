@@ -132,6 +132,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -938,7 +939,8 @@ private fun WhappyMain(
                     onActivity = { showActivityCenter = true },
                     onProfile = { onTab(WhappyTab.PROFILE) },
                 )
-                AnimatedContent(currentTab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "whappy-tab") { tab ->
+                // Avoid composing two media-heavy screens during every tab change.
+                key(currentTab) { val tab = currentTab
             when (tab) {
                 WhappyTab.MOMENTS -> MomentsScreen(state.twinProfile?.readiness ?: 0, onTab, onOpenWhappies = { showTwinStudio = true })
                 WhappyTab.CONTACTS -> MessagesScreen(
@@ -1140,7 +1142,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
 @Composable
 private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpenWhappies: () -> Unit) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
     var composing by rememberSaveable { mutableStateOf(false) }
     var momentTitle by rememberSaveable { mutableStateOf("") }
     var momentBody by rememberSaveable { mutableStateOf("") }
@@ -1276,7 +1278,7 @@ private fun ServicesScreen(
     onOpenBusiness: () -> Unit,
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("whappy_native_services", Context.MODE_PRIVATE) }
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_native_services") }
     var walletActive by rememberSaveable { mutableStateOf(prefs.getBoolean("wallet_active", false)) }
     var balance by rememberSaveable { mutableStateOf(prefs.getInt("wallet_balance", 0)) }
     var transactions by remember { mutableStateOf(prefs.getStringSet("transactions", emptySet()).orEmpty().toList().sortedDescending()) }
@@ -1800,7 +1802,7 @@ private fun MomentCard(author: String, badge: String, title: String, body: Strin
 private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversation: (WhappyConversation) -> Unit) {
     val calls = LocalWhappyCalls.current
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
     var recentCalls by remember { mutableStateOf(prefs.getStringSet("recent_calls", emptySet()).orEmpty().toList().sortedDescending()) }
     var phone by rememberSaveable { mutableStateOf("") }
 
@@ -2507,7 +2509,7 @@ private fun ChatScreen(
     onTyping: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val draftPrefs = remember { context.getSharedPreferences("whappy_chat_drafts", Context.MODE_PRIVATE) }
+    val draftPrefs = remember { WhappyFastStorage.preferences(context, "whappy_chat_drafts") }
     var text by remember(conversation.id) { mutableStateOf(draftPrefs.getString(conversation.id, "").orEmpty()) }
     var showEmoji by remember(conversation.id) { mutableStateOf(false) }
     var recording by remember(conversation.id) { mutableStateOf(false) }
@@ -3001,7 +3003,7 @@ private fun MarketScreen(
     onPublish: (String, String, String, String) -> Unit,
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
     var search by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
     var localItems by remember { mutableStateOf(emptyList<WhappyListing>()) }
@@ -3607,7 +3609,7 @@ private fun ProfileScreen(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
-    val prefs = remember { context.getSharedPreferences("whappy_consumer", Context.MODE_PRIVATE) }
+    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
     var localPhoto by remember(photoUrl) { mutableStateOf(photoUrl) }
     var showingMyCode by remember { mutableStateOf(false) }
     var settingDialog by rememberSaveable { mutableStateOf<String?>(null) }

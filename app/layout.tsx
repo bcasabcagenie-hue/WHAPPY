@@ -5,6 +5,7 @@ import "./blue-brand.css";
 import "./studio.css";
 import "./whappy-brand.css";
 import "./strict-blue-theme.css";
+import "./performance.css";
 
 const geist = Geist({
   variable: "--font-geist",

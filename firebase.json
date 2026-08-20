@@ -16,10 +16,10 @@
     ],
     "headers": [
       {
-        "source": "/WHAPPY-Android-1.4.4-native.apk",
+        "source": "/WHAPPY-Android-1.4.5-native.apk",
         "headers": [
           { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
-          { "key": "Content-Disposition", "value": "attachment; filename=WHAPPY-Android-1.4.4-native.apk" },
+          { "key": "Content-Disposition", "value": "attachment; filename=WHAPPY-Android-1.4.5-native.apk" },
           { "key": "Cache-Control", "value": "public, max-age=3600" }
         ]
       },

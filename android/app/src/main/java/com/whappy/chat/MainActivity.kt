@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WhappyFastStorage.initialize(applicationContext)
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         callController = WhappyCallController(this)
@@ -148,7 +149,7 @@ class PhoneAuthController(private val activity: Activity) {
         private set
     private var verificationId = ""
     private var resendToken: PhoneAuthProvider.ForceResendingToken? = null
-    private val preferences = activity.getSharedPreferences("whappy_auth", Activity.MODE_PRIVATE)
+    private val preferences = WhappyFastStorage.preferences(activity, "whappy_auth")
 
     val savedCountryCode: String get() = preferences.getString("country_code", "+242") ?: "+242"
     val savedPhoneNumber: String get() = preferences.getString("phone_number", "") ?: ""

@@ -102,8 +102,20 @@ class WhappyCallController(private val activity: ComponentActivity) {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
     private val repository = WhappyRepository()
-    private val eglBase = EglBase.create()
-    private val factory: PeerConnectionFactory
+    private val eglBaseDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) { EglBase.create() }
+    private val eglBase by eglBaseDelegate
+    private val factoryDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        PeerConnectionFactory.initialize(
+            PeerConnectionFactory.InitializationOptions.builder(activity.applicationContext)
+                .setEnableInternalTracer(false)
+                .createInitializationOptions(),
+        )
+        PeerConnectionFactory.builder()
+            .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
+            .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
+            .createPeerConnectionFactory()
+    }
+    private val factory by factoryDelegate
     private val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val registrations = CopyOnWriteArrayList<ListenerRegistration>()
     private var incomingRegistration: ListenerRegistration? = null
@@ -136,18 +148,6 @@ class WhappyCallController(private val activity: ComponentActivity) {
         pendingPermissionAction = null
         if (allowed) action?.invoke()
         else state = state.copy(visible = true, status = "Autorisation requise", error = "Autorisez le micro et la caméra pour appeler sur Whappy.")
-    }
-
-    init {
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(activity.applicationContext)
-                .setEnableInternalTracer(false)
-                .createInitializationOptions(),
-        )
-        factory = PeerConnectionFactory.builder()
-            .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-            .createPeerConnectionFactory()
     }
 
     fun bindUser(userId: String?) {
@@ -498,8 +498,8 @@ class WhappyCallController(private val activity: ComponentActivity) {
         closeLocal()
         incomingRegistration?.remove()
         incomingRegistration = null
-        factory.dispose()
-        eglBase.release()
+        if (factoryDelegate.isInitialized()) factory.dispose()
+        if (eglBaseDelegate.isInitialized()) eglBase.release()
     }
 }
 
