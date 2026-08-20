@@ -17,16 +17,16 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://whappy-chat.docile-mesa-9203.chatgpt.site"),
   manifest: "/manifest.webmanifest",
-  title: "Whappy — Tout peut devenir une opportunité",
-  description: "Whappy rapproche les personnes, les opportunités, les produits, les services et les conversations.",
+  title: "WHAPPY 1.5.0 — Live, cadeaux, groupes, chaînes et Ludo",
+  description: "Téléchargez WHAPPY Android 1.5.0 : live vocal, cadeaux gratuits expérimentaux, groupes, chaînes, jeux améliorés et Ludo.",
   icons: {
     icon: "/whappy-app-icon.png",
     shortcut: "/whappy-app-icon.png",
     apple: "/whappy-app-icon.png",
   },
   openGraph: {
-    title: "Whappy — Tout peut devenir une opportunité",
-    description: "Messages, appels, opportunités, ventes et services dans une seule application.",
+    title: "WHAPPY 1.5.0 — Android",
+    description: "Live vocal, cadeaux gratuits en test, groupes, chaînes, jeux et Ludo dans WHAPPY.",
     images: [{
       url: "/whappy-social-card.svg",
       width: 1200,
@@ -38,8 +38,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Whappy — Tout peut devenir une opportunité",
-    description: "Messages, appels, opportunités, ventes et services dans une seule application.",
+    title: "WHAPPY 1.5.0 — Android",
+    description: "Téléchargez la version Android avec live, cadeaux gratuits expérimentaux, groupes, chaînes et Ludo.",
     images: ["/whappy-social-card.svg"],
   },
 };
