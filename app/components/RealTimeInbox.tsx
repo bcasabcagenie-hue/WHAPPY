@@ -9,7 +9,6 @@ import {
   ensureDirectConversation,
   findWhappyUserById,
   findWhappyUserByPhone,
-  markDirectPresence,
   markDirectConversationRead,
   markDirectMessageViewed,
   purgeExpiredDirectMessages,
@@ -236,7 +235,6 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
   useEffect(() => {
     if (!currentId || !userId) return;
     const refreshPresence = () => {
-      void markDirectPresence(currentId, userId);
       setPresenceTick(Date.now());
     };
     refreshPresence();
@@ -408,7 +406,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       }
       await openConversationWithPeer(found);
     } catch {
-      notify("La recherche du numéro a échoué");
+      notify("Le contact a été trouvé, mais la discussion n’a pas pu s’ouvrir. Réessayez.");
     } finally {
       setBusy(false);
     }

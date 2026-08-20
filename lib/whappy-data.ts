@@ -313,8 +313,10 @@ export async function findWhappyUserById(userId:string) {
 export async function ensureDirectConversation(current:DirectMember,peer:DirectMember) {
   const id=`direct-${[current.uid,peer.uid].sort().join("-")}`;
   const reference=doc(db,"conversations",id);
-  const existing=await getDoc(reference);
-  if(!existing.exists())await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[current,peer],typingBy:{},readBy:{},presenceBy:{},ephemeralSeconds:0,updatedAt:serverTimestamp()});
+  // A missing conversation cannot be read under the privacy rules because it
+  // has no member list yet. Merge directly: Firestore treats this as a create
+  // for a new conversation and as a safe update for an existing one.
+  await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[current,peer],typingBy:{},readBy:{},ephemeralSeconds:0,updatedAt:serverTimestamp()},{merge:true});
   return id;
 }
 
