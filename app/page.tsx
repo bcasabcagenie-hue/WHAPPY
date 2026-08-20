@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
+import { browserLocalPersistence, ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, setPersistence, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { cancelOrder, createGroup, createOrder, findWhappyUserById, publishListing, publishRequest, removeListing, requestGroupJoin, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
@@ -218,14 +218,53 @@ export default function Home() {
     catch { /* Le navigateur peut bloquer la persistance privée. */ }
   }, [demoMode, demoReady, customListings, customRequests, cart, orders, groups, saved]);
 
-  useEffect(() => onAuthStateChanged(auth, (user) => {
-    const hasPhone = Boolean(user?.phoneNumber);
-    const hasProfile = Boolean(user?.displayName?.trim());
-    if (hasPhone && !hasProfile) setAuthStep("profile");
-    setAuthenticated(hasPhone && hasProfile);
-    setUserId(user?.uid || "");
-    setSyncStatus(user?.uid ? "syncing" : "local");
-  }), []);
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe = () => {};
+    const restoreWebSession = async () => {
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch {
+        // Some privacy-focused browsers block IndexedDB/local persistence. Firebase
+        // still keeps the active tab authenticated, so the flow remains usable.
+      }
+      if (disposed) return;
+      unsubscribe = onAuthStateChanged(auth, (user) => {
+        const hasPhone = Boolean(user?.phoneNumber);
+        const hasProfile = Boolean(user?.displayName?.trim());
+        const accountReady = hasPhone && hasProfile;
+        setProfileName(user?.displayName?.trim() || "");
+        setUserId(user?.uid || "");
+        setSyncStatus(user?.uid ? "syncing" : "local");
+        if (!hasPhone) {
+          setAuthenticated(false);
+          setAuthStep("phone");
+          return;
+        }
+        if (accountReady) {
+          setAuthenticated(true);
+          return;
+        }
+        // Existing Whappy accounts created before Firebase display names were
+        // enabled can still have their profile in Firestore. Restore it once,
+        // so a returning web user is not incorrectly asked to create a profile.
+        setAuthenticated(false);
+        setAuthStep("profile");
+        void (user?.uid ? findWhappyUserById(user.uid) : Promise.resolve(null)).then((profile) => {
+          if (disposed || !profile?.displayName?.trim()) return;
+          const restoredName = profile.displayName.trim();
+          setProfileName(restoredName);
+          void updateProfile(user, { displayName: restoredName }).catch(() => {});
+          setAuthenticated(true);
+        }).catch(() => {});
+      });
+    };
+    void restoreWebSession();
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => () => {
     recaptchaRef.current?.clear();
@@ -533,7 +572,8 @@ export default function Home() {
       await confirmationRef.current.confirm(verificationCode);
       recaptchaRef.current?.clear();
       recaptchaRef.current = null;
-      setAuthStep("profile");
+      if (auth.currentUser?.displayName?.trim()) setAuthenticated(true);
+      else setAuthStep("profile");
     } catch {
       setAuthError("Ce code est incorrect ou a expiré.");
     } finally {
@@ -556,6 +596,10 @@ export default function Home() {
         uid: auth.currentUser.uid,
         displayName: profileName.trim(),
         phoneNumber: auth.currentUser.phoneNumber || `${countryCode}${phone.replace(/\D/g, "")}`,
+      }).catch(() => {
+        // Authentication is already valid. Keep the user connected if a
+        // transient Firestore/network issue delays profile synchronization.
+        setAuthStatus("Profil enregistré sur cet appareil. Synchronisation en cours…");
       });
       setAuthenticated(true);
     } catch {
