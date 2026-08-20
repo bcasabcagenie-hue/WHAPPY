@@ -17,35 +17,23 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://whappy-chat.docile-mesa-9203.chatgpt.site"),
   manifest: "/manifest.webmanifest",
-  title: "Whappy — Tout peut devenir une opportunité",
-  description: "Ouvrez WHAPPY sur le Web ou téléchargez WHAPPY Android 1.5.1 avec messagerie fiable, appels, groupes, chaînes, statuts et live.",
-  icons: {
-    icon: "/whappy-app-icon.png",
-    shortcut: "/whappy-app-icon.png",
-    apple: "/whappy-app-icon.png",
-  },
+  title: "WHAPPY 1.5.1 — Android professionnel",
+  description: "Téléchargez WHAPPY Android 1.5.1 : live vocal, cadeaux gratuits expérimentaux, groupes, chaînes, messagerie, jeux et Ludo.",
   openGraph: {
-    title: "WHAPPY 1.5.1 — Web et Android",
-    description: "Messagerie fiable, appels, groupes, chaînes, statuts et live dans WHAPPY.",
-    images: [{
-      url: "/whappy-social-card.svg",
-      width: 1200,
-      height: 630,
-      alt: "Whappy — Messages, appels et marketplace",
-    }],
+    title: "WHAPPY 1.5.1 — Android",
+    description: "Live vocal, cadeaux gratuits en test, groupes, chaînes, messagerie, jeux et Ludo.",
     locale: "fr_FR",
     type: "website",
   },
   twitter: {
-    card: "summary_large_image",
-    title: "WHAPPY 1.5.1 — Web et Android",
-    description: "Utilisez WHAPPY sur le Web ou téléchargez la version Android 1.5.1.",
-    images: ["/whappy-social-card.svg"],
+    card: "summary",
+    title: "WHAPPY 1.5.1 — Android",
+    description: "Téléchargez la version Android professionnelle de WHAPPY.",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1C1C74",
+  themeColor: "#111827",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
