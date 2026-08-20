@@ -243,17 +243,47 @@ function normalizeWhappyPhone(phoneNumber:string) {
   return `+242${digits}`;
 }
 
+/**
+ * Phone numbers arrive in several legitimate forms: +242..., 242..., 00 242...,
+ * or the national 06... form. Firebase may also canonicalise the national
+ * leading zero away. Keep all equivalent representations so an existing
+ * Whappy account is found whatever the format used in the search field.
+ */
 function phoneLookupCandidates(phoneNumber: string) {
   const raw = phoneNumber.trim();
   const digits = raw.replace(/\D/g, "");
+  if (!digits) return [];
+
+  const values = new Set<string>();
+  const add = (value: string) => {
+    const clean = value.replace(/\D/g, "");
+    if (!clean) return;
+    values.add(clean);
+    values.add(`+${clean}`);
+  };
+  const addCongoForms = (national: string) => {
+    const cleanNational = national.replace(/^0+/, "0");
+    add(`242${cleanNational}`);
+    if (cleanNational.startsWith("0")) add(`242${cleanNational.slice(1)}`);
+    else add(`2420${cleanNational}`);
+  };
+
+  const withoutInternationalPrefix = digits.startsWith("00") ? digits.slice(2) : digits;
+  add(withoutInternationalPrefix);
+
+  if (withoutInternationalPrefix.startsWith("242") && withoutInternationalPrefix.length > 3) {
+    addCongoForms(withoutInternationalPrefix.slice(3));
+  } else if (!raw.startsWith("+") && !digits.startsWith("00") && digits.length <= 10) {
+    addCongoForms(digits);
+  }
+
+  // Preserve the direct E.164 representation as the first lookup candidate.
   const normalized = normalizeWhappyPhone(raw);
-  if (!normalized) return [];
-  const values = new Set<string>([normalized, normalized.replace(/^\+/, "")]);
-  if (digits) values.add(digits);
-  if (digits.startsWith("00")) values.add(digits.slice(2));
-  if (!raw.startsWith("+") && !digits.startsWith("00") && digits.length <= 10) {
-    values.add(`+242${digits}`);
-    values.add(`242${digits}`);
+  if (normalized) {
+    values.delete(normalized);
+    values.delete(normalized.replace(/^\+/, ""));
+    values.add(normalized);
+    values.add(normalized.replace(/^\+/, ""));
   }
   return [...values];
 }
@@ -263,13 +293,14 @@ export async function findWhappyUserByPhone(phoneNumber:string) {
   if (!candidates.length) return null;
   const fields: Array<"phoneNumber" | "phoneLookup" | "phoneDigits"> = ["phoneNumber", "phoneLookup", "phoneDigits"];
   for (const field of fields) {
-    for (const candidate of candidates) {
-      const value = field === "phoneDigits" ? candidate.replace(/\D/g, "") : candidate;
-      if (!value) continue;
-      const snapshot = await getDocs(query(collection(db, "users"), where(field, "==", value), limit(1)));
-      const found = snapshot.docs[0];
-      if (found) return ({ uid: found.id, ...found.data() } as DirectMember);
-    }
+    const values = [...new Set(candidates.map((candidate) => field === "phoneDigits" ? candidate.replace(/\D/g, "") : candidate).filter(Boolean))];
+    if (!values.length) continue;
+    // `in` keeps the lookup fast even when the user entered a national number.
+    // Firestore accepts up to 30 values in one `in` clause; our candidate set is
+    // deliberately kept below that limit.
+    const snapshot = await getDocs(query(collection(db, "users"), where(field, "in", values.slice(0, 30)), limit(1)));
+    const found = snapshot.docs[0];
+    if (found) return ({ uid: found.id, ...found.data() } as DirectMember);
   }
   return null;
 }

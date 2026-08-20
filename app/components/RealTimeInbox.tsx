@@ -395,6 +395,10 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
 
   async function openConversationWithPhone(phone: string) {
     if (!user) return;
+    if (!phone.trim()) {
+      notify("Entrez le numéro Whappy de votre contact");
+      return;
+    }
     setBusy(true);
     try {
       const found = await findWhappyUserByPhone(phone);

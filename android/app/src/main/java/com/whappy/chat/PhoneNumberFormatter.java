@@ -91,6 +91,24 @@ final class PhoneNumberFormatter {
                 String candidate = normalize(entry.getKey(), withCountry);
                 if (candidate != null) candidates.add(candidate);
             }
+            // Congo numbers are commonly typed with or without the domestic
+            // leading zero. Firebase can store either representation, so
+            // search both canonical forms.
+            String national = digits.substring(3);
+            if (national.startsWith("0") && national.length() > 1) {
+                String withoutDomesticZero = normalize("+242", "+242" + national.substring(1));
+                if (withoutDomesticZero != null) candidates.add(withoutDomesticZero);
+            } else {
+                String withDomesticZero = normalize("+242", "+2420" + national);
+                if (withDomesticZero != null) candidates.add(withDomesticZero);
+            }
+        }
+        if (!rawValue.startsWith("+") && !rawValue.startsWith("00") && !digits.startsWith("242") && digits.length() <= 10) {
+            String national = digits;
+            String withDomesticZero = normalize("+242", "+242" + (national.startsWith("0") ? national : "0" + national));
+            String withoutDomesticZero = normalize("+242", "+242" + (national.startsWith("0") ? national.substring(1) : national));
+            if (withDomesticZero != null) candidates.add(withDomesticZero);
+            if (withoutDomesticZero != null) candidates.add(withoutDomesticZero);
         }
         for (Map.Entry<String, Integer> entry : NATIONAL_LENGTHS.entrySet()) {
             String fallback = normalize(entry.getKey(), rawValue);
