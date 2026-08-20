@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.4\.9-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.5\.0-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -131,10 +131,13 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(models, /accountDisplayName/);
   assert.match(manifest, /androidx\.core\.content\.FileProvider/);
   assert.match(manifest, /USE_FULL_SCREEN_INTENT/);
-  const [notifications, calls, androidBuild] = await Promise.all([
+  const [notifications, calls, androidBuild, fastStorage, outbox, messageSync] = await Promise.all([
     readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyMessagingService.kt", import.meta.url), "utf8"),
     readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyCalls.kt", import.meta.url), "utf8"),
     readFile(new URL("../android/app/build.gradle", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyFastStorage.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyMessageOutbox.kt", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyMessageSync.kt", import.meta.url), "utf8"),
   ]);
   assert.match(notifications, /NotificationCompat\.CallStyle\.forIncomingCall/);
   assert.match(notifications, /whappy_messages_v3/);
@@ -147,7 +150,13 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(calls, /0xFFEF4444/);
   assert.match(calls, /ToneGenerator\.TONE_SUP_RINGTONE/);
   assert.match(androidBuild, /emoji2-bundled:1\.5\.0/);
-  assert.match(androidBuild, /versionName "1\.4\.9-native"/);
+  assert.match(androidBuild, /com\.tencent:mmkv:2\.4\.1/);
+  assert.match(androidBuild, /work-runtime-ktx:2\.10\.1/);
+  assert.match(androidBuild, /versionName "1\.5\.0-native"/);
+  assert.match(fastStorage, /MMKV\.SINGLE_PROCESS_MODE, cryptKey/);
+  assert.match(outbox, /WhappyCryptoVault\.encrypt/);
+  assert.match(messageSync, /NetworkType\.CONNECTED/);
+  assert.match(repository, /clientMessageId/);
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {

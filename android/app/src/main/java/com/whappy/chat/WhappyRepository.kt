@@ -1,6 +1,8 @@
 package com.whappy.chat
 
+import android.content.Context
 import android.net.Uri
+import com.google.firebase.FirebaseApp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -20,8 +22,13 @@ class WhappyRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
+    private val appContext: Context = FirebaseApp.getInstance().applicationContext,
 ) {
+    private val messageOutbox = WhappyMessageOutbox(appContext)
+
     fun currentUser() = auth.currentUser
+
+    fun schedulePendingMessageSync() = WhappyMessageSync.schedule(appContext)
 
     suspend fun syncAccountRecord(user: FirebaseUser, displayName: String = user.displayName.orEmpty()) {
         val phone = user.phoneNumber.orEmpty()
@@ -531,24 +538,66 @@ class WhappyRepository(
             })
         }
 
-    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "") {
+    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = ""): WhappyDeliveryResult {
         val value = text.trim()
         require(value.isNotEmpty() && value.length <= 4_000)
-        val conversation = db.collection("conversations").document(conversationId)
-        conversation.collection("messages").add(
+        require(auth.currentUser?.uid == userId)
+        val pending = WhappyPendingMessage(
+            id = db.collection("conversations").document(conversationId).collection("messages").document().id,
+            conversationId = conversationId,
+            senderId = userId,
+            text = value,
+            replyToId = replyToId,
+            replyText = replyText.take(240),
+            createdAt = System.currentTimeMillis(),
+        )
+        messageOutbox.enqueue(pending)
+        return runCatching {
+            deliverPendingMessage(pending)
+            messageOutbox.remove(pending.id)
+            WhappyDeliveryResult.SENT
+        }.getOrElse {
+            messageOutbox.markAttempt(pending.id)
+            WhappyMessageSync.schedule(appContext)
+            WhappyDeliveryResult.QUEUED
+        }
+    }
+
+    suspend fun flushPendingMessages(): Boolean {
+        val currentUserId = auth.currentUser?.uid ?: return false
+        val pendingMessages = messageOutbox.pending()
+        for (pending in pendingMessages) {
+            if (pending.senderId != currentUserId) continue
+            val delivered = runCatching { deliverPendingMessage(pending) }.isSuccess
+            if (!delivered) {
+                messageOutbox.markAttempt(pending.id)
+                return false
+            }
+            messageOutbox.remove(pending.id)
+        }
+        return true
+    }
+
+    private suspend fun deliverPendingMessage(message: WhappyPendingMessage) {
+        val conversation = db.collection("conversations").document(message.conversationId)
+        conversation.collection("messages").document(message.id).set(
             buildMap<String, Any> {
-                put("text", value)
-                put("senderId", userId)
-                put("createdAt", FieldValue.serverTimestamp())
-                if (replyToId.isNotBlank()) { put("replyToId", replyToId); put("replyText", replyText.take(240)) }
+                put("text", message.text)
+                put("senderId", message.senderId)
+                put("createdAt", Timestamp(Date(message.createdAt)))
+                put("clientMessageId", message.id)
+                if (message.replyToId.isNotBlank()) {
+                    put("replyToId", message.replyToId)
+                    put("replyText", message.replyText)
+                }
             },
         ).await()
         conversation.update(
             mapOf(
-                "lastMessage" to value,
-                "lastSenderId" to userId,
+                "lastMessage" to message.text,
+                "lastSenderId" to message.senderId,
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "typingBy.$userId" to false,
+                "typingBy.${message.senderId}" to false,
             ),
         ).await()
     }

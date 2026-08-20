@@ -185,7 +185,11 @@ class WhappyViewModel(
         _uiState.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
             runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText) }
-                .onSuccess { _uiState.update { current -> current.copy(sending = false, online = true) } }
+                .onSuccess { delivery ->
+                    _uiState.update { current ->
+                        current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT)
+                    }
+                }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le message n’a pas été envoyé") } }
         }
     }
@@ -688,6 +692,7 @@ class WhappyViewModel(
             _uiState.update { it.copy(sessionRestoring = false) }
             return
         }
+        repository.schedulePendingMessageSync()
         resolveAccountProfile(user)
         conversationsListener = repository.observeConversations(
             user.uid,
