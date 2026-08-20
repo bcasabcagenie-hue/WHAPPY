@@ -109,10 +109,13 @@ class WhappyViewModel(
         }
     }
 
-    fun createGroup(name: String, memberIds: List<String>) {
+    fun createGroup(name: String, memberIds: List<String>, photoUri: Uri?, photoContentType: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.actionBusy) return
-        val selected = _uiState.value.contacts.map { it.member }.filter { it.uid in memberIds }
+        val state = _uiState.value
+        val selected = (state.contacts.map { it.member } + state.conversations.filterNot { it.isGroup }.map { it.peer })
+            .distinctBy { it.uid }
+            .filter { it.uid in memberIds }
         if (selected.size < 2) {
             _uiState.update { it.copy(error = "Choisissez au moins deux contacts pour créer le groupe") }
             return
@@ -124,6 +127,8 @@ class WhappyViewModel(
                     current = currentMember(user),
                     name = name,
                     selectedMembers = selected,
+                    photoUri = photoUri,
+                    photoContentType = photoContentType,
                 )
             }.onSuccess { conversation ->
                 _uiState.update { it.copy(actionBusy = false, online = true) }

@@ -123,7 +123,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -335,7 +334,7 @@ fun WhappyRoot(
     onOpenChannel: (WhappyChannel) -> Unit,
     onCloseChannel: () -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
-    onCreateGroup: (String, List<String>) -> Unit,
+    onCreateGroup: (String, List<String>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
@@ -827,7 +826,7 @@ private fun WhappyMain(
     onOpenChannel: (WhappyChannel) -> Unit,
     onCloseChannel: () -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
-    onCreateGroup: (String, List<String>) -> Unit,
+    onCreateGroup: (String, List<String>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
@@ -2499,7 +2498,7 @@ private fun MessagesScreen(
     onOpen: (WhappyConversation) -> Unit,
     onOpenChannel: (WhappyChannel) -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
-    onCreateGroup: (String, List<String>) -> Unit,
+    onCreateGroup: (String, List<String>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onHandleWhappyLink: (String) -> Unit,
 ) {
@@ -2510,6 +2509,7 @@ private fun MessagesScreen(
     var creatingGroup by remember { mutableStateOf(false) }
     var groupName by remember { mutableStateOf("") }
     var groupMembers by remember { mutableStateOf(emptySet<String>()) }
+    var groupPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var channelName by remember { mutableStateOf("") }
     var channelDescription by remember { mutableStateOf("") }
     var channelCategory by remember { mutableStateOf("Communauté") }
@@ -2743,7 +2743,7 @@ private fun MessagesScreen(
             }
             items(filteredConversations, key = { it.id }) { conversation ->
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(conversation) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (conversation.isGroup) {
+                    if (conversation.isGroup && conversation.peer.photoUrl.isBlank()) {
                         Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.Groups, null, tint = Color.White)
                         }
@@ -2755,7 +2755,6 @@ private fun MessagesScreen(
                     if (conversation.isGroup) Text("GROUPE", Modifier.padding(start = 8.dp).clip(RoundedCornerShape(9.dp)).background(Color.White).padding(horizontal = 7.dp, vertical = 4.dp), color = WhappyBlue, fontSize = 8.sp, fontWeight = FontWeight.Black)
                     if (conversation.unread) Box(Modifier.padding(start = 8.dp).size(10.dp).clip(CircleShape).background(WhappyBlue))
                 }
-                HorizontalDivider(color = WhappyLine, modifier = Modifier.padding(start = 76.dp))
             }
         }
         if (adding) AlertDialog(
@@ -2896,15 +2895,20 @@ private fun MessagesScreen(
             groupName = groupName,
             contacts = availableGroupContacts,
             selectedIds = groupMembers,
+            photoUri = groupPhotoUri,
             busy = channelBusy,
             onNameChange = { groupName = it.take(80) },
             onToggle = { id -> groupMembers = if (id in groupMembers) groupMembers - id else groupMembers + id },
-            onDismiss = { creatingGroup = false },
+            onPhotoChange = { groupPhotoUri = it },
+            onDismiss = { creatingGroup = false; groupPhotoUri = null },
             onCreate = {
-                onCreateGroup(groupName.trim(), groupMembers.toList())
-                creatingGroup = false
-                groupName = ""
-                groupMembers = emptySet()
+                val photo = groupPhotoUri
+                onCreateGroup(
+                    groupName.trim(),
+                    groupMembers.toList(),
+                    photo,
+                    photo?.let { context.contentResolver.getType(it) }.orEmpty().ifBlank { "image/jpeg" },
+                )
             },
         )
         if (creatingChannel) AlertDialog(
@@ -2928,14 +2932,19 @@ private fun CreateGroupDialog(
     groupName: String,
     contacts: List<WhappyContact>,
     selectedIds: Set<String>,
+    photoUri: Uri?,
     busy: Boolean,
     onNameChange: (String) -> Unit,
     onToggle: (String) -> Unit,
+    onPhotoChange: (Uri?) -> Unit,
     onDismiss: () -> Unit,
     onCreate: () -> Unit,
 ) {
     val members = contacts.distinctBy { it.member.uid }
     val ready = groupName.trim().length >= 2 && selectedIds.size >= 2
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onPhotoChange(uri)
+    }
     Dialog(onDismissRequest = { if (!busy) onDismiss() }) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -2945,8 +2954,16 @@ private fun CreateGroupDialog(
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        if (photoUri != null) UserAvatar(photoUri.toString(), groupName.ifBlank { "Groupe WHAPPY" }, 58.dp)
+                        else Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                        }
+                        IconButton(
+                            enabled = !busy,
+                            onClick = { photoPicker.launch("image/*") },
+                            modifier = Modifier.size(26.dp).clip(CircleShape).background(Color.White),
+                        ) { Icon(Icons.Rounded.Photo, "Ajouter la photo du groupe", tint = WhappyBlue, modifier = Modifier.size(15.dp)) }
                     }
                     Column(Modifier.weight(1f).padding(start = 13.dp)) {
                         Text("Nouveau groupe", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
@@ -2964,6 +2981,13 @@ private fun CreateGroupDialog(
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(enabled = !busy, onClick = { photoPicker.launch("image/*") }) {
+                        Icon(Icons.Rounded.Photo, null, modifier = Modifier.size(17.dp))
+                        Text(if (photoUri == null) "  Ajouter une photo de groupe" else "  Changer la photo", fontWeight = FontWeight.Bold)
+                    }
+                    if (photoUri != null) TextButton(enabled = !busy, onClick = { onPhotoChange(null) }) { Text("Retirer", color = WhappyMuted) }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("MEMBRES", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -2993,9 +3017,7 @@ private fun CreateGroupDialog(
                                 border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) WhappyBlue else WhappyBlue.copy(alpha = .12f)),
                             ) {
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.size(42.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
-                                        Text(initials(contact.member.displayName), color = Color.White, fontWeight = FontWeight.Black)
-                                    }
+                                    UserAvatar(contact.member.photoUrl, contact.member.displayName, 42.dp)
                                     Column(Modifier.weight(1f).padding(start = 11.dp)) {
                                         Text(contact.member.displayName, color = WhappyDark, fontWeight = FontWeight.Bold, maxLines = 1)
                                         Text(contact.member.phoneNumber, color = WhappyMuted, fontSize = 10.sp)
@@ -3348,7 +3370,7 @@ private fun ChatScreen(
     Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
-            if (conversation.isGroup) {
+            if (conversation.isGroup && conversation.peer.photoUrl.isBlank()) {
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Groups, null, tint = Color.White)
                 }

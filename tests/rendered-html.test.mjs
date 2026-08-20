@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.4\.8-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.4\.9-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -65,6 +65,8 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(ui, /EmojiTray/);
   assert.match(ui, /Compatibles Android/);
   assert.match(ui, /CreateGroupDialog/);
+  assert.match(ui, /Ajouter une photo de groupe/);
+  assert.doesNotMatch(ui, /HorizontalDivider\(color = WhappyLine/);
   assert.match(ui, /createVoiceRecorder/);
   assert.match(ui, /autoCorrectEnabled = true/);
   assert.match(ui, /WhappyStudioScreen/);
@@ -96,6 +98,8 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(repository, /observeStatuses/);
   assert.match(repository, /publishStatus/);
   assert.match(repository, /updateProfilePhoto/);
+  assert.match(repository, /group-photos/);
+  assert.match(repository, /groupPhotoUrl/);
   assert.match(repository, /profiles\/\$userId\/avatar-/);
   assert.match(ui, /Changer la photo/);
   assert.match(ui, /Démarrer maintenant/);
@@ -115,6 +119,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(viewModel, /observeTwinProfile/);
   assert.match(viewModel, /observeTwinAutomations/);
   assert.match(viewModel, /observeTwinRenders/);
+  assert.match(viewModel, /state\.conversations\.filterNot \{ it\.isGroup \}/);
   assert.match(models, /WhappyTwinProfile/);
   assert.match(models, /WhappyTwinAutomation/);
   assert.match(models, /WhappyTwinRender/);
@@ -142,7 +147,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(calls, /0xFFEF4444/);
   assert.match(calls, /ToneGenerator\.TONE_SUP_RINGTONE/);
   assert.match(androidBuild, /emoji2-bundled:1\.5\.0/);
-  assert.match(androidBuild, /versionName "1\.4\.8-native"/);
+  assert.match(androidBuild, /versionName "1\.4\.9-native"/);
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {

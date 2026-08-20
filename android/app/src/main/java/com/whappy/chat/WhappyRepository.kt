@@ -615,13 +615,31 @@ class WhappyRepository(
         )
     }
 
-    suspend fun createGroup(current: WhappyMember, name: String, selectedMembers: List<WhappyMember>): WhappyConversation {
+    suspend fun createGroup(
+        current: WhappyMember,
+        name: String,
+        selectedMembers: List<WhappyMember>,
+        photoUri: Uri? = null,
+        photoContentType: String = "image/jpeg",
+    ): WhappyConversation {
         val cleanName = name.trim()
         val members = (listOf(current) + selectedMembers)
             .distinctBy { it.uid }
             .take(64)
         require(cleanName.length in 2..80 && members.size >= 3)
         val reference = db.collection("conversations").document()
+        val groupPhotoUrl = if (photoUri == null) "" else {
+            val safeContentType = normalizeImageContentType(photoContentType)
+            val extension = when (safeContentType) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val photoRef = storage.reference.child("users/${current.uid}/group-photos/${reference.id}-${UUID.randomUUID()}.$extension")
+            val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
+            photoRef.putFile(photoUri, metadata).await()
+            photoRef.downloadUrl.await().toString()
+        }
         reference.set(
             mapOf(
                 "ownerId" to current.uid,
@@ -634,6 +652,7 @@ class WhappyRepository(
                         "displayName" to member.displayName,
                         "phoneNumber" to member.phoneNumber,
                         "photoUrl" to member.photoUrl,
+                        "groupPhotoUrl" to groupPhotoUrl,
                     )
                 },
                 "typingBy" to emptyMap<String, Boolean>(),
@@ -646,7 +665,7 @@ class WhappyRepository(
         ).await()
         return WhappyConversation(
             id = reference.id,
-            peer = WhappyMember(reference.id, cleanName),
+            peer = WhappyMember(reference.id, cleanName, photoUrl = groupPhotoUrl),
             lastMessage = "Groupe créé",
             updatedAt = System.currentTimeMillis(),
             unread = false,
@@ -1172,6 +1191,7 @@ class WhappyRepository(
             WhappyMember(
                 uid = id,
                 displayName = getString("title")?.trim()?.ifBlank { "Groupe WHAPPY" } ?: "Groupe WHAPPY",
+                photoUrl = rawMembers?.firstNotNullOfOrNull { it["groupPhotoUrl"]?.toString()?.takeIf(String::isNotBlank) }.orEmpty(),
             )
         } else if (peerMap != null) {
             WhappyMember(

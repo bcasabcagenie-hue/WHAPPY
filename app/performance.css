@@ -18,6 +18,10 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
   border:0!important;
   box-shadow:none!important;
 }
+.whappy-blue :is(.message-link-card,.realtime-messages article:has(.message-link-card)) {
+  border:0!important;
+  box-shadow:none!important;
+}
 
 /* Premium surface system: no decorative grids or technical-looking rules. */
 .nova-shell.whappy-blue,
