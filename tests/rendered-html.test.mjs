@@ -161,7 +161,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {
   const [page, layout, packageJson, readme, logo, firebase, rules, dataLayer, commerce, calls, profile, seller, orders, superHub, groupActivities, realTimeInbox, callData, businessStudio, businessData, twinEngine, twinData, storageRules, expressionHub, pulse, wepiAssistant, wepiData] = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WhappyClientApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
@@ -358,7 +358,7 @@ test("conserve l'identité et la configuration autonome de Whappy", async () => 
 
 test("expose les Salles Whappy et leur modèle de communautés", async () => {
   const [page, rooms, roomPilot, roomData, wepiData, rules] = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WhappyClientApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/RoomsSpace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WepiRoomPilot.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/whappy-rooms.ts", import.meta.url), "utf8"),
