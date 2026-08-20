@@ -385,7 +385,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
       notify("C’est votre propre compte Whappy");
       return;
     }
-    const id = await ensureDirectConversation(user, found);
+    const id = `direct-${[user.uid, found.uid].sort().join("-")}`;
     setOptimisticConversation({
       id,
       ownerId: user.uid,
@@ -400,6 +400,7 @@ export function RealTimeInbox({ user, onCall, notify, embedded = false, composeT
     setView("messages");
     setAdding(false);
     setOpen(true);
+    await ensureDirectConversation(user, found);
     notify(`Conversation en temps réel avec ${found.displayName} ouverte`);
   }
 
