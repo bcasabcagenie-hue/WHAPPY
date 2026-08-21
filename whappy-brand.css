@@ -1,0 +1,806 @@
+/* Whappy identity: the interface follows the supplied blue logo. */
+:root {
+  --whappy-indigo: #1C1C74;
+  --whappy-indigo-light: #1C1C74;
+  --whappy-indigo-soft: #1C1C74;
+  --whappy-glow: rgba(28, 28, 116, .38);
+  --neon: var(--whappy-indigo-light);
+  --neon2: var(--whappy-indigo-soft);
+  --line: rgba(28, 28, 116, .14);
+}
+
+body { background: #111111; }
+
+.nova-shell.whappy-blue {
+  background: #111111;
+}
+
+.nova-logo,
+.mobile-logo {
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 12px 30px var(--whappy-glow);
+}
+
+.nova-logo img,
+.mobile-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nova-rail nav button.active,
+.rail-tools > button.active {
+  background: linear-gradient(135deg, rgba(28, 28, 116, .28), rgba(28, 28, 116, .12));
+  color: var(--whappy-indigo-light);
+}
+
+.nova-rail nav button.active:before {
+  background: var(--whappy-indigo-light);
+  box-shadow: 0 0 14px var(--whappy-indigo-light);
+}
+
+.nova-rail nav button b,
+.rail-tools .me i,
+.signal i,
+.profile-avatar > i,
+.profile-avatar.large > i,
+.whappy-blue .live-label,
+.whappy-blue .big-live > span,
+.sync-badge.synced i {
+  background: var(--whappy-indigo-light);
+}
+
+.kicker,
+.signal,
+.section-title small,
+.market-banner span,
+.seller small,
+.seller-console small,
+.topbar-copy .founder-grey-badge,
+.whappy-blue .inbox-title small,
+.whappy-blue .home-ads-head small {
+  color: var(--whappy-indigo-light);
+}
+
+.hero-copy h2 em,
+.live-command h2 em,
+.seek-hero h2 em,
+.twin-copy h2 em,
+.action-strip > button > span:last-child,
+.section-title button,
+.listing-card > div > strong,
+.listing-art > b,
+.preview-product b,
+.trust-orbit strong,
+.market-sell-fab,
+.market-hero-note i {
+  color: var(--whappy-indigo-light);
+}
+
+.top-actions .sell,
+.hero-copy > div button:first-child,
+.live-command-copy > button,
+.seek-hero > div > button,
+.market-hero-actions button:first-child,
+.market-sell-fab,
+.access-primary,
+.modal-submit,
+.business-submit,
+.activity-submit,
+.growth-submit,
+.story-publish,
+.access-apk {
+  border-color: var(--whappy-indigo);
+  background: var(--whappy-indigo);
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(28, 28, 116, .28);
+}
+
+.top-actions .sell:hover,
+.hero-copy > div button:first-child:hover,
+.live-command-copy > button:hover,
+.seek-hero > div > button:hover,
+.access-primary:hover,
+.modal-submit:hover,
+.business-submit:hover,
+.activity-submit:hover,
+.growth-submit:hover,
+.story-publish:hover,
+.access-apk:hover {
+  background: #1C1C74;
+  border-color: #1C1C74;
+}
+
+.whappy-blue .listing-art.blue,
+.whappy-blue .listing-art.violet,
+.whappy-blue .listing-art.orange,
+.whappy-blue .barter-art.violet,
+.whappy-blue .barter-art.amber,
+.whappy-blue .market-banner,
+.whappy-blue .need-ribbon {
+  background: linear-gradient(135deg, #1C1C74, #1C1C74 58%, #1C1C74);
+}
+
+.whappy-blue .action-strip > button,
+.whappy-blue .barter-engine,
+.whappy-blue .barter-engine label,
+.whappy-blue .live-features > div,
+.whappy-blue .builder-card,
+.whappy-blue .shift-explainer {
+  border-color: rgba(28, 28, 116, .2);
+}
+
+.whappy-blue .action-strip .op-mark,
+.whappy-blue .inbox-presence button > span,
+.whappy-blue .product-thumb,
+.whappy-blue .barter-cards .chain-card,
+.whappy-blue .barter-engine .swap,
+.whappy-blue .match-result,
+.whappy-blue .market-toolbar button.active,
+.whappy-blue .seek-tabs button.active {
+  background: rgba(28, 28, 116, .16);
+  color: var(--whappy-indigo-light);
+  border-color: rgba(28, 28, 116, .36);
+}
+
+.whappy-blue .radar .ring,
+.whappy-blue .radar-core,
+.whappy-blue .studio-preview,
+.whappy-blue .trust-orbit,
+.whappy-blue .match-result {
+  border-color: rgba(28, 28, 116, .36);
+  box-shadow: 0 0 0 8px rgba(28, 28, 116, .07), 0 0 55px rgba(28, 28, 116, .3);
+}
+
+.whappy-blue .nova-search:focus-within,
+.whappy-blue .deal-chat form:focus-within,
+.whappy-blue .deal-chat form input:focus {
+  border-color: rgba(28, 28, 116, .62);
+  box-shadow: 0 0 0 3px rgba(28, 28, 116, .12);
+}
+
+.phone-access {
+  background: radial-gradient(circle at 16% 20%, rgba(28, 28, 116, .42), transparent 34%), #111111;
+}
+
+.access-brand {
+  background: linear-gradient(150deg, #1C1C74 0%, #1C1C74 44%, #1C1C74 100%);
+}
+
+.access-logo img,
+.android-download img {
+  box-shadow: 0 16px 36px rgba(17, 17, 17, .24);
+}
+
+.access-logo strong,
+.access-promise h1 em,
+.access-step,
+.access-card h2,
+.access-card label,
+.access-card .access-link,
+.android-download-copy small {
+  color: var(--whappy-indigo-light);
+}
+
+.access-flow span.active b,
+.access-flow span.done b,
+.access-primary,
+.access-apk {
+  background: var(--whappy-indigo);
+}
+
+.access-card {
+  border-color: rgba(28, 28, 116, .26);
+  box-shadow: 0 28px 85px rgba(17, 17, 17, .32), 0 0 0 1px rgba(28, 28, 116, .05);
+}
+
+.access-card input:focus,
+.access-card select:focus,
+.phone-field:focus-within,
+.access-card .otp-field:focus {
+  border-color: var(--whappy-indigo-light);
+  box-shadow: 0 0 0 3px rgba(28, 28, 116, .14);
+}
+
+/* Keep the app name visible in the main browser chrome even when a feature label is shown. */
+.topbar-copy .kicker::first-line { color: var(--whappy-indigo-light); }
+
+@media (max-width: 700px) {
+  .nova-logo { border-radius: 14px; }
+  .mobile-logo { border-radius: 12px; }
+}
+
+/* Whappy 2026 visual refresh: blue first, no green accents. */
+:root {
+  --whappy-ink: #1C1C74;
+  --whappy-ink-2: #1C1C74;
+  --whappy-blue: #1C1C74;
+  --whappy-blue-2: #1C1C74;
+  --whappy-blue-3: #1C1C74;
+  --whappy-cream: #FFFFFF;
+  --whappy-paper: #FFFFFF;
+  --whappy-line: rgba(28, 28, 116, .14);
+  --whappy-muted: #1C1C74;
+  --whappy-gold: #1C1C74;
+  --whappy-coral: #1C1C74;
+  --neon: var(--whappy-blue-2);
+  --neon2: var(--whappy-blue-3);
+}
+
+body {
+  background:
+    linear-gradient(135deg, rgba(28, 28, 116, .08), transparent 36%),
+    var(--whappy-cream);
+}
+
+.nova-shell.whappy-blue {
+  --night: var(--whappy-cream);
+  --deep: #FFFFFF;
+  --panel: rgba(255, 255, 255, .88);
+  --card: var(--whappy-paper);
+  --line: var(--whappy-line);
+  --text: var(--whappy-ink);
+  --muted: var(--whappy-muted);
+  --warm: var(--whappy-blue);
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(28, 28, 116, .07) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .05) 1px, transparent 1px),
+    linear-gradient(145deg, #FFFFFF 0%, #FFFFFF 54%, #FFFFFF 100%);
+  background-size: 34px 34px, 34px 34px, auto;
+  color: var(--whappy-ink);
+}
+
+.whappy-blue .nova-rail {
+  background:
+    linear-gradient(180deg, #1C1C74 0%, #1C1C74 54%, #1C1C74 100%);
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: 14px 0 38px rgba(28, 28, 116, .18);
+}
+
+.nova-logo,
+.mobile-logo {
+  border-radius: 15px;
+  background: var(--whappy-blue);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, .2),
+    0 16px 34px rgba(28, 28, 116, .28);
+}
+
+.nova-logo:after,
+.motion-orb,
+.whappy-motion-field .motion-orb {
+  display: none;
+}
+
+.whappy-motion-field {
+  mix-blend-mode: normal;
+  opacity: .26;
+}
+
+.motion-pointer {
+  background: radial-gradient(circle, rgba(28, 28, 116, .12), transparent 64%);
+  filter: blur(10px);
+}
+
+.whappy-blue .nova-rail nav button,
+.whappy-blue .rail-tools > button {
+  color: rgba(255, 255, 255, .62);
+  border-radius: 13px;
+}
+
+.whappy-blue .nova-rail nav button:hover,
+.whappy-blue .rail-tools > button:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.whappy-blue .nova-rail nav button.active,
+.whappy-blue .rail-tools > button.active {
+  background: linear-gradient(135deg, rgba(255, 255, 255, .2), rgba(28, 28, 116, .24));
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .13);
+}
+
+.whappy-blue .nova-rail nav button.active:before {
+  background: var(--whappy-gold);
+  box-shadow: 0 0 18px rgba(28, 28, 116, .55);
+}
+
+.whappy-blue .nova-rail nav button b,
+.whappy-blue .rail-tools .me i,
+.sync-badge.synced i {
+  background: var(--whappy-gold);
+  color: var(--whappy-ink);
+}
+
+.whappy-blue .rail-tools .me {
+  border-color: rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+}
+
+.whappy-blue .nova-topbar {
+  min-height: 82px;
+  background: rgba(255, 255, 255, .84);
+  border-color: rgba(28, 28, 116, .11);
+  box-shadow: 0 10px 34px rgba(28, 28, 116, .08);
+}
+
+.whappy-blue .nova-topbar:after {
+  background: linear-gradient(90deg, transparent, rgba(28, 28, 116, .26), transparent);
+  animation: none;
+}
+
+.kicker,
+.signal,
+.section-title small,
+.market-banner span,
+.seller small,
+.seller-console small,
+.whappy-blue .inbox-title small,
+.whappy-blue .home-ads-head small,
+.contact-summary > div > span,
+.hub-hero > div > span,
+.calls-preview-body header small {
+  color: var(--whappy-blue);
+}
+
+.whappy-blue .nova-topbar h1,
+.whappy-blue .section-title h3,
+.whappy-blue .contact-summary h2,
+.whappy-blue .hub-hero h2 {
+  color: var(--whappy-ink);
+}
+
+.whappy-blue .nova-search,
+.whappy-blue .top-actions button,
+.sync-badge {
+  border-color: rgba(28, 28, 116, .12);
+  background: rgba(255, 255, 255, .72);
+  color: var(--whappy-ink);
+  box-shadow: 0 8px 24px rgba(28, 28, 116, .06);
+}
+
+.whappy-blue .nova-search:focus-within,
+.whappy-blue .deal-chat form:focus-within,
+.whappy-blue input:focus,
+.whappy-blue textarea:focus,
+.whappy-blue select:focus {
+  border-color: rgba(28, 28, 116, .55);
+  box-shadow: 0 0 0 3px rgba(28, 28, 116, .12);
+}
+
+.top-actions .sell,
+.hero-copy > div button:first-child,
+.live-command-copy > button,
+.seek-hero > div > button,
+.market-hero-actions button:first-child,
+.market-sell-fab,
+.access-primary,
+.modal-submit,
+.business-submit,
+.activity-submit,
+.growth-submit,
+.story-publish,
+.access-apk,
+.calls-preview-hero > div > button {
+  border-color: var(--whappy-blue);
+  background: linear-gradient(135deg, var(--whappy-blue), var(--whappy-blue-2));
+  color: #fff;
+  box-shadow: 0 16px 34px rgba(28, 28, 116, .24);
+}
+
+.top-actions .sell:hover,
+.hero-copy > div button:first-child:hover,
+.live-command-copy > button:hover,
+.seek-hero > div > button:hover,
+.access-primary:hover,
+.modal-submit:hover,
+.business-submit:hover,
+.activity-submit:hover,
+.growth-submit:hover,
+.story-publish:hover,
+.access-apk:hover {
+  background: linear-gradient(135deg, #1C1C74, #1C1C74);
+  border-color: #1C1C74;
+  transform: translateY(-1px);
+}
+
+.whappy-now {
+  margin: 12px clamp(14px, 2.7vw, 34px) 0;
+  border: 1px solid rgba(28, 28, 116, .14);
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .9)),
+    var(--whappy-paper);
+  box-shadow: 0 18px 42px rgba(28, 28, 116, .1);
+}
+
+.whappy-now:before,
+.whappy-now:after {
+  animation: none;
+}
+
+.now-label,
+.now-copy small,
+.now-content > b,
+.now-controls button.active {
+  color: var(--whappy-blue);
+}
+
+.now-label i,
+.now-icon,
+.now-progress i {
+  background: linear-gradient(135deg, var(--whappy-blue), var(--whappy-blue-3));
+}
+
+.now-progress i {
+  animation-duration: 7s;
+}
+
+.whappy-blue .orbit-hero,
+.whappy-blue .live-command,
+.whappy-blue .barter-hero,
+.whappy-blue .seek-hero,
+.whappy-blue .twin-hero,
+.whappy-blue .market-banner,
+.calls-preview-hero,
+.contact-summary,
+.hub-hero {
+  background:
+    linear-gradient(135deg, rgba(28, 28, 116, .95) 0%, rgba(28, 28, 116, .93) 58%, rgba(28, 28, 116, .88) 100%);
+  color: #fff;
+}
+
+.whappy-blue .orbit-hero h2,
+.whappy-blue .live-command h2,
+.whappy-blue .barter-hero > h2,
+.whappy-blue .seek-hero h2,
+.whappy-blue .twin-copy h2,
+.whappy-blue .market-banner h2,
+.calls-preview-hero h2,
+.contact-summary h2,
+.hub-hero h2 {
+  color: #fff;
+  letter-spacing: -2.2px;
+}
+
+.hero-copy h2 em,
+.live-command h2 em,
+.seek-hero h2 em,
+.twin-copy h2 em,
+.contact-summary h2 em,
+.hub-hero h2 em,
+.calls-preview-hero h2 em {
+  color: var(--whappy-gold);
+}
+
+.whappy-blue .hero-copy p,
+.whappy-blue .live-command-copy p,
+.whappy-blue .barter-hero > p,
+.whappy-blue .seek-hero > div > p,
+.whappy-blue .twin-copy > p,
+.whappy-blue .market-banner p,
+.contact-summary p,
+.hub-hero p,
+.calls-preview-hero > div > p {
+  color: rgba(255, 255, 255, .76);
+}
+
+.whappy-blue .action-strip > button,
+.whappy-blue .listing-card,
+.whappy-blue .request-grid article,
+.whappy-blue .barter-cards > div,
+.whappy-blue .live-features > div,
+.whappy-blue .builder-card,
+.moment-card,
+.side-card,
+.story-studio,
+.contact-tools,
+.contact-book,
+.calls-preview-body .call-history > article,
+.business-growth-tools,
+.growth-offer-grid article {
+  border-color: rgba(28, 28, 116, .12);
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 16px 40px rgba(28, 28, 116, .08);
+}
+
+.listing-card:hover,
+.moment-card:hover,
+.big-live:hover,
+.mini-live:hover,
+.request-grid article:hover,
+.barter-cards > div:hover,
+.founder-panel:hover,
+.growth-offer-grid article:hover,
+.world-event-card:hover,
+.game-mode-card:hover {
+  box-shadow: 0 18px 46px rgba(28, 28, 116, .14);
+  transform: translateY(-3px);
+}
+
+.whappy-blue .listing-art.blue,
+.whappy-blue .listing-art.violet,
+.whappy-blue .listing-art.orange,
+.whappy-blue .barter-art.violet,
+.whappy-blue .barter-art.amber,
+.story-cover,
+.contact-rows article > span,
+.wepi-card-mark,
+.wallet-card,
+.wallet-balance {
+  background: linear-gradient(135deg, #1C1C74, #1C1C74 58%, #1C1C74);
+}
+
+.whappy-blue .listing-art > b,
+.live-label,
+.big-live > span,
+.preview-live {
+  background: var(--whappy-coral);
+  color: #fff;
+}
+
+.live-label,
+.big-live > span:first-child,
+.preview-live,
+.profile-avatar > i,
+.moment-avatar > i,
+.sync-badge i {
+  animation: none !important;
+}
+
+.whappy-blue .inbox-space {
+  margin: 12px 18px 18px;
+  border: 1px solid rgba(28, 28, 116, .13);
+  background: rgba(255, 255, 255, .75);
+  box-shadow: 0 18px 50px rgba(28, 28, 116, .1);
+}
+
+.whappy-blue .inbox-list,
+.whappy-blue .deal-chat > header,
+.whappy-blue .deal-chat > form {
+  background: rgba(255, 255, 255, .92);
+}
+
+.whappy-blue .deal-chat {
+  background:
+    linear-gradient(90deg, rgba(28, 28, 116, .05) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .04) 1px, transparent 1px),
+    #FFFFFF;
+  background-size: 28px 28px;
+}
+
+.whappy-blue .deal-chat:before,
+.whappy-blue .deal-chat:after {
+  display: none;
+}
+
+.whappy-blue .deal-messages > div {
+  background: #FFFFFF;
+  color: var(--whappy-ink);
+  border: 1px solid rgba(28, 28, 116, .09);
+}
+
+.whappy-blue .deal-messages > div.mine {
+  background: #FFFFFF;
+}
+
+.whappy-blue .inbox-presence button > span,
+.whappy-blue .product-thumb,
+.whappy-blue .barter-cards .chain-card,
+.whappy-blue .barter-engine .swap,
+.whappy-blue .match-result,
+.whappy-blue .market-toolbar button.active,
+.whappy-blue .seek-tabs button.active,
+.contact-tools button > span,
+.hub-shortcuts span,
+.service-grid > button > span {
+  background: rgba(28, 28, 116, .1);
+  color: var(--whappy-blue);
+  border-color: rgba(28, 28, 116, .22);
+}
+
+.moments-home,
+.calls-preview-space,
+.contact-space,
+.super-hub {
+  background:
+    linear-gradient(90deg, rgba(28, 28, 116, .045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .04) 1px, transparent 1px),
+    #FFFFFF;
+  background-size: 34px 34px;
+}
+
+.moments-intro,
+.quick-publish {
+  border-color: rgba(28, 28, 116, .14);
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 14px 34px rgba(28, 28, 116, .08);
+}
+
+.moment-visual {
+  background: linear-gradient(135deg, #1C1C74, #1C1C74 56%, #1C1C74);
+}
+
+.moment-visual h3,
+.moment-visual span,
+.moment-visual small,
+.moment-visual b {
+  color: #fff;
+}
+
+.market-proof-grid > div,
+.market-pulse,
+.payment-ready,
+.market-intents button,
+.hub-shortcuts button,
+.local-services button,
+.service-grid > button {
+  border-color: rgba(28, 28, 116, .12);
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 14px 34px rgba(28, 28, 116, .07);
+}
+
+.phone-access {
+  background:
+    linear-gradient(90deg, rgba(28, 28, 116, .055) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(28, 28, 116, .045) 1px, transparent 1px),
+    #FFFFFF;
+  background-size: 32px 32px;
+}
+
+.access-brand {
+  background:
+    linear-gradient(140deg, #1C1C74 0%, #1C1C74 60%, #1C1C74 100%);
+  color: #fff;
+}
+
+.access-brand::before {
+  opacity: .18;
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, .18) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.access-brand::after {
+  color: rgba(255, 255, 255, .08);
+}
+
+.access-card,
+.android-download {
+  border-color: rgba(28, 28, 116, .14);
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 24px 70px rgba(28, 28, 116, .14);
+}
+
+.access-card h2,
+.access-card label,
+.android-download-copy strong,
+.one-account strong {
+  color: var(--whappy-ink);
+}
+
+.access-step,
+.access-card .access-link,
+.android-download-copy small,
+.phone-field > span,
+.download-status,
+.android-download details a {
+  color: var(--whappy-blue);
+}
+
+.access-code-icon,
+.profile-create,
+.one-account,
+.access-demo:hover {
+  background: #FFFFFF;
+  color: var(--whappy-blue);
+}
+
+.one-account > span {
+  background: var(--whappy-blue);
+}
+
+.access-card input,
+.access-card select,
+.phone-field {
+  border-color: rgba(28, 28, 116, .14);
+  background: #FFFFFF;
+  color: var(--whappy-ink);
+}
+
+.android-download {
+  background: linear-gradient(135deg, #FFFFFF, #FFFFFF);
+}
+
+.calls-preview-hero > aside {
+  border-color: rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .1);
+}
+
+.calls-preview-body .call-history article > button:last-child,
+.contact-rows article > button.contact-message {
+  background: var(--whappy-blue);
+  color: #fff;
+}
+
+@media (max-width: 900px) {
+  .whappy-blue .nova-topbar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .top-actions {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+}
+
+@media (max-width: 760px) {
+  .nova-shell.whappy-blue {
+    background-size: 28px 28px, 28px 28px, auto;
+  }
+
+  .whappy-blue .nova-topbar {
+    min-height: auto;
+  }
+
+  .whappy-now {
+    margin: 8px 8px 0;
+  }
+
+  .phone-access {
+    background: #FFFFFF;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .whappy-blue *,
+  .whappy-blue *::before,
+  .whappy-blue *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.wepi-contact-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 3px 5px;
+  border: 1px solid rgba(28, 28, 116, 0.35);
+  border-radius: 6px;
+  background: rgba(28, 28, 116, 0.16);
+  color: var(--whappy-indigo-light);
+  font-size: 6px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+}
+
+.wepi-contact-action {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid rgba(28, 28, 116, 0.42);
+  border-radius: 9px;
+  background: rgba(28, 28, 116, 0.14);
+  color: var(--whappy-indigo-light);
+  font-size: 7px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.wepi-contact-action:hover,
+.wepi-contact-action:focus-visible {
+  background: var(--whappy-indigo);
+  color: #fff;
+  outline: none;
+}
