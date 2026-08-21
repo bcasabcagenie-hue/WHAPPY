@@ -420,6 +420,9 @@ class WhappyRepository(
                     text = text,
                     tone = document.getString("tone") ?: "community",
                     createdAt = document.timestampMillis("createdAt"),
+                    mediaUrl = document.getString("mediaUrl").orEmpty(),
+                    mediaKind = document.getString("mediaKind").orEmpty(),
+                    mediaName = document.getString("mediaName").orEmpty(),
                 )
             }.sortedByDescending { it.createdAt })
         }
@@ -787,6 +790,10 @@ class WhappyRepository(
         durationSeconds: Int = 0,
     ) {
         require(kind in setOf("image", "audio", "video"))
+        require(if (kind == "image") contentType.startsWith("image/") else if (kind == "video") contentType.startsWith("video/") else contentType.startsWith("audio/"))
+        val mediaSize = runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L)
+        val maximumSize = when (kind) { "image" -> 20L * 1024L * 1024L; "video" -> 60L * 1024L * 1024L; else -> 12L * 1024L * 1024L }
+        require(mediaSize < 0L || mediaSize in 1..maximumSize)
         val extension = when (kind) {
             "audio" -> "m4a"
             "video" -> "mp4"
@@ -940,11 +947,26 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun publishStatus(userId: String, authorName: String, text: String, tone: String) {
+    suspend fun publishStatus(userId: String, authorName: String, text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") {
         require(auth.currentUser?.uid == userId)
         val value = text.trim()
         require(value.length in 3..600)
         require(tone in setOf("hope", "action", "community", "warning"))
+        val mediaKind = when {
+            mediaUri == null -> ""
+            mediaContentType.startsWith("image/") -> "image"
+            mediaContentType.startsWith("video/") -> "video"
+            else -> error("invalid-status-media")
+        }
+        val mediaSize = mediaUri?.let { uri -> runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L) } ?: 0L
+        val maximumSize = if (mediaKind == "video") 60L * 1024L * 1024L else 20L * 1024L * 1024L
+        require(mediaUri == null || mediaSize < 0L || mediaSize in 1..maximumSize)
+        val mediaUrl = if (mediaUri == null) "" else {
+            val extension = if (mediaKind == "video") "mp4" else mediaContentType.substringAfter('/', "jpg").substringBefore('+').take(8)
+            val mediaRef = storage.reference.child("stories/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension")
+            mediaRef.putFile(mediaUri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()
+            mediaRef.downloadUrl.await().toString()
+        }
         db.collection("whaptexts").add(
             mapOf(
                 "authorId" to userId,
@@ -952,6 +974,9 @@ class WhappyRepository(
                 "text" to value,
                 "tone" to tone,
                 "kind" to "status",
+                "mediaUrl" to mediaUrl,
+                "mediaKind" to mediaKind,
+                "mediaName" to if (mediaUri == null) "" else "Statut WHAPPY ${if (mediaKind == "video") "vidéo" else "image"}",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),

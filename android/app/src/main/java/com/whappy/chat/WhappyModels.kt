@@ -151,6 +151,9 @@ data class WhappyStatus(
     val text: String,
     val tone: String,
     val createdAt: Long,
+    val mediaUrl: String = "",
+    val mediaKind: String = "",
+    val mediaName: String = "",
 )
 
 data class WhappyDeal(

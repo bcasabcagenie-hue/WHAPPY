@@ -353,7 +353,7 @@ fun WhappyRoot(
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
-    onPublishStatus: (String, String) -> Unit,
+    onPublishStatus: (String, String, Uri?, String) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
@@ -847,7 +847,7 @@ private fun WhappyMain(
     onUpdateBusinessPage: (WhappyBusinessPage, String, String, String, String, String, String) -> Unit,
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
-    onPublishStatus: (String, String) -> Unit,
+    onPublishStatus: (String, String, Uri?, String) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
@@ -945,7 +945,7 @@ private fun WhappyMain(
                         else onSendMessage(value, reply?.id.orEmpty(), reply?.text.orEmpty())
                     },
                     onSendMedia = { uri, kind, type, name, duration ->
-                        if (preview) previewMessages = previewMessages + WhappyMessage("local-${System.currentTimeMillis()}", if (kind == "audio") "Note vocale" else "Photo", "demo-user", System.currentTimeMillis(), kind, uri.toString(), name, duration)
+                        if (preview) previewMessages = previewMessages + WhappyMessage("local-${System.currentTimeMillis()}", when (kind) { "audio" -> "Note vocale"; "video" -> "Vidéo"; else -> "Photo" }, "demo-user", System.currentTimeMillis(), kind, uri.toString(), name, duration)
                         else onSendMedia(uri, kind, type, name, duration)
                     },
                     onReact = { message, emoji ->
@@ -1227,12 +1227,27 @@ private fun StatusScreen(
     currentUserName: String,
     busy: Boolean,
     preview: Boolean,
-    onPublish: (String, String) -> Unit,
+    onPublish: (String, String, Uri?, String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var tone by rememberSaveable { mutableStateOf("community") }
+    var mediaUri by remember { mutableStateOf<Uri?>(null) }
+    var mediaType by remember { mutableStateOf("") }
+    var mediaName by remember { mutableStateOf("") }
     var previewStatuses by remember { mutableStateOf(emptyList<WhappyStatus>()) }
+    val context = LocalContext.current
+    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val contentType = context.contentResolver.getType(uri).orEmpty()
+            if (contentType.startsWith("image/") || contentType in setOf("video/mp4", "video/webm")) {
+                mediaUri = uri
+                mediaType = contentType
+                mediaName = displayName(context, uri)
+                WhappySounds.mediaAdded()
+            }
+        }
+    }
     val visibleStatuses = if (preview) previewStatuses else statuses
     val toneOptions = listOf(
         "community" to t("Communauté", "Community", "Lisanga"),
@@ -1270,6 +1285,22 @@ private fun StatusScreen(
                         minLines = 4,
                         shape = RoundedCornerShape(17.dp),
                     )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).clickable(enabled = !busy) { mediaPicker.launch(arrayOf("image/*", "video/mp4", "video/webm")) },
+                        shape = RoundedCornerShape(16.dp),
+                        color = WhappyBlue.copy(alpha = .055f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .18f)),
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (mediaType.startsWith("video/")) Icons.Rounded.Movie else Icons.Rounded.Photo, null, tint = WhappyBlue)
+                            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                Text(if (mediaUri == null) t("Ajouter une image ou vidéo", "Add image or video", "Bakisa elilingi to video") else mediaName, color = WhappyDark, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text(if (mediaUri == null) "JPG, PNG, WEBP, MP4 ou WEBM" else t("Prêt à publier", "Ready to publish", "Ebongi mpo na kotinda"), color = WhappyMuted, fontSize = 9.sp)
+                            }
+                            if (mediaUri != null) IconButton(onClick = { mediaUri = null; mediaType = ""; mediaName = "" }) { Icon(Icons.Rounded.Close, t("Retirer", "Remove", "Longola"), tint = WhappyBlue) }
+                            else Icon(Icons.Rounded.Add, null, tint = WhappyBlue)
+                        }
+                    }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         toneOptions.forEach { option ->
                             OutlinedButton(
@@ -1283,9 +1314,12 @@ private fun StatusScreen(
                         enabled = draft.trim().length >= 3 && !busy,
                         onClick = {
                             val value = draft.trim()
-                            if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, tone, System.currentTimeMillis())) + previewStatuses
-                            else onPublish(value, tone)
+                            if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, tone, System.currentTimeMillis(), mediaUri?.toString().orEmpty(), if (mediaType.startsWith("video/")) "video" else if (mediaUri != null) "image" else "", mediaName)) + previewStatuses
+                            else onPublish(value, tone, mediaUri, mediaType)
                             draft = ""
+                            mediaUri = null
+                            mediaType = ""
+                            mediaName = ""
                         },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
                         shape = RoundedCornerShape(16.dp),
@@ -1307,6 +1341,14 @@ private fun StatusScreen(
                         if (status.authorId == currentUserId) IconButton(onClick = { if (preview) previewStatuses = previewStatuses.filterNot { it.id == status.id } else onDelete(status.id) }, enabled = !busy) { Icon(Icons.Rounded.Delete, t("Supprimer", "Delete", "Longola"), tint = WhappyBlue) }
                     }
                     Text(status.text, Modifier.padding(top = 14.dp), color = WhappyDark, fontSize = 16.sp, lineHeight = 23.sp)
+                    if (status.mediaUrl.isNotBlank()) {
+                        Surface(Modifier.fillMaxWidth().padding(top = 12.dp).clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.mediaUrl))) } }, color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(15.dp)) {
+                            Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(if (status.mediaKind == "video") Icons.Rounded.Movie else Icons.Rounded.Photo, null, tint = WhappyBlue)
+                                Column(Modifier.padding(start = 10.dp)) { Text(if (status.mediaKind == "video") "Vidéo WHAPPY" else "Image WHAPPY", color = WhappyDark, fontWeight = FontWeight.Bold); Text("Appuyez pour ouvrir", color = WhappyMuted, fontSize = 9.sp) }
+                            }
+                        }
+                    }
                     Text(toneOptions.firstOrNull { it.first == status.tone }?.second.orEmpty().uppercase(), Modifier.padding(top = 12.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
@@ -3307,6 +3349,12 @@ private fun ChatScreen(
     var replyTo by remember(conversation.id) { mutableStateOf<WhappyMessage?>(null) }
     var selectedMessage by remember(conversation.id) { mutableStateOf<WhappyMessage?>(null) }
     var editingMessage by remember(conversation.id) { mutableStateOf<WhappyMessage?>(null) }
+    var offerOpen by remember(conversation.id) { mutableStateOf(false) }
+    var offerValue by remember(conversation.id) { mutableStateOf("") }
+    var offerDetails by remember(conversation.id) { mutableStateOf("") }
+    var offerMedia by remember(conversation.id) { mutableStateOf<Uri?>(null) }
+    var offerMediaType by remember(conversation.id) { mutableStateOf("") }
+    var offerMediaName by remember(conversation.id) { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
     val uriHandler = LocalUriHandler.current
     val calls = LocalWhappyCalls.current
@@ -3361,10 +3409,20 @@ private fun ChatScreen(
     val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startRecording()
     }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val type = context.contentResolver.getType(uri) ?: "image/jpeg"
-            onSendMedia(uri, "image", type, displayName(context, uri), 0)
+            val kind = if (type.startsWith("video/")) "video" else "image"
+            onSendMedia(uri, kind, type, displayName(context, uri), 0)
+            WhappySounds.mediaAdded()
+        }
+    }
+    val offerMediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            offerMedia = uri
+            offerMediaType = context.contentResolver.getType(uri) ?: "image/jpeg"
+            offerMediaName = displayName(context, uri)
+            WhappySounds.mediaAdded()
         }
     }
 
@@ -3467,6 +3525,7 @@ private fun ChatScreen(
                                 when (message.kind) {
                                     "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
+                                    "video" -> MediaMessageRow(Icons.Rounded.Movie, message.mediaName.ifBlank { "Vidéo WHAPPY" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "deleted" -> Text("Message supprimé", color = if (mine) Color.White.copy(alpha = .7f) else WhappyMuted)
                                     else -> MessageLinkText(message.text, mine, actions = actions, onAction = ::handleMessageAction)
                                 }
@@ -3525,7 +3584,8 @@ private fun ChatScreen(
             )
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(enabled = !sending && !recording, onClick = { imagePicker.launch("image/*") }) { Icon(Icons.Rounded.AttachFile, "Joindre une photo", tint = WhappyMuted) }
+            IconButton(enabled = !sending && !recording, onClick = { mediaPicker.launch(arrayOf("image/*", "video/*")) }) { Icon(Icons.Rounded.AttachFile, "Joindre une image ou une vidéo", tint = WhappyMuted) }
+            IconButton(enabled = !sending && !recording, onClick = { offerOpen = true; showEmoji = false; keyboard?.hide() }) { Icon(Icons.Rounded.LocalOffer, "Faire une offre", tint = WhappyBlue) }
             IconButton(enabled = !recording, onClick = { showEmoji = !showEmoji; if (showEmoji) keyboard?.hide() }) { Icon(Icons.Rounded.EmojiEmotions, "Émojis", tint = if (showEmoji) WhappyBlue else WhappyMuted) }
             OutlinedTextField(
                 value = text,
@@ -3556,6 +3616,98 @@ private fun ChatScreen(
                 }
             }
         }
+    }
+    if (offerOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!sending) offerOpen = false },
+            icon = {
+                Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.LocalOffer, null, tint = Color.White, modifier = Modifier.size(29.dp))
+                }
+            },
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("WHAPPY ACTION · OFFRE SÉCURISÉE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text("Faire une offre", color = WhappyDark, fontSize = 27.sp, fontWeight = FontWeight.Black)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    Text("Proposez un prix ou un échange. Ajoutez une image ou une vidéo pour clarifier votre proposition.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    LinearProgressIndicator(
+                        progress = { if (offerValue.isBlank()) .32f else if (offerDetails.isBlank() && offerMedia == null) .68f else 1f },
+                        modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                        color = WhappyBlue,
+                        trackColor = WhappyBlue.copy(alpha = .1f),
+                    )
+                    OutlinedTextField(
+                        value = offerValue,
+                        onValueChange = { offerValue = it.take(160) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Votre proposition") },
+                        placeholder = { Text("Prix ou échange proposé") },
+                        leadingIcon = { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OutlinedTextField(
+                        value = offerDetails,
+                        onValueChange = { offerDetails = it.take(1_000) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Détails facultatifs") },
+                        placeholder = { Text("Disponibilité, conditions, livraison…") },
+                        minLines = 3,
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable(enabled = !sending) { offerMediaPicker.launch(arrayOf("image/*", "video/*")) },
+                        color = WhappyBlue.copy(alpha = .055f),
+                        shape = RoundedCornerShape(17.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .22f)),
+                    ) {
+                        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                                Icon(if (offerMediaType.startsWith("video/")) Icons.Rounded.Movie else Icons.Rounded.Photo, null, tint = Color.White)
+                            }
+                            Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
+                                Text(if (offerMedia == null) "Ajouter une image ou une vidéo" else offerMediaName, color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                                Text(if (offerMedia == null) "JPG, PNG, WEBP, MP4 ou MOV" else "Média prêt à envoyer · son confirmé", color = WhappyMuted, fontSize = 9.sp)
+                            }
+                            if (offerMedia != null) IconButton(onClick = { offerMedia = null; offerMediaType = ""; offerMediaName = "" }) { Icon(Icons.Rounded.Close, "Retirer le média", tint = WhappyBlue) }
+                            else Icon(Icons.Rounded.Add, null, tint = WhappyBlue)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(WhappyBlue.copy(alpha = .045f)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, null, tint = WhappyBlue, modifier = Modifier.size(18.dp))
+                        Text("L’offre reste dans cette conversation jusqu’à validation.", Modifier.padding(start = 8.dp), color = WhappyDark, fontSize = 10.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = offerValue.trim().isNotEmpty() && !sending,
+                    onClick = {
+                        val message = "◇ Offre : ${offerValue.trim()}${offerDetails.trim().takeIf { it.isNotEmpty() }?.let { " — $it" }.orEmpty()}"
+                        onSend(message, null)
+                        offerMedia?.let { uri ->
+                            val kind = if (offerMediaType.startsWith("video/")) "video" else "image"
+                            onSendMedia(uri, kind, offerMediaType.ifBlank { if (kind == "video") "video/mp4" else "image/jpeg" }, offerMediaName.ifBlank { "offre-whappy" }, 0)
+                        }
+                        WhappySounds.offerSent()
+                        offerOpen = false
+                        offerValue = ""
+                        offerDetails = ""
+                        offerMedia = null
+                        offerMediaType = ""
+                        offerMediaName = ""
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text("Envoyer l’offre  ↗", fontWeight = FontWeight.Black) }
+            },
+            dismissButton = { TextButton(enabled = !sending, onClick = { offerOpen = false }) { Text("Annuler") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(28.dp),
+        )
     }
     selectedMessage?.let { message ->
         val mine = message.senderId == currentUserId

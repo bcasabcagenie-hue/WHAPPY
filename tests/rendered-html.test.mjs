@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Whappy côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WHAPPY-Android-1\.5\.1-native\.apk/);
+  assert.match(html, /WHAPPY-Android-1\.5\.2-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -152,7 +152,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(androidBuild, /emoji2-bundled:1\.5\.0/);
   assert.match(androidBuild, /com\.tencent:mmkv:2\.4\.1/);
   assert.match(androidBuild, /work-runtime-ktx:2\.10\.1/);
-  assert.match(androidBuild, /versionName "1\.5\.1-native"/);
+  assert.match(androidBuild, /versionName "1\.5\.2-native"/);
   assert.match(fastStorage, /MMKV\.SINGLE_PROCESS_MODE, cryptKey/);
   assert.match(outbox, /WhappyCryptoVault\.encrypt/);
   assert.match(messageSync, /NetworkType\.CONNECTED/);
@@ -161,6 +161,11 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(viewModel, /retryPendingMessages/);
   assert.match(ui, /en attente de connexion/);
   assert.match(ui, /Nouvelle tentative…/);
+  assert.match(ui, /Faire une offre/);
+  assert.match(ui, /image ou une vidéo/);
+  assert.match(ui, /offerMediaPicker/);
+  assert.match(ui, /Publier le statut/);
+  assert.match(repository, /stories\/\$userId/);
 });
 
 test("conserve l'identité et la configuration autonome de Whappy", async () => {

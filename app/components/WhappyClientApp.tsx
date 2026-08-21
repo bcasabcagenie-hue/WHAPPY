@@ -54,8 +54,8 @@ type RequestItem = { id: string | number; title: string; details: string; place:
 type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "image" | "video"; mediaName?: string };
 
 const ANDROID_APP = {
-  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.5.1-native.apk",
-  version: "1.5.1",
+  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.5.2-native.apk",
+  version: "1.5.2",
   size: "79 Mo",
   minimum: "Android 8.0+",
 } as const;

@@ -578,8 +578,8 @@ class WhappyViewModel(
         repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
     }
 
-    fun publishStatus(text: String, tone: String) = runBusinessAction("Le statut n’a pas été publié") { user ->
-        repository.publishStatus(user.uid, accountName(), text, tone)
+    fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") = runBusinessAction("Le statut n’a pas été publié") { user ->
+        repository.publishStatus(user.uid, accountName(), text, tone, mediaUri, mediaContentType)
     }
 
     fun deleteStatus(statusId: String) = runBusinessAction("Le statut n’a pas été supprimé") { user ->
