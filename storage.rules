@@ -36,16 +36,21 @@ service firebase.storage {
     }
 
     match /groups/{groupId}/{userId}/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds;
       allow create: if request.auth != null
         && request.auth.uid == userId
-        && firestore.get(/databases/(default)/documents/groups/$(groupId)).data.ownerId == userId
-        && request.resource.contentType.matches('image/(jpeg|png|webp)')
-        && request.resource.size < 8 * 1024 * 1024;
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds
+        && ((request.resource.contentType.matches('image/(jpeg|png|webp)')
+              && request.resource.size < 20 * 1024 * 1024)
+          || (request.resource.contentType.matches('audio/.*')
+              && request.resource.size < 12 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*')
+              && request.resource.size < 60 * 1024 * 1024));
       allow update: if false;
       allow delete: if request.auth != null
         && request.auth.uid == userId
-        && firestore.get(/databases/(default)/documents/groups/$(groupId)).data.ownerId == userId;
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds;
     }
 
     match /conversations/{conversationId}/{userId}/{fileName} {

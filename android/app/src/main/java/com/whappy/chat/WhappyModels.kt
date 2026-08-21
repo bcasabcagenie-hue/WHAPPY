@@ -34,6 +34,7 @@ data class WhappyConversation(
     val peerReadAt: Long = 0L,
     val isGroup: Boolean = false,
     val memberCount: Int = 2,
+    val source: String = "conversations",
 )
 
 data class WhappyContact(
@@ -56,6 +57,7 @@ data class WhappyMessage(
     val deleted: Boolean = false,
     val edited: Boolean = false,
     val deliveryState: String = "sent",
+    val senderName: String = "",
 )
 
 data class WhappyChannel(

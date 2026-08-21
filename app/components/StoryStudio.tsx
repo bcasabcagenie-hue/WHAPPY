@@ -162,6 +162,10 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
       <button className="story-layer-dismiss" onClick={resetCreator} aria-label="Fermer"/>
       <form onSubmit={publish}>
         <header><div><small>NOUVELLE STORY</small><h3 id="story-create-title">Partagez votre moment</h3></div><button type="button" onClick={resetCreator} aria-label="Fermer">×</button></header>
+        <div className="story-create-choice" aria-label="Choisir la source de la Story">
+          <label><span>⌾</span><strong>Caméra</strong><small>Prendre maintenant</small><input type="file" accept="image/*,video/*" capture="environment" onChange={chooseFile}/></label>
+          <label><span>▧</span><strong>Galerie</strong><small>Choisir un média</small><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={chooseFile}/></label>
+        </div>
         <label className={`story-drop ${preview ? "ready" : ""}`}>
           {preview ? file?.type.startsWith("video/") ? <video src={preview} controls playsInline/> : <img src={preview} alt="Aperçu de votre Story"/> : <><span>＋</span><strong>Choisir une photo ou une vidéo</strong><small>JPG, PNG, WEBP, MP4 ou WEBM</small></>}
           <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={chooseFile}/>

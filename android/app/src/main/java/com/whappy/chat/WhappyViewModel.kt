@@ -64,11 +64,14 @@ class WhappyViewModel(
         _uiState.update { it.copy(selectedConversation = conversation, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), loading = true, error = null) }
         messagesListener = repository.observeMessages(
             conversation.id,
+            source = conversation.source,
             onChange = { messages ->
                 remoteConversationMessages = messages
                 _uiState.update { it.copy(messages = messages, loading = false, online = true) }
-                refreshPendingMessages(conversation.id, user.uid)
-                viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid) } }
+                if (conversation.source != "groups") {
+                    refreshPendingMessages(conversation.id, user.uid)
+                    viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid) } }
+                }
             },
             onError = { _uiState.update { it.copy(loading = false, online = false, error = "Messages momentanément indisponibles") } },
         )
@@ -115,13 +118,12 @@ class WhappyViewModel(
         }
     }
 
-    fun createGroup(name: String, memberIds: List<String>, photoUri: Uri?, photoContentType: String) {
+    fun createGroup(name: String, selectedMembers: List<WhappyMember>, photoUri: Uri?, photoContentType: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.actionBusy) return
-        val state = _uiState.value
-        val selected = (state.contacts.map { it.member } + state.conversations.filterNot { it.isGroup }.map { it.peer })
+        val selected = selectedMembers
+            .filter { it.uid.isNotBlank() && it.uid != user.uid }
             .distinctBy { it.uid }
-            .filter { it.uid in memberIds }
         if (selected.size < 2) {
             _uiState.update { it.copy(error = "Choisissez au moins deux contacts pour créer le groupe") }
             return
@@ -139,8 +141,12 @@ class WhappyViewModel(
             }.onSuccess { conversation ->
                 _uiState.update { it.copy(actionBusy = false, online = true) }
                 openConversation(conversation)
-            }.onFailure {
-                _uiState.update { it.copy(actionBusy = false, error = "Le groupe n’a pas pu être créé") }
+            }.onFailure { error ->
+                val message = when (error) {
+                    is IllegalArgumentException -> "Vérifiez le nom et les membres du groupe"
+                    else -> "Le groupe n’a pas pu être créé. Vérifiez votre connexion puis réessayez."
+                }
+                _uiState.update { it.copy(actionBusy = false, error = message) }
             }
         }
     }
@@ -187,15 +193,15 @@ class WhappyViewModel(
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
-        if (text.isBlank() || state.sending) return
+        if (text.isBlank()) return
         _uiState.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText) }
+            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText, conversation.source, accountName()) }
                 .onSuccess { delivery ->
                     _uiState.update { current ->
                         current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT)
                     }
-                    refreshPendingMessages(conversation.id, user.uid)
+                    if (conversation.source != "groups") refreshPendingMessages(conversation.id, user.uid)
                 }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le message n’a pas été envoyé") } }
         }
@@ -205,6 +211,7 @@ class WhappyViewModel(
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
+        if (conversation.source == "groups") return
         repository.schedulePendingMessageSync()
         viewModelScope.launch {
             val delivered = runCatching { repository.flushPendingMessages() }.getOrDefault(false)
@@ -233,14 +240,14 @@ class WhappyViewModel(
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
-        viewModelScope.launch { runCatching { repository.reactToMessage(conversation.id, messageId, user.uid, emoji) }.onFailure { _uiState.update { it.copy(error = "La réaction n’a pas été enregistrée") } } }
+        viewModelScope.launch { runCatching { repository.reactToMessage(conversation.id, messageId, user.uid, emoji, conversation.source) }.onFailure { _uiState.update { it.copy(error = "La réaction n’a pas été enregistrée") } } }
     }
 
     fun deleteMessage(messageId: String) {
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
-        viewModelScope.launch { runCatching { repository.deleteMessage(conversation.id, messageId, user.uid) }.onFailure { _uiState.update { it.copy(error = "Ce message ne peut pas être supprimé") } } }
+        viewModelScope.launch { runCatching { repository.deleteMessage(conversation.id, messageId, user.uid, conversation.source) }.onFailure { _uiState.update { it.copy(error = "Ce message ne peut pas être supprimé") } } }
     }
 
     fun editMessage(messageId: String, text: String) {
@@ -248,7 +255,7 @@ class WhappyViewModel(
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
         if (text.isBlank()) return
-        viewModelScope.launch { runCatching { repository.editMessage(conversation.id, messageId, user.uid, text) }.onFailure { _uiState.update { it.copy(error = "Le message n’a pas été modifié") } } }
+        viewModelScope.launch { runCatching { repository.editMessage(conversation.id, messageId, user.uid, text, conversation.source) }.onFailure { _uiState.update { it.copy(error = "Le message n’a pas été modifié") } } }
     }
 
     fun setTyping(typing: Boolean) {
@@ -257,7 +264,7 @@ class WhappyViewModel(
         val user = state.user ?: return
         if (typingState == typing) return
         typingState = typing
-        viewModelScope.launch { runCatching { repository.setTyping(conversation.id, user.uid, typing) } }
+        viewModelScope.launch { runCatching { repository.setTyping(conversation.id, user.uid, typing, conversation.source) } }
     }
 
     private fun stopTyping() {
@@ -265,7 +272,7 @@ class WhappyViewModel(
         val conversation = state.selectedConversation
         val user = state.user
         if (typingState && conversation != null && user != null) {
-            viewModelScope.launch { runCatching { repository.setTyping(conversation.id, user.uid, false) } }
+            viewModelScope.launch { runCatching { repository.setTyping(conversation.id, user.uid, false, conversation.source) } }
         }
         typingState = false
     }
@@ -286,6 +293,8 @@ class WhappyViewModel(
                     contentType = contentType,
                     mediaName = mediaName,
                     durationSeconds = durationSeconds,
+                    source = conversation.source,
+                    senderName = accountName(),
                 )
             }.onSuccess { _uiState.update { current -> current.copy(sending = false, online = true) } }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le média n’a pas été envoyé") } }

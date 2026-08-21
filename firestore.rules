@@ -332,7 +332,9 @@ service cloud.firestore {
             && request.resource.data.memberNames.size() <= 999
             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["inviteToken"])
               || (request.resource.data.inviteToken is string && request.resource.data.inviteToken.size() == 32))
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["memberIds", "memberNames", "lastMessage", "inviteToken", "updatedAt"])));
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["photoUrl"])
+              || request.resource.data.photoUrl is string)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["memberIds", "memberNames", "lastMessage", "inviteToken", "photoUrl", "updatedAt"])));
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /messages/{messageId} {
@@ -345,7 +347,15 @@ service cloud.firestore {
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 4000
           && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
-        allow update, delete: if false;
+        allow update: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+          && request.resource.data.senderId == resource.data.senderId
+          && (
+            (resource.data.senderId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text", "kind", "mediaUrl", "mediaName", "deleted", "edited"]))
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reactions", "viewedBy", "viewerNames"])
+          );
+        allow delete: if false;
       }
 
       match /activities/{activityId} {

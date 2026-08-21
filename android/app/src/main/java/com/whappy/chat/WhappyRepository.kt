@@ -14,6 +14,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -148,9 +149,14 @@ class WhappyRepository(
     ): ListenerRegistration {
         val profileListeners = mutableMapOf<String, ListenerRegistration>()
         var conversations = emptyList<WhappyConversation>()
+        var webGroups = emptyList<WhappyConversation>()
         var removed = false
         fun emit() {
-            if (!removed) onChange(conversations.sortedByDescending { it.updatedAt })
+            if (!removed) onChange(
+                (conversations + webGroups)
+                    .distinctBy { "${it.source}:${it.id}" }
+                    .sortedByDescending { it.updatedAt },
+            )
         }
         val conversationListener = db.collection("conversations")
             .whereArrayContains("memberIds", userId)
@@ -186,10 +192,21 @@ class WhappyRepository(
                     }
             }
         }
+        val groupListener = db.collection("groups")
+            .whereArrayContains("memberIds", userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    onError(error)
+                    return@addSnapshotListener
+                }
+                webGroups = snapshot?.documents.orEmpty().mapNotNull { it.toGroupConversation(userId) }
+                emit()
+            }
         return object : ListenerRegistration {
             override fun remove() {
                 removed = true
                 conversationListener.remove()
+                groupListener.remove()
                 profileListeners.values.forEach { it.remove() }
                 profileListeners.clear()
             }
@@ -224,9 +241,10 @@ class WhappyRepository(
 
     fun observeMessages(
         conversationId: String,
+        source: String = "conversations",
         onChange: (List<WhappyMessage>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("conversations")
+    ): ListenerRegistration = db.collection(if (source == "groups") "groups" else "conversations")
         .document(conversationId)
         .collection("messages")
         .orderBy("createdAt", Query.Direction.ASCENDING)
@@ -236,6 +254,7 @@ class WhappyRepository(
                 return@addSnapshotListener
             }
             onChange(snapshot?.documents.orEmpty().map { document ->
+                val reply = document.get("replyTo") as? Map<*, *>
                 WhappyMessage(
                     id = document.id,
                     text = document.getString("text").orEmpty(),
@@ -245,12 +264,13 @@ class WhappyRepository(
                     mediaUrl = document.getString("mediaUrl").orEmpty(),
                     mediaName = document.getString("mediaName").orEmpty(),
                     durationSeconds = document.getLong("duration")?.toInt() ?: 0,
-                    replyToId = document.getString("replyToId").orEmpty(),
-                    replyText = document.getString("replyText").orEmpty(),
+                    replyToId = document.getString("replyToId") ?: reply?.get("id")?.toString().orEmpty(),
+                    replyText = document.getString("replyText") ?: reply?.get("text")?.toString().orEmpty(),
                     reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
                     deleted = document.getBoolean("deleted") == true,
                     edited = document.getBoolean("edited") == true,
                     deliveryState = "sent",
+                    senderName = document.getString("senderName").orEmpty(),
                 )
             })
         }
@@ -558,10 +578,30 @@ class WhappyRepository(
             })
         }
 
-    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = ""): WhappyDeliveryResult {
+    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "", source: String = "conversations", senderName: String = "Membre WHAPPY"): WhappyDeliveryResult {
         val value = text.trim()
         require(value.isNotEmpty() && value.length <= 4_000)
         require(auth.currentUser?.uid == userId)
+        if (source == "groups") {
+            withTimeout(4_500L) {
+                val group = db.collection("groups").document(conversationId)
+                group.collection("messages").add(
+                    buildMap<String, Any> {
+                        put("text", value)
+                        put("senderId", userId)
+                        put("senderName", senderName.trim().take(80).ifBlank { "Membre WHAPPY" })
+                        put("createdAt", FieldValue.serverTimestamp())
+                        if (replyToId.isNotBlank()) {
+                            put("replyToId", replyToId)
+                            put("replyText", replyText.take(240))
+                            put("replyTo", mapOf("id" to replyToId, "senderName" to "Membre", "text" to replyText.take(240)))
+                        }
+                    }
+                ).await()
+                group.update(mapOf("lastMessage" to value, "updatedAt" to FieldValue.serverTimestamp())).await()
+            }
+            return WhappyDeliveryResult.SENT
+        }
         val pending = WhappyPendingMessage(
             id = db.collection("conversations").document(conversationId).collection("messages").document().id,
             conversationId = conversationId,
@@ -573,7 +613,7 @@ class WhappyRepository(
         )
         messageOutbox.enqueue(pending)
         return runCatching {
-            deliverPendingMessage(pending)
+            withTimeout(4_500L) { deliverPendingMessage(pending) }
             messageOutbox.remove(pending.id)
             WhappyDeliveryResult.SENT
         }.getOrElse {
@@ -588,7 +628,7 @@ class WhappyRepository(
         val pendingMessages = messageOutbox.pending()
         for (pending in pendingMessages) {
             if (pending.senderId != currentUserId) continue
-            val delivered = runCatching { deliverPendingMessage(pending) }.isSuccess
+            val delivered = runCatching { withTimeout(4_500L) { deliverPendingMessage(pending) } }.isSuccess
             if (!delivered) {
                 messageOutbox.markAttempt(pending.id)
                 return false
@@ -622,29 +662,30 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun reactToMessage(conversationId: String, messageId: String, userId: String, emoji: String) {
+    suspend fun reactToMessage(conversationId: String, messageId: String, userId: String, emoji: String, source: String = "conversations") {
         require(emoji in setOf("❤️", "👍", "😂", "😮", "🙏"))
-        db.collection("conversations").document(conversationId).collection("messages").document(messageId)
+        db.collection(if (source == "groups") "groups" else "conversations").document(conversationId).collection("messages").document(messageId)
             .update("reactions.$userId", emoji).await()
     }
 
-    suspend fun deleteMessage(conversationId: String, messageId: String, userId: String) {
-        val reference = db.collection("conversations").document(conversationId).collection("messages").document(messageId)
+    suspend fun deleteMessage(conversationId: String, messageId: String, userId: String, source: String = "conversations") {
+        val reference = db.collection(if (source == "groups") "groups" else "conversations").document(conversationId).collection("messages").document(messageId)
         val snapshot = reference.get().await()
         require(snapshot.getString("senderId") == userId)
         reference.update(mapOf("text" to "Message supprimé", "kind" to "deleted", "mediaUrl" to "", "mediaName" to "", "deleted" to true)).await()
     }
 
-    suspend fun editMessage(conversationId: String, messageId: String, userId: String, text: String) {
+    suspend fun editMessage(conversationId: String, messageId: String, userId: String, text: String, source: String = "conversations") {
         val value = text.trim()
         require(value.isNotEmpty() && value.length <= 4_000)
-        val reference = db.collection("conversations").document(conversationId).collection("messages").document(messageId)
+        val reference = db.collection(if (source == "groups") "groups" else "conversations").document(conversationId).collection("messages").document(messageId)
         val snapshot = reference.get().await()
         require(snapshot.getString("senderId") == userId && (snapshot.getString("kind") ?: "text") == "text")
         reference.update(mapOf("text" to value, "edited" to true)).await()
     }
 
-    suspend fun setTyping(conversationId: String, userId: String, typing: Boolean) {
+    suspend fun setTyping(conversationId: String, userId: String, typing: Boolean, source: String = "conversations") {
+        if (source == "groups") return
         db.collection("conversations").document(conversationId).update("typingBy.$userId", typing).await()
     }
 
@@ -696,42 +737,48 @@ class WhappyRepository(
             .distinctBy { it.uid }
             .take(64)
         require(cleanName.length in 2..80 && members.size >= 3)
-        val reference = db.collection("conversations").document()
-        val groupPhotoUrl = if (photoUri == null) "" else {
-            val safeContentType = normalizeImageContentType(photoContentType)
-            val extension = when (safeContentType) {
-                "image/png" -> "png"
-                "image/webp" -> "webp"
-                else -> "jpg"
+        val reference = db.collection("groups").document()
+        var groupPhotoUrl = ""
+        try {
+            reference.set(
+                mapOf(
+                    "name" to cleanName,
+                    "description" to "Groupe WHAPPY créé depuis l’application mobile",
+                    "mark" to cleanName.split(Regex("\\s+")).mapNotNull { it.firstOrNull()?.uppercaseChar() }.take(2).joinToString("").ifBlank { "WG" },
+                    "ownerId" to current.uid,
+                    "memberIds" to listOf(current.uid),
+                    "memberNames" to selectedMembers.map { it.displayName.take(80) }.distinct(),
+                    "kind" to "community",
+                    "inviteToken" to UUID.randomUUID().toString().replace("-", ""),
+                    "lastMessage" to "Groupe créé",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            ).await()
+            if (photoUri != null) {
+                val safeContentType = normalizeImageContentType(photoContentType)
+                val extension = when (safeContentType) {
+                    "image/png" -> "png"
+                    "image/webp" -> "webp"
+                    else -> "jpg"
+                }
+                val photoRef = storage.reference.child("groups/${reference.id}/${current.uid}/cover-${UUID.randomUUID()}.$extension")
+                val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
+                photoRef.putFile(photoUri, metadata).await()
+                groupPhotoUrl = photoRef.downloadUrl.await().toString()
             }
-            val photoRef = storage.reference.child("users/${current.uid}/group-photos/${reference.id}-${UUID.randomUUID()}.$extension")
-            val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
-            photoRef.putFile(photoUri, metadata).await()
-            photoRef.downloadUrl.await().toString()
-        }
-        reference.set(
-            mapOf(
-                "ownerId" to current.uid,
-                "conversationType" to "group",
-                "title" to cleanName,
-                "memberIds" to members.map { it.uid },
-                "members" to members.map { member ->
-                    mapOf(
-                        "uid" to member.uid,
-                        "displayName" to member.displayName,
-                        "phoneNumber" to member.phoneNumber,
-                        "photoUrl" to member.photoUrl,
-                        "groupPhotoUrl" to groupPhotoUrl,
-                    )
+            reference.update(
+                buildMap<String, Any> {
+                    put("memberIds", members.map { it.uid })
+                    put("memberNames", members.map { it.displayName.take(80) })
+                    put("updatedAt", FieldValue.serverTimestamp())
+                    if (groupPhotoUrl.isNotBlank()) put("photoUrl", groupPhotoUrl)
                 },
-                "typingBy" to emptyMap<String, Boolean>(),
-                "readBy" to emptyMap<String, Any>(),
-                "lastMessage" to "Groupe créé",
-                "lastSenderId" to current.uid,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
-            ),
-        ).await()
+            ).await()
+        } catch (error: Throwable) {
+            runCatching { reference.delete().await() }
+            throw error
+        }
         return WhappyConversation(
             id = reference.id,
             peer = WhappyMember(reference.id, cleanName, photoUrl = groupPhotoUrl),
@@ -740,6 +787,7 @@ class WhappyRepository(
             unread = false,
             isGroup = true,
             memberCount = members.size,
+            source = "groups",
         )
     }
 
@@ -788,6 +836,8 @@ class WhappyRepository(
         contentType: String,
         mediaName: String,
         durationSeconds: Int = 0,
+        source: String = "conversations",
+        senderName: String = "Membre WHAPPY",
     ) {
         require(kind in setOf("image", "audio", "video"))
         require(if (kind == "image") contentType.startsWith("image/") else if (kind == "video") contentType.startsWith("video/") else contentType.startsWith("audio/"))
@@ -801,7 +851,8 @@ class WhappyRepository(
         }
         val safeName = mediaName.trim().take(120).ifBlank { "whappy-${kind}.${extension}" }
         val objectName = "${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
-        val objectRef = storage.reference.child("conversations/$conversationId/$userId/$objectName")
+        val root = if (source == "groups") "groups" else "conversations"
+        val objectRef = storage.reference.child("$root/$conversationId/$userId/$objectName")
         objectRef.putFile(uri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(contentType).build()).await()
         val downloadUrl = objectRef.downloadUrl.await().toString()
         val label = when (kind) {
@@ -809,26 +860,27 @@ class WhappyRepository(
             "video" -> "Vidéo"
             else -> "Photo"
         }
-        val conversation = db.collection("conversations").document(conversationId)
+        val conversation = db.collection(root).document(conversationId)
         conversation.collection("messages").add(
-            mapOf(
-                "text" to label,
-                "senderId" to userId,
-                "kind" to kind,
-                "mediaUrl" to downloadUrl,
-                "mediaName" to safeName,
-                "duration" to durationSeconds.coerceIn(0, 600),
-                "createdAt" to FieldValue.serverTimestamp(),
-            ),
+            buildMap<String, Any> {
+                put("text", label)
+                put("senderId", userId)
+                if (source == "groups") put("senderName", senderName.trim().take(80).ifBlank { "Membre WHAPPY" })
+                put("kind", kind)
+                put("mediaUrl", downloadUrl)
+                put("mediaName", safeName)
+                put("duration", durationSeconds.coerceIn(0, 600))
+                put("createdAt", FieldValue.serverTimestamp())
+            },
         ).await()
-        conversation.update(
-            mapOf(
-                "lastMessage" to label,
-                "lastSenderId" to userId,
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "typingBy.$userId" to false,
-            ),
-        ).await()
+        conversation.update(buildMap<String, Any> {
+            put("lastMessage", label)
+            put("updatedAt", FieldValue.serverTimestamp())
+            if (source != "groups") {
+                put("lastSenderId", userId)
+                put("typingBy.$userId", false)
+            }
+        }).await()
     }
 
     suspend fun publishListing(user: WhappyMember, title: String, price: String, place: String, mode: String) {
@@ -1312,6 +1364,26 @@ class WhappyRepository(
             peerReadAt = peerReadAt,
             isGroup = isGroup,
             memberCount = ids.size,
+            source = "conversations",
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun DocumentSnapshot.toGroupConversation(userId: String): WhappyConversation? {
+        val ids = (get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+        if (userId !in ids) return null
+        val name = getString("name")?.trim().orEmpty()
+        if (name.isBlank()) return null
+        val updatedAt = timestampMillis("updatedAt").takeIf { it > 0L } ?: timestampMillis("createdAt")
+        return WhappyConversation(
+            id = id,
+            peer = WhappyMember(id, name, photoUrl = getString("photoUrl").orEmpty()),
+            lastMessage = getString("lastMessage") ?: "Groupe créé",
+            updatedAt = updatedAt,
+            unread = false,
+            isGroup = true,
+            memberCount = ids.size,
+            source = "groups",
         )
     }
 

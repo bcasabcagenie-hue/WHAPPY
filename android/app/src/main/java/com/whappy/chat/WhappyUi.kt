@@ -83,6 +83,7 @@ import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FlipCameraAndroid
@@ -336,7 +337,7 @@ fun WhappyRoot(
     onOpenChannel: (WhappyChannel) -> Unit,
     onCloseChannel: () -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
-    onCreateGroup: (String, List<String>, Uri?, String) -> Unit,
+    onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
@@ -830,7 +831,7 @@ private fun WhappyMain(
     onOpenChannel: (WhappyChannel) -> Unit,
     onCloseChannel: () -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
-    onCreateGroup: (String, List<String>, Uri?, String) -> Unit,
+    onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
@@ -871,6 +872,7 @@ private fun WhappyMain(
     var previewMessages by remember { mutableStateOf(emptyList<WhappyMessage>()) }
     var showTwinStudio by remember { mutableStateOf(false) }
     var showActivityCenter by remember { mutableStateOf(false) }
+    var showAppHub by remember { mutableStateOf(false) }
     var locallyReadNotices by remember { mutableStateOf(emptySet<String>()) }
     val selected = if (preview) previewConversation else state.selectedConversation
     val selectedChannel = if (preview) previewChannel else state.selectedChannel
@@ -890,8 +892,9 @@ private fun WhappyMain(
     var appLanguage by rememberSaveable {
         mutableStateOf(WhappyLanguage.entries.firstOrNull { it.code == languagePrefs.getString("code", "fr") } ?: WhappyLanguage.FRENCH)
     }
-    BackHandler(enabled = selected != null || selectedChannel != null || showTwinStudio || showActivityCenter) {
+    BackHandler(enabled = selected != null || selectedChannel != null || showTwinStudio || showActivityCenter || showAppHub) {
         if (showActivityCenter) showActivityCenter = false
+        else if (showAppHub) showAppHub = false
         else if (showTwinStudio) showTwinStudio = false
         else if (preview && selectedChannel != null) previewChannel = null
         else if (preview) previewConversation = null
@@ -908,13 +911,18 @@ private fun WhappyMain(
         onOpenLive = { showActivityCenter = false; onTab(WhappyTab.LIVE) },
         onDismiss = { showActivityCenter = false },
     )
+    if (showAppHub) WhappyFeatureHubDialog(
+        onOpen = { tab -> showAppHub = false; onTab(tab) },
+        onOpenTwin = { showAppHub = false; showTwinStudio = true },
+        onDismiss = { showAppHub = false },
+    )
     CompositionLocalProvider(LocalWhappyLanguage provides appLanguage) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = WhappyBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (selected == null && selectedChannel == null && !showTwinStudio) WhappyBottomBar(currentTab, onTab)
+            if (selected == null && selectedChannel == null && !showTwinStudio) WhappyBottomBar(currentTab, onTab) { showAppHub = true }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).statusBarsPadding()) {
@@ -1182,7 +1190,7 @@ private fun ActivityCenterDialog(
 }
 
 @Composable
-private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
+private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onMore: () -> Unit) {
     val icons = mapOf(
         WhappyTab.MOMENTS to Icons.Rounded.Home,
         WhappyTab.STATUS to Icons.Rounded.AutoAwesome,
@@ -1197,7 +1205,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.STATUS, WhappyTab.MESSAGES, WhappyTab.LIVE, WhappyTab.PROFILE)
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.STATUS, WhappyTab.MESSAGES, WhappyTab.LIVE)
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
@@ -1207,6 +1215,72 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit) {
                 label = { Text(mobileTabLabel(tab, LocalWhappyLanguage.current), fontSize = 10.sp, maxLines = 1) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, indicatorColor = Color.White),
             )
+        }
+        NavigationBarItem(
+            selected = selected !in visibleTabs,
+            onClick = onMore,
+            icon = { Icon(Icons.Rounded.GridView, whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso")) },
+            label = { Text(whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso"), fontSize = 10.sp, maxLines = 1) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, indicatorColor = Color.White),
+        )
+    }
+}
+
+private data class WhappyFeatureShortcut(val tab: WhappyTab?, val title: String, val subtitle: String, val icon: ImageVector)
+
+@Composable
+private fun WhappyFeatureHubDialog(onOpen: (WhappyTab) -> Unit, onOpenTwin: () -> Unit, onDismiss: () -> Unit) {
+    val shortcuts = listOf(
+        WhappyFeatureShortcut(WhappyTab.CONTACTS, "Contacts", "Personnes et QR", Icons.Rounded.PersonAdd),
+        WhappyFeatureShortcut(WhappyTab.CALLS, "Appels", "Audio et vidéo", Icons.Rounded.Phone),
+        WhappyFeatureShortcut(WhappyTab.MARKET, "Marché", "Acheter et vendre", Icons.Rounded.Storefront),
+        WhappyFeatureShortcut(WhappyTab.RADIO, "Radio", "Créer une émission", Icons.Rounded.Radio),
+        WhappyFeatureShortcut(WhappyTab.GAMES, "Jeux", "Défis et tournois", Icons.Rounded.Bolt),
+        WhappyFeatureShortcut(WhappyTab.SERVICES, "Services", "Paiements et outils", Icons.Rounded.Payments),
+        WhappyFeatureShortcut(WhappyTab.BUSINESS, "Business", "Pages, Deals et Ads", Icons.Rounded.BusinessCenter),
+        WhappyFeatureShortcut(null, "Mon WHAPPY", "Double et studio", Icons.Rounded.SmartToy),
+        WhappyFeatureShortcut(WhappyTab.PROFILE, "Profil", "Compte et sécurité", Icons.Rounded.Person),
+    )
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White,
+            shape = RoundedCornerShape(30.dp),
+            shadowElevation = 22.dp,
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.GridView, null, tint = Color.White)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("Tout WHAPPY", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Text("Les mêmes espaces essentiels que sur le Web", color = WhappyMuted, fontSize = 11.sp)
+                    }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fermer", tint = WhappyMuted) }
+                }
+                shortcuts.chunked(3).forEach { rowItems ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        rowItems.forEach { item ->
+                            Surface(
+                                modifier = Modifier.weight(1f).height(108.dp).clickable { item.tab?.let(onOpen) ?: onOpenTwin() },
+                                color = Color.White,
+                                shape = RoundedCornerShape(19.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .14f)),
+                            ) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(23.dp))
+                                    Column {
+                                        Text(item.title, color = WhappyDark, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                                        Text(item.subtitle, color = WhappyMuted, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Text("Messages · Groupes · Chaînes · Live · Commerce · IA", Modifier.fillMaxWidth(), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -2554,7 +2628,7 @@ private fun MessagesScreen(
     onOpen: (WhappyConversation) -> Unit,
     onOpenChannel: (WhappyChannel) -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
-    onCreateGroup: (String, List<String>, Uri?, String) -> Unit,
+    onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onHandleWhappyLink: (String) -> Unit,
 ) {
@@ -2961,7 +3035,10 @@ private fun MessagesScreen(
                 val photo = groupPhotoUri
                 onCreateGroup(
                     groupName.trim(),
-                    groupMembers.toList(),
+                    availableGroupContacts
+                        .map { it.member }
+                        .filter { it.uid in groupMembers }
+                        .distinctBy { it.uid },
                     photo,
                     photo?.let { context.contentResolver.getType(it) }.orEmpty().ifBlank { "image/jpeg" },
                 )
@@ -3363,6 +3440,12 @@ private fun ChatScreen(
     val visibleMessages = remember(messages, searchQuery) { messages.filter { SearchNormalizer.matches(searchQuery, it.text, it.mediaName, it.replyText) } }
     var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
 
+    fun updateDraft(value: String) {
+        text = value.take(4_000)
+        if (text.isBlank()) draftPrefs.edit().remove(conversation.id).apply()
+        else draftPrefs.edit().putString(conversation.id, text).apply()
+    }
+
     fun handleMessageAction(action: MessageAction) {
         if (action.type == MessageActionType.Phone) calls?.startByPhone(action.target, false)
         else openMessageAction(uriHandler, action)
@@ -3469,8 +3552,7 @@ private fun ChatScreen(
                 ).forEach { option ->
                     OutlinedButton(
                         onClick = {
-                            text = (option.second + text.removePrefix(option.second)).take(4_000)
-                            draftPrefs.edit().putString(conversation.id, text).apply()
+                            updateDraft(option.second + text.removePrefix(option.second))
                         },
                         shape = RoundedCornerShape(13.dp),
                         contentPadding = PaddingValues(horizontal = 11.dp, vertical = 5.dp),
@@ -3486,13 +3568,13 @@ private fun ChatScreen(
             ) {
                 Icon(Icons.Rounded.Schedule, null, tint = WhappyBlue, modifier = Modifier.size(17.dp))
                 Text(
-                    "$pendingCount message${if (pendingCount > 1) "s" else ""} en attente de connexion",
+                    "$pendingCount message${if (pendingCount > 1) "s" else ""} en attente de connexion · WHAPPY va réessayer",
                     Modifier.weight(1f).padding(horizontal = 9.dp),
                     color = WhappyBlue,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                TextButton(onClick = onRetryPending) { Text("Réessayer") }
+                TextButton(onClick = onRetryPending) { Text("Réessayer maintenant") }
             }
         }
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
@@ -3505,8 +3587,15 @@ private fun ChatScreen(
                         Text(formatMessageDay(message.createdAt), Modifier.align(Alignment.CenterHorizontally).padding(vertical = 7.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(horizontal = 10.dp, vertical = 4.dp), color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+                        if (conversation.isGroup && !mine) {
+                            UserAvatar("", message.senderName.ifBlank { "Membre WHAPPY" }, 30.dp, Modifier.padding(top = 3.dp))
+                            Spacer(Modifier.width(7.dp))
+                        }
                         Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted && message.deliveryState == "sent") { selectedMessage = message }) {
                             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                if (conversation.isGroup && !mine && message.senderName.isNotBlank()) {
+                                    Text(message.senderName, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 4.dp))
+                                }
                                 if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (mine) Color.White.copy(alpha = .16f) else Color.White).padding(8.dp)) { Text("↩ ${message.replyText}", color = if (mine) Color.White.copy(alpha = .9f) else WhappyMuted, fontSize = 10.sp, maxLines = 2) }
                                 if (message.replyText.isNotBlank()) {
                                     val targetIndex = visibleMessages.indexOfFirst { it.id == message.replyToId }
@@ -3567,7 +3656,7 @@ private fun ChatScreen(
                 }
             }
         }
-        if (showEmoji) EmojiTray { text = (text + it).take(4_000) }
+        if (showEmoji) EmojiTray(onEmoji = { updateDraft(text + it) }, onClose = { showEmoji = false })
         if (recording) {
             Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(WhappyBlue))
@@ -3584,12 +3673,12 @@ private fun ChatScreen(
             )
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(enabled = !sending && !recording, onClick = { mediaPicker.launch(arrayOf("image/*", "video/*")) }) { Icon(Icons.Rounded.AttachFile, "Joindre une image ou une vidéo", tint = WhappyMuted) }
-            IconButton(enabled = !sending && !recording, onClick = { offerOpen = true; showEmoji = false; keyboard?.hide() }) { Icon(Icons.Rounded.LocalOffer, "Faire une offre", tint = WhappyBlue) }
+            IconButton(enabled = !recording, onClick = { mediaPicker.launch(arrayOf("image/*", "video/*")) }) { Icon(Icons.Rounded.AttachFile, "Joindre une image ou une vidéo", tint = WhappyMuted) }
+            IconButton(enabled = !recording, onClick = { offerOpen = true; showEmoji = false; keyboard?.hide() }) { Icon(Icons.Rounded.LocalOffer, "Faire une offre", tint = WhappyBlue) }
             IconButton(enabled = !recording, onClick = { showEmoji = !showEmoji; if (showEmoji) keyboard?.hide() }) { Icon(Icons.Rounded.EmojiEmotions, "Émojis", tint = if (showEmoji) WhappyBlue else WhappyMuted) }
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it.take(4_000); draftPrefs.edit().putString(conversation.id, text).apply() },
+                onValueChange = { updateDraft(it) },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text(if (recording) "Enregistrement…" else "Message…") },
                 enabled = !recording,
@@ -3599,7 +3688,7 @@ private fun ChatScreen(
                 keyboardActions = KeyboardActions(onSend = { submitText(); keyboard?.hide() }),
             )
             IconButton(
-                enabled = !sending,
+                enabled = text.isNotBlank() || recording || !sending,
                 onClick = {
                     if (text.isNotBlank()) submitText()
                     else if (recording) finishRecording(true)
@@ -3609,9 +3698,9 @@ private fun ChatScreen(
                 modifier = Modifier.padding(start = 6.dp).size(52.dp).clip(CircleShape).background(if (text.isNotBlank() || recording) WhappyBlue else Color.White),
             ) {
                 when {
-                    sending -> CircularProgressIndicator(Modifier.size(20.dp), color = WhappyBlue, strokeWidth = 2.dp)
                     text.isNotBlank() -> Icon(Icons.AutoMirrored.Rounded.Send, "Envoyer", tint = Color.White)
                     recording -> Icon(Icons.Rounded.Stop, "Arrêter et envoyer", tint = Color.White)
+                    sending -> CircularProgressIndicator(Modifier.size(20.dp), color = WhappyBlue, strokeWidth = 2.dp)
                     else -> Icon(Icons.Rounded.Mic, "Enregistrer une note vocale", tint = WhappyBlue)
                 }
             }
@@ -3966,15 +4055,26 @@ private fun ImageZoomViewer(
 }
 
 @Composable
-private fun EmojiTray(onEmoji: (String) -> Unit) {
-    val emojis = listOf("😀", "😄", "😂", "🥰", "😍", "🤩", "😎", "🥳", "😭", "😡", "🤔", "😮", "👍", "👎", "🙏", "👏", "💪", "🤝", "❤️", "💙", "🔥", "✨", "🎉", "💯", "✅", "📍", "🎁", "🛍️", "💼", "🚀", "📞", "🎥", "🇨🇬", "🇨🇩")
+private fun EmojiTray(onEmoji: (String) -> Unit, onClose: () -> Unit) {
+    val emojis = listOf(
+        "😀", "😄", "😂", "🤣", "😊", "🥰", "😍", "😘", "🤩", "😎", "🥳", "😭",
+        "😡", "🤔", "😮", "😇", "👍", "👎", "🙏", "👏", "💪", "🤝", "🙌", "👌",
+        "❤️", "💙", "🔥", "✨", "🎉", "💯", "✅", "📍", "🎁", "🛍️", "💼", "🚀",
+        "📞", "🎥", "🎤", "🎵", "💰", "🧾", "⭐", "🇨🇬", "🇨🇩",
+    )
     Column(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("EMOJIS", Modifier.weight(1f), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("Compatibles Android", color = WhappyMuted, fontSize = 9.sp)
+            TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Fermer", fontSize = 10.sp) }
         }
-        FlowRow(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            emojis.forEach { emoji -> TextButton(onClick = { onEmoji(emoji) }, contentPadding = PaddingValues(5.dp)) { Text(emoji, fontSize = 24.sp) } }
+        FlowRow(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            emojis.forEach { emoji ->
+                TextButton(
+                    onClick = { onEmoji(emoji) },
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) { Text(emoji, fontSize = 24.sp) }
+            }
         }
     }
 }

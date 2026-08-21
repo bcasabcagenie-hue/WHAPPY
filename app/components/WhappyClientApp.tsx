@@ -55,8 +55,8 @@ type RequestItem = { id: string | number; title: string; details: string; place:
 type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "image" | "video"; mediaName?: string };
 
 const ANDROID_APP = {
-  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.5.2-native.apk",
-  version: "1.5.2",
+  url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.5.3-native.apk",
+  version: "1.5.3",
   size: "79 Mo",
   minimum: "Android 8.0+",
 } as const;
@@ -801,7 +801,7 @@ export default function Home() {
 
   return <main className="nova-shell whappy-blue">
     <aside className="nova-rail">
-      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Messages Whappy"><Image src="/whappy-app-icon.png" alt="Logo Whappy" width={50} height={50} priority /></button>
+      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Accueil Whappy"><Image src="/whappy-app-icon.png" alt="Logo Whappy" width={42} height={42} priority /><span>WHAPPY</span></button>
       <nav aria-label="Espaces Whappy App">
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
         <Rail active={space === "calls"} icon="☎" label="Appels" onClick={() => go("calls")} />
@@ -895,7 +895,8 @@ export default function Home() {
 function ReconnectScreen() {
   return <main className="whappy-reconnect" aria-live="polite">
     <div className="whappy-reconnect-card">
-      <span className="whappy-reconnect-mark">W</span>
+      <Image className="whappy-reconnect-logo" src="/whappy-app-icon.png" alt="Logo Whappy" width={64} height={64} priority />
+      <strong className="whappy-reconnect-brand">WHAPPY</strong>
       <strong>Reconnexion sécurisée</strong>
       <p>Whappy restaure votre session et prépare vos données locales avant de contacter le cloud.</p>
       <i aria-hidden="true" />
