@@ -10,6 +10,8 @@ import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -99,6 +101,7 @@ data class WhappyCallUiState(
     val status: String = "",
     val muted: Boolean = false,
     val cameraEnabled: Boolean = true,
+    val mediaReady: Boolean = false,
     val error: String? = null,
 )
 
@@ -276,27 +279,33 @@ class WhappyCallController(private val activity: ComponentActivity) {
     }
 
     fun attachRenderer(renderer: SurfaceViewRenderer, local: Boolean) {
-        renderer.init(eglBase.eglBaseContext, null)
-        renderer.setEnableHardwareScaler(true)
-        renderer.setMirror(local)
-        if (local) {
-            localRenderer = renderer
-            localVideoTrack?.addSink(renderer)
-        } else {
-            remoteRenderer = renderer
-            remoteVideoTrack?.addSink(renderer)
+        runCatching {
+            renderer.init(eglBase.eglBaseContext, null)
+            renderer.setEnableHardwareScaler(true)
+            renderer.setMirror(local)
+            if (local) {
+                localRenderer = renderer
+                localVideoTrack?.addSink(renderer)
+            } else {
+                remoteRenderer = renderer
+                remoteVideoTrack?.addSink(renderer)
+            }
+        }.onFailure {
+            state = state.copy(status = "Vidéo indisponible", error = "La caméra n’a pas pu démarrer. Vous pouvez fermer cet écran puis relancer l’appel.")
         }
     }
 
     fun detachRenderer(renderer: SurfaceViewRenderer, local: Boolean) {
-        if (local) {
-            localVideoTrack?.removeSink(renderer)
-            if (localRenderer === renderer) localRenderer = null
-        } else {
-            remoteVideoTrack?.removeSink(renderer)
-            if (remoteRenderer === renderer) remoteRenderer = null
+        runCatching {
+            if (local) {
+                localVideoTrack?.removeSink(renderer)
+                if (localRenderer === renderer) localRenderer = null
+            } else {
+                remoteVideoTrack?.removeSink(renderer)
+                if (remoteRenderer === renderer) remoteRenderer = null
+            }
+            renderer.release()
         }
-        runCatching { renderer.release() }
     }
 
     private fun withCallPermissions(video: Boolean, action: () -> Unit) {
@@ -318,6 +327,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         state = WhappyCallUiState(visible = true, video = video, peerName = peer.displayName, peerPhone = peer.phoneNumber, status = "Connexion sécurisée…")
         runCatching {
             preparePeer(video, "callerCandidates")
+            state = state.copy(mediaReady = true)
             val offer = peerConnection!!.createOfferAwait()
             peerConnection!!.setLocalDescriptionAwait(offer)
             val reference = db.collection("calls").document()
@@ -352,6 +362,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         state = state.copy(incoming = false, video = video, status = "Connexion sécurisée…", error = null)
         runCatching {
             preparePeer(video, "calleeCandidates")
+            state = state.copy(mediaReady = true)
             val offer = incoming.get("offer") as? Map<*, *> ?: error("offer")
             val remote = SessionDescription(SessionDescription.Type.OFFER, offer["sdp"]?.toString().orEmpty())
             peerConnection!!.setRemoteDescriptionAwait(remote)
@@ -603,10 +614,15 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
     val call = controller.state
     if (!call.visible) return
     val context = LocalContext.current
+    BackHandler { if (call.incoming) controller.declineIncoming() else controller.hangUp() }
+    DisposableEffect(Unit) {
+        activityWindow(context)?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { activityWindow(context)?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
     val acceptGreen = Color(0xFF22C55E)
     val declineRed = Color(0xFFEF4444)
     Box(Modifier.fillMaxSize().background(Color(BRAND_BLUE)), contentAlignment = Alignment.Center) {
-        if (call.video && !call.incoming && call.error == null) {
+        if (call.video && call.mediaReady && !call.incoming && call.error == null) {
             AndroidView(
                 factory = { SurfaceViewRenderer(context).also { controller.attachRenderer(it, false) } },
                 modifier = Modifier.fillMaxSize(),
@@ -619,7 +635,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            if (!call.video || call.incoming || call.error != null) {
+            if (!call.video || !call.mediaReady || call.incoming || call.error != null) {
                 Box(Modifier.size(112.dp).background(Color.White, CircleShape), contentAlignment = Alignment.Center) {
                     Text(call.peerName.split(" ").mapNotNull { it.firstOrNull()?.toString() }.joinToString("").take(2).uppercase().ifBlank { "W" }, color = Color(BRAND_BLUE), fontSize = 34.sp)
                 }
@@ -654,3 +670,5 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
         if (!call.incoming && call.error == null) CircularProgressIndicator(Modifier.align(Alignment.TopStart).padding(22.dp).size(22.dp), color = Color.White, strokeWidth = 2.dp)
     }
 }
+
+private fun activityWindow(context: Context) = (context as? ComponentActivity)?.window
