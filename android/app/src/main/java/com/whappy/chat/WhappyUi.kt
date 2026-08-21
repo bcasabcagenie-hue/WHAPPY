@@ -157,6 +157,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -212,14 +213,18 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFF9600FF)
-private val WhappyDark = Color(0xFF2A1238)
-private val WhappyInk = Color(0xFF171717)
-private val WhappyMuted = Color(0xFF74647D)
-private val WhappyBackground = Color(0xFFFFFFFF)
-private val WhappySurface = Color(0xFFF7F7F7)
-private val WhappyNavy = Color(0xFF9600FF)
-private val WhappyLine = Color(0xFFE7E7E7)
+private val WhappyBlue = Color(0xFFA100FF)
+private val WhappyDark = Color(0xFF28113D)
+private val WhappyInk = Color(0xFF1D1227)
+private val WhappyMuted = Color(0xFF80658F)
+private val WhappyBackground = Color(0xFFFFFBFF)
+private val WhappySurface = Color(0xFFF6EEFF)
+private val WhappyNavy = Color(0xFF35104F)
+private val WhappyLine = Color(0xFFE8D7F3)
+private val WhappyMagenta = Color(0xFFFF3FC8)
+private val WhappyCyan = Color(0xFF59E4FF)
+private val WhappyAurora = Brush.linearGradient(listOf(WhappyBlue, WhappyMagenta, Color(0xFF6D4AFF)))
+private val WhappyAuroraSoft = Brush.linearGradient(listOf(Color(0xFFF3E6FF), Color(0xFFFFE8F8), Color(0xFFE7F8FF)))
 
 private enum class WhappyLanguage(val code: String, val label: String) {
     FRENCH("fr", "Français"),
@@ -310,10 +315,13 @@ fun WhappyTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(
             primary = WhappyBlue,
+            secondary = WhappyMagenta,
+            tertiary = WhappyCyan,
             onPrimary = Color.White,
             background = WhappyBackground,
             onBackground = WhappyInk,
             surface = Color.White,
+            surfaceVariant = WhappySurface,
             onSurface = WhappyInk,
             outline = WhappyLine,
         ),
@@ -1139,7 +1147,7 @@ private fun WhappyMain(
 @Composable
 private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", photoUrl: String = "", unread: Int = 0, onActivity: () -> Unit = {}, onProfile: () -> Unit = {}) {
     Row(
-        modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth().background(WhappyAurora).padding(horizontal = 18.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(
@@ -1150,10 +1158,10 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text("WAPI", color = WhappyBlue, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
-            Text(subtitle, color = WhappyMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("WAPI", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
+            Text(subtitle, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = WhappyDark); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
+        IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = Color.White); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(WhappyCyan), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = WhappyDark, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
         if (avatar) UserAvatar(photoUrl, name, 44.dp, Modifier.clickable(onClick = onProfile))
     }
 }
@@ -1345,16 +1353,16 @@ private fun StoriesScreen(
     )
 
     LazyColumn(
-        Modifier.fillMaxSize().background(Color.White),
+        Modifier.fillMaxSize().background(WhappySurface),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyBlue)) {
-                Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                    Text("WAPI STORIES", color = Color.White.copy(alpha = .78f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text(t("Partagez votre Story.", "Share your moment.", "Kabola ntango na yo."), Modifier.padding(top = 7.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
-                    Text(t("Votre Story apparaît immédiatement sur vos appareils et dans la communauté.", "Your Story appears instantly across your devices and community.", "Story na yo ekomonana mbala moko na ba appareil mpe na lisanga."), Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .82f), lineHeight = 18.sp, fontSize = 12.sp)
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(WhappyAurora).padding(22.dp)) {
+                Column {
+                    Text("WAPI STORIES", color = WhappyCyan, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+                    Text(t("Partagez votre Story.", "Share your Story.", "Kabola Story na yo."), Modifier.padding(top = 7.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
+                    Text(t("Une photo, une vidéo, un moment. Tout reste synchronisé avec vos contacts.", "A photo, a video, a moment. Everything stays synced with your contacts.", "Elilingi, video, ntango. Nyonso ekotikala synchronisé na ba contacts na yo."), Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .82f), lineHeight = 18.sp, fontSize = 12.sp)
                 }
             }
         }
@@ -1455,22 +1463,29 @@ private fun MomentsScreen(statuses: List<WhappyStatus>, twinReadiness: Int, onTa
     val storyAuthors = statuses.distinctBy { it.authorId }.take(8)
     LazyColumn(Modifier.fillMaxSize().background(WhappySurface), contentPadding = PaddingValues(16.dp, 14.dp, 16.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(WhappyAuroraSoft).padding(16.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text("Stories", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Bold); Text("Partagez un moment avec vos contacts", color = WhappyMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp)) }
                     Text("Voir tout", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onTab(WhappyTab.STORIES) })
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 13.dp), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                     StoryBubble("Vous", "+", WhappyBlue) { onTab(WhappyTab.STORIES) }
-                    storyAuthors.forEachIndexed { index, story -> StoryBubble(story.authorName.split(" ").firstOrNull() ?: "Contact", story.authorName.take(1).uppercase(), if (index % 2 == 0) Color(0xFFB66DFF) else Color(0xFF7B35D6)) { onTab(WhappyTab.STORIES) } }
+                    storyAuthors.forEachIndexed { index, story -> StoryBubble(story.authorName.split(" ").firstOrNull() ?: "Contact", story.authorName.take(1).uppercase(), if (index % 2 == 0) WhappyMagenta else WhappyCyan) { onTab(WhappyTab.STORIES) } }
                     if (storyAuthors.isEmpty()) Text("Aucune Story pour le moment", color = WhappyMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 19.dp))
                 }
             }
         }
         item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp)) {
-                Text("Accueil", color = WhappyDark, fontSize = 26.sp, fontWeight = FontWeight.Black)
-                Text("Tout ce qui compte, au même endroit.", color = WhappyMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(WhappyAurora).padding(22.dp)) {
+                Column {
+                    Text("WAPI AURORA", color = WhappyCyan, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
+                    Text("Votre monde,\nplus vivant.", color = Color.White, fontSize = 29.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 8.dp))
+                    Text("Messages, Stories, appels et créations dans une expérience lumineuse.", color = Color.White.copy(alpha = .82f), fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp))
+                    Row(Modifier.padding(top = 17.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onTab(WhappyTab.MESSAGES) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.ChatBubble, null, modifier = Modifier.size(17.dp)); Text(" Messages", fontWeight = FontWeight.Bold) }
+                        OutlinedButton(onClick = { onTab(WhappyTab.STORIES) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .65f)), shape = RoundedCornerShape(14.dp)) { Text("Stories", fontWeight = FontWeight.Bold) }
+                    }
+                }
             }
         }
         item {
@@ -2838,9 +2853,9 @@ private fun MessagesScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> "Messages" }, fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(when (messageSection) { 1 -> "Vos personnes sur WAPI"; 2 -> "Suivez ce qui compte pour vous"; else -> "Vos conversations instantanées" }, color = WhappyMuted) }
+    Column(Modifier.fillMaxSize().background(WhappySurface)) {
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> "Messages" }, fontSize = 26.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(when (messageSection) { 1 -> "Vos personnes sur WAPI"; 2 -> "Suivez ce qui compte pour vous"; else -> "Vos conversations instantanées" }, color = WhappyMuted, fontSize = 12.sp) }
             TextButton(onClick = { when (messageSection) { 2 -> creatingChannel = true; 0 -> creatingGroup = true; else -> { phone = ""; resetContactSearch(); adding = true } } }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.textButtonColors(contentColor = WhappyBlue)) {
                 Icon(Icons.Rounded.Add, when (messageSection) { 2 -> "Créer une chaîne"; 0 -> "Créer un groupe"; else -> "Ajouter un contact" }, modifier = Modifier.size(18.dp))
                 Text(when (messageSection) { 2 -> " Chaîne"; 0 -> " Groupe"; else -> " Ajouter" }, fontWeight = FontWeight.Black)
