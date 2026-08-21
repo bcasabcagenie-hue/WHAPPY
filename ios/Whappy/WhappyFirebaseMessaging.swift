@@ -1,6 +1,6 @@
-import FirebaseAuth
+@preconcurrency import FirebaseAuth
 import FirebaseCore
-import FirebaseFirestore
+@preconcurrency import FirebaseFirestore
 import FirebaseStorage
 import SwiftUI
 
@@ -42,7 +42,7 @@ extension WhappyStore {
                 }
                 self.firebaseVerificationID = verificationID
                 self.firebaseCodeSent = verificationID != nil
-                self.firebaseMessage = verificationID == nil ? "Le code SMS n’a pas pu être envoyé." : "Code SMS envoyé au (normalized)."
+                self.firebaseMessage = verificationID == nil ? "Le code SMS n’a pas pu être envoyé." : "Code SMS envoyé au \(normalized)."
             }
         }
     }
@@ -127,9 +127,11 @@ extension WhappyStore {
             data["replyText"] = String(replyTo.text.prefix(240))
         }
         reference.setData(data) { [weak self] error in
-            self?.finishFirebaseSend(messageID: local.id, conversationID: conversation.id, error: error)
-            guard error == nil else { return }
-            root.updateData(["lastMessage": text, "lastSenderId": userID, "updatedAt": FieldValue.serverTimestamp()])
+            Task { @MainActor [weak self] in
+                self?.finishFirebaseSend(messageID: local.id, conversationID: conversation.id, error: error)
+                guard error == nil else { return }
+                self?.updateFirebaseConversationSummary(root: root, source: conversation.source ?? "conversations", text: text, userID: userID)
+            }
         }
     }
 
@@ -338,8 +340,18 @@ extension WhappyStore {
         ]
         if conversation.source == "groups" { data["senderName"] = "Membre WHAPPY" }
         root.collection("messages").addDocument(data: data) { [weak self] error in
-            if let error { Task { @MainActor in self?.firebaseMessage = self?.friendlyFirebaseError(error) } }
-            else { root.updateData(["lastMessage": label, "lastSenderId": userID, "updatedAt": FieldValue.serverTimestamp()]) }
+            Task { @MainActor [weak self] in
+                if let error { self?.firebaseMessage = self?.friendlyFirebaseError(error) }
+                else { self?.updateFirebaseConversationSummary(root: root, source: conversation.source ?? "conversations", text: label, userID: userID) }
+            }
+        }
+    }
+
+    private func updateFirebaseConversationSummary(root: DocumentReference, source: String, text: String, userID: String) {
+        if source == "groups" {
+            root.updateData(["lastMessage": text, "updatedAt": FieldValue.serverTimestamp()])
+        } else {
+            root.updateData(["lastMessage": text, "lastSenderId": userID, "updatedAt": FieldValue.serverTimestamp()])
         }
     }
 
@@ -362,10 +374,12 @@ extension WhappyStore {
     }
 
     private func syncFirebaseProfile(user: FirebaseAuth.User) {
+        let phoneNumber = user.phoneNumber ?? ""
         Firestore.firestore().collection("users").document(user.uid).setData([
             "uid": user.uid,
-            "phoneNumber": user.phoneNumber ?? "",
-            "phoneLookup": user.phoneNumber.flatMap(WhappyPhoneCountry.normalize) ?? "",
+            "phoneNumber": phoneNumber,
+            "phoneLookup": WhappyPhoneCountry.normalize(phoneNumber) ?? phoneNumber,
+            "phoneDigits": phoneNumber.filter(\.isNumber),
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
     }
