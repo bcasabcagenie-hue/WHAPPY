@@ -1,12 +1,53 @@
-# WHAPPY pour iOS
+# Whappy
 
-Application native SwiftUI ciblant iOS 17 et versions suivantes.
+Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, chercher, négocier et présenter ses produits en direct. Le projet est prêt à être développé dans Visual Studio Code et utilise l'identité bleue `#007CF7` de Whappy.
 
-Depuis une conversation, les boutons téléphone et vidéo lancent respectivement
-l’appel audio dans l’app Téléphone et l’appel vidéo dans FaceTime. Cette fonction
-nécessite un iPhone configuré (elle n’est pas disponible dans le simulateur).
+## Expérience disponible
 
-## Compiler pour le simulateur
+- **Orbite** : radar visuel des produits, besoins, directs et échanges proches ;
+- **Directs** : studio de live shopping, fiche produit, panier et offres en direct ;
+- **Marché** : catalogue filtrable pour vendre ou proposer un échange ;
+- **Troc** : moteur de correspondance et concept de troc en chaîne ;
+- **Chercher** : publication de besoins, services et situations urgentes ;
+- **Messages** : négociation contextualisée autour d'une transaction ;
+- **Mon Double** : parcours de création d'un présentateur vidéo numérique pour ses propres produits.
+- **Connexion téléphone** : inscription sans mot de passe, code SMS et règle « un numéro = un compte » avec Firebase Phone Auth.
+- **Services locaux utilisables** : portefeuille de démonstration persistant, paiements fictifs, QR de réception, coupons et demandes de transport, livraison ou santé sans écran mort.
+
+Le Double vidéo exige un consentement explicite, reste révocable, affiche son caractère artificiel et ne doit utiliser que l'image ou la voix dont la personne contrôle les droits.
+
+## Ouvrir dans Visual Studio Code
+
+Ouvrez ce dossier :
+
+```text
+/Users/cyrilbokilo/Documents/ChatGPT/WHAPPY
+```
+
+La configuration **Whappy : lancer en local** du panneau **Exécuter et déboguer** démarre l'application et ouvre sa page.
+
+## Démarrage manuel
+
+Prérequis : Node.js 22.13 ou une version plus récente.
+
+```bash
+npm install
+npm run dev
+```
+
+L'application est disponible sur [http://localhost:3000](http://localhost:3000).
+
+## Vérification
+
+```bash
+npm run check
+```
+
+Cette commande vérifie le code, produit la version finale et exécute les tests.
+
+## iOS
+
+Le projet natif SwiftUI se trouve dans `ios/Whappy.xcodeproj`. Il cible iOS 17 et utilise le bundle identifier `com.whappy.chat`.
 
 ```bash
 cd ios
@@ -15,10 +56,30 @@ xcodebuild -project Whappy.xcodeproj -scheme Whappy -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-## Installer sur un iPhone ou publier avec TestFlight
+La signature d’un iPhone et la publication TestFlight nécessitent de sélectionner l’équipe Apple Developer de WHAPPY dans Xcode.
 
-1. Ouvrir `Whappy.xcodeproj` dans Xcode.
-2. Dans **Signing & Capabilities**, sélectionner l’équipe Apple Developer du propriétaire de WHAPPY.
-3. Brancher un iPhone et choisir **Run**, ou utiliser **Product > Archive** puis **Distribute App**.
+## Firebase
 
-Le bundle identifier de la version 1.3.1 est `com.whappy.chat`.
+Whappy est relié au projet Firebase indépendant `whappy-d97e7`.
+
+- `lib/firebase.ts` initialise Authentication, Firestore et Storage ;
+- `.env.local` contient la configuration locale de l'application Web ;
+- `firestore.rules` et `storage.rules` fournissent les règles de sécurité ;
+- `firestore.indexes.json` contient les index nécessaires.
+
+Les clés Firebase Web identifient l'application ; les autorisations réelles restent contrôlées par Authentication et les règles de sécurité.
+
+## Fichiers principaux
+
+- `app/page.tsx` : expérience interactive et espaces Whappy ;
+- `app/globals.css` : design responsive et identité visuelle ;
+- `app/layout.tsx` : métadonnées, icône et carte sociale ;
+- `public/whappy-logo.svg` : logo officiel ;
+- `public/whappy-app-icon.svg` : icône officielle de l’application ;
+- `public/whappy-social.png` : visuel de partage ;
+- `.vscode/` : lancement prêt pour Visual Studio Code ;
+- `tests/` : tests automatiques.
+
+## Portée de cette version
+
+L'interface et ses interactions constituent un prototype produit complet. Les parcours qui exigent un partenaire externe disposent d’un bac à sable local clairement signalé afin de rester testables de bout en bout. Le streaming vidéo public, la synthèse finale du Double, les débits monétaires réels, la modération et la mise en relation en production demanderont ensuite des services backend dédiés et des contrôles de sécurité supplémentaires.

@@ -145,7 +145,7 @@ struct MessagesView: View {
                 List(filtered) { conversation in
                     NavigationLink(value: conversation) {
                         HStack(spacing: 13) {
-                            InitialsAvatar(text: conversation.initials)
+                            ConversationAvatar(conversation: conversation)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(conversation.name).font(.headline)
                                 Text(conversation.lastMessage).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
@@ -640,7 +640,11 @@ private struct ConversationView: View {
             ZoomablePhotoViewer(image: photo.image, onDismiss: { zoomedPhoto = nil })
         }
         .onChange(of: photoItem) { _, item in guard let item else { return }; Task { await attachPhoto(item) } }
-        .onAppear { if draft.isEmpty { draft = UserDefaults.standard.string(forKey: draftKey) ?? "" } }
+        .onAppear {
+            if draft.isEmpty { draft = UserDefaults.standard.string(forKey: draftKey) ?? "" }
+            if let conversation { store.openFirebaseConversation(conversation) }
+        }
+        .onDisappear { store.closeFirebaseConversation() }
         .onChange(of: draft) { _, value in if editingMessage == nil { UserDefaults.standard.set(value, forKey: draftKey) } }
     }
 
@@ -1231,7 +1235,7 @@ private struct ActivityCenterView: View {
     var body: some View { NavigationStack { List { if store.unreadCount > 0 { Button { store.selectedTab = .messages; dismiss() } label: { Label("\(store.unreadCount) message(s) non lu(s)", systemImage: "message.badge.fill") } }; if !store.orders.isEmpty { Button { store.selectedTab = .services; dismiss() } label: { Label("\(store.orders.count) commande(s) à suivre", systemImage: "shippingbox.fill") } }; ForEach(store.liveRooms.filter(\.live)) { room in Button { store.selectedTab = .live; dismiss() } label: { Label("En direct : \(room.title)", systemImage: "dot.radiowaves.left.and.right") } }; if store.unreadCount == 0 && store.orders.isEmpty && store.liveRooms.filter(\.live).isEmpty { ContentUnavailableView("Tout est à jour", systemImage: "checkmark.circle", description: Text("Les nouvelles activités apparaîtront ici.")) } }.navigationTitle("Activité").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { dismiss() } } } } }
 }
 
-private struct InitialsAvatar: View {
+struct InitialsAvatar: View {
     let text: String; var size: CGFloat = 48
     var body: some View { ZStack { Circle().fill(Color.whappyBlue.opacity(0.14)); Text(text).font(.system(size: size * 0.32, weight: .bold)).foregroundStyle(Color.whappyBlue) }.frame(width: size, height: size) }
 }
