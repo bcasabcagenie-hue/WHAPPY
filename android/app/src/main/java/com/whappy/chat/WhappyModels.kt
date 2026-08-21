@@ -159,6 +159,9 @@ data class WhappyLive(
     val startedAt: Long,
     val hostMode: String = "personal",
     val visibility: String = "public",
+    /** A session is joinable only when a real media transport is provisioned. */
+    val streamProvider: String = "unconfigured",
+    val streamRoomId: String = "",
 )
 
 data class WhappyStatus(
@@ -171,6 +174,17 @@ data class WhappyStatus(
     val mediaUrl: String = "",
     val mediaKind: String = "",
     val mediaName: String = "",
+)
+
+data class WapiRadioEpisode(
+    val id: String,
+    val ownerId: String,
+    val authorName: String,
+    val stationName: String,
+    val title: String,
+    val audioUrl: String,
+    val durationSeconds: Long,
+    val createdAt: Long,
 )
 
 data class WhappyDeal(
@@ -255,6 +269,8 @@ data class WhappyUiState(
     val campaigns: List<WhappyCampaign> = emptyList(),
     val lives: List<WhappyLive> = emptyList(),
     val statuses: List<WhappyStatus> = emptyList(),
+    val wepiSettings: WapiWepiSettings? = null,
+    val radioEpisodes: List<WapiRadioEpisode> = emptyList(),
     val deals: List<WhappyDeal> = emptyList(),
     val paymentNotices: List<WhappyPaymentNotice> = emptyList(),
     val businessSearchResults: List<WhappyBusinessPage> = emptyList(),

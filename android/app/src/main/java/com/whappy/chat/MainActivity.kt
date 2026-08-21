@@ -114,6 +114,8 @@ class MainActivity : ComponentActivity() {
                     onCreateCampaign = model::createCampaign,
                     onCreateLive = model::createLive,
                     onPublishStatus = model::publishStatus,
+                    onSaveWepiSettings = model::saveWepiSettings,
+                    onPublishRadioEpisode = model::publishRadioEpisode,
                     onDeleteStatus = model::deleteStatus,
                     onUpdateProfilePhoto = model::updateProfilePhoto,
                     onEndLive = model::endLive,

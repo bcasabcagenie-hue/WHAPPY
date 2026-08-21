@@ -102,7 +102,6 @@ const liveGifts: LiveGift[] = [
   { id: "fire", icon: "🔥", name: "Flamme boost", price: 120000, detail: "Débloquez un focus visible pour votre marque", hearts: 32 },
   { id: "crown", icon: "👑", name: "Couronne signature", price: 240000, detail: "Un cadeau haut de gamme avec mention dédiée", hearts: 64 },
 ];
-const liveGiftTopUps = [20_000, 40_000, 80_000, 160_000] as const;
 const LIVE_STAGE_MAX = 10;
 type LiveGiftCarrier = { gift: LiveGift; note: string; carrier: GiftCarrier };
 type GiftLedger = { count: number; amount: number };
@@ -921,7 +920,7 @@ function AndroidDownload() {
       const current = JSON.parse(localStorage.getItem(WHAPPY_DOWNLOAD_EVENTS_KEY) || "[]") as unknown[];
       localStorage.setItem(WHAPPY_DOWNLOAD_EVENTS_KEY, JSON.stringify([event, ...current].slice(0, 250)));
       window.dispatchEvent(new CustomEvent("whappy-download-recorded"));
-    } catch {}
+    } catch { /* Le suivi local des téléchargements est facultatif. */ }
   };
   return <section className="android-download" aria-labelledby="android-download-title"><Image src="/whappy-app-icon.png" alt="" width={54} height={54}/><div className="android-download-copy"><small>APPLICATION ANDROID</small><strong id="android-download-title">Wapi App {ANDROID_APP.version}</strong><span>{ANDROID_APP.size} · {ANDROID_APP.minimum}</span></div><a className="access-apk" href={ANDROID_APP.url} download onClick={()=>recordDownload("button")}>↓ Télécharger l&apos;application</a>{started&&<p className="download-status" role="status">✓ Téléchargement lancé. Ouvrez ensuite le fichier APK.</p>}<details><summary>Le téléchargement ne démarre pas ?</summary><p>Appuyez sur le lien direct, puis autorisez le téléchargement dans votre navigateur Android.</p><a href={ANDROID_APP.url} target="_blank" rel="noreferrer" onClick={()=>recordDownload("direct")}>Ouvrir le lien direct de l&apos;APK ↗</a></details></section>;
 }
@@ -1332,12 +1331,8 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
     { id:"l-com-3",name:"Grâce",text:"Très beau produit !",hearts:5,sentAt:LIVE_NOW-180000 },
   ]);
 
-  const [giftWallets,setGiftWallets] = useState<Record<GiftCarrier, number>>({ acheteur: 125000,offreur: 80000 });
+  const giftWallets: Record<GiftCarrier, number> = { acheteur: 125000, offreur: 80000 };
   const [giftLedger,setGiftLedger] = useState<GiftWalletLedger>({
-    acheteur: { count: 0, amount: 0 },
-    offreur: { count: 0, amount: 0 },
-  });
-  const [giftTopUpLedger,setGiftTopUpLedger] = useState<GiftWalletLedger>({
     acheteur: { count: 0, amount: 0 },
     offreur: { count: 0, amount: 0 },
   });
@@ -1346,7 +1341,6 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
   const [giftNote,setGiftNote] = useState("");
   const [giftReveal,setGiftReveal] = useState<LiveGiftCarrier|null>(null);
   const [featuredGift,setFeaturedGift] = useState<LiveGiftCarrier|null>(null);
-  const [giftTopUp,setGiftTopUp] = useState<number>(liveGiftTopUps[1]);
 
   const [stageGuests,setStageGuests] = useState<string[]>([]);
   const [stageOpen,setStageOpen] = useState(false);
@@ -1358,7 +1352,6 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
   const hostInitials = live.host.split(" ").map((x)=>x[0]).join("").slice(0,2);
   const giftBalance = giftWallets[giftCarrier];
   const selectedCarrierLedger = giftLedger[giftCarrier];
-  const selectedCarrierTopUpLedger = giftTopUpLedger[giftCarrier];
 
   const orderedComments = useMemo(() => {
     return [...comments].sort((left,right)=> (left.pinned === right.pinned ? right.sentAt - left.sentAt : left.pinned ? -1 : 1));
@@ -1367,8 +1360,6 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
   const hiddenComments = useMemo(() => orderedComments.filter((comment)=>comment.hidden), [orderedComments]);
   const discussionComments = showHiddenComments ? orderedComments : visibleComments;
 
-  const canAfford = true;
-  const canBuyFromCarrier = (_gift:LiveGift) => true;
   const stageGuestsMax = LIVE_STAGE_MAX - 1;
   const stageCount = Math.min(stageGuests.length + 1, LIVE_STAGE_MAX);
   const stageSlotsRemaining = Math.max(0, stageGuestsMax - stageGuests.length);
@@ -1420,19 +1411,6 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
     notify("Votre message est visible dans le direct");
   }
 
-  function sendGiftTopUp() {
-    if (giftTopUp <= 0) return;
-    setGiftWallets(current => ({ ...current, [giftCarrier]: current[giftCarrier] + giftTopUp }));
-    setGiftTopUpLedger(current => ({
-      ...current,
-      [giftCarrier]: {
-        ...current[giftCarrier],
-        count: current[giftCarrier].count + 1,
-        amount: current[giftCarrier].amount + giftTopUp,
-      },
-    }));
-    notify(`Crédit ajouté : +${formatLiveMoney(giftTopUp)} FCFA au porteur ${giftCarrier}`);
-  }
 
   function sendGift() {
     if(!selectedGift) return;
@@ -1751,7 +1729,7 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
               type="button"
               key={gift.id}
               onClick={() => setSelectedGift(gift)}
-              disabled={!canBuyFromCarrier(gift)}
+              disabled={gift.price > giftBalance}
               className={gift.price > giftBalance ? "gift-disabled" : ""}
             >
               <i>{gift.icon}</i>
@@ -1773,7 +1751,7 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
                 </div>
               <small className="gift-carry-note">Porteur : {giftCarrier === "acheteur" ? "Acheteur" : "Offreur"} · Cadeau gratuit{selectedCarrierLedger.count > 0 ? ` · Total ${selectedCarrierLedger.count} cadeau${selectedCarrierLedger.count > 1 ? "x" : ""}` : ""}</small>
               <input value={giftNote} onChange={(event) => setGiftNote(event.target.value.slice(0, 100))} placeholder="Ajouter un mot (facultatif)" aria-label="Message avec le cadeau" />
-              <button type="button" onClick={sendGift} disabled={!canAfford}>
+              <button type="button" onClick={sendGift} disabled={selectedGift.price > giftBalance}>
                 Envoyer gratuitement · {selectedGift.icon}
               </button>
             </div>

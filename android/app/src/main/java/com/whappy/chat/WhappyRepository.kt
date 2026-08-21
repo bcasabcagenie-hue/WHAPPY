@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
@@ -432,6 +433,8 @@ class WhappyRepository(
                     startedAt = document.timestampMillis("startedAt"),
                     hostMode = document.getString("hostMode") ?: "personal",
                     visibility = document.getString("visibility") ?: "public",
+                    streamProvider = document.getString("streamProvider") ?: "unconfigured",
+                    streamRoomId = document.getString("streamRoomId").orEmpty(),
                 )
             }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt }))
         }
@@ -550,6 +553,111 @@ class WhappyRepository(
                 ),
             )
         }
+
+    fun observeWepiSettings(
+        userId: String,
+        onChange: (WapiWepiSettings?) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("users").document(userId)
+        .collection("wepi").document("settings")
+        .addSnapshotListener { document, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            if (document == null || !document.exists()) {
+                onChange(null)
+            } else {
+                onChange(WapiWepiSettings(
+                    ownerId = userId,
+                    enabled = document.getBoolean("enabled") ?: false,
+                    autoReply = document.getBoolean("autoReply") ?: true,
+                    assistantName = document.getString("assistantName") ?: "WEPI",
+                    businessName = document.getString("businessName").orEmpty(),
+                    tone = document.getString("tone") ?: "chaleureux",
+                    welcomeMessage = document.getString("welcomeMessage") ?: "Bonjour et merci pour votre message.",
+                    instructions = document.getString("instructions") ?: "Répondre clairement aux questions commerciales et proposer un échange humain si nécessaire.",
+                ))
+            }
+        }
+
+    fun observeRadioEpisodes(
+        onChange: (List<WapiRadioEpisode>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("radioEpisodes")
+        .orderBy("createdAt", Query.Direction.DESCENDING)
+        .limit(80)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().mapNotNull { document ->
+                val ownerId = document.getString("ownerId").orEmpty()
+                val audioUrl = document.getString("audioUrl").orEmpty()
+                if (ownerId.isBlank() || audioUrl.isBlank()) null else WapiRadioEpisode(
+                    id = document.id,
+                    ownerId = ownerId,
+                    authorName = document.getString("authorName") ?: WhappyIdentity.fallbackAccountName,
+                    stationName = document.getString("stationName") ?: "WAPI Radio",
+                    title = document.getString("title") ?: "Émission WAPI",
+                    audioUrl = audioUrl,
+                    durationSeconds = document.getLong("durationSeconds") ?: 0L,
+                    createdAt = document.timestampMillis("createdAt"),
+                )
+            })
+        }
+
+    suspend fun publishRadioEpisode(userId: String, authorName: String, stationName: String, title: String, fileUri: Uri, durationSeconds: Long) {
+        require(auth.currentUser?.uid == userId)
+        require(stationName.trim().length in 2..60)
+        require(title.trim().length in 2..100)
+        require(durationSeconds in 1..3_600)
+        val path = "radio/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.m4a"
+        val mediaRef = storage.reference.child(path)
+        mediaRef.putFile(fileUri, com.google.firebase.storage.StorageMetadata.Builder().setContentType("audio/mp4").build()).await()
+        val audioUrl = mediaRef.downloadUrl.await().toString()
+        db.collection("radioEpisodes").add(mapOf(
+            "ownerId" to userId,
+            "authorName" to authorName.trim().take(80),
+            "stationName" to stationName.trim().take(60),
+            "title" to title.trim().take(100),
+            "audioUrl" to audioUrl,
+            "storagePath" to path,
+            "durationSeconds" to durationSeconds,
+            "status" to "published",
+            "createdAt" to FieldValue.serverTimestamp(),
+        )).await()
+    }
+
+    suspend fun saveWepiSettings(settings: WapiWepiSettings) {
+        require(auth.currentUser?.uid == settings.ownerId)
+        val safe = settings.copy(
+            assistantName = settings.assistantName.trim().take(60).ifBlank { "WEPI" },
+            businessName = settings.businessName.trim().take(100),
+            tone = settings.tone.takeIf { it in setOf("chaleureux", "expert", "direct") } ?: "chaleureux",
+            welcomeMessage = settings.welcomeMessage.trim().take(240),
+            instructions = settings.instructions.trim().take(600),
+        )
+        db.collection("users").document(settings.ownerId).collection("wepi").document("settings").set(
+            mapOf(
+                "ownerId" to safe.ownerId,
+                "enabled" to safe.enabled,
+                "autoReply" to safe.autoReply,
+                "assistantName" to safe.assistantName,
+                "businessName" to safe.businessName,
+                "tone" to safe.tone,
+                "welcomeMessage" to safe.welcomeMessage,
+                "instructions" to safe.instructions,
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            SetOptions.merge(),
+        ).await()
+        db.collection("users").document(settings.ownerId).set(
+            mapOf("wepiEnabled" to safe.enabled, "wepiName" to safe.assistantName, "wepiBusinessName" to safe.businessName),
+            SetOptions.merge(),
+        ).await()
+    }
 
     fun observeTwinAutomations(
         userId: String,
@@ -1022,7 +1130,7 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun publishStatus(userId: String, authorName: String, text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") {
+    suspend fun publishStatus(userId: String, authorName: String, text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = ""): WhappyStatus {
         require(auth.currentUser?.uid == userId)
         val value = text.trim()
         require(value.length <= 600)
@@ -1046,7 +1154,9 @@ class WhappyRepository(
             mediaRef.putFile(mediaUri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()
             mediaRef.downloadUrl.await().toString()
         }
-        db.collection("stories").add(
+        val createdAt = System.currentTimeMillis()
+        val story = db.collection("stories").document()
+        story.set(
             mapOf(
                 "authorId" to userId,
                 "authorName" to authorName.trim().take(80),
@@ -1058,6 +1168,17 @@ class WhappyRepository(
                 "expiresAt" to com.google.firebase.Timestamp(Date(System.currentTimeMillis() + 24L * 60L * 60L * 1000L)),
             ),
         ).await()
+        return WhappyStatus(
+            id = story.id,
+            authorId = userId,
+            authorName = authorName.trim().take(80),
+            text = value,
+            tone = tone,
+            createdAt = createdAt,
+            mediaUrl = mediaUrl,
+            mediaKind = mediaKind,
+            mediaName = when (mediaKind) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; "image" -> "Image WAPI"; else -> "" },
+        )
     }
 
     suspend fun deleteStatus(userId: String, statusId: String) {

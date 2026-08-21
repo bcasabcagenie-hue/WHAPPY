@@ -80,6 +80,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.BusinessCenter
+import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ChatBubble
@@ -212,6 +213,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
 import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
@@ -251,62 +253,31 @@ private fun whappyText(language: WhappyLanguage, french: String, english: String
 @Composable
 private fun t(french: String, english: String, lingala: String): String = whappyText(LocalWhappyLanguage.current, french, english, lingala)
 
-private val demoConversations = listOf(
-    WhappyConversation("demo-amina", WhappyMember("amina", "Amina M.", "+242 06 555 01 01"), "Le troc est accepté pour le canapé ?", System.currentTimeMillis(), true),
-    WhappyConversation("demo-junior", WhappyMember("junior", "Junior K.", "+242 05 884 21 60"), "Je peux livrer cet après-midi.", System.currentTimeMillis() - 3_600_000, false),
-    WhappyConversation("demo-mokabi", WhappyMember("mokabi", "Mokabi Studio"), "Votre commande est prête ✦", System.currentTimeMillis() - 7_200_000, false),
-)
+// The emulator bypasses phone authentication, but must never invent product
+// data. It shows the same empty states as a newly connected account.
+private val demoConversations = emptyList<WhappyConversation>()
 
 private val whappyFounderDisplayName = WhappyIdentity.founderName
 private val whappyFounderChannelName = WhappyIdentity.founderChannelName
 private val whappyFounderChannelTagline = WhappyIdentity.founderChannelTagline
 
-private val demoMessages = listOf(
-    WhappyMessage("1", "Bonjour Cyril, le canapé est toujours disponible.", "amina", System.currentTimeMillis() - 180_000),
-    WhappyMessage("2", "Bonjour Amina. Le troc est accepté ?", "demo-user", System.currentTimeMillis() - 120_000),
-    WhappyMessage("3", "Oui, envoyez-moi votre proposition.", "amina", System.currentTimeMillis() - 60_000),
-)
+private val demoMessages = emptyList<WhappyMessage>()
 
-private val demoListings = listOf(
-    WhappyListing("demo-1", "MacBook Air M3 · Comme neuf", "750 000 FCFA", "Poto-Poto", "Junior K.", "junior"),
-    WhappyListing("demo-2", "Canapé modulable en velours", "Échange accepté", "Bacongo", "Maison Noki", "noki", "troc"),
-    WhappyListing("demo-3", "Sneakers édition limitée", "85 000 FCFA", "Centre-ville", "Mokabi Store", "mokabi"),
-)
+private val demoListings = emptyList<WhappyListing>()
 
-private val demoBusinessPages = listOf(
-    WhappyBusinessPage("demo-page", "Mokabi Studio", "mokabi-studio", "Mode & création", "Création contemporaine inspirée de Brazzaville.", "Brazzaville", "demo-user", "+242 06 555 01 01", "mokabi.studio"),
-)
+private val demoBusinessPages = emptyList<WhappyBusinessPage>()
 
-private val demoCampaigns = listOf(
-    WhappyCampaign("demo-campaign", "demo-page", "Mokabi Studio", "messages", "Nouvelle collection N’Tela", 2_500, 7, "active"),
-)
+private val demoCampaigns = emptyList<WhappyCampaign>()
 
-private val demoLives = listOf(
-    WhappyLive("demo-live-1", "mokabi", "Mokabi Studio", "Nouvelle collection N’Tela", "Mode", "Chemise N’Tela", "live", 1284, System.currentTimeMillis() - 1_200_000),
-    WhappyLive("demo-live-2", "junior", "Junior Tech", "Les bonnes affaires smartphones", "Tech", "Galaxy S25", "live", 438, System.currentTimeMillis() - 420_000),
-    WhappyLive("demo-live-3", "demo-user", whappyFounderDisplayName, "Mon prochain direct Business", "Business", "", "scheduled", 0, System.currentTimeMillis() + 3_600_000),
-)
+private val demoLives = emptyList<WhappyLive>()
 
-private val demoChannels = listOf(
-    WhappyChannel("demo-channel-city", "Brazzaville Maintenant", "Actualités utiles, sorties et opportunités de la ville.", "Actualités", "city-owner", "WAPI Local", listOf("demo-user"), 12_480, 128, "Les bons plans du week-end sont publiés.", System.currentTimeMillis() - 240_000, true),
-    WhappyChannel("demo-channel-market", "Bons plans WAPI", "Promotions vérifiées et nouvelles offres du Marché WAPI.", "Shopping", "market-owner", "WAPI Marché", emptyList(), 8_205, 74, "Nouvelle sélection tech à moins de 100 000 FCFA.", System.currentTimeMillis() - 3_600_000, true),
-    WhappyChannel("demo-channel-me", whappyFounderChannelName, whappyFounderChannelTagline, "Créateurs", "demo-user", whappyFounderDisplayName, listOf("demo-user"), 1, 1, "Bienvenue dans ma chaîne WAPI.", System.currentTimeMillis() - 86_400_000),
-)
+private val demoChannels = emptyList<WhappyChannel>()
 
-private val demoChannelPosts = listOf(
-    WhappyChannelPost("demo-post-1", "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", "city-owner", "WAPI Local", System.currentTimeMillis() - 86_400_000, mapOf("amina" to "❤️", "junior" to "👍"), pinned = true),
-    WhappyChannelPost("demo-post-2", "Ce week-end : marché des créateurs samedi à Poto-Poto, de 10 h à 18 h.", "city-owner", "WAPI Local", System.currentTimeMillis() - 240_000, mapOf("amina" to "🔥")),
-)
+private val demoChannelPosts = emptyList<WhappyChannelPost>()
 
-private val demoDeals = listOf(
-    WhappyDeal("demo-deal-1", "demo-page", "Mokabi Studio", "demo-user", "Drop N’Tela · 48 h", "Livraison offerte à Brazzaville.", 65_000, 49_000, 30, 12, System.currentTimeMillis() + 172_800_000, "active"),
-    WhappyDeal("demo-deal-2", "demo-page", "Mokabi Studio", "demo-user", "Pack créateur Business", "Identité visuelle et kit réseaux sociaux.", 150_000, 99_000, 10, 4, System.currentTimeMillis() + 432_000_000, "active"),
-)
+private val demoDeals = emptyList<WhappyDeal>()
 
-private val demoPaymentNotices = listOf(
-    WhappyPaymentNotice("demo-payment-1", "demo-page", "demo-deal-1", "Amina M.", 49_000, "FCFA", "Mobile Money", "paid", System.currentTimeMillis() - 180_000, false),
-    WhappyPaymentNotice("demo-payment-2", "demo-page", "demo-deal-2", "Junior K.", 99_000, "FCFA", "Carte", "paid", System.currentTimeMillis() - 3_600_000, true),
-)
+private val demoPaymentNotices = emptyList<WhappyPaymentNotice>()
 
 private enum class MessageActionType { Link, Phone }
 
@@ -374,6 +345,8 @@ fun WhappyRoot(
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onPublishStatus: (String, String, Uri?, String) -> Unit,
+    onSaveWepiSettings: (WapiWepiSettings) -> Unit,
+    onPublishRadioEpisode: (String, String, Uri, Long) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
@@ -441,6 +414,8 @@ fun WhappyRoot(
         onCreateCampaign = onCreateCampaign,
         onCreateLive = onCreateLive,
         onPublishStatus = onPublishStatus,
+        onSaveWepiSettings = onSaveWepiSettings,
+        onPublishRadioEpisode = onPublishRadioEpisode,
         onDeleteStatus = onDeleteStatus,
         onEndLive = onEndLive,
         onUpdateLiveStatus = onUpdateLiveStatus,
@@ -869,6 +844,8 @@ private fun WhappyMain(
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onPublishStatus: (String, String, Uri?, String) -> Unit,
+    onSaveWepiSettings: (WapiWepiSettings) -> Unit,
+    onPublishRadioEpisode: (String, String, Uri, Long) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
@@ -1088,6 +1065,10 @@ private fun WhappyMain(
                         )
                         WhappyTab.WEPI -> WepiScreen(
                             userName = accountDisplayName,
+                            userId = state.user?.uid.orEmpty(),
+                            settings = state.wepiSettings,
+                            busy = state.actionBusy,
+                            onSaveSettings = onSaveWepiSettings,
                             onOpenMessages = { onTab(WhappyTab.MESSAGES) },
                             onOpenBusiness = { onTab(WhappyTab.BUSINESS) },
                         )
@@ -1107,7 +1088,13 @@ private fun WhappyMain(
                             onUpdateLiveStatus = onUpdateLiveStatus,
                             onOpenTwin = { showTwinStudio = true },
                         )
-                        WhappyTab.RADIO -> RadioScreen(accountDisplayName)
+                        WhappyTab.RADIO -> RadioScreen(
+                            accountDisplayName = accountDisplayName,
+                            currentUserId = state.user?.uid.orEmpty(),
+                            episodes = state.radioEpisodes,
+                            busy = state.actionBusy,
+                            onPublishEpisode = onPublishRadioEpisode,
+                        )
                         WhappyTab.GAMES -> GamesScreen(onBack = { onTab(WhappyTab.MOMENTS) })
                         WhappyTab.SERVICES -> ServicesScreen(
                             userName = accountDisplayName,
@@ -1461,11 +1448,8 @@ private fun StoriesScreen(
                     }
                     if (status.text.isNotBlank()) Text(status.text, Modifier.padding(top = 14.dp), color = WhappyDark, fontSize = 16.sp, lineHeight = 23.sp)
                     if (status.mediaUrl.isNotBlank()) {
-                        Surface(Modifier.fillMaxWidth().padding(top = 12.dp).clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.mediaUrl))) } }, color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(15.dp)) {
-                            Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (status.mediaKind == "audio") Icons.Rounded.AudioFile else if (status.mediaKind == "video") Icons.Rounded.Movie else Icons.Rounded.Photo, null, tint = WhappyBlue)
-                                Column(Modifier.padding(start = 10.dp)) { Text(when (status.mediaKind) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; else -> "Image WAPI" }, color = WhappyDark, fontWeight = FontWeight.Bold); Text("Appuyez pour ouvrir", color = WhappyMuted, fontSize = 9.sp) }
-                            }
+                        StoryMediaPreview(status.mediaUrl, status.mediaKind, status.mediaName) {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.mediaUrl))) }
                         }
                     }
                     Text(toneOptions.firstOrNull { it.first == status.tone }?.second.orEmpty().uppercase(), Modifier.padding(top = 12.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
@@ -1480,29 +1464,25 @@ private data class WepiChatMessage(val text: String, val fromUser: Boolean)
 @Composable
 private fun WepiScreen(
     userName: String,
+    userId: String,
+    settings: WapiWepiSettings?,
+    busy: Boolean,
+    onSaveSettings: (WapiWepiSettings) -> Unit,
     onOpenMessages: () -> Unit,
     onOpenBusiness: () -> Unit,
 ) {
     val context = LocalContext.current
     var prompt by rememberSaveable { mutableStateOf("") }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    val activeSettings = settings ?: WapiWepiSettings(ownerId = userId)
     var messages by remember {
-        mutableStateOf(listOf(WepiChatMessage("Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis WEPI, votre copilote privé pour communiquer, vendre et organiser WAPI.", false)))
+        mutableStateOf(listOf(WepiChatMessage("Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis ${activeSettings.assistantName}, le moteur WEPI Pilotis intégré à WAPI.", false)))
     }
     val listState = rememberLazyListState()
-    fun answer(value: String): String {
-        val normalized = SearchNormalizer.normalize(value)
-        return when {
-            "story" in normalized || "podcast" in normalized -> "Je peux préparer le texte, le titre ou le lien. Ouvrez ensuite Stories depuis votre Profil pour publier en privé auprès de vos contacts."
-            "groupe" in normalized || "communaute" in normalized -> "Je peux structurer le groupe, rédiger l’annonce d’accueil et proposer des rôles pour les administrateurs."
-            "pub" in normalized || "boost" in normalized || "business" in normalized -> "Je peux construire une campagne régionale WAPI : objectif, ville, audience, budget et message d’appel à l’action."
-            "message" in normalized || "repond" in normalized -> "Je peux reformuler une réponse claire et professionnelle avant de l’envoyer dans Messages."
-            else -> "Je peux transformer cette demande en action WAPI. Précisez si vous voulez écrire, vendre, publier, organiser un groupe ou lancer une campagne."
-        }
-    }
     fun submit(value: String) {
         val clean = value.trim()
         if (clean.isBlank()) return
-        messages = messages + WepiChatMessage(clean, true) + WepiChatMessage(answer(clean), false)
+        messages = messages + WepiChatMessage(clean, true) + WepiChatMessage(WapiPilotis.reply(clean, activeSettings, userName), false)
         prompt = ""
     }
     LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
@@ -1510,9 +1490,17 @@ private fun WepiScreen(
         Column(Modifier.fillMaxWidth().background(WhappyAurora).padding(horizontal = 20.dp, vertical = 18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .16f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SmartToy, null, tint = Color.White, modifier = Modifier.size(27.dp)) }
-                Column(Modifier.padding(start = 12.dp)) { Text("WEPI", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black); Text("Intelligence privée WAPI", color = Color.White.copy(alpha = .76f), fontSize = 11.sp) }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(activeSettings.assistantName, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black); Text("Moteur Pilotis · Intelligence privée WAPI", color = Color.White.copy(alpha = .76f), fontSize = 11.sp) }
+                Text(if (activeSettings.enabled) "ACTIF" else "EN PAUSE", color = if (activeSettings.enabled) Color.White else Color.White.copy(alpha = .62f), fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
             Text("Un assistant pour passer de l’idée à l’action.", Modifier.padding(top = 14.dp), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        }
+        Surface(Modifier.fillMaxWidth().clickable { showSettings = true }, color = Color.White, shadowElevation = 2.dp) {
+            Row(Modifier.padding(horizontal = 15.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.SmartToy, null, tint = WhappyBlue)
+                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) { Text("Pilotis synchronisé", color = WhappyDark, fontWeight = FontWeight.Black); Text("Même configuration WEPI sur le Web et Android", color = WhappyMuted, fontSize = 10.sp) }
+                Text("RÉGLER ›", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+            }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Color.White).padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Répondre à un message", "Créer une campagne", "Organiser un groupe", "Préparer une Story").forEach { suggestion ->
@@ -1538,6 +1526,37 @@ private fun WepiScreen(
             TextButton(onClick = onOpenBusiness) { Text("Business") }
         }
     }
+    if (showSettings) WepiPilotisSettingsDialog(activeSettings, busy, onDismiss = { showSettings = false }, onSave = { onSaveSettings(it); showSettings = false })
+}
+
+@Composable
+private fun WepiPilotisSettingsDialog(settings: WapiWepiSettings, busy: Boolean, onDismiss: () -> Unit, onSave: (WapiWepiSettings) -> Unit) {
+    var enabled by remember(settings) { mutableStateOf(settings.enabled) }
+    var autoReply by remember(settings) { mutableStateOf(settings.autoReply) }
+    var assistantName by remember(settings) { mutableStateOf(settings.assistantName) }
+    var businessName by remember(settings) { mutableStateOf(settings.businessName) }
+    var tone by remember(settings) { mutableStateOf(settings.tone) }
+    var welcome by remember(settings) { mutableStateOf(settings.welcomeMessage) }
+    var instructions by remember(settings) { mutableStateOf(settings.instructions) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Column { Text("WEPI Pilotis", fontWeight = FontWeight.Black); Text("Configuration cloud du compte", color = WhappyMuted, fontSize = 10.sp) } },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Activer WEPI", fontWeight = FontWeight.Bold); Text("Assistant disponible dans WAPI", color = WhappyMuted, fontSize = 10.sp) }; Switch(enabled, { enabled = it }) } }
+                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Réponse automatique", fontWeight = FontWeight.Bold); Text("Toujours sous vos consignes", color = WhappyMuted, fontSize = 10.sp) }; Switch(autoReply, { autoReply = it }, enabled = enabled) } }
+                item { OutlinedTextField(assistantName, { assistantName = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Nom de l’assistant") }, singleLine = true) }
+                item { OutlinedTextField(businessName, { businessName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Nom du business") }, singleLine = true) }
+                item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("chaleureux", "expert", "direct").forEach { option -> OutlinedButton(onClick = { tone = option }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (tone == option) WhappyBlue else Color.Transparent, contentColor = if (tone == option) Color.White else WhappyBlue)) { Text(option.replaceFirstChar { it.uppercase() }) } } } }
+                item { OutlinedTextField(welcome, { welcome = it.take(240) }, Modifier.fillMaxWidth(), label = { Text("Message d’accueil") }, minLines = 2) }
+                item { OutlinedTextField(instructions, { instructions = it.take(600) }, Modifier.fillMaxWidth(), label = { Text("Consignes Pilotis") }, minLines = 3) }
+            }
+        },
+        confirmButton = { Button(enabled = !busy && assistantName.trim().length >= 2, onClick = { onSave(settings.copy(enabled = enabled, autoReply = autoReply, assistantName = assistantName, businessName = businessName, tone = tone, welcomeMessage = welcome, instructions = instructions)) }) { Text(if (busy) "Synchronisation…" else "Enregistrer") } },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Annuler") } },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(28.dp),
+    )
 }
 
 @Composable
@@ -1568,6 +1587,15 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
                     Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue.copy(alpha = .10f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LiveTv, null, tint = WhappyBlue, modifier = Modifier.size(22.dp)) }
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("WAPI Live", color = WhappyDark, fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Découvrir les directs en cours", color = WhappyMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp)) }
                     Text("›", color = WhappyBlue, fontSize = 24.sp)
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth().clickable { onTab(WhappyTab.BUSINESS) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = WhappyBlue), elevation = CardDefaults.cardElevation(0.dp)) {
+                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = .16f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Bolt, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("WAPI ADS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black); Text("Créer une publicité régionale depuis Business", color = Color.White.copy(alpha = .78f), fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp)) }
+                    Text("CRÉER ›", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -1625,7 +1653,13 @@ private fun StoryBubble(name: String, label: String, color: Color, onClick: () -
 }
 
 @Composable
-private fun RadioScreen(accountDisplayName: String) {
+private fun RadioScreen(
+    accountDisplayName: String,
+    currentUserId: String,
+    episodes: List<WapiRadioEpisode>,
+    busy: Boolean,
+    onPublishEpisode: (String, String, Uri, Long) -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { WhappyFastStorage.preferences(context, "whappy_native_radio") }
     var stationName by rememberSaveable { mutableStateOf(prefs.getString("station_name", "Radio de $accountDisplayName").orEmpty()) }
@@ -1639,6 +1673,8 @@ private fun RadioScreen(accountDisplayName: String) {
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var lastRecording by remember { mutableStateOf<File?>(null) }
+    var lastDuration by rememberSaveable { mutableStateOf(0L) }
+    var activeEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var micProfile by rememberSaveable { mutableStateOf(WapiMicProfile.entries.firstOrNull { it.name == prefs.getString("mic_profile", WapiMicProfile.BROADCAST.name) } ?: WapiMicProfile.BROADCAST) }
     var inputLevel by remember { mutableStateOf(0f) }
     var monitoring by rememberSaveable { mutableStateOf(false) }
@@ -1658,7 +1694,7 @@ private fun RadioScreen(accountDisplayName: String) {
     }
 
     fun startBroadcast() {
-        playback.stop(); monitoring = false
+        playback.stop(); monitoring = false; activeEpisodeId = null
         runCatching { createRadioRecorder(context, micProfile) }
             .onSuccess { session ->
                 recorder = session.recorder
@@ -1685,7 +1721,8 @@ private fun RadioScreen(accountDisplayName: String) {
         paused = false
         if (stopped && file != null && file.exists() && file.length() > 0L) {
             lastRecording = file
-            feedback = "Émission terminée et enregistrée. Vous pouvez maintenant la partager."
+            lastDuration = elapsedSeconds.coerceAtLeast(1L)
+            feedback = "Émission terminée et enregistrée. Publiez-la comme podcast pour qu’elle apparaisse sur les autres appareils."
         } else {
             file?.delete()
             feedback = "L’émission est terminée, mais l’enregistrement était trop court pour être conservé."
@@ -1783,7 +1820,7 @@ private fun RadioScreen(accountDisplayName: String) {
                                 modifier = Modifier.fillMaxWidth().height(54.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue),
                                 shape = RoundedCornerShape(17.dp),
-                            ) { Icon(Icons.Rounded.Mic, null); Text("  Démarrer le direct", fontWeight = FontWeight.Black) }
+                            ) { Icon(Icons.Rounded.Mic, null); Text("  Enregistrer l’émission", fontWeight = FontWeight.Black) }
                         } else {
                             Button(
                                 onClick = {
@@ -1813,10 +1850,43 @@ private fun RadioScreen(accountDisplayName: String) {
                 Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)) {
                     Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(48.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AudioFile, null, tint = Color.White) }
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Dernière émission", color = WhappyDark, fontWeight = FontWeight.Black); Text("${file.length() / 1024} Ko · profil ${micProfile.label}", color = WhappyMuted, fontSize = 11.sp) }
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Dernière émission", color = WhappyDark, fontWeight = FontWeight.Black); Text("${file.length() / 1024} Ko · ${formatRadioDuration(lastDuration)} · ${micProfile.label}", color = WhappyMuted, fontSize = 11.sp) }
                         IconButton(onClick = { if (monitoring) { playback.stop(); monitoring = false } else { monitoring = true; playback.play(file, micProfile) { monitoring = false } } }) { Icon(if (monitoring) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (monitoring) "Arrêter l’écoute" else "Écouter", tint = WhappyBlue) }
                         IconButton(onClick = { shareRadioRecording(context, file, stationName) }) { Icon(Icons.Rounded.Share, "Partager", tint = WhappyBlue) }
                     }
+                    Button(
+                        enabled = !busy && currentUserId.isNotBlank() && topic.trim().length >= 2,
+                        onClick = { onPublishEpisode(stationName.trim(), topic.trim(), Uri.fromFile(file), lastDuration.coerceAtLeast(1L)) },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 0.dp).height(48.dp),
+                        shape = RoundedCornerShape(15.dp),
+                    ) { Text(if (busy) "Publication cloud…" else "Publier le podcast sur WAPI", fontWeight = FontWeight.Black) }
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+        }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text("Radios & podcasts", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black); Text("Émissions réellement publiées sur WAPI", color = WhappyMuted, fontSize = 11.sp) }
+                Text("${episodes.size} EN LIGNE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        if (episodes.isEmpty()) item { EmptyState("Aucun podcast publié", "Enregistrez une émission puis publiez-la pour créer la première chaîne WAPI.") }
+        items(episodes, key = { it.id }) { episode ->
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(21.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(3.dp)) {
+                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledIconButton(
+                        onClick = {
+                            if (activeEpisodeId == episode.id) { playback.stop(); activeEpisodeId = null }
+                            else { activeEpisodeId = episode.id; monitoring = false; playback.playUrl(episode.audioUrl, micProfile, onFinished = { activeEpisodeId = null }) }
+                        },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue),
+                    ) { Icon(if (activeEpisodeId == episode.id) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, "Écouter ${episode.title}", tint = Color.White) }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(episode.title, color = WhappyDark, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${episode.stationName} · ${episode.authorName}", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text("${formatRadioDuration(episode.durationSeconds)} · publication cloud", color = WhappyMuted, fontSize = 9.sp)
+                    }
+                    if (episode.ownerId == currentUserId) Text("VOUS", color = WapiVerifiedGray, fontSize = 8.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -1861,6 +1931,8 @@ private fun RadioMetric(label: String, value: String, modifier: Modifier = Modif
     }
 }
 
+private fun formatRadioDuration(seconds: Long): String = "%02d:%02d".format(seconds / 60L, seconds % 60L)
+
 @Composable
 private fun WapiAudioMeter(inputLevel: Float, active: Boolean) {
     val smoothed by animateFloatAsState(targetValue = if (active) inputLevel else 0f, animationSpec = tween(85), label = "radio-meter")
@@ -1881,6 +1953,7 @@ private fun GamesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val gamePrefs = remember { WhappyFastStorage.preferences(context, "wapi_play") }
     var selected by rememberSaveable { mutableStateOf("Ludo WAPI") }
+    var gameOpen by rememberSaveable { mutableStateOf(false) }
     var xp by rememberSaveable { mutableStateOf(gamePrefs.getInt("xp", 0)) }
     var wins by rememberSaveable { mutableStateOf(gamePrefs.getInt("wins", 0)) }
     var dice by rememberSaveable { mutableStateOf(0) }
@@ -1890,21 +1963,21 @@ private fun GamesScreen(onBack: () -> Unit) {
     var answer by rememberSaveable { mutableStateOf<String?>(null) }
     var round by rememberSaveable { mutableStateOf(1) }
     val games = listOf(
-        Triple("Ludo WAPI", "Plateau 3D · dé, pions, captures", "🎲"),
-        Triple("WAPI Sky 3D", "Course interactive · réflexes et progression", "🚀"),
-        Triple("Billard 3D", "Table, visée, puissance et collisions", "🎱"),
+        Triple("Ludo WAPI", "Partie locale · dé, pions et captures", "🎲"),
+        Triple("WAPI Sky", "Course interactive · réflexes et progression", "🚀"),
+        Triple("Billard WAPI", "Table physique · visée, puissance et collisions", "🎱"),
         Triple("Échecs", "Duel stratégique · plateau interactif", "♚"),
         Triple("Jeu de dames", "Captures diagonales et couronnement", "⛀"),
         Triple("Cartes WAPI", "Bataille rapide · manches et score", "🂡"),
         Triple("Défi du jour", "Quiz rapide · gagnez de l’XP", "⚡"),
-        Triple("Duel WAPI", "Mode duel prêt pour le multijoueur", "♟"),
+        Triple("Duel WAPI", "Défi local entre joueurs", "♟"),
         Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
     )
     val ludoPlayers = listOf(
         Triple("Vous", Color(0xFFE53935), "🔴"),
-        Triple("Amina", Color(0xFF1E88E5), "🔵"),
-        Triple("Junior", Color(0xFF43A047), "🟢"),
-        Triple("Mokabi", Color(0xFFF9A825), "🟡"),
+        Triple("Joueur 2", Color(0xFF1E88E5), "🔵"),
+        Triple("Joueur 3", Color(0xFF43A047), "🟢"),
+        Triple("Joueur 4", Color(0xFFF9A825), "🟡"),
     )
 
     LaunchedEffect(xp, wins) { gamePrefs.edit().putInt("xp", xp).putInt("wins", wins).apply() }
@@ -1994,7 +2067,7 @@ private fun GamesScreen(onBack: () -> Unit) {
         }
         item { Text("Choisir un jeu", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black) }
         items(games, key = { it.first }) { game ->
-            GameModeCard(game.first, game.second, game.third, selected == game.first) { selected = game.first }
+            GameModeCard(game.first, game.second, game.third, selected == game.first) { selected = game.first; gameOpen = true }
         }
         if (selected == "Ludo WAPI") {
             item {
@@ -2021,9 +2094,9 @@ private fun GamesScreen(onBack: () -> Unit) {
                     }
                 }
             }
-        } else if (selected == "WAPI Sky 3D") {
+        } else if (selected == "WAPI Sky") {
             item { SkyRun3D(onXp = { gained -> xp += gained }, onWin = { wins += 1 }) }
-        } else if (selected == "Billard 3D") {
+        } else if (selected == "Billard WAPI") {
             item { Billiards3D(onXp = { xp += it }, onWin = { wins += 1 }) }
         } else if (selected == "Échecs") {
             item { StrategyBoardGame(checkers = false, onXp = { xp += it }, onWin = { wins += 1 }) }
@@ -2050,6 +2123,40 @@ private fun GamesScreen(onBack: () -> Unit) {
             }
         }
         item { OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Retour à l’accueil") } }
+    }
+    if (gameOpen) {
+        Dialog(onDismissRequest = { gameOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxSize(), color = WapiChatBackground) {
+                Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                    Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { gameOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Quitter le jeu") }
+                        Column(Modifier.weight(1f)) { Text(selected, color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black); Text("PARTIE LOCALE WAPI", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                        Text("XP $xp", color = WhappyBlue, fontWeight = FontWeight.Black)
+                    }
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        when (selected) {
+                            "Ludo WAPI" -> item {
+                                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                    Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Tour de ${ludoPlayers[activePlayer].first}", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black); Text("Dé : ${if (dice == 0) "—" else dice}", color = WhappyMuted) }; Text(if (dice == 0) "🎲" else dice.toString(), fontSize = 31.sp) }
+                                        LudoBoard(players = ludoPlayers, positions = ludoPositions)
+                                        LudoStatus(players = ludoPlayers, positions = ludoPositions)
+                                        Text(ludoLog, color = WhappyInk, lineHeight = 19.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) { Button(onClick = ::playLudoTurn, Modifier.weight(1f).height(52.dp)) { Text("Lancer le dé", fontWeight = FontWeight.Black) }; OutlinedButton(onClick = ::resetLudo, Modifier.weight(.7f).height(52.dp)) { Text("Rejouer") } }
+                                    }
+                                }
+                            }
+                            "WAPI Sky" -> item { SkyRun3D(onXp = { xp += it }, onWin = { wins += 1 }) }
+                            "Billard WAPI" -> item { Billiards3D(onXp = { xp += it }, onWin = { wins += 1 }) }
+                            "Échecs" -> item { StrategyBoardGame(checkers = false, onXp = { xp += it }, onWin = { wins += 1 }) }
+                            "Jeu de dames" -> item { StrategyBoardGame(checkers = true, onXp = { xp += it }, onWin = { wins += 1 }) }
+                            "Cartes WAPI" -> item { WapiCardDuel(onXp = { xp += it }, onWin = { wins += 1 }) }
+                            else -> item { ArcadeChallengeCard(selected, round, answer, onAnswer = { option -> answer = option; if (option == "Le Live") xp += 25 }, onNext = { round += 1; answer = null }) }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2194,7 +2301,7 @@ private fun SkyRun3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("WAPI SKY ENGINE", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
-                    Text("Course 3D", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                    Text("Course WAPI", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(color = Color.White.copy(alpha = .12f), shape = RoundedCornerShape(14.dp)) { Text("⚡ $energy  ·  $distance m", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Color.White, fontWeight = FontWeight.Black) }
             }
@@ -2245,7 +2352,7 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
     }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF072D25))) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("WAPI BILLIARDS 3D", color = Color(0xFF72F2C8), fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Table professionnelle", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text("$score pts · $balls billes", color = Color.White, fontWeight = FontWeight.Bold) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("WAPI BILLIARDS", color = Color(0xFF72F2C8), fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Table interactive", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text("$score pts · $balls billes", color = Color.White, fontWeight = FontWeight.Bold) }
             BoxWithConstraints(Modifier.fillMaxWidth().height(300.dp).graphicsLayer { rotationX = 9f; rotationY = -2f; cameraDistance = 22f; shadowElevation = 28f }.clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(listOf(Color(0xFF07845F), Color(0xFF034C3B))))) {
                 listOf(Alignment.TopStart, Alignment.TopEnd, Alignment.BottomStart, Alignment.BottomEnd, Alignment.TopCenter, Alignment.BottomCenter).forEach { alignment -> Box(Modifier.align(alignment).padding(3.dp).size(24.dp).clip(CircleShape).background(Color(0xFF021D17))) }
                 repeat(balls) { index ->
@@ -2292,7 +2399,7 @@ private fun StrategyBoardGame(checkers: Boolean, onXp: (Int) -> Unit, onWin: () 
         if (result.board.none(::blackPiece) || result.board.none(::whitePiece)) { onWin(); onXp(120); WhappySounds.reward(); message = "VICTOIRE · plateau maîtrisé" }
     }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row { Column(Modifier.weight(1f)) { Text(if (checkers) "WAPI DAMES" else "WAPI CHESS", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (checkers) "Jeu de dames 3D" else "Échecs stratégiques", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text(if (whiteTurn) "BLANC" else "NOIR", color = Color.White, fontWeight = FontWeight.Black) }
+        Row { Column(Modifier.weight(1f)) { Text(if (checkers) "WAPI DAMES" else "WAPI CHESS", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (checkers) "Jeu de dames" else "Échecs stratégiques", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text(if (whiteTurn) "BLANC" else "NOIR", color = Color.White, fontWeight = FontWeight.Black) }
         BoxWithConstraints(Modifier.fillMaxWidth().graphicsLayer { rotationX = 6f; rotationY = -2f; cameraDistance = 24f; shadowElevation = 24f }.clip(RoundedCornerShape(16.dp))) { val cell = maxWidth / 8; Column { repeat(8) { row -> Row { repeat(8) { col -> val index = row * 8 + col; val piece = board[index]; Box(Modifier.size(cell).background(if (selected == index) WhappySky else if ((row + col) % 2 == 0) Color(0xFFEAF4FB) else Color(0xFF2875A7)).clickable { choose(index) }, contentAlignment = Alignment.Center) { if (piece.isNotBlank()) Text(if (piece == "w") "⛀" else if (piece == "b") "⛂" else if (piece == "W") "⛁" else if (piece == "B") "⛃" else piece, fontSize = (cell.value * .62f).sp, color = if (whitePiece(piece)) Color.White else Color(0xFF091D2E), modifier = Modifier.graphicsLayer { rotationX = -8f; rotationY = 12f; shadowElevation = 12f }) } } } } } }
         Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp)
         OutlinedButton(onClick = { board = initialStrategyBoard(checkers); selected = -1; whiteTurn = true; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("NOUVELLE PARTIE") }
@@ -2305,7 +2412,7 @@ private fun WapiCardDuel(onXp: (Int) -> Unit, onWin: () -> Unit) {
     var round by rememberSaveable { mutableStateOf(0) }; var player by rememberSaveable { mutableStateOf(0) }; var rival by rememberSaveable { mutableStateOf(0) }; var playerScore by rememberSaveable { mutableStateOf(0) }; var rivalScore by rememberSaveable { mutableStateOf(0) }; var message by rememberSaveable { mutableStateOf("Tirez une carte. La plus forte remporte la manche.") }
     val names = listOf("2","3","4","5","6","7","8","9","10","V","D","R","A")
     fun draw() { round += 1; player = ((System.currentTimeMillis() / 31L) % 13L).toInt() + 2; rival = ((System.currentTimeMillis() / 47L + round) % 13L).toInt() + 2; when { player > rival -> { playerScore++; onXp(10); WhappySounds.reward(); message = "Manche gagnée · +10 XP" }; rival > player -> { rivalScore++; WhappySounds.impact(); message = "L’adversaire gagne cette manche." }; else -> message = "Égalité parfaite." }; WhappySounds.haptic(context); if (playerScore == 5) { onWin(); onXp(100); message = "VICTOIRE DU DUEL · +100 XP" } }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF121A47))) { Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("WAPI CARDS 3D", color = WhappySky, fontWeight = FontWeight.Black, fontSize = 10.sp); Text("$playerScore  —  $rivalScore", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black); Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) { listOf(player to "VOUS", rival to "RIVAL").forEachIndexed { index, card -> Card(Modifier.size(112.dp, 164.dp).graphicsLayer { rotationY = if (round == 0) 180f else if (index == 0) -8f else 8f; rotationX = 4f; shadowElevation = 28f; cameraDistance = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(card.second, color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(if (card.first == 0) "W" else names[(card.first - 2).coerceIn(0, 12)], color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 38.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterHorizontally)); Text(if (index == 0) "◆" else "♥", color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 22.sp) } } } }; Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp); Button(onClick = ::draw, enabled = playerScore < 5, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("TIRER LES CARTES", fontWeight = FontWeight.Black) }; OutlinedButton(onClick = { round = 0; player = 0; rival = 0; playerScore = 0; rivalScore = 0; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") } } }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF121A47))) { Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("WAPI CARDS", color = WhappySky, fontWeight = FontWeight.Black, fontSize = 10.sp); Text("$playerScore  —  $rivalScore", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black); Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) { listOf(player to "VOUS", rival to "RIVAL").forEachIndexed { index, card -> Card(Modifier.size(112.dp, 164.dp).graphicsLayer { rotationY = if (round == 0) 180f else if (index == 0) -8f else 8f; rotationX = 4f; shadowElevation = 28f; cameraDistance = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(card.second, color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(if (card.first == 0) "W" else names[(card.first - 2).coerceIn(0, 12)], color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 38.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterHorizontally)); Text(if (index == 0) "◆" else "♥", color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 22.sp) } } } }; Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp); Button(onClick = ::draw, enabled = playerScore < 5, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("TIRER LES CARTES", fontWeight = FontWeight.Black) }; OutlinedButton(onClick = { round = 0; player = 0; rival = 0; playerScore = 0; rivalScore = 0; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") } } }
 }
 
 @Composable
@@ -2950,6 +3057,17 @@ private fun CallMetric(label: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun GroupCallRoomDialog(group: WhappyConversation, onDismiss: () -> Unit) {
+    // Do not render invented participant tiles. A real group call needs an
+    // SFU/media room; the 1:1 WebRTC controller remains available separately.
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Groups, null, tint = WhappyBlue) },
+        title = { Text("Appel de groupe", fontWeight = FontWeight.Black) },
+        text = { Text("Le salon de groupe est prêt côté interface, mais aucun serveur média WAPI n’est encore configuré pour transporter la voix et la vidéo entre appareils. Aucun faux participant ne sera affiché.") },
+        confirmButton = { Button(onClick = onDismiss) { Text("Fermer") } },
+    )
+    return
+
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var muted by rememberSaveable(group.id) { mutableStateOf(false) }
@@ -3824,6 +3942,7 @@ private fun ChatScreen(
     val messageIndexById = remember(visibleMessages) { visibleMessages.mapIndexed { index, message -> message.id to index }.toMap() }
     var chatPositioned by remember(conversation.id) { mutableStateOf(false) }
     var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
+    var showPeerProfile by remember(conversation.id) { mutableStateOf(false) }
 
     fun updateDraft(value: String) {
         if (value.length > text.length) WhappySounds.typing(context)
@@ -3919,15 +4038,15 @@ private fun ChatScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(WapiChatBackground).imePadding()) {
+    Column(Modifier.fillMaxSize().background(WapiChatBackground).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().background(WapiToolbar).padding(horizontal = 6.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
             if (conversation.isGroup && conversation.peer.photoUrl.isBlank()) {
-                Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(WhappyAurora), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(WhappyAurora).clickable { showPeerProfile = true }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Groups, null, tint = Color.White)
                 }
-            } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 40.dp)
-            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 40.dp, Modifier.clickable { showPeerProfile = true })
+            Column(Modifier.weight(1f).padding(start = 10.dp).clickable { showPeerProfile = true }) {
                 Text(conversation.peer.displayName, fontWeight = FontWeight.SemiBold, color = WhappyDark, fontSize = 16.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(6.dp).clip(CircleShape).background(WapiChatAccent))
@@ -4020,7 +4139,7 @@ private fun ChatScreen(
                                 val actions = remember(message.text) { detectMessageActions(message.text) }
                                 when (message.kind) {
                                     "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
-                                    "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
+                                    "image" -> InlineImageMessage(message.mediaUrl, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
                                     "video" -> MediaMessageRow(Icons.Rounded.Movie, message.mediaName.ifBlank { "Vidéo WAPI" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "deleted" -> Text("Message supprimé", color = WhappyMuted)
                                     else -> MessageLinkText(message.text, mine, actions = actions, onAction = ::handleMessageAction)
@@ -4221,6 +4340,35 @@ private fun ChatScreen(
             shape = RoundedCornerShape(28.dp),
         )
     }
+    if (showPeerProfile) {
+        AlertDialog(
+            onDismissRequest = { showPeerProfile = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 58.dp)
+                    Column(Modifier.padding(start = 13.dp)) {
+                        Text(conversation.peer.displayName, color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black)
+                        Text(if (conversation.isGroup) "Groupe · ${conversation.memberCount} membres" else "Profil WAPI", color = WhappyMuted, fontSize = 11.sp)
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (conversation.peer.phoneNumber.isNotBlank()) Text(conversation.peer.phoneNumber, color = WhappyDark, fontWeight = FontWeight.SemiBold)
+                    Text(if (conversation.isGroup) "Ouvrez les informations du groupe, ses membres et ses médias depuis cette fiche." else "Photo, identité et moyens de contact de ce compte.", color = WhappyMuted, lineHeight = 19.sp)
+                    if (!conversation.isGroup && conversation.peer.phoneNumber.isNotBlank()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            OutlinedButton(onClick = { calls?.start(conversation.peer, false); showPeerProfile = false }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Phone, null); Text(" Appeler") }
+                            OutlinedButton(onClick = { showPeerProfile = false }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.ChatBubble, null); Text(" Message") }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPeerProfile = false }) { Text("Fermer") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+        )
+    }
     selectedMessage?.let { message ->
         val mine = message.senderId == currentUserId
         val messageActions = remember(message.text) { detectMessageActions(message.text) }
@@ -4409,6 +4557,54 @@ private fun MediaMessageRow(icon: androidx.compose.ui.graphics.vector.ImageVecto
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpen).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = WapiChatAccent, modifier = Modifier.size(28.dp))
         Text(label, Modifier.padding(start = 9.dp), color = WhappyInk, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun InlineImageMessage(source: String, label: String, mine: Boolean, onOpen: () -> Unit) {
+    val context = LocalContext.current
+    var bitmap by remember(source) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var loading by remember(source) { mutableStateOf(true) }
+    LaunchedEffect(source) {
+        bitmap = withContext(Dispatchers.IO) { loadImageBitmap(context, source) }
+        loading = false
+    }
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 92.dp, max = 280.dp).clip(RoundedCornerShape(14.dp)).background(if (mine) Color.White.copy(alpha = .35f) else WhappySurface).clickable(onClick = onOpen),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            bitmap != null -> Image(bitmap!!, contentDescription = label, modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp), contentScale = ContentScale.Crop)
+            loading -> CircularProgressIndicator(Modifier.size(25.dp), color = WapiChatAccent, strokeWidth = 2.dp)
+            else -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) { Icon(Icons.Rounded.BrokenImage, null, tint = WhappyMuted, modifier = Modifier.size(28.dp)); Text("Photo indisponible · toucher pour réessayer", color = WhappyMuted, fontSize = 10.sp, textAlign = TextAlign.Center) }
+        }
+    }
+}
+
+@Composable
+private fun StoryMediaPreview(source: String, kind: String, label: String, onOpen: () -> Unit) {
+    val context = LocalContext.current
+    if (kind == "image") {
+        var bitmap by remember(source) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+        var loading by remember(source) { mutableStateOf(true) }
+        LaunchedEffect(source) {
+            bitmap = withContext(Dispatchers.IO) { loadImageBitmap(context, source) }
+            loading = false
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 140.dp, max = 330.dp).clip(RoundedCornerShape(16.dp)).background(WhappySurface).clickable(onClick = onOpen), contentAlignment = Alignment.Center) {
+            when {
+                bitmap != null -> Image(bitmap!!, contentDescription = label.ifBlank { "Image Story" }, modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.Crop)
+                loading -> CircularProgressIndicator(color = WhappyBlue, strokeWidth = 2.dp)
+                else -> Text("Image Story indisponible · toucher pour ouvrir", color = WhappyMuted, fontSize = 11.sp)
+            }
+        }
+    } else {
+        Surface(Modifier.fillMaxWidth().padding(top = 12.dp).clickable(onClick = onOpen), color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(15.dp)) {
+            Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (kind == "audio") Icons.Rounded.AudioFile else Icons.Rounded.Movie, null, tint = WhappyBlue)
+                Column(Modifier.padding(start = 10.dp)) { Text(if (kind == "audio") "Podcast WAPI" else "Vidéo WAPI", color = WhappyDark, fontWeight = FontWeight.Bold); Text("Appuyez pour ouvrir", color = WhappyMuted, fontSize = 9.sp) }
+            }
+        }
     }
 }
 
@@ -4729,12 +4925,13 @@ private fun LiveScreen(
         item { Text("En direct et programmés", fontSize = 22.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
         if (visibleLives.isEmpty()) item { EmptyState("Aucun Live en cours", "Préparez le premier direct de votre communauté.") }
         items(visibleLives, key = { it.id }) { live ->
+            val liveReady = live.streamProvider != "unconfigured" && live.streamRoomId.isNotBlank()
             Card(Modifier.fillMaxWidth().clickable { selectedLive = live }, shape = RoundedCornerShape(23.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column {
                     Box(Modifier.fillMaxWidth().height(128.dp).background(if (live.status == "live") WhappyDark else Color.White), contentAlignment = Alignment.Center) {
                         Icon(if (live.status == "live") Icons.Rounded.PlayArrow else Icons.Rounded.Schedule, null, tint = if (live.status == "live") Color.White else WhappyBlue, modifier = Modifier.size(46.dp))
-                        Box(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(if (live.status == "live") WhappyBlue else WhappyBlue).padding(horizontal = 9.dp, vertical = 5.dp)) { Text(if (live.status == "live") "● EN DIRECT" else "PROGRAMMÉ", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }
-                        if (live.status == "live") Row(Modifier.align(Alignment.BottomEnd).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Visibility, null, tint = Color.White, modifier = Modifier.size(14.dp)); Text(" ${live.viewerCount}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        Box(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(if (liveReady && live.status == "live") WhappyBlue else Color(0xFF6B7280)).padding(horizontal = 9.dp, vertical = 5.dp)) { Text(if (liveReady && live.status == "live") "● EN DIRECT" else if (live.status == "live") "FLUX NON CONFIGURÉ" else "PROGRAMMÉ", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                        if (liveReady && live.status == "live") Row(Modifier.align(Alignment.BottomEnd).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Visibility, null, tint = Color.White, modifier = Modifier.size(14.dp)); Text(" ${live.viewerCount}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                     }
                     Column(Modifier.padding(16.dp)) {
                         Text(live.title, color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black)
@@ -4743,12 +4940,14 @@ private fun LiveScreen(
                             Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(liveModeLabel(live.hostMode), color = WhappyDark, fontSize = 9.sp, fontWeight = FontWeight.Black) }
                         }
                         if (live.productTitle.isNotBlank()) Text("Deal présenté : ${live.productTitle}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp)
-                        if (live.hostId == currentUserId && live.status == "scheduled") Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (live.hostId == currentUserId && live.status == "scheduled" && liveReady) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { startWithPermissions { pendingStudioTitle = live.title; if (preview) previewStatuses = previewStatuses + (live.id to "live") else onUpdateLiveStatus(live.id, "live") } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
                             OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Annuler") }
                         }
+                        else if (live.hostId == currentUserId && live.status == "scheduled") Text("Direct non publié : le serveur média WAPI doit être configuré avant le démarrage.", Modifier.padding(top = 10.dp), color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                         else if (live.hostId == currentUserId) OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onUpdateLiveStatus(live.id, "ended") }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Text("Terminer le direct") }
-                        else Button(onClick = { selectedLive = live }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text(if (live.status == "live") "Rejoindre le Live" else "Voir le programme", Modifier.padding(start = 6.dp)) }
+                        else if (liveReady) Button(onClick = { selectedLive = live }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text(if (live.status == "live") "Rejoindre le Live" else "Voir le programme", Modifier.padding(start = 6.dp)) }
+                        else Text("Ce salon sera visible ici dès que son flux audio/vidéo réel sera disponible.", Modifier.padding(top = 10.dp), color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                     }
                 }
             }
@@ -4781,6 +4980,16 @@ private fun LiveScreen(
 
 @Composable
 private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, onDismiss: () -> Unit, onEnd: () -> Unit) {
+    if (live.streamProvider == "unconfigured" || live.streamRoomId.isBlank()) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            icon = { Icon(Icons.Rounded.Videocam, null, tint = WhappyBlue) },
+            title = { Text("Flux média indisponible", fontWeight = FontWeight.Black) },
+            text = { Text("Ce salon est bien enregistré dans WAPI, mais il ne possède pas encore de transport audio/vidéo réel. La caméra locale ne sera pas présentée comme un direct public et aucun spectateur fictif ne sera compté.") },
+            confirmButton = { Button(onClick = onDismiss) { Text("Fermer") } },
+        )
+        return
+    }
     val context = LocalContext.current
     val prefs = remember { WhappyFastStorage.preferences(context, "whappy_live_lab") }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -5802,7 +6011,7 @@ private suspend fun decodeQrFromImage(context: Context, uri: Uri): String? = wit
 private fun loadImageBitmap(context: Context, source: String): androidx.compose.ui.graphics.ImageBitmap? {
     if (source.isBlank()) return null
     val bytes = when {
-        source.startsWith("http://") || source.startsWith("https://") -> runCatching { URL(source).openStream().use { it.readBytes() } }.getOrNull()
+        source.startsWith("http://") || source.startsWith("https://") -> loadRemoteImageBytes(context, source)
         source.startsWith("content://") || source.startsWith("file://") -> context.contentResolver.openInputStream(Uri.parse(source))?.use { it.readBytes() }
         else -> runCatching { File(source).takeIf { it.exists() }?.readBytes() }.getOrNull()
     } ?: return null
@@ -5812,6 +6021,29 @@ private fun loadImageBitmap(context: Context, source: String): androidx.compose.
         }
     } else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     return decoded?.asImageBitmap()
+}
+
+private fun loadRemoteImageBytes(context: Context, source: String): ByteArray? {
+    val cacheDirectory = File(context.cacheDir, "wapi_image_cache").apply { mkdirs() }
+    val key = MessageDigest.getInstance("SHA-256")
+        .digest(source.toByteArray())
+        .joinToString("") { "%02x".format(it) }
+    val cached = File(cacheDirectory, "$key.img")
+    if (cached.isFile && cached.length() in 1..(8L * 1024L * 1024L)) {
+        return runCatching { cached.readBytes() }.getOrNull()
+    }
+    return runCatching {
+        val connection = URL(source).openConnection().apply {
+            connectTimeout = 7_000
+            readTimeout = 10_000
+            useCaches = true
+        }
+        val downloaded = connection.getInputStream().use { it.readBytes() }
+        if (downloaded.size in 1..(8 * 1024 * 1024)) {
+            runCatching { cached.writeBytes(downloaded) }
+            downloaded
+        } else null
+    }.getOrNull()
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

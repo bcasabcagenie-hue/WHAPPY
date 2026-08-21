@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useMemo, useState } from "react";
 
 type ProfileSettings = {
   notifications: boolean;
@@ -50,20 +50,17 @@ export function ProfileEditor({ name, photoUrl, userKey, onSave, notify }: { nam
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [settings, setSettings] = useState<ProfileSettings>(defaultSettings);
-  const preview = photoPreview || photoUrl;
-  const previewStyle = useMemo(() => ({ transform: `scale(${zoom}) translate(${offsetX * 7}%, ${offsetY * 7}%)` }), [zoom, offsetX, offsetY]);
-
-  useEffect(() => {
-    setDraftName(name);
-  }, [name]);
-
-  useEffect(() => {
+  const [settings, setSettings] = useState<ProfileSettings>(() => {
+    if (typeof window === "undefined") return defaultSettings;
     try {
       const saved = JSON.parse(localStorage.getItem(`whappy-profile-settings-${userKey}`) || "null") as Partial<ProfileSettings> | null;
-      if (saved) setSettings({ ...defaultSettings, ...saved });
-    } catch { /* Les paramètres restent actifs en mémoire. */ }
-  }, [userKey]);
+      return saved ? { ...defaultSettings, ...saved } : defaultSettings;
+    } catch {
+      return defaultSettings;
+    }
+  });
+  const preview = photoPreview || photoUrl;
+  const previewStyle = useMemo(() => ({ transform: `scale(${zoom}) translate(${offsetX * 7}%, ${offsetY * 7}%)` }), [zoom, offsetX, offsetY]);
 
   function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -104,8 +101,8 @@ export function ProfileEditor({ name, photoUrl, userKey, onSave, notify }: { nam
   }
 
   return <div className="profile-editor">
-    <div className="profile-editor-actions"><button type="button" onClick={() => setEditing((value) => !value)}><span>✎</span><div><strong>Modifier le profil</strong><small>Nom et photo de profil</small></div><b>→</b></button><button type="button" onClick={() => setSettingsOpen((value) => !value)}><span>⚙</span><div><strong>Paramètres</strong><small>Confidentialité, notifications et médias</small></div><b>→</b></button></div>
-    {editing && <section className="profile-edit-card"><header><div><small>IDENTITÉ WHAPPY</small><h3>Modifier votre profil</h3></div><button type="button" onClick={() => setEditing(false)} aria-label="Fermer">×</button></header><label className="profile-crop-picker"><div className="profile-crop-stage">{preview ? <img src={preview} alt="Aperçu de la photo de profil" style={previewStyle}/> : <span>{initials(draftName)}</span>}<i>ZONE DE RECADRAGE</i></div><strong>{photoPreview ? "Photo prête à ajuster" : "Choisir une nouvelle photo"}</strong><small>La photo sera recadrée au format carré.</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto}/></label>{photoPreview && <div className="profile-crop-controls"><label>Zoom <input type="range" min="1" max="3" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))}/><b>{Math.round(zoom * 100)}%</b></label><label>Horizontal <input type="range" min="-1" max="1" step=".05" value={offsetX} onChange={(event) => setOffsetX(Number(event.target.value))}/></label><label>Vertical <input type="range" min="-1" max="1" step=".05" value={offsetY} onChange={(event) => setOffsetY(Number(event.target.value))}/></label></div>}<label className="profile-name-field">Nom affiché<input value={draftName} maxLength={80} onChange={(event) => setDraftName(event.target.value)} placeholder="Votre nom"/></label><button type="button" className="profile-save-button" onClick={() => void save()} disabled={busy}>{busy ? "Enregistrement…" : "Enregistrer les changements"}</button></section>}
+    <div className="profile-editor-actions"><button type="button" onClick={() => { setDraftName(name); setEditing((value) => !value); }}><span>✎</span><div><strong>Modifier le profil</strong><small>Nom et photo de profil</small></div><b>→</b></button><button type="button" onClick={() => setSettingsOpen((value) => !value)}><span>⚙</span><div><strong>Paramètres</strong><small>Confidentialité, notifications et médias</small></div><b>→</b></button></div>
+    {editing && <section className="profile-edit-card"><header><div><small>IDENTITÉ WHAPPY</small><h3>Modifier votre profil</h3></div><button type="button" onClick={() => setEditing(false)} aria-label="Fermer">×</button></header><label className="profile-crop-picker"><div className="profile-crop-stage">{preview ? <img src={preview} alt="Aperçu du profil" style={previewStyle}/> : <span>{initials(draftName)}</span>}<i>ZONE DE RECADRAGE</i></div><strong>{photoPreview ? "Photo prête à ajuster" : "Choisir une nouvelle photo"}</strong><small>La photo sera recadrée au format carré.</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto}/></label>{photoPreview && <div className="profile-crop-controls"><label>Zoom <input type="range" min="1" max="3" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))}/><b>{Math.round(zoom * 100)}%</b></label><label>Horizontal <input type="range" min="-1" max="1" step=".05" value={offsetX} onChange={(event) => setOffsetX(Number(event.target.value))}/></label><label>Vertical <input type="range" min="-1" max="1" step=".05" value={offsetY} onChange={(event) => setOffsetY(Number(event.target.value))}/></label></div>}<label className="profile-name-field">Nom affiché<input value={draftName} maxLength={80} onChange={(event) => setDraftName(event.target.value)} placeholder="Votre nom"/></label><button type="button" className="profile-save-button" onClick={() => void save()} disabled={busy}>{busy ? "Enregistrement…" : "Enregistrer les changements"}</button></section>}
     {settingsOpen && <section className="profile-settings-card"><header><div><small>PRÉFÉRENCES PERSONNELLES</small><h3>Paramètres de votre compte</h3></div><button type="button" onClick={() => setSettingsOpen(false)} aria-label="Fermer">×</button></header>{([ ["notifications", "Notifications", "Recevoir les alertes de messages et d’appels"], ["readReceipts", "Accusés de lecture", "Afficher les messages vus dans les conversations"], ["showOnline", "Présence en ligne", "Permettre à vos contacts de voir votre disponibilité"], ["autoDownload", "Téléchargement automatique", "Charger automatiquement les photos reçues"] ] as Array<[keyof ProfileSettings, string, string]>).map(([key, title, description]) => <button type="button" className="profile-setting-row" key={key} onClick={() => updateSetting(key)}><span><strong>{title}</strong><small>{description}</small></span><i className={settings[key] ? "on" : ""}>{settings[key] ? "ON" : "OFF"}</i></button>)}<p className="profile-settings-note">Ces préférences sont conservées sur cet appareil et s’appliquent à votre expérience WHAPPY.</p></section>}
   </div>;
 }

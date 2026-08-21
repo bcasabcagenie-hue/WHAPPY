@@ -38,10 +38,11 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
   const [productVisible, setProductVisible] = useState(true);
   const autoOpenCamera = useRef(false);
 
+  // The camera preview is real, but there is no SFU/WHAPPY media transport in
+  // this workspace yet. Never expose a local preview as a public broadcast or
+  // fabricate viewers/interactions.
   const publicStreamingConnected = false;
-  const liveModeLabel = publicStreamingConnected
-    ? "LIVE PUBLIQUE"
-    : "LIVE LOCAL (prévisualisation)";
+  const liveModeLabel = "STUDIO LOCAL · NON DIFFUSÉ";
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -81,7 +82,6 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
     if (status !== "live") return;
     const timer = window.setInterval(() => {
       setElapsed((value) => value + 1);
-      setViewers((value) => Math.min(24, value + (Math.random() > 0.55 ? 1 : 0)));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [status]);
@@ -99,8 +99,8 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
     }
     if (mode === "human" && !streamRef.current && !(await openCamera())) return;
     setStatus("live");
-    setViewers(1);
-    notify("Votre session de direct est active");
+    setViewers(0);
+    notify("Studio local actif · la diffusion publique nécessite le transport média WAPI");
   }
 
   function toggleTrack(kind: "audio" | "video") {
@@ -180,7 +180,7 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
         </div>
         {mode === "twin" && !twinAuthorized ? <button className="go-live" onClick={onOpenTwin}>Créer mon Double</button> : status === "live" ? <button className="go-live live" onClick={endLive}>■ Terminer</button> : <button className="go-live" onClick={startLive}>● Démarrer le direct</button>}
       </footer>}
-      <small className={publicStreamingConnected ? "broadcast-note connected" : "broadcast-note demo"}>{publicStreamingConnected ? "La diffusion publique est active." : "La caméra et le micro sont réels. Ce mode reste une prévisualisation locale tant que le service de diffusion Whappy n’est pas connecté."}</small>
+      <small className={publicStreamingConnected ? "broadcast-note connected" : "broadcast-note demo"}>{publicStreamingConnected ? "La diffusion publique est active." : "Caméra et micro réels. Aucun spectateur ni message public n’est simulé : connectez le transport média WAPI pour diffuser."}</small>
     </section>
   </div>;
 }

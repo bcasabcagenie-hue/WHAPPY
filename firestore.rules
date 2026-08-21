@@ -474,6 +474,30 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
     }
 
+    match /radioEpisodes/{episodeId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.authorName is string
+        && request.resource.data.authorName.size() >= 2
+        && request.resource.data.authorName.size() <= 80
+        && request.resource.data.stationName is string
+        && request.resource.data.stationName.size() >= 2
+        && request.resource.data.stationName.size() <= 60
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 2
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.audioUrl.matches('https://firebasestorage.googleapis.com/.*')
+        && request.resource.data.storagePath.matches('radio/' + request.auth.uid + '/.*')
+        && request.resource.data.durationSeconds is number
+        && request.resource.data.durationSeconds >= 1
+        && request.resource.data.durationSeconds <= 3600
+        && request.resource.data.status == "published"
+        && request.resource.data.keys().hasOnly(["ownerId", "authorName", "stationName", "title", "audioUrl", "storagePath", "durationSeconds", "status", "createdAt"]);
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
     match /calls/{callId} {
       allow create: if signedIn()
         && request.resource.data.callerId == request.auth.uid

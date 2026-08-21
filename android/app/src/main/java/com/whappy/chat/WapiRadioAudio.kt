@@ -56,6 +56,23 @@ class WapiRadioPlayback {
             setDataSource(file.absolutePath)
             prepare()
         }
+        startPrepared(active, profile, onFinished)
+    }
+
+    fun playUrl(url: String, profile: WapiMicProfile, onReady: () -> Unit = {}, onFinished: () -> Unit) {
+        release()
+        val active = MediaPlayer()
+        player = active
+        active.setDataSource(url)
+        active.setOnPreparedListener {
+            startPrepared(active, profile, onFinished)
+            onReady()
+        }
+        active.setOnErrorListener { _, _, _ -> release(); onFinished(); true }
+        active.prepareAsync()
+    }
+
+    private fun startPrepared(active: MediaPlayer, profile: WapiMicProfile, onFinished: () -> Unit) {
         player = active
         runCatching {
             equalizer = Equalizer(0, active.audioSessionId).apply {

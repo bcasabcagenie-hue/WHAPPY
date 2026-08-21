@@ -32,11 +32,15 @@ class WhappyViewModel(
     private var dealsListener: ListenerRegistration? = null
     private var paymentNoticesListener: ListenerRegistration? = null
     private var twinProfileListener: ListenerRegistration? = null
+    private var wepiSettingsListener: ListenerRegistration? = null
+    private var radioEpisodesListener: ListenerRegistration? = null
     private var twinAutomationsListener: ListenerRegistration? = null
     private var twinRendersListener: ListenerRegistration? = null
     private var contactSearchRequest = 0
     private var pendingChannelId: String? = null
     private var remoteConversationMessages: List<WhappyMessage> = emptyList()
+    private val pendingStories = linkedMapOf<String, WhappyStatus>()
+    private val confirmedStories = linkedMapOf<String, WhappyStatus>()
     private var typingState = false
     private val authListener = FirebaseAuth.AuthStateListener { refreshSession(it.currentUser) }
 
@@ -606,12 +610,60 @@ class WhappyViewModel(
         repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
     }
 
-    fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") = runBusinessAction("La Story n’a pas été publiée") { user ->
-        repository.publishStatus(user.uid, accountName(), text, tone, mediaUri, mediaContentType)
+    fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        val localId = "pending-story-${System.currentTimeMillis()}"
+        val mediaKind = when {
+            mediaUri == null -> "text"
+            mediaContentType.startsWith("audio/") -> "audio"
+            mediaContentType.startsWith("video/") -> "video"
+            else -> "image"
+        }
+        pendingStories[localId] = WhappyStatus(
+            id = localId,
+            authorId = user.uid,
+            authorName = accountName(),
+            text = text.trim(),
+            tone = tone,
+            createdAt = System.currentTimeMillis(),
+            mediaUrl = mediaUri?.toString().orEmpty(),
+            mediaKind = mediaKind,
+            mediaName = if (mediaUri == null) "" else "Publication en cours",
+        )
+        _uiState.update { it.copy(statuses = mergeStories(it.statuses), actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.publishStatus(user.uid, accountName(), text, tone, mediaUri, mediaContentType) }
+                .onSuccess { story ->
+                    pendingStories.remove(localId)
+                    confirmedStories[story.id] = story
+                    _uiState.update { current -> current.copy(statuses = mergeStories(current.statuses), actionBusy = false, online = true) }
+                }
+                .onFailure { error ->
+                    pendingStories.remove(localId)
+                    _uiState.update { current -> current.copy(statuses = mergeStories(current.statuses), actionBusy = false, error = "La Story n’a pas été publiée : ${error.localizedMessage ?: "vérifiez la connexion"}") }
+                }
+        }
+    }
+
+    private fun mergeStories(remote: List<WhappyStatus>): List<WhappyStatus> {
+        val remoteIds = remote.mapTo(hashSetOf()) { it.id }
+        remoteIds.forEach(confirmedStories::remove)
+        return (pendingStories.values + confirmedStories.values + remote)
+            .distinctBy { it.id }
+            .sortedByDescending { it.createdAt }
     }
 
     fun deleteStatus(statusId: String) = runBusinessAction("La Story n’a pas été supprimée") { user ->
         repository.deleteStatus(user.uid, statusId)
+    }
+
+    fun saveWepiSettings(settings: WapiWepiSettings) = runBusinessAction("Les réglages WEPI Pilotis n’ont pas été enregistrés") { user ->
+        repository.saveWepiSettings(settings.copy(ownerId = user.uid))
+    }
+
+    fun publishRadioEpisode(stationName: String, title: String, uri: Uri, durationSeconds: Long) = runBusinessAction("Le podcast n’a pas été publié") { user ->
+        repository.publishRadioEpisode(user.uid, accountName(), stationName, title, uri, durationSeconds)
     }
 
     fun updateProfilePhoto(uri: Uri, contentType: String) {
@@ -733,6 +785,8 @@ class WhappyViewModel(
         dealsListener?.remove()
         paymentNoticesListener?.remove()
         twinProfileListener?.remove()
+        wepiSettingsListener?.remove()
+        radioEpisodesListener?.remove()
         twinAutomationsListener?.remove()
         twinRendersListener?.remove()
         conversationsListener = null
@@ -748,6 +802,8 @@ class WhappyViewModel(
         dealsListener = null
         paymentNoticesListener = null
         twinProfileListener = null
+        wepiSettingsListener = null
+        radioEpisodesListener = null
         twinAutomationsListener = null
         twinRendersListener = null
         _uiState.update { WhappyUiState(user = user, loading = user != null, sessionRestoring = user != null) }
@@ -793,7 +849,7 @@ class WhappyViewModel(
             onError = { _uiState.update { it.copy(online = false) } },
         )
         statusesListener = repository.observeStatuses(
-            onChange = { items -> _uiState.update { it.copy(statuses = items, online = true) } },
+            onChange = { items -> _uiState.update { it.copy(statuses = mergeStories(items), online = true) } },
             onError = { _uiState.update { it.copy(online = false, error = "Les Stories sont momentanément indisponibles") } },
         )
         dealsListener = repository.observeDeals(
@@ -810,6 +866,15 @@ class WhappyViewModel(
         twinProfileListener = repository.observeTwinProfile(
             user.uid,
             onChange = { profile -> _uiState.update { it.copy(twinProfile = profile, online = true) } },
+            onError = { _uiState.update { it.copy(online = false) } },
+        )
+        wepiSettingsListener = repository.observeWepiSettings(
+            user.uid,
+            onChange = { settings -> _uiState.update { it.copy(wepiSettings = settings, online = true) } },
+            onError = { _uiState.update { it.copy(online = false) } },
+        )
+        radioEpisodesListener = repository.observeRadioEpisodes(
+            onChange = { episodes -> _uiState.update { it.copy(radioEpisodes = episodes, online = true) } },
             onError = { _uiState.update { it.copy(online = false) } },
         )
         twinAutomationsListener = repository.observeTwinAutomations(
@@ -871,6 +936,8 @@ class WhappyViewModel(
         dealsListener?.remove()
         paymentNoticesListener?.remove()
         twinProfileListener?.remove()
+        wepiSettingsListener?.remove()
+        radioEpisodesListener?.remove()
         twinAutomationsListener?.remove()
         twinRendersListener?.remove()
     }
