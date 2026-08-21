@@ -31,6 +31,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -735,6 +737,7 @@ private val authCountries = listOf(
 
 @Composable
 private fun PhoneAuthScreen(controller: PhoneAuthController, onProfileSaved: () -> Unit) {
+    val context = LocalContext.current
     val state = controller.state
     var country by rememberSaveable { mutableStateOf(controller.savedCountryCode) }
     var phone by rememberSaveable { mutableStateOf(controller.savedPhoneNumber.removePrefix(controller.savedCountryCode)) }
@@ -793,19 +796,19 @@ private fun PhoneAuthScreen(controller: PhoneAuthController, onProfileSaved: () 
                                             }
                                         }
                                     }
-                                    OutlinedTextField(phone, { phone = it }, label = { Text("Téléphone") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.sendCode(country, phone) }))
+                                    OutlinedTextField(phone, { value -> if (value.length > phone.length) WhappySounds.typing(context); phone = value }, label = { Text("Téléphone") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.sendCode(country, phone) }))
                                 }
                                 PrimaryAction("Continuer", state.busy) { controller.sendCode(country, phone) }
                                 Text("Compte existant : vos conversations et votre profil seront restaurés automatiquement.", Modifier.padding(top = 12.dp), color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                             }
                             AuthStage.CODE -> {
-                                OutlinedTextField(code, { code = it.filter(Char::isDigit).take(6) }, label = { Text("Code à 6 chiffres") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.verifyCode(code) }))
+                                OutlinedTextField(code, { value -> if (value.length > code.length) WhappySounds.typing(context); code = value.filter(Char::isDigit).take(6) }, label = { Text("Code à 6 chiffres") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.verifyCode(code) }))
                                 PrimaryAction("Vérifier et entrer", state.busy) { controller.verifyCode(code) }
                                 TextButton(onClick = controller::resendCode, enabled = !state.busy, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Renvoyer le SMS") }
                                 TextButton(onClick = controller::back, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Modifier le numéro") }
                             }
                             AuthStage.PROFILE -> {
-                                OutlinedTextField(name, { name = it.take(60) }, label = { Text("Votre nom") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.saveProfile(name, onProfileSaved) }))
+                                OutlinedTextField(name, { value -> if (value.length > name.length) WhappySounds.typing(context); name = value.take(60) }, label = { Text("Votre nom") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.saveProfile(name, onProfileSaved) }))
                                 PrimaryAction("Entrer dans WAPI", state.busy) { controller.saveProfile(name, onProfileSaved) }
                             }
                         }
@@ -1220,6 +1223,7 @@ private fun ActivityCenterDialog(
 
 @Composable
 private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onMore: () -> Unit) {
+    val context = LocalContext.current
     val icons = mapOf(
         WhappyTab.MOMENTS to Icons.Rounded.Home,
         WhappyTab.STORIES to Icons.Rounded.AutoAwesome,
@@ -1240,7 +1244,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
         visibleTabs.forEach { tab ->
             NavigationBarItem(
                 selected = selected == tab,
-                onClick = { onTab(tab) },
+                onClick = { WhappySounds.haptic(context); onTab(tab) },
                 icon = { Icon(icons.getValue(tab), mobileTabLabel(tab, LocalWhappyLanguage.current)) },
                 label = { Text(mobileTabLabel(tab, LocalWhappyLanguage.current), fontSize = 10.sp, maxLines = 1) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WhappyBlue.copy(alpha = .10f)),
@@ -1248,7 +1252,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
         }
         NavigationBarItem(
             selected = selected !in visibleTabs,
-            onClick = onMore,
+            onClick = { WhappySounds.haptic(context); onMore() },
             icon = { Icon(Icons.Rounded.GridView, whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso")) },
             label = { Text(whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso"), fontSize = 10.sp, maxLines = 1) },
             colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WhappyBlue.copy(alpha = .10f)),
@@ -1479,6 +1483,7 @@ private fun WepiScreen(
     onOpenMessages: () -> Unit,
     onOpenBusiness: () -> Unit,
 ) {
+    val context = LocalContext.current
     var prompt by rememberSaveable { mutableStateOf("") }
     var messages by remember {
         mutableStateOf(listOf(WepiChatMessage("Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis WEPI, votre copilote privé pour communiquer, vendre et organiser WAPI.", false)))
@@ -1525,7 +1530,7 @@ private fun WepiScreen(
             }
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(prompt, { prompt = it.take(1200) }, Modifier.weight(1f), placeholder = { Text("Demandez à WEPI…") }, maxLines = 4, shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit(prompt) }))
+            OutlinedTextField(prompt, { value -> if (value.length > prompt.length) WhappySounds.typing(context); prompt = value.take(1200) }, Modifier.weight(1f), placeholder = { Text("Demandez à WEPI…") }, maxLines = 4, shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit(prompt) }))
             FilledIconButton(onClick = { submit(prompt) }, enabled = prompt.isNotBlank(), modifier = Modifier.padding(start = 7.dp).size(50.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.AutoMirrored.Rounded.Send, "Envoyer", tint = Color.White) }
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -1830,9 +1835,11 @@ private fun RadioMetric(label: String, value: String, modifier: Modifier = Modif
 
 @Composable
 private fun GamesScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val gamePrefs = remember { WhappyFastStorage.preferences(context, "wapi_play") }
     var selected by rememberSaveable { mutableStateOf("Ludo WAPI") }
-    var xp by rememberSaveable { mutableStateOf(0) }
-    var wins by rememberSaveable { mutableStateOf(0) }
+    var xp by rememberSaveable { mutableStateOf(gamePrefs.getInt("xp", 0)) }
+    var wins by rememberSaveable { mutableStateOf(gamePrefs.getInt("wins", 0)) }
     var dice by rememberSaveable { mutableStateOf(0) }
     var activePlayer by rememberSaveable { mutableStateOf(0) }
     var ludoPositions by rememberSaveable { mutableStateOf(listOf(-1, -1, -1, -1)) }
@@ -1840,7 +1847,8 @@ private fun GamesScreen(onBack: () -> Unit) {
     var answer by rememberSaveable { mutableStateOf<String?>(null) }
     var round by rememberSaveable { mutableStateOf(1) }
     val games = listOf(
-        Triple("Ludo WAPI", "Plateau local · dé, pions, captures", "🎲"),
+        Triple("Ludo WAPI", "Plateau 3D · dé, pions, captures", "🎲"),
+        Triple("WAPI Sky 3D", "Course interactive · réflexes et progression", "🚀"),
         Triple("Défi du jour", "Quiz rapide · gagnez de l’XP", "⚡"),
         Triple("Duel WAPI", "Mode duel prêt pour le multijoueur", "♟"),
         Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
@@ -1852,6 +1860,8 @@ private fun GamesScreen(onBack: () -> Unit) {
         Triple("Mokabi", Color(0xFFF9A825), "🟡"),
     )
 
+    LaunchedEffect(xp, wins) { gamePrefs.edit().putInt("xp", xp).putInt("wins", wins).apply() }
+
     fun nextPlayer(from: Int = activePlayer): Int = (from + 1) % ludoPlayers.size
 
     fun resetLudo() {
@@ -1862,6 +1872,8 @@ private fun GamesScreen(onBack: () -> Unit) {
     }
 
     fun playLudoTurn() {
+        WhappySounds.dice()
+        WhappySounds.haptic(context)
         val roll = ((System.currentTimeMillis() / 37L) % 6L).toInt() + 1
         dice = roll
         val player = activePlayer
@@ -1892,6 +1904,8 @@ private fun GamesScreen(onBack: () -> Unit) {
                 if (target == 52 && player == 0) {
                     wins += 1
                     xp += 150
+                    WhappySounds.reward()
+                    WhappySounds.haptic(context, strong = true)
                     extraTurn = false
                 }
                 if (target in 0..51) {
@@ -1903,6 +1917,7 @@ private fun GamesScreen(onBack: () -> Unit) {
                                 nextPositions[index] = -1
                                 message += " Capture de ${ludoPlayers[index].first} !"
                                 if (player == 0) xp += 40
+                                WhappySounds.impact()
                             }
                         }
                     }
@@ -1944,7 +1959,8 @@ private fun GamesScreen(onBack: () -> Unit) {
                                 Text("Tour de ${ludoPlayers[activePlayer].first}", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
                                 Text("Dé : ${if (dice == 0) "—" else dice} · 6 = sortie/rejouer", color = WhappyMuted, fontSize = 11.sp)
                             }
-                            Box(Modifier.size(62.dp).clip(RoundedCornerShape(18.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                            val diceRotation by animateFloatAsState(targetValue = dice * 74f, animationSpec = spring(dampingRatio = .58f, stiffness = 420f), label = "dice")
+                            Box(Modifier.size(62.dp).graphicsLayer { rotationX = diceRotation; rotationY = diceRotation * .72f; shadowElevation = 18f; cameraDistance = 18f }.clip(RoundedCornerShape(18.dp)).background(WhappyAurora), contentAlignment = Alignment.Center) {
                                 Text(if (dice == 0) "🎲" else dice.toString(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
                             }
                         }
@@ -1958,6 +1974,8 @@ private fun GamesScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        } else if (selected == "WAPI Sky 3D") {
+            item { SkyRun3D(onXp = { gained -> xp += gained }, onWin = { wins += 1 }) }
         } else {
             item {
                 ArcadeChallengeCard(
@@ -1966,7 +1984,8 @@ private fun GamesScreen(onBack: () -> Unit) {
                     answer = answer,
                     onAnswer = { option ->
                         answer = option
-                        if (option == "Le Live") xp += 25
+                        if (option == "Le Live") { xp += 25; WhappySounds.reward() } else WhappySounds.impact()
+                        WhappySounds.haptic(context, strong = option == "Le Live")
                     },
                     onNext = {
                         round += 1
@@ -2009,7 +2028,7 @@ private fun LudoBoard(players: List<Triple<String, Color, String>>, positions: L
     val base = listOf(2 to 2, 2 to 12, 12 to 12, 12 to 2)
     val finish = listOf(7 to 6, 6 to 7, 7 to 8, 8 to 7)
     val safe = setOf(0, 8, 13, 21, 26, 34, 39, 47)
-    BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color.White).padding(8.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().graphicsLayer { rotationX = 7f; rotationY = -2f; shadowElevation = 24f; cameraDistance = 24f }.clip(RoundedCornerShape(24.dp)).background(Color.White).padding(8.dp)) {
         val cell = maxWidth / 15
         Box(Modifier.size(maxWidth)) {
             Column(Modifier.fillMaxSize()) {
@@ -2050,6 +2069,7 @@ private fun LudoBoard(players: List<Triple<String, Color, String>>, positions: L
                         .offset(x = cell * coord.second, y = cell * coord.first)
                         .size(cell)
                         .padding(2.dp)
+                        .graphicsLayer { rotationX = -10f; rotationY = 14f; shadowElevation = 12f; cameraDistance = 16f }
                         .clip(CircleShape)
                         .background(players[index].second),
                     contentAlignment = Alignment.Center,
@@ -2075,6 +2095,75 @@ private fun LudoStatus(players: List<Triple<String, Color, String>>, positions: 
                 Text(player.third, fontSize = 18.sp)
                 Text(player.first, Modifier.weight(1f).padding(start = 9.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
                 Text(label, color = player.second, fontSize = 11.sp, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkyRun3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
+    val context = LocalContext.current
+    var lane by rememberSaveable { mutableStateOf(1) }
+    var obstacleLane by rememberSaveable { mutableStateOf(0) }
+    var distance by rememberSaveable { mutableStateOf(0) }
+    var energy by rememberSaveable { mutableStateOf(3) }
+    var running by rememberSaveable { mutableStateOf(false) }
+    var message by rememberSaveable { mutableStateOf("Appuyez sur Démarrer puis changez de voie pour éviter les blocs.") }
+
+    LaunchedEffect(running) {
+        while (running) {
+            val nextObstacle = ((System.currentTimeMillis() / 317L) % 3L).toInt()
+            obstacleLane = nextObstacle
+            delay((720L - distance * 6L).coerceAtLeast(330L))
+            distance += 1
+            if (lane == nextObstacle) {
+                energy -= 1
+                message = "Impact ! Changez de voie plus tôt."
+                WhappySounds.impact()
+                WhappySounds.haptic(context, strong = true)
+                if (energy <= 0) {
+                    running = false
+                    message = "Mission terminée · $distance portes franchies."
+                }
+            } else {
+                onXp(5)
+                WhappySounds.move()
+                message = if (distance >= 20) "Vitesse MAX · gardez le cap !" else "Parfait · +5 XP"
+                if (distance == 20) { onWin(); WhappySounds.reward() }
+            }
+        }
+    }
+
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("WAPI SKY ENGINE", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+                    Text("Course 3D", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                }
+                Surface(color = Color.White.copy(alpha = .12f), shape = RoundedCornerShape(14.dp)) { Text("⚡ $energy  ·  $distance m", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Color.White, fontWeight = FontWeight.Black) }
+            }
+            Box(
+                Modifier.fillMaxWidth().height(310.dp).graphicsLayer { rotationX = 5f; cameraDistance = 24f; shadowElevation = 22f }
+                    .clip(RoundedCornerShape(24.dp)).background(Brush.verticalGradient(listOf(Color(0xFF62D5FF), Color(0xFF087ECC), Color(0xFF04233E))))
+                    .pointerInput(running, lane) { detectTapGestures { offset -> if (running) { lane = if (offset.x < size.width / 2f) (lane - 1).coerceAtLeast(0) else (lane + 1).coerceAtMost(2); WhappySounds.haptic(context) } } },
+            ) {
+                Text("WAPI CITY", Modifier.align(Alignment.TopCenter).padding(top = 18.dp), color = Color.White.copy(alpha = .74f), fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+                Row(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(3) { index ->
+                        Box(Modifier.weight(1f).fillMaxHeight().graphicsLayer { rotationX = 13f; rotationY = (index - 1) * -5f; cameraDistance = 20f }.clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Color.White.copy(alpha = if (index == lane) .19f else .08f))) {
+                            if (running && obstacleLane == index) Box(Modifier.align(Alignment.Center).size(50.dp).graphicsLayer { rotationX = 24f; rotationY = distance * 19f; shadowElevation = 20f }.clip(RoundedCornerShape(10.dp)).background(Color(0xFFFFB629)), contentAlignment = Alignment.Center) { Text("◆", color = Color.White, fontSize = 22.sp) }
+                            if (lane == index) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).size(58.dp).graphicsLayer { rotationX = -12f; rotationY = if (running) distance * 7f else 0f; shadowElevation = 28f }.clip(RoundedCornerShape(20.dp)).background(WhappyAurora), contentAlignment = Alignment.Center) { Text("W", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black) }
+                        }
+                    }
+                }
+                Text(if (running) "TOUCHEZ À GAUCHE OU À DROITE" else "PRÊT POUR LA MISSION", Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
+            }
+            Text(message, color = Color.White.copy(alpha = .86f), fontSize = 12.sp, lineHeight = 17.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                OutlinedButton(enabled = running && lane > 0, onClick = { lane -= 1; WhappySounds.haptic(context) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), shape = RoundedCornerShape(14.dp)) { Text("← GAUCHE") }
+                Button(onClick = { if (running) running = false else { if (energy <= 0) { energy = 3; distance = 0 }; running = true; message = "Mission lancée · évitez les blocs."; WhappySounds.reward() } }, Modifier.weight(1.2f), shape = RoundedCornerShape(14.dp)) { Text(if (running) "PAUSE" else "DÉMARRER", fontWeight = FontWeight.Black) }
+                OutlinedButton(enabled = running && lane < 2, onClick = { lane += 1; WhappySounds.haptic(context) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), shape = RoundedCornerShape(14.dp)) { Text("DROITE →") }
             }
         }
     }
@@ -3569,6 +3658,7 @@ private fun ChatScreen(
     var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
 
     fun updateDraft(value: String) {
+        if (value.length > text.length) WhappySounds.typing(context)
         text = value.take(4_000)
         if (text.isBlank()) draftPrefs.edit().remove(conversation.id).apply()
         else draftPrefs.edit().putString(conversation.id, text).apply()
@@ -3583,6 +3673,8 @@ private fun ChatScreen(
         val value = text.trim()
         if (value.isBlank()) return
         editingMessage?.let { onEdit(it, value) } ?: onSend(value, replyTo)
+        WhappySounds.sent()
+        WhappySounds.haptic(context)
         text = ""
         replyTo = null
         editingMessage = null
@@ -5104,6 +5196,8 @@ private fun ProfileScreen(
     var dataSaver by rememberSaveable { mutableStateOf(prefs.getBoolean("data_saver", false)) }
     var compactMode by rememberSaveable { mutableStateOf(prefs.getBoolean("compact_mode", false)) }
     var protectPreview by rememberSaveable { mutableStateOf(prefs.getBoolean("protect_preview", true)) }
+    var typingSounds by rememberSaveable { mutableStateOf(prefs.getBoolean("typing_sounds", true)) }
+    var hapticFeedback by rememberSaveable { mutableStateOf(prefs.getBoolean("haptic_feedback", true)) }
     var experimentalTools by rememberSaveable { mutableStateOf(prefs.getBoolean("experimental_tools", true)) }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -5167,6 +5261,10 @@ private fun ProfileScreen(
                     protectPreview = enabled
                     prefs.edit().putBoolean("protect_preview", enabled).apply()
                 },
+                typingSounds = typingSounds,
+                onTypingSounds = { enabled -> typingSounds = enabled; prefs.edit().putBoolean("typing_sounds", enabled).apply(); if (enabled) WhappySounds.typing(context) },
+                hapticFeedback = hapticFeedback,
+                onHapticFeedback = { enabled -> hapticFeedback = enabled; prefs.edit().putBoolean("haptic_feedback", enabled).apply(); if (enabled) WhappySounds.haptic(context) },
             )
         }
         item { Card(Modifier.fillMaxWidth().clickable { settingDialog = "Langue" }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Language, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(t("Langue de l’application", "App language", "Lokota ya application"), fontWeight = FontWeight.Bold, color = WhappyDark); Text(language.label, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } } }
@@ -5330,6 +5428,10 @@ private fun ProfileQuickSettings(
     onCompactMode: (Boolean) -> Unit,
     protectPreview: Boolean,
     onProtectPreview: (Boolean) -> Unit,
+    typingSounds: Boolean,
+    onTypingSounds: (Boolean) -> Unit,
+    hapticFeedback: Boolean,
+    onHapticFeedback: (Boolean) -> Unit,
 ) {
     Card(
         Modifier.fillMaxWidth(),
@@ -5352,6 +5454,20 @@ private fun ProfileQuickSettings(
                 subtitle = "Sonnerie et alerte prioritaire",
                 checked = callNotifications,
                 onCheckedChange = onCallNotifications,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.AudioFile,
+                title = "Sons de saisie",
+                subtitle = "Clic discret pendant l’écriture",
+                checked = typingSounds,
+                onCheckedChange = onTypingSounds,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.Bolt,
+                title = "Réponse tactile",
+                subtitle = "Vibrations légères pour les actions et les jeux",
+                checked = hapticFeedback,
+                onCheckedChange = onHapticFeedback,
             )
             QuickSwitchRow(
                 icon = Icons.Rounded.Visibility,

@@ -19,8 +19,8 @@ android {
         applicationId "com.whappy.chat"
         minSdk 26
         targetSdk 35
-        versionCode 39
-        versionName "1.6.2-native"
+        versionCode 40
+        versionName "1.6.3-native"
     }
 
     signingConfigs {

@@ -23,6 +23,14 @@
     ],
     "headers": [
       {
+        "source": "/WHAPPY-Android-1.6.3-native.apk",
+        "headers": [
+          { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
+          { "key": "Content-Disposition", "value": "attachment; filename=WHAPPY-Android-1.6.3-native.apk" },
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      },
+      {
         "source": "/WHAPPY-Android-1.6.2-native.apk",
         "headers": [
           { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
