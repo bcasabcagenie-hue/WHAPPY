@@ -18,7 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.emoji2.bundled.BundledEmojiCompatConfig
+import androidx.emoji2.text.DefaultEmojiCompatConfig
 import androidx.emoji2.text.EmojiCompat
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
@@ -39,7 +39,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WhappyFastStorage.initialize(applicationContext)
         WhappyMessageSync.schedule(applicationContext)
-        if (!EmojiCompat.isConfigured()) EmojiCompat.init(BundledEmojiCompatConfig(applicationContext))
+        if (!EmojiCompat.isConfigured()) {
+            DefaultEmojiCompatConfig.create(applicationContext)?.let { EmojiCompat.init(it) }
+        }
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         callController = WhappyCallController(this)
