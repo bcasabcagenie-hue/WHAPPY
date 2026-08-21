@@ -60,6 +60,7 @@ const ANDROID_APP = {
   size: "16 Mo",
   minimum: "Android 8.0+",
 } as const;
+const WHAPPY_DOWNLOAD_EVENTS_KEY = "whappy:download-events";
 
 const listings: Listing[] = [
   { id: 1, title: "MacBook Air M3 · Comme neuf", price: "750 000 FCFA", place: "Poto-Poto · 1,2 km", seller: "Junior K.", mark: "JK", tone: "blue", category: "Tech", mode: "vente", trust: 98 },
@@ -912,7 +913,17 @@ function PhoneAccess({ step,countryCode,setCountryCode,phone,setPhone,code,setCo
 
 function AndroidDownload() {
   const [started, setStarted] = useState(false);
-  return <section className="android-download" aria-labelledby="android-download-title"><Image src="/whappy-app-icon.png" alt="" width={54} height={54}/><div className="android-download-copy"><small>APPLICATION ANDROID</small><strong id="android-download-title">Whappy App {ANDROID_APP.version}</strong><span>{ANDROID_APP.size} · {ANDROID_APP.minimum}</span></div><a className="access-apk" href={ANDROID_APP.url} download onClick={()=>setStarted(true)}>↓ Télécharger l&apos;application</a>{started&&<p className="download-status" role="status">✓ Téléchargement lancé. Ouvrez ensuite le fichier APK.</p>}<details><summary>Le téléchargement ne démarre pas ?</summary><p>Appuyez sur le lien direct, puis autorisez le téléchargement dans votre navigateur Android.</p><a href={ANDROID_APP.url} target="_blank" rel="noreferrer">Ouvrir le lien direct de l&apos;APK ↗</a></details></section>;
+  const recordDownload = (source: "button" | "direct") => {
+    setStarted(true);
+    if (typeof window === "undefined") return;
+    const event = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, at: new Date().toISOString(), version: ANDROID_APP.version, size: ANDROID_APP.size, source, userAgent: navigator.userAgent };
+    try {
+      const current = JSON.parse(localStorage.getItem(WHAPPY_DOWNLOAD_EVENTS_KEY) || "[]") as unknown[];
+      localStorage.setItem(WHAPPY_DOWNLOAD_EVENTS_KEY, JSON.stringify([event, ...current].slice(0, 250)));
+      window.dispatchEvent(new CustomEvent("whappy-download-recorded"));
+    } catch {}
+  };
+  return <section className="android-download" aria-labelledby="android-download-title"><Image src="/whappy-app-icon.png" alt="" width={54} height={54}/><div className="android-download-copy"><small>APPLICATION ANDROID</small><strong id="android-download-title">Whappy App {ANDROID_APP.version}</strong><span>{ANDROID_APP.size} · {ANDROID_APP.minimum}</span></div><a className="access-apk" href={ANDROID_APP.url} download onClick={()=>recordDownload("button")}>↓ Télécharger l&apos;application</a>{started&&<p className="download-status" role="status">✓ Téléchargement lancé. Ouvrez ensuite le fichier APK.</p>}<details><summary>Le téléchargement ne démarre pas ?</summary><p>Appuyez sur le lien direct, puis autorisez le téléchargement dans votre navigateur Android.</p><a href={ANDROID_APP.url} target="_blank" rel="noreferrer" onClick={()=>recordDownload("direct")}>Ouvrir le lien direct de l&apos;APK ↗</a></details></section>;
 }
 
 function Rail({ active, icon, label, count, live, onClick }: { active: boolean; icon: string; label: string; count?: number; live?: boolean; onClick: () => void }) {
@@ -1356,8 +1367,8 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
   const hiddenComments = useMemo(() => orderedComments.filter((comment)=>comment.hidden), [orderedComments]);
   const discussionComments = showHiddenComments ? orderedComments : visibleComments;
 
-  const canAfford = selectedGift ? giftWallets[giftCarrier] >= selectedGift.price : true;
-  const canBuyFromCarrier = (gift:LiveGift) => giftWallets[giftCarrier] >= gift.price;
+  const canAfford = true;
+  const canBuyFromCarrier = (_gift:LiveGift) => true;
   const stageGuestsMax = LIVE_STAGE_MAX - 1;
   const stageCount = Math.min(stageGuests.length + 1, LIVE_STAGE_MAX);
   const stageSlotsRemaining = Math.max(0, stageGuestsMax - stageGuests.length);
@@ -1425,15 +1436,9 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
 
   function sendGift() {
     if(!selectedGift) return;
-    const balance = giftWallets[giftCarrier];
-    if(balance < selectedGift.price) {
-      notify(`Solde insuffisant pour un cadeau ${giftCarrier === "acheteur" ? "acheteur" : "offreur"}`);
-      return;
-    }
     const payload = { gift: selectedGift, note: giftNote.trim(), carrier: giftCarrier };
     const carrierLabel = giftCarrier === "acheteur" ? "Acheteur" : "Offreur";
 
-    setGiftWallets(current=>({ ...current, [giftCarrier]: balance - selectedGift.price }));
     setGiftLedger(current=>({
       ...current,
       [giftCarrier]: {
@@ -1455,7 +1460,7 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
 
     setFeaturedGift(payload);
     setGiftReveal(payload);
-    notify(`Cadeau ${selectedGift.name} envoyé à ${live.host} par ${carrierLabel}`);
+    notify(`Cadeau gratuit ${selectedGift.name} envoyé à ${live.host} par ${carrierLabel}`);
     setSelectedGift(null);
     setGiftNote("");
   }
@@ -1711,39 +1716,21 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
       <section className="live-gifts" aria-labelledby="live-gifts-title">
         <header>
           <div>
-            <small>CADEAUX PAYANTS</small>
+            <small>CADEAUX GRATUITS · EN ATTENDANT LES PAIEMENTS</small>
             <strong id="live-gifts-title">Soutenir ce direct</strong>
           </div>
           <div className="live-gift-ledger">
-            <span><b>⚡</b> Solde actif : {formatLiveMoney(giftBalance)} FCFA</span>
+            <span><b>🎁</b> Tous les cadeaux sont gratuits</span>
             <span>Porteur : <b>{giftCarrier}</b></span>
           </div>
         </header>
 
-        <div className="live-gift-topup" aria-label="Rechargement du porte-monnaie">
-          <small>Recharger le solde de {giftCarrier === "acheteur" ? "l’acheteur" : "l’offreur"}</small>
-          <div className="live-gift-topup-grid">
-            {liveGiftTopUps.map((value) => (
-              <button
-                type="button"
-                key={value}
-                className={giftTopUp === value ? "active" : ""}
-                onClick={() => setGiftTopUp(value)}
-              >
-                +{formatLiveMoney(value)} FCFA
-              </button>
-            ))}
-            <button className="confirm-topup" type="button" onClick={sendGiftTopUp}>
-              Recharger {formatLiveMoney(giftTopUp)} FCFA
-            </button>
-          </div>
-        </div>
+        <div className="live-gift-free-note"><span>✦</span><div><strong>Envoyez sans payer</strong><small>Les cadeaux sont gratuits pendant la phase de lancement. Les paiements seront activés plus tard.</small></div></div>
 
         <div className="gift-summary">
               <span><b>Acheteur</b> {giftLedger.acheteur.count} cadeau{giftLedger.acheteur.count > 1 ? "x" : ""} · {formatLiveMoney(giftLedger.acheteur.amount)} FCFA</span>
               <span><b>Offreur</b> {giftLedger.offreur.count} cadeau{giftLedger.offreur.count > 1 ? "x" : ""} · {formatLiveMoney(giftLedger.offreur.amount)} FCFA</span>
-              <span><b>Recharge Acheteur</b> {giftTopUpLedger.acheteur.count} fois · {formatLiveMoney(giftTopUpLedger.acheteur.amount)} FCFA</span>
-              <span><b>Recharge Offreur</b> {giftTopUpLedger.offreur.count} fois · {formatLiveMoney(giftTopUpLedger.offreur.amount)} FCFA</span>
+              <span><b>Mode actuel</b> Cadeaux gratuits · aucun paiement</span>
             </div>
 
         <div className="live-gift-carriers">
@@ -1784,10 +1771,10 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
                   </span>
                   <button type="button" onClick={() => { setSelectedGift(null); setGiftNote(""); }} aria-label="Annuler le cadeau">×</button>
                 </div>
-              <small className="gift-carry-note">Porteur : {giftCarrier === "acheteur" ? "Acheteur" : "Offreur"} · Solde : {formatLiveMoney(giftBalance)} FCFA{selectedCarrierLedger.count > 0 ? ` · Total ${selectedCarrierLedger.count} cadeau${selectedCarrierLedger.count > 1 ? "x" : ""}` : ""}{selectedCarrierTopUpLedger.count > 0 ? ` · Recharges : ${selectedCarrierTopUpLedger.count}` : ""}</small>
+              <small className="gift-carry-note">Porteur : {giftCarrier === "acheteur" ? "Acheteur" : "Offreur"} · Cadeau gratuit{selectedCarrierLedger.count > 0 ? ` · Total ${selectedCarrierLedger.count} cadeau${selectedCarrierLedger.count > 1 ? "x" : ""}` : ""}</small>
               <input value={giftNote} onChange={(event) => setGiftNote(event.target.value.slice(0, 100))} placeholder="Ajouter un mot (facultatif)" aria-label="Message avec le cadeau" />
               <button type="button" onClick={sendGift} disabled={!canAfford}>
-                Confirmer le paiement · {formatLiveMoney(selectedGift.price)} FCFA
+                Envoyer gratuitement · {selectedGift.icon}
               </button>
             </div>
           )}
@@ -1857,7 +1844,7 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
         </form>
       </section>
 
-      <small>◆ Les paiements réels s’activent avec un prestataire sécurisé</small>
+      <small>◆ Cadeaux gratuits pour le moment · les paiements réels seront activés avec un prestataire sécurisé</small>
     </aside>
 
     {giftReveal && (

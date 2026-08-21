@@ -15,12 +15,14 @@ target = project.new_target(:application, "Whappy", :ios, "17.0")
 target.product_name = "Whappy"
 
 group = project.main_group.new_group("Whappy", "Whappy")
-sources = %w[WhappyApp.swift Models.swift WhappyStore.swift ContentView.swift]
+sources = %w[WhappyApp.swift Models.swift WhappyStore.swift WhappyFirebaseMessaging.swift ContentView.swift]
 source_refs = sources.map { |name| group.new_file(name) }
 target.add_file_references(source_refs)
 
 assets = group.new_file("Assets.xcassets")
 target.resources_build_phase.add_file_reference(assets)
+firebase_config = group.new_file("GoogleService-Info.plist")
+target.resources_build_phase.add_file_reference(firebase_config)
 
 target.build_configurations.each do |config|
   config.build_settings.merge!({
@@ -43,6 +45,7 @@ target.build_configurations.each do |config|
     "MARKETING_VERSION" => "1.0.0",
     "PRODUCT_BUNDLE_IDENTIFIER" => "com.whappy.chat",
     "PRODUCT_NAME" => "$(TARGET_NAME)",
+    "OTHER_LDFLAGS" => "$(inherited) -ObjC",
     "SWIFT_EMIT_LOC_STRINGS" => "YES",
     "SWIFT_VERSION" => "5.0",
     "TARGETED_DEVICE_FAMILY" => "1,2"

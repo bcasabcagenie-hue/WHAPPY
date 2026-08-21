@@ -26,6 +26,7 @@ class WhappyRepository(
     private val appContext: Context = FirebaseApp.getInstance().applicationContext,
 ) {
     private val messageOutbox = WhappyMessageOutbox(appContext)
+    private val messageCache = WhappyMessageCache(appContext)
 
     fun currentUser() = auth.currentUser
 
@@ -46,6 +47,9 @@ class WhappyRepository(
                 )
             }
             .toList()
+
+    fun cachedMessages(conversationId: String, source: String = "conversations"): List<WhappyMessage> =
+        messageCache.read(conversationId, source)
 
     suspend fun syncAccountRecord(user: FirebaseUser, displayName: String = user.displayName.orEmpty()) {
         val phone = user.phoneNumber.orEmpty()
@@ -253,7 +257,7 @@ class WhappyRepository(
                 onError(error)
                 return@addSnapshotListener
             }
-            onChange(snapshot?.documents.orEmpty().map { document ->
+            val messages = snapshot?.documents.orEmpty().map { document ->
                 val reply = document.get("replyTo") as? Map<*, *>
                 WhappyMessage(
                     id = document.id,
@@ -272,7 +276,9 @@ class WhappyRepository(
                     deliveryState = "sent",
                     senderName = document.getString("senderName").orEmpty(),
                 )
-            })
+            }
+            messageCache.write(conversationId, source, messages)
+            onChange(messages)
         }
 
     fun observeChannels(
