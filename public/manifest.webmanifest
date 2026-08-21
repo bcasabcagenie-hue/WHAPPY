@@ -1,11 +1,11 @@
 {
-  "name": "Whappy App",
-  "short_name": "Whappy",
+  "name": "WAPI",
+  "short_name": "WAPI",
   "description": "Messages, appels, opportunités, ventes et services dans une seule application.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#080914",
-  "theme_color": "#007cf7",
+  "background_color": "#F8FCFF",
+  "theme_color": "#0094F0",
   "icons": [
     {
       "src": "/whappy-app-icon.png",
