@@ -44,13 +44,16 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -646,6 +649,11 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
     val call = controller.state
     if (!call.visible) return
     val context = LocalContext.current
+    var connectedSeconds by remember(call.peerName) { mutableStateOf(0) }
+    LaunchedEffect(call.status) {
+        if (call.status != "Connecté") { connectedSeconds = 0; return@LaunchedEffect }
+        while (true) { kotlinx.coroutines.delay(1_000); connectedSeconds += 1 }
+    }
     BackHandler { if (call.incoming) controller.declineIncoming() else controller.hangUp() }
     DisposableEffect(Unit) {
         activityWindow(context)?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -674,7 +682,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             }
             Text(call.peerName.ifBlank { "WHAPPY CALL" }, Modifier.padding(top = 22.dp), color = Color.White, fontSize = 25.sp)
             if (call.incoming) Text(if (call.video) "Appel vidéo entrant" else "Appel audio entrant", Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .72f), fontSize = 13.sp)
-            Text(call.status, Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .8f))
+            Text(if (connectedSeconds > 0) "%02d:%02d · Appel chiffré".format(connectedSeconds / 60, connectedSeconds % 60) else call.status, Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .8f))
             call.error?.let { Text(it, Modifier.padding(24.dp), color = Color.White, fontSize = 14.sp) }
             Spacer(Modifier.size(22.dp))
             if (call.incoming) {
@@ -691,16 +699,24 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             } else if (call.error != null) {
                 Button(onClick = controller::dismissError, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(BRAND_BLUE))) { Text("Fermer") }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    FilledIconButton(onClick = controller::toggleMicrophone, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, "Micro", tint = Color(BRAND_BLUE)) }
-                    FilledIconButton(onClick = controller::toggleSpeaker, colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (call.speakerOn) Color(0xFF38BDF8) else Color.White)) { Icon(if (call.speakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, "Haut-parleur", tint = if (call.speakerOn) Color.White else Color(BRAND_BLUE)) }
-                    if (call.video) FilledIconButton(onClick = controller::toggleCamera, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", tint = Color(BRAND_BLUE)) }
-                    if (call.video) FilledIconButton(onClick = controller::switchCamera, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(Icons.Rounded.Cameraswitch, "Changer de caméra", tint = Color(BRAND_BLUE)) }
-                    FilledIconButton(onClick = controller::hangUp, colors = IconButtonDefaults.filledIconButtonColors(containerColor = declineRed)) { Icon(Icons.Rounded.CallEnd, "Raccrocher", tint = Color.White) }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    WapiCallControl(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (call.muted) "Réactiver" else "Micro", call.muted, controller::toggleMicrophone)
+                    WapiCallControl(if (call.speakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
+                    if (call.video) WapiCallControl(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", !call.cameraEnabled, controller::toggleCamera)
+                    if (call.video) WapiCallControl(Icons.Rounded.Cameraswitch, "Retourner", false, controller::switchCamera)
+                    WapiCallControl(Icons.Rounded.CallEnd, "Raccrocher", true, controller::hangUp, destructive = true)
                 }
             }
         }
         if (!call.incoming && call.error == null) CircularProgressIndicator(Modifier.align(Alignment.TopStart).padding(22.dp).size(22.dp), color = Color.White, strokeWidth = 2.dp)
+    }
+}
+
+@Composable
+private fun WapiCallControl(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit, destructive: Boolean = false) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledIconButton(onClick = onClick, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (destructive) Color(0xFFEF4444) else if (active) Color(0xFF38BDF8) else Color.White)) { Icon(icon, label, tint = if (destructive || active) Color.White else Color(BRAND_BLUE)) }
+        Text(label, Modifier.padding(top = 6.dp), color = Color.White, fontSize = 9.sp, maxLines = 1)
     }
 }
 

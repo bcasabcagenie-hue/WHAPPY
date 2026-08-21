@@ -1639,6 +1639,11 @@ private fun RadioScreen(accountDisplayName: String) {
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var lastRecording by remember { mutableStateOf<File?>(null) }
+    var micProfile by rememberSaveable { mutableStateOf(WapiMicProfile.entries.firstOrNull { it.name == prefs.getString("mic_profile", WapiMicProfile.BROADCAST.name) } ?: WapiMicProfile.BROADCAST) }
+    var inputLevel by remember { mutableStateOf(0f) }
+    var monitoring by rememberSaveable { mutableStateOf(false) }
+    val playback = remember { WapiRadioPlayback() }
+    val effectSupport = remember { detectRadioEffectSupport() }
     var feedback by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by rememberSaveable { mutableStateOf(false) }
     var scheduleTitle by rememberSaveable { mutableStateOf("") }
@@ -1653,17 +1658,18 @@ private fun RadioScreen(accountDisplayName: String) {
     }
 
     fun startBroadcast() {
-        runCatching { createVoiceRecorder(context) }
-            .onSuccess { (activeRecorder, file) ->
-                recorder = activeRecorder
-                recordingFile = file
+        playback.stop(); monitoring = false
+        runCatching { createRadioRecorder(context, micProfile) }
+            .onSuccess { session ->
+                recorder = session.recorder
+                recordingFile = session.file
                 startedAt = System.currentTimeMillis()
                 pausedAt = 0L
                 totalPausedMillis = 0L
                 elapsedSeconds = 0L
                 broadcasting = true
                 paused = false
-                feedback = "Votre radio est en direct sur cet appareil."
+                feedback = "Chaîne ${micProfile.label} active · réduction de bruit et niveau automatique selon les capacités du téléphone."
             }
             .onFailure { feedback = "Le microphone n’a pas pu démarrer. Vérifiez son autorisation puis réessayez." }
     }
@@ -1697,23 +1703,33 @@ private fun RadioScreen(accountDisplayName: String) {
         }
     }
 
+    LaunchedEffect(broadcasting, paused, recorder) {
+        while (broadcasting && !paused) {
+            val amplitude = runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0)
+            inputLevel = (amplitude / 24_000f).coerceIn(0f, 1f)
+            delay(90)
+        }
+        if (!broadcasting || paused) inputLevel = 0f
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             runCatching { recorder?.stop() }
             recorder?.release()
+            playback.release()
         }
     }
 
     LazyColumn(
-        Modifier.fillMaxSize().background(Color.White),
+        Modifier.fillMaxSize().background(WapiChatBackground),
         contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 34.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
             Card(
                 shape = RoundedCornerShape(30.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = WhappyNavy),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             ) {
                 Column(Modifier.padding(22.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1722,15 +1738,15 @@ private fun RadioScreen(accountDisplayName: String) {
                         }
                         Column(Modifier.weight(1f).padding(start = 14.dp)) {
                             Text("WAPI RADIO", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                            Text(if (broadcasting) if (paused) "Émission en pause" else "En direct maintenant" else "Studio prêt", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                            Text(if (broadcasting) if (paused) "Émission en pause" else "En direct maintenant" else "Studio prêt", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
                         }
                         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if (broadcasting && !paused) WhappyBlue else Color.White).padding(horizontal = 10.dp, vertical = 7.dp)) {
                             Text(if (broadcasting && !paused) "LIVE" else "PRÊT", color = if (broadcasting && !paused) Color.White else WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
                         }
                     }
-                    OutlinedTextField(stationName, { stationName = it.take(60) }, Modifier.fillMaxWidth().padding(top = 20.dp), label = { Text("Nom de la radio") }, singleLine = true, shape = RoundedCornerShape(16.dp))
-                    OutlinedTextField(topic, { topic = it.take(100) }, Modifier.fillMaxWidth().padding(top = 10.dp), label = { Text("Sujet de l’émission") }, minLines = 2, shape = RoundedCornerShape(16.dp))
-                    TextButton(onClick = ::saveIdentity, modifier = Modifier.align(Alignment.End)) { Text("Enregistrer les informations") }
+                    OutlinedTextField(stationName, { value -> if (value.length > stationName.length) WhappySounds.typing(context); stationName = value.take(60) }, Modifier.fillMaxWidth().padding(top = 20.dp), label = { Text("Nom de la radio") }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = WhappySky, unfocusedBorderColor = Color.White.copy(alpha = .24f), focusedLabelColor = WhappySky, unfocusedLabelColor = Color.White.copy(alpha = .68f)))
+                    OutlinedTextField(topic, { value -> if (value.length > topic.length) WhappySounds.typing(context); topic = value.take(100) }, Modifier.fillMaxWidth().padding(top = 10.dp), label = { Text("Sujet de l’émission") }, minLines = 2, shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = WhappySky, unfocusedBorderColor = Color.White.copy(alpha = .24f), focusedLabelColor = WhappySky, unfocusedLabelColor = Color.White.copy(alpha = .68f)))
+                    TextButton(onClick = ::saveIdentity, modifier = Modifier.align(Alignment.End), colors = ButtonDefaults.textButtonColors(contentColor = WhappySky)) { Text("Enregistrer") }
                 }
             }
         }
@@ -1738,7 +1754,18 @@ private fun RadioScreen(accountDisplayName: String) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 RadioMetric("STATUT", if (broadcasting) if (paused) "Pause" else "Direct" else "Hors ligne", Modifier.weight(1f))
                 RadioMetric("DURÉE", "%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60), Modifier.weight(1f))
-                RadioMetric("QUALITÉ", "HD", Modifier.weight(1f))
+                RadioMetric("QUALITÉ", "48 kHz", Modifier.weight(1f))
+            }
+        }
+        item {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF071D31)), elevation = CardDefaults.cardElevation(0.dp)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Mic, null, tint = Color.White) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Text("MIC PROCESSOR", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp); Text(micProfile.detail, color = Color.White, fontWeight = FontWeight.Bold) }; Text("AAC 192K", color = Color.White.copy(alpha = .65f), fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { WapiMicProfile.entries.forEach { profile -> OutlinedButton(enabled = !broadcasting, onClick = { micProfile = profile; prefs.edit().putString("mic_profile", profile.name).apply(); WhappySounds.haptic(context) }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (micProfile == profile) WhappyBlue else Color.White.copy(alpha = .05f), contentColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, if (micProfile == profile) WhappySky else Color.White.copy(alpha = .18f)), shape = RoundedCornerShape(14.dp)) { Text(profile.label, fontSize = 11.sp, fontWeight = FontWeight.Bold) } } }
+                    WapiAudioMeter(inputLevel = inputLevel, active = broadcasting && !paused)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple("NR", "Bruit", effectSupport.noiseReduction), Triple("AGC", "Niveau", effectSupport.automaticGain), Triple("AEC", "Écho", effectSupport.echoCancellation)).forEach { effect -> Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .07f)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(7.dp).clip(CircleShape).background(if (broadcasting && effect.third) Color(0xFF4ADE80) else WhappyMuted)); Column(Modifier.padding(start = 7.dp)) { Text(effect.first, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (effect.third) effect.second else "N/D", color = Color.White.copy(alpha = .55f), fontSize = 8.sp) } } } }
+                    Text("Les traitements d’entrée dépendent du DSP audio disponible sur l’appareil. Le profil sélectionné est aussi appliqué à l’écoute de contrôle.", color = Color.White.copy(alpha = .52f), fontSize = 9.sp, lineHeight = 13.sp)
+                }
             }
         }
         item {
@@ -1786,7 +1813,8 @@ private fun RadioScreen(accountDisplayName: String) {
                 Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)) {
                     Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(48.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AudioFile, null, tint = Color.White) }
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Dernière émission", color = WhappyDark, fontWeight = FontWeight.Black); Text("${file.length() / 1024} Ko · prête à partager", color = WhappyMuted, fontSize = 11.sp) }
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Dernière émission", color = WhappyDark, fontWeight = FontWeight.Black); Text("${file.length() / 1024} Ko · profil ${micProfile.label}", color = WhappyMuted, fontSize = 11.sp) }
+                        IconButton(onClick = { if (monitoring) { playback.stop(); monitoring = false } else { monitoring = true; playback.play(file, micProfile) { monitoring = false } } }) { Icon(if (monitoring) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (monitoring) "Arrêter l’écoute" else "Écouter", tint = WhappyBlue) }
                         IconButton(onClick = { shareRadioRecording(context, file, stationName) }) { Icon(Icons.Rounded.Share, "Partager", tint = WhappyBlue) }
                     }
                 }
@@ -1829,6 +1857,21 @@ private fun RadioMetric(label: String, value: String, modifier: Modifier = Modif
         Column(Modifier.fillMaxWidth().padding(vertical = 15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, color = WhappyMuted, fontSize = 8.sp, fontWeight = FontWeight.Black)
             Text(value, Modifier.padding(top = 4.dp), color = WhappyBlue, fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun WapiAudioMeter(inputLevel: Float, active: Boolean) {
+    val smoothed by animateFloatAsState(targetValue = if (active) inputLevel else 0f, animationSpec = tween(85), label = "radio-meter")
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { Text("NIVEAU MICRO", Modifier.weight(1f), color = Color.White.copy(alpha = .65f), fontSize = 9.sp, fontWeight = FontWeight.Black); Text(if (!active) "—∞ dB" else "${(-42 + smoothed * 42).toInt()} dB", color = if (smoothed > .86f) Color(0xFFFF806B) else WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black) }
+        Row(Modifier.fillMaxWidth().height(18.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            repeat(18) { index ->
+                val threshold = (index + 1) / 18f
+                val color = when { index >= 15 -> Color(0xFFFF655B); index >= 11 -> Color(0xFFFFC247); else -> Color(0xFF4ADE80) }
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(if (smoothed >= threshold) color else Color.White.copy(alpha = .08f)))
+            }
         }
     }
 }
@@ -2224,8 +2267,8 @@ private fun initialStrategyBoard(checkers: Boolean): List<String> = if (checkers
     if ((row + col) % 2 == 1 && row < 3) "b" else if ((row + col) % 2 == 1 && row > 4) "w" else ""
 } else listOf("♜","♞","♝","♛","♚","♝","♞","♜") + List(8) { "♟" } + List(32) { "" } + List(8) { "♙" } + listOf("♖","♘","♗","♕","♔","♗","♘","♖")
 
-private fun whitePiece(piece: String) = piece in setOf("w", "W", "♙", "♖", "♘", "♗", "♕", "♔")
-private fun blackPiece(piece: String) = piece.isNotBlank() && !whitePiece(piece)
+private fun whitePiece(piece: String) = WapiGameRules.isWhite(piece)
+private fun blackPiece(piece: String) = WapiGameRules.isBlack(piece)
 
 @Composable
 private fun StrategyBoardGame(checkers: Boolean, onXp: (Int) -> Unit, onWin: () -> Unit) {
@@ -2240,25 +2283,13 @@ private fun StrategyBoardGame(checkers: Boolean, onXp: (Int) -> Unit, onWin: () 
             if ((whiteTurn && whitePiece(piece)) || (!whiteTurn && blackPiece(piece))) { selected = index; WhappySounds.haptic(context) }
             return
         }
-        val from = selected; val moving = board[from]
+        val from = selected
         if ((whiteTurn && whitePiece(piece)) || (!whiteTurn && blackPiece(piece))) { selected = index; return }
-        val fr = from / 8; val fc = from % 8; val tr = index / 8; val tc = index % 8
-        val dr = kotlin.math.abs(tr - fr); val dc = kotlin.math.abs(tc - fc)
-        val legal = if (checkers) dr in 1..2 && dr == dc else when (moving) {
-            "♘", "♞" -> (dr == 2 && dc == 1) || (dr == 1 && dc == 2)
-            "♖", "♜" -> dr == 0 || dc == 0
-            "♗", "♝" -> dr == dc
-            "♕", "♛" -> dr == dc || dr == 0 || dc == 0
-            "♔", "♚" -> dr <= 1 && dc <= 1
-            else -> dc <= 1 && dr in 1..2
-        }
-        if (!legal) { message = "Mouvement non autorisé."; WhappySounds.impact(); selected = -1; return }
-        val next = board.toMutableList(); val captured = next[index].isNotBlank()
-        if (checkers && dr == 2) next[((fr + tr) / 2) * 8 + (fc + tc) / 2] = ""
-        next[index] = if (checkers && ((moving == "w" && tr == 0) || (moving == "b" && tr == 7))) moving.uppercase() else moving
-        next[from] = ""; board = next; selected = -1; whiteTurn = !whiteTurn
-        onXp(if (captured || (checkers && dr == 2)) 12 else 3); WhappySounds.move(); message = if (captured || (checkers && dr == 2)) "Capture réussie · +12 XP" else "À ${if (whiteTurn) "Blanc" else "Noir"} de jouer"
-        if (next.none(::blackPiece) || next.none(::whitePiece)) { onWin(); onXp(120); WhappySounds.reward(); message = "VICTOIRE · plateau maîtrisé" }
+        val result = if (checkers) WapiGameRules.checkersMove(board, from, index, whiteTurn) else WapiGameRules.chessMove(board, from, index, whiteTurn)
+        if (result == null) { message = if (checkers && WapiGameRules.hasCheckersCapture(board, whiteTurn)) "Une capture est disponible et devient prioritaire." else "Mouvement non autorisé ou roi exposé."; WhappySounds.impact(); selected = -1; return }
+        board = result.board; selected = -1; whiteTurn = !whiteTurn
+        onXp(if (result.captured) 12 else 3); WhappySounds.move(); message = when { result.promoted -> "Dame couronnée · +12 XP"; result.captured -> "Capture réussie · +12 XP"; else -> "À ${if (whiteTurn) "Blanc" else "Noir"} de jouer" }
+        if (result.board.none(::blackPiece) || result.board.none(::whitePiece)) { onWin(); onXp(120); WhappySounds.reward(); message = "VICTOIRE · plateau maîtrisé" }
     }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row { Column(Modifier.weight(1f)) { Text(if (checkers) "WAPI DAMES" else "WAPI CHESS", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (checkers) "Jeu de dames 3D" else "Échecs stratégiques", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text(if (whiteTurn) "BLANC" else "NOIR", color = Color.White, fontWeight = FontWeight.Black) }
@@ -4759,6 +4790,7 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
     var liveEvents by remember(live.id) { mutableStateOf(prefs.getStringSet("events-${live.id}", emptySet()).orEmpty().toList().sorted()) }
     var giftPanel by rememberSaveable(live.id) { mutableStateOf(false) }
     var giftBalance by rememberSaveable(live.id) { mutableStateOf(prefs.getInt("gift-balance", 250)) }
+    var giftSpent by rememberSaveable(live.id) { mutableStateOf(prefs.getInt("gift-spent", 0)) }
     var pendingGiftIndex by rememberSaveable(live.id) { mutableStateOf(-1) }
     var animatedGift by rememberSaveable(live.id) { mutableStateOf("") }
     var soundOn by rememberSaveable(live.id) { mutableStateOf(true) }
@@ -4795,9 +4827,12 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
 
     fun sendGift(index: Int) {
         val gift = giftOptions.getOrNull(index) ?: return
+        if (isOwner) { voiceFeedback = "Un hôte ne peut pas s’envoyer un cadeau à lui-même."; return }
         if (giftBalance < gift.third) { voiceFeedback = "Solde W-Coins insuffisant. Rechargez votre portefeuille test."; return }
+        if (giftSpent + gift.third > 1_000) { voiceFeedback = "Plafond de sécurité atteint pour cette session test."; return }
         giftBalance -= gift.third
-        prefs.edit().putInt("gift-balance", giftBalance).apply()
+        giftSpent += gift.third
+        prefs.edit().putInt("gift-balance", giftBalance).putInt("gift-spent", giftSpent).apply()
         appendLiveEvent("gift", youLabel, gift.second, gift.first, gift.third)
         reactionCount += gift.third
         animatedGift = gift.second
@@ -4898,11 +4933,11 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
                     }
                 }
                 if (giftPanel) Column(Modifier.fillMaxWidth().background(WhappyAuroraSoft).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("CADEAUX 3D", color = WhappyDark, fontWeight = FontWeight.Black); Text("Solde : $giftBalance W-Coins · portefeuille test", color = WhappyMuted, fontSize = 10.sp) }; TextButton(onClick = { giftBalance += 250; prefs.edit().putInt("gift-balance", giftBalance).apply(); voiceFeedback = "+250 W-Coins de démonstration" }) { Text("+ Recharger") } }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("CADEAUX 3D", color = WhappyDark, fontWeight = FontWeight.Black); Text("Solde : $giftBalance W-Coins · dépensé : $giftSpent/1000", color = WhappyMuted, fontSize = 10.sp) }; TextButton(enabled = giftBalance < 1_000, onClick = { giftBalance = (giftBalance + 250).coerceAtMost(1_000); prefs.edit().putInt("gift-balance", giftBalance).apply(); voiceFeedback = "+250 W-Coins de démonstration" }) { Text("+ Recharger") } }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(9.dp)) { giftOptions.forEachIndexed { index, gift -> Card(Modifier.width(112.dp).clickable { pendingGiftIndex = index }.graphicsLayer { rotationX = 5f; rotationY = if (index % 2 == 0) -4f else 4f; shadowElevation = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(gift.second, fontSize = 38.sp); Text(gift.first, color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1); Text("${gift.third} W-Coins", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold) } } } }
                     Text("Aucun paiement bancaire réel n’est effectué dans cette version.", color = WhappyMuted, fontSize = 9.sp)
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { message = it.take(180) }, Modifier.weight(1f), placeholder = { Text(t("Écrire dans le Live", "Write in the live", "Koma na Live")) }, singleLine = true, shape = RoundedCornerShape(15.dp)); IconButton(onClick = { giftPanel = !giftPanel }) { Text("🎁", fontSize = 22.sp) }; IconButton(onClick = { if (message.isNotBlank()) { val value = message.trim(); appendLiveEvent("comment", youLabel, value); speakLive(value); message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, t("Envoyer", "Send", "Tinda"), tint = WhappyBlue) }; TextButton(onClick = { reactionCount += 1 }) { Text("💙 $reactionCount") } }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { value -> if (value.length > message.length) WhappySounds.typing(context); message = value.take(180) }, Modifier.weight(1f), placeholder = { Text(t("Écrire dans le Live", "Write in the live", "Koma na Live")) }, singleLine = true, shape = RoundedCornerShape(15.dp)); if (!isOwner) IconButton(onClick = { giftPanel = !giftPanel }) { Text("🎁", fontSize = 22.sp) }; IconButton(onClick = { if (message.isNotBlank()) { val value = message.trim(); appendLiveEvent("comment", youLabel, value); speakLive(value); WhappySounds.sent(); message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, t("Envoyer", "Send", "Tinda"), tint = WhappyBlue) }; TextButton(onClick = { reactionCount += 1; WhappySounds.haptic(context) }) { Text("💙 $reactionCount") } }
             }
         }
     }
@@ -5431,7 +5466,7 @@ private fun ProfileScreen(
             )
         }
         item { Card(Modifier.fillMaxWidth().clickable { settingDialog = "Langue" }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Language, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(t("Langue de l’application", "App language", "Lokota ya application"), fontWeight = FontWeight.Bold, color = WhappyDark); Text(language.label, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } } }
-        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Live & cadeaux test" to "Audio du direct, cadeaux gratuits et modération", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
+        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Live & cadeaux test" to "Audio du direct, W-Coins et modération", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
             Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
@@ -5477,7 +5512,7 @@ private fun ProfileScreen(
                     "Live & cadeaux test" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text("Mode expérimental gratuit", color = WhappyMuted, fontSize = 12.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) { Text("Cadeaux live gratuits", fontWeight = FontWeight.Bold); Text("Les spectateurs peuvent envoyer des cadeaux sans paiement pendant la phase test.", color = WhappyMuted, fontSize = 10.sp) }
+                            Column(Modifier.weight(1f)) { Text("Portefeuille cadeaux test", fontWeight = FontWeight.Bold); Text("Les spectateurs utilisent des W-Coins de démonstration avec confirmation et plafond.", color = WhappyMuted, fontSize = 10.sp) }
                             Switch(experimentalTools, { enabled -> experimentalTools = enabled; prefs.edit().putBoolean("experimental_tools", enabled).apply() })
                         }
                         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7FF))) {
