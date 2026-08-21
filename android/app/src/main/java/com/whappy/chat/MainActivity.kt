@@ -45,7 +45,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         callController = WhappyCallController(this)
-        val preview = false
+        // Phone Auth relies on Play Integrity and is intentionally unavailable on
+        // most local AVDs. Emulators open the interactive preview immediately;
+        // physical phones keep the full Firebase authentication flow.
+        val preview = isRunningOnAndroidEmulator()
         incomingLink = intent?.dataString
         pendingCallAction = intent?.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
         setContent {
@@ -151,6 +154,21 @@ class MainActivity : ComponentActivity() {
         if (::callController.isInitialized) callController.release()
         super.onDestroy()
     }
+}
+
+private fun isRunningOnAndroidEmulator(): Boolean {
+    val fingerprint = Build.FINGERPRINT.lowercase()
+    val model = Build.MODEL.lowercase()
+    val product = Build.PRODUCT.lowercase()
+    val hardware = Build.HARDWARE.lowercase()
+    return fingerprint.startsWith("generic") ||
+        fingerprint.contains("emulator") ||
+        model.contains("emulator") ||
+        model.contains("android sdk built for") ||
+        product.contains("sdk_gphone") ||
+        product.contains("emulator") ||
+        hardware.contains("goldfish") ||
+        hardware.contains("ranchu")
 }
 
 enum class AuthStage { PHONE, CODE, PROFILE }

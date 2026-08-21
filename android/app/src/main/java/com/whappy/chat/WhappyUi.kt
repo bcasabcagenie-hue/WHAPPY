@@ -917,7 +917,7 @@ private fun WhappyMain(
         else if (selectedChannel != null) onCloseChannel()
         else onCloseConversation()
     }
-    if (state.error != null) AlertDialog(onDismissRequest = onDismissError, confirmButton = { TextButton(onClick = onDismissError) { Text("Fermer") } }, title = { Text("WAPI") }, text = { Text(state.error) })
+    if (!preview && state.error != null) AlertDialog(onDismissRequest = onDismissError, confirmButton = { TextButton(onClick = onDismissError) { Text("Fermer") } }, title = { Text("WAPI") }, text = { Text(state.error) })
     if (showActivityCenter) ActivityCenterDialog(
         notices = activityNotices,
         lives = activityLives,
