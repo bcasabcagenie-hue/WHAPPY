@@ -455,11 +455,17 @@ service cloud.firestore {
         && request.resource.data.authorName.size() >= 2
         && request.resource.data.authorName.size() <= 80
         && request.resource.data.mediaUrl is string
-        && request.resource.data.mediaType in ["image", "video"]
+        && request.resource.data.mediaType in ["text", "image", "video"]
         && request.resource.data.caption is string
-        && request.resource.data.caption.size() <= 180
+        && request.resource.data.caption.size() <= 600
         && request.resource.data.storagePath is string
-        && request.resource.data.storagePath.matches('stories/' + request.auth.uid + '/.*')
+        && ((request.resource.data.mediaType == "text"
+              && request.resource.data.caption.size() >= 1
+              && request.resource.data.mediaUrl == ""
+              && request.resource.data.storagePath == "")
+          || (request.resource.data.mediaType in ["image", "video"]
+              && request.resource.data.mediaUrl.matches('https://firebasestorage.googleapis.com/.*')
+              && request.resource.data.storagePath.matches('stories/' + request.auth.uid + '/.*')))
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt <= request.time + duration.value(25, 'h')

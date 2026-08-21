@@ -5,10 +5,10 @@ import org.junit.Test
 
 class AccountSessionPolicyTest {
     @Test
-    fun founderPhoneGetsHappyName() {
+    fun founderPhoneAlwaysGetsCyrilBokiloName() {
         assertEquals(
-            "Happy",
-            AccountSessionPolicy.displayName("", "+242065465808", 0L, 1_000L),
+            "Cyril Bokilo",
+            AccountSessionPolicy.displayName("Ancien nom", "+242065465808", 0L, 1_000L),
         )
     }
 

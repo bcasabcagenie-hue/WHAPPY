@@ -223,6 +223,7 @@ private val WhappyNavy = Color(0xFF063A65)
 private val WhappyLine = Color(0xFFE5E5E5)
 private val WhappyDeepBlue = Color(0xFF0068C9)
 private val WhappySky = Color(0xFF7BD9FF)
+private val WapiVerifiedGray = Color(0xFF858D96)
 private val WapiChatAccent = Color(0xFF0094F0)
 private val WapiBubbleOutgoing = Color(0xFFD8F1FF)
 private val WapiChatBackground = Color(0xFFF4F9FC)
@@ -1341,7 +1342,7 @@ private fun StoriesScreen(
                     else -> "image/jpeg"
                 }
             }
-            if (contentType.startsWith("image/") || contentType in setOf("video/mp4", "video/webm")) {
+            if (contentType.startsWith("image/") || contentType.startsWith("video/")) {
                 mediaUri = uri
                 mediaType = contentType
                 mediaName = selectedName
@@ -1387,7 +1388,7 @@ private fun StoriesScreen(
                         shape = RoundedCornerShape(17.dp),
                     )
                     Surface(
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).clickable(enabled = !busy) { mediaPicker.launch(arrayOf("image/*", "video/mp4", "video/webm")) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).clickable(enabled = !busy) { mediaPicker.launch(arrayOf("image/*", "video/*")) },
                         shape = RoundedCornerShape(16.dp),
                         color = WhappyBlue.copy(alpha = .055f),
                         border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .18f)),
@@ -1412,7 +1413,7 @@ private fun StoriesScreen(
                         }
                     }
                     Button(
-                        enabled = draft.trim().length >= 3 && !busy,
+                        enabled = (draft.trim().isNotEmpty() || mediaUri != null) && !busy,
                         onClick = {
                             val value = draft.trim()
                             if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, tone, System.currentTimeMillis(), mediaUri?.toString().orEmpty(), if (mediaType.startsWith("video/")) "video" else if (mediaUri != null) "image" else "", mediaName)) + previewStatuses
@@ -1441,7 +1442,7 @@ private fun StoriesScreen(
                         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) { Text(status.authorName, color = WhappyDark, fontWeight = FontWeight.Black); Text(formatTime(status.createdAt), color = WhappyMuted, fontSize = 10.sp) }
                         if (status.authorId == currentUserId) IconButton(onClick = { if (preview) previewStatuses = previewStatuses.filterNot { it.id == status.id } else onDelete(status.id) }, enabled = !busy) { Icon(Icons.Rounded.Delete, t("Supprimer", "Delete", "Longola"), tint = WhappyBlue) }
                     }
-                    Text(status.text, Modifier.padding(top = 14.dp), color = WhappyDark, fontSize = 16.sp, lineHeight = 23.sp)
+                    if (status.text.isNotBlank()) Text(status.text, Modifier.padding(top = 14.dp), color = WhappyDark, fontSize = 16.sp, lineHeight = 23.sp)
                     if (status.mediaUrl.isNotBlank()) {
                         Surface(Modifier.fillMaxWidth().padding(top = 12.dp).clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.mediaUrl))) } }, color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(15.dp)) {
                             Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2558,8 +2559,8 @@ private fun MomentCard(author: String, badge: String, title: String, body: Strin
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(42.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) { Text(initials(author), color = WhappyDark, fontWeight = FontWeight.Bold) }
                 Column(Modifier.padding(start = 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Text(author, fontWeight = FontWeight.Bold); Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.padding(start = 4.dp).size(15.dp)) }
-                    Text(badge, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) { Text(author, fontWeight = FontWeight.Bold); Icon(Icons.Rounded.Verified, null, tint = WapiVerifiedGray, modifier = Modifier.padding(start = 4.dp).size(15.dp)) }
+                    Text(badge, color = WapiVerifiedGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
             Text(title, Modifier.padding(top = 18.dp), color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
@@ -3025,14 +3026,14 @@ private fun MessagesScreen(
                                         Icons.Rounded.Verified,
                                         null,
                                         modifier = Modifier.padding(start = 4.dp).size(15.dp),
-                                        tint = if (isFounderContact) WhappyMuted else WhappyBlue,
+                                        tint = WapiVerifiedGray,
                                     )
                                 }
                                 Text(contactSearchResult.phoneNumber.ifBlank { contactSearchPhone }, color = WhappyMuted, fontSize = 11.sp)
                                 if (isFounderContact) {
                                     Text(WhappyIdentity.founderBadgeLabel, color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 } else {
-                                    Text("Compte WAPI vérifié", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text("Compte WAPI vérifié", color = WapiVerifiedGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -3276,7 +3277,7 @@ private fun ChannelDirectory(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(if (subscribed) WhappyBlue else Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = if (subscribed) Color.White else WhappyBlue) }
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) { Text(channel.name, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp); if (channel.verified) Icon(Icons.Rounded.Verified, "Chaîne vérifiée", tint = WhappyBlue, modifier = Modifier.padding(start = 4.dp).size(16.dp)) }
+                            Row(verticalAlignment = Alignment.CenterVertically) { Text(channel.name, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp); if (channel.verified) Icon(Icons.Rounded.Verified, "Chaîne vérifiée", tint = WapiVerifiedGray, modifier = Modifier.padding(start = 4.dp).size(16.dp)) }
                             Text("${channel.category} · ${formatCompactCount(channel.memberCount)} abonnés", color = WhappyMuted, fontSize = 11.sp)
                         }
                         if (owner) Text("PROPRIÉTAIRE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
@@ -3334,7 +3335,7 @@ private fun ChannelScreen(
         Row(Modifier.fillMaxWidth().background(Color.White).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
             Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = Color.White) }
-            Column(Modifier.weight(1f).padding(start = 10.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(channel.name, fontWeight = FontWeight.Black, color = WhappyDark); if (channel.verified) Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.padding(start = 4.dp).size(15.dp)) }; Text("${formatCompactCount(channel.memberCount)} abonnés · ${channel.postCount} publications", color = WhappyMuted, fontSize = 10.sp) }
+            Column(Modifier.weight(1f).padding(start = 10.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(channel.name, fontWeight = FontWeight.Black, color = WhappyDark); if (channel.verified) Icon(Icons.Rounded.Verified, null, tint = WapiVerifiedGray, modifier = Modifier.padding(start = 4.dp).size(15.dp)) }; Text("${formatCompactCount(channel.memberCount)} abonnés · ${channel.postCount} publications", color = WhappyMuted, fontSize = 10.sp) }
             IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) search = "" }) { Icon(Icons.Rounded.Search, "Rechercher", tint = if (searchOpen) WhappyBlue else WhappyDark) }
             IconButton(onClick = { showingChannelCode = true }) { Icon(Icons.Rounded.Share, "Partager la chaîne", tint = WhappyDark) }
         }
@@ -4829,7 +4830,7 @@ private fun InsightCard(title: String, value: Long, target: Long, body: String) 
 }
 
 @Composable
-private fun BusinessPageCard(page: WhappyBusinessPage, onEdit: () -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WhappyBlue) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }; TextButton(onClick = onEdit) { Text("Modifier") } }; FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("📍 ${page.city}", color = WhappyMuted, fontSize = 10.sp); if (page.phone.isNotBlank()) Text("☎ ${page.phone}", color = WhappyMuted, fontSize = 10.sp); if (page.website.isNotBlank()) Text("↗ ${page.website}", color = WhappyBlue, fontSize = 10.sp) } } } }
+private fun BusinessPageCard(page: WhappyBusinessPage, onEdit: () -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WapiVerifiedGray) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }; TextButton(onClick = onEdit) { Text("Modifier") } }; FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("📍 ${page.city}", color = WhappyMuted, fontSize = 10.sp); if (page.phone.isNotBlank()) Text("☎ ${page.phone}", color = WhappyMuted, fontSize = 10.sp); if (page.website.isNotBlank()) Text("↗ ${page.website}", color = WhappyBlue, fontSize = 10.sp) } } } }
 
 @Composable
 private fun DealCard(deal: WhappyDeal, onStatus: (String) -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(8.dp)).background(if (deal.status == "active") Color.White else Color.White).padding(horizontal = 8.dp, vertical = 5.dp)) { Text(if (deal.status == "active") "DEAL ACTIF" else deal.status.uppercase(), color = if (deal.status == "active") WhappyBlue else WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(deal.pageName, Modifier.padding(start = 8.dp).weight(1f), color = WhappyMuted, fontSize = 11.sp); Text("${deal.sold}/${deal.stock} vendus", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold) }; Text(deal.title, Modifier.padding(top = 10.dp), color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black); Text(deal.description, Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp); Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.Bottom) { Text(formatMoney(deal.dealPrice), color = WhappyBlue, fontSize = 20.sp, fontWeight = FontWeight.Black); if (deal.originalPrice > deal.dealPrice) Text(formatMoney(deal.originalPrice), Modifier.padding(start = 8.dp), color = WhappyMuted, fontSize = 11.sp); Spacer(Modifier.weight(1f)); Text("Expire ${formatShortDate(deal.endsAt)}", color = WhappyMuted, fontSize = 10.sp) }; Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { if (deal.status == "active") OutlinedButton(onClick = { onStatus("paused") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Suspendre") } else if (deal.status == "paused") Button(onClick = { onStatus("active") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Réactiver") }; OutlinedButton(onClick = { onStatus("ended") }, enabled = deal.status != "ended", modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Terminer") } } } } }
@@ -5036,10 +5037,12 @@ private fun ProfileScreen(
                     IconButton(onClick = { photoPicker.launch("image/*") }, enabled = !busy, modifier = Modifier.size(32.dp).clip(CircleShape).background(WhappyBlue)) { Icon(Icons.Rounded.Photo, t("Changer la photo", "Change photo", "Bongola foto"), tint = Color.White, modifier = Modifier.size(17.dp)) }
                 }
                 Column(Modifier.weight(1f).padding(start = 15.dp)) {
-                    Text(if (founder) WhappyIdentity.founderBusinessName else name, fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (founder) Text(WhappyIdentity.founderName, Modifier.padding(top = 2.dp), color = WhappyMuted, fontSize = 11.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (founder) WhappyIdentity.founderName else name, Modifier.weight(1f, fill = false), fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Icon(Icons.Rounded.Verified, null, tint = WapiVerifiedGray, modifier = Modifier.padding(start = 5.dp).size(17.dp))
+                    }
                     Text(if (preview) t("Mode démonstration", "Demo mode", "Mode ya komeka") else phone, Modifier.padding(top = 3.dp), color = WhappyMuted, fontSize = 11.sp)
-                    Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, null, tint = WhappyBlue, modifier = Modifier.size(15.dp)); Text(if (founder) WhappyIdentity.founderBadgeLabel else t("Compte vérifié", "Verified account", "Compte endimami"), Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                    Text(if (founder) WhappyIdentity.founderBadgeLabel else t("Compte vérifié", "Verified account", "Compte endimami"), Modifier.padding(top = 5.dp), color = WapiVerifiedGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { if (localPhoto.isNotBlank()) previewPhoto = localPhoto }, enabled = localPhoto.isNotBlank()) { Text(t("Voir", "View", "Tala"), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                         TextButton(onClick = { showingMyCode = true }) { Text(t("Mon code", "My code", "Code na ngai"), fontSize = 11.sp, fontWeight = FontWeight.Bold) }

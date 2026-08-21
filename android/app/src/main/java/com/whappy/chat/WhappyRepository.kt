@@ -231,11 +231,12 @@ class WhappyRepository(
             val contacts = snapshot?.get("contacts") as? Map<String, Map<String, Any?>> ?: emptyMap()
             onChange(contacts.mapNotNull { (uid, value) ->
                 val name = value["displayName"]?.toString()?.trim().orEmpty()
+                val phone = value["phoneNumber"]?.toString().orEmpty()
                 if (uid.isBlank() || name.isBlank()) null else WhappyContact(
                     member = WhappyMember(
                         uid = uid,
-                        displayName = name,
-                        phoneNumber = value["phoneNumber"]?.toString().orEmpty(),
+                        displayName = WhappyIdentity.resolveAccountName(name, phone),
+                        phoneNumber = phone,
                         photoUrl = value["photoUrl"]?.toString().orEmpty(),
                     ),
                     addedAt = (value["addedAt"] as? Timestamp)?.toDate()?.time ?: 0L,
@@ -428,8 +429,8 @@ class WhappyRepository(
     fun observeStatuses(
         onChange: (List<WhappyStatus>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("whaptexts")
-        .whereEqualTo("kind", "status")
+    ): ListenerRegistration = db.collection("stories")
+        .whereGreaterThan("expiresAt", com.google.firebase.Timestamp.now())
         .limit(80)
         .addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -438,17 +439,18 @@ class WhappyRepository(
             }
             onChange(snapshot?.documents.orEmpty().mapNotNull { document ->
                 val authorId = document.getString("authorId").orEmpty()
-                val text = document.getString("text").orEmpty()
-                if (authorId.isBlank() || text.isBlank()) null else WhappyStatus(
+                val caption = document.getString("caption").orEmpty()
+                val mediaUrl = document.getString("mediaUrl").orEmpty()
+                if (authorId.isBlank() || (caption.isBlank() && mediaUrl.isBlank())) null else WhappyStatus(
                     id = document.id,
                     authorId = authorId,
-                    authorName = document.getString("authorName") ?: "Utilisateur WHAPPY",
-                    text = text,
-                    tone = document.getString("tone") ?: "community",
+                    authorName = document.getString("authorName") ?: WhappyIdentity.fallbackAccountName,
+                    text = caption,
+                    tone = "community",
                     createdAt = document.timestampMillis("createdAt"),
-                    mediaUrl = document.getString("mediaUrl").orEmpty(),
-                    mediaKind = document.getString("mediaKind").orEmpty(),
-                    mediaName = document.getString("mediaName").orEmpty(),
+                    mediaUrl = mediaUrl,
+                    mediaKind = document.getString("mediaType").orEmpty(),
+                    mediaName = if (document.getString("mediaType") == "video") "Vidéo WAPI" else "Image WAPI",
                 )
             }.sortedByDescending { it.createdAt })
         }
@@ -1008,43 +1010,47 @@ class WhappyRepository(
     suspend fun publishStatus(userId: String, authorName: String, text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") {
         require(auth.currentUser?.uid == userId)
         val value = text.trim()
-        require(value.length in 3..600)
+        require(value.length <= 600)
+        require(value.isNotBlank() || mediaUri != null)
         require(tone in setOf("hope", "action", "community", "warning"))
         val mediaKind = when {
-            mediaUri == null -> ""
+            mediaUri == null -> "text"
             mediaContentType.startsWith("image/") -> "image"
             mediaContentType.startsWith("video/") -> "video"
             else -> error("invalid-status-media")
         }
         val mediaSize = mediaUri?.let { uri -> runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L) } ?: 0L
-        val maximumSize = if (mediaKind == "video") 60L * 1024L * 1024L else 20L * 1024L * 1024L
+        val maximumSize = if (mediaKind == "video") 50L * 1024L * 1024L else 12L * 1024L * 1024L
         require(mediaUri == null || mediaSize < 0L || mediaSize in 1..maximumSize)
+        var storagePath = ""
         val mediaUrl = if (mediaUri == null) "" else {
-            val extension = if (mediaKind == "video") "mp4" else mediaContentType.substringAfter('/', "jpg").substringBefore('+').take(8)
-            val mediaRef = storage.reference.child("stories/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension")
+            val extension = mediaContentType.substringAfter('/', if (mediaKind == "video") "mp4" else "jpg").substringBefore('+').replace("quicktime", "mov").take(8)
+            storagePath = "stories/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
+            val mediaRef = storage.reference.child(storagePath)
             mediaRef.putFile(mediaUri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()
             mediaRef.downloadUrl.await().toString()
         }
-        db.collection("whaptexts").add(
+        db.collection("stories").add(
             mapOf(
                 "authorId" to userId,
                 "authorName" to authorName.trim().take(80),
-                "text" to value,
-                "tone" to tone,
-                "kind" to "status",
+                "caption" to value,
                 "mediaUrl" to mediaUrl,
-                "mediaKind" to mediaKind,
-                "mediaName" to if (mediaUri == null) "" else "Story WAPI ${if (mediaKind == "video") "vidéo" else "image"}",
+                "mediaType" to mediaKind,
+                "storagePath" to storagePath,
                 "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
+                "expiresAt" to com.google.firebase.Timestamp(Date(System.currentTimeMillis() + 24L * 60L * 60L * 1000L)),
             ),
         ).await()
     }
 
     suspend fun deleteStatus(userId: String, statusId: String) {
-        val reference = db.collection("whaptexts").document(statusId)
+        val reference = db.collection("stories").document(statusId)
         val document = reference.get().await()
         require(document.getString("authorId") == userId)
+        document.getString("storagePath").orEmpty().takeIf { it.isNotBlank() }?.let { path ->
+            runCatching { storage.reference.child(path).delete().await() }
+        }
         reference.delete().await()
     }
 
@@ -1343,10 +1349,11 @@ class WhappyRepository(
                 photoUrl = rawMembers?.firstNotNullOfOrNull { it["groupPhotoUrl"]?.toString()?.takeIf(String::isNotBlank) }.orEmpty(),
             )
         } else if (peerMap != null) {
+            val phone = peerMap["phoneNumber"]?.toString().orEmpty()
             WhappyMember(
                 uid = peerMap["uid"]?.toString().orEmpty(),
-                displayName = peerMap["displayName"]?.toString()?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
-                phoneNumber = peerMap["phoneNumber"]?.toString().orEmpty(),
+                displayName = WhappyIdentity.resolveAccountName(peerMap["displayName"]?.toString().orEmpty(), phone),
+                phoneNumber = phone,
                 photoUrl = peerMap["photoUrl"]?.toString().orEmpty(),
             )
         } else {
@@ -1396,12 +1403,15 @@ class WhappyRepository(
     private fun DocumentSnapshot.timestampMillis(field: String): Long =
         getTimestamp(field)?.toDate()?.time ?: 0L
 
-    private fun DocumentSnapshot.toMember(): WhappyMember = WhappyMember(
-        uid = id,
-        displayName = getString("displayName")?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
-        phoneNumber = getString("phoneNumber").orEmpty(),
-        photoUrl = getString("photoUrl").orEmpty(),
-    )
+    private fun DocumentSnapshot.toMember(): WhappyMember {
+        val phone = getString("phoneNumber").orEmpty()
+        return WhappyMember(
+            uid = id,
+            displayName = WhappyIdentity.resolveAccountName(getString("displayName").orEmpty(), phone),
+            phoneNumber = phone,
+            photoUrl = getString("photoUrl").orEmpty(),
+        )
+    }
 
     private fun DocumentSnapshot.toBusinessPage(): WhappyBusinessPage = WhappyBusinessPage(
         id = id,

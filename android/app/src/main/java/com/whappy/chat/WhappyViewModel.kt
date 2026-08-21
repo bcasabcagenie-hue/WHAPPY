@@ -606,11 +606,11 @@ class WhappyViewModel(
         repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
     }
 
-    fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") = runBusinessAction("Le statut n’a pas été publié") { user ->
+    fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") = runBusinessAction("La Story n’a pas été publiée") { user ->
         repository.publishStatus(user.uid, accountName(), text, tone, mediaUri, mediaContentType)
     }
 
-    fun deleteStatus(statusId: String) = runBusinessAction("Le statut n’a pas été supprimé") { user ->
+    fun deleteStatus(statusId: String) = runBusinessAction("La Story n’a pas été supprimée") { user ->
         repository.deleteStatus(user.uid, statusId)
     }
 
@@ -794,7 +794,7 @@ class WhappyViewModel(
         )
         statusesListener = repository.observeStatuses(
             onChange = { items -> _uiState.update { it.copy(statuses = items, online = true) } },
-            onError = { _uiState.update { it.copy(online = false, error = "Les statuts sont momentanément indisponibles") } },
+            onError = { _uiState.update { it.copy(online = false, error = "Les Stories sont momentanément indisponibles") } },
         )
         dealsListener = repository.observeDeals(
             user.uid,
@@ -843,9 +843,10 @@ class WhappyViewModel(
         }
     }
 
-    private fun accountName(): String = _uiState.value.accountDisplayName.ifBlank {
+    private fun accountName(): String {
         val phone = _uiState.value.user?.phoneNumber.orEmpty()
-        if (WhappyIdentity.isFounder(phone)) WhappyIdentity.founderName else "Utilisateur WHAPPY"
+        return if (WhappyIdentity.isFounder(phone)) WhappyIdentity.founderName
+        else _uiState.value.accountDisplayName.ifBlank { WhappyIdentity.fallbackAccountName }
     }
 
     private fun currentMember(user: com.google.firebase.auth.FirebaseUser): WhappyMember = WhappyMember(
