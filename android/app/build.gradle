@@ -19,11 +19,8 @@ android {
         applicationId "com.whappy.chat"
         minSdk 26
         targetSdk 35
-        versionCode 33
-        versionName "1.5.6-native"
-        ndk {
-            abiFilters "arm64-v8a"
-        }
+        versionCode 34
+        versionName "1.5.7-native"
     }
 
     signingConfigs {
@@ -44,8 +41,11 @@ android {
         }
         release {
             signingConfig signingConfigs.release
-            minifyEnabled true
-            shrinkResources true
+            // Keep the WebRTC/JNI runtime intact on Samsung, Xiaomi, Tecno,
+            // Infinix and older Android devices. Reliability is more important
+            // than a smaller download for the direct APK distribution.
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
@@ -53,6 +53,12 @@ android {
     buildFeatures {
         compose true
         buildConfig true
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
     }
 
     compileOptions {

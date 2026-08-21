@@ -55,9 +55,9 @@ type RequestItem = { id: string | number; title: string; details: string; place:
 type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "image" | "video"; mediaName?: string };
 
 const ANDROID_APP = {
-  url: "/downloads/WHAPPY-Android-1.5.6-native.apk",
-  version: "1.5.6 native",
-  size: "16 Mo",
+  url: "/downloads/WHAPPY-Android-1.5.7-native.apk",
+  version: "1.5.7 native",
+  size: "Universel",
   minimum: "Android 8.0+",
 } as const;
 const WHAPPY_DOWNLOAD_EVENTS_KEY = "whappy:download-events";
