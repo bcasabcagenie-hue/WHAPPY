@@ -1,0 +1,97 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function conversationMember(conversationId) {
+      return request.auth != null
+        && request.auth.uid in firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.memberIds;
+    }
+
+    match /users/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /business/{userId}/{pageId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && ((fileName.matches('logo-.*') && request.resource.size < 5 * 1024 * 1024)
+          || (fileName.matches('cover-.*') && request.resource.size < 8 * 1024 * 1024));
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /profiles/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && request.resource.size < 5 * 1024 * 1024;
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /groups/{groupId}/{userId}/{fileName} {
+      allow read: if request.auth != null
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds
+        && ((request.resource.contentType.matches('image/(jpeg|png|webp)')
+              && request.resource.size < 20 * 1024 * 1024)
+          || (request.resource.contentType.matches('audio/.*')
+              && request.resource.size < 12 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*')
+              && request.resource.size < 60 * 1024 * 1024));
+      allow update: if false;
+      allow delete: if request.auth != null
+        && request.auth.uid == userId
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds;
+    }
+
+    match /conversations/{conversationId}/{userId}/{fileName} {
+      allow read: if conversationMember(conversationId);
+      allow create: if conversationMember(conversationId)
+        && request.auth.uid == userId
+        && ((request.resource.contentType.matches('image/.*')
+              && request.resource.size < 20 * 1024 * 1024)
+          || (request.resource.contentType.matches('audio/.*')
+              && request.resource.size < 12 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*')
+              && request.resource.size < 60 * 1024 * 1024));
+      allow delete: if conversationMember(conversationId)
+        && request.auth.uid == userId;
+      allow update: if false;
+    }
+
+    match /stories/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && ((request.resource.contentType.matches('image/(jpeg|png|webp)')
+              && request.resource.size < 12 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/(mp4|webm)')
+              && request.resource.size < 50 * 1024 * 1024));
+      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow update: if false;
+    }
+
+    match /twins/{userId}/{fileName} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.identityConsent == true
+        && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.voiceConsent == true
+        && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.movementConsent == true
+        && request.resource.size < 80 * 1024 * 1024
+        && (request.resource.contentType.matches('video/.*')
+          || request.resource.contentType.matches('audio/.*'));
+      allow update: if false;
+    }
+  }
+}
