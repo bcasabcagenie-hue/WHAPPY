@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp, Timestamp } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp, Timestamp, where } from "firebase/firestore";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
@@ -19,8 +19,10 @@ export type WhappyStory = {
 const STORY_LIFETIME = 24 * 60 * 60 * 1000;
 
 function validStoryFile(file: File) {
-  const image = /^image\/(jpeg|png|webp)$/.test(file.type);
-  const video = /^video\/(mp4|webm)$/.test(file.type);
+  const extension = file.name.toLowerCase().split(".").pop() || "";
+  const detectedType = file.type || (extension === "webm" ? "video/webm" : extension === "mp4" ? "video/mp4" : extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg");
+  const image = /^image\/(jpeg|jpg|png|webp)$/.test(detectedType);
+  const video = /^video\/(mp4|webm)$/.test(detectedType);
   if (!image && !video) throw new Error("story-format");
   if (image && file.size > 12 * 1024 * 1024) throw new Error("story-image-too-large");
   if (video && file.size > 50 * 1024 * 1024) throw new Error("story-video-too-large");
@@ -32,7 +34,8 @@ export async function publishStory(userId: string, authorName: string, file: Fil
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-90) || `${mediaType}.bin`;
   const storagePath = `stories/${userId}/${Date.now()}-${safeName}`;
   const mediaRef = ref(storage, storagePath);
-  await uploadBytes(mediaRef, file, { contentType: file.type });
+  const contentType = file.type || (mediaType === "image" ? "image/jpeg" : "video/mp4");
+  await uploadBytes(mediaRef, file, { contentType });
   const mediaUrl = await getDownloadURL(mediaRef);
   try {
     return await addDoc(collection(db, "stories"), {
@@ -52,7 +55,7 @@ export async function publishStory(userId: string, authorName: string, file: Fil
 }
 
 export function watchStories(onStories: (stories: WhappyStory[]) => void, onError: () => void) {
-  const stories = query(collection(db, "stories"), orderBy("createdAt", "desc"), limit(60));
+  const stories = query(collection(db, "stories"), where("expiresAt", ">", Timestamp.now()), orderBy("expiresAt", "desc"), limit(60));
   return onSnapshot(stories, (snapshot) => {
     const now = Date.now();
     onStories(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as WhappyStory)).filter((item) => (item.expiresAt?.toDate?.()?.getTime() || now + 1) > now));

@@ -17,18 +17,18 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://whappy-chat.docile-mesa-9203.chatgpt.site"),
   manifest: "/manifest.webmanifest",
-  title: "Whappy — Tout peut devenir une opportunité",
-  description: "Whappy réunit messages privés, communautés, vidéos personnalisées, Business et doubles IA avec contrôle humain.",
+  title: "Wapi — Tout peut devenir une opportunité",
+  description: "Wapi réunit messages privés, communautés, vidéos personnalisées, Business et doubles IA avec contrôle humain.",
   openGraph: {
-    title: "Whappy — Tout peut devenir une opportunité",
-    description: "Messages, communautés, vidéos et Business dans une même expérience Whappy.",
+    title: "Wapi — Tout peut devenir une opportunité",
+    description: "Messages, communautés, vidéos et Business dans une même expérience Wapi.",
     locale: "fr_FR",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Whappy — Tout peut devenir une opportunité",
-    description: "Messages, communautés, vidéos et Business dans une même expérience Whappy.",
+    title: "Wapi — Tout peut devenir une opportunité",
+    description: "Messages, communautés, vidéos et Business dans une même expérience Wapi.",
   },
 };
 

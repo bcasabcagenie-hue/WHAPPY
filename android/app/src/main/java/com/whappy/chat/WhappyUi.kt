@@ -30,6 +30,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -211,12 +212,14 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFF1C1C74)
-private val WhappyDark = WhappyBlue
-private val WhappyInk = Color(0xFF111111)
-private val WhappyMuted = Color(0xFF667085)
-private val WhappyBackground = Color.White
-private val WhappyLine = WhappyBlue
+private val WhappyBlue = Color(0xFF9600FF)
+private val WhappyDark = Color(0xFF2A1238)
+private val WhappyInk = Color(0xFF171717)
+private val WhappyMuted = Color(0xFF74647D)
+private val WhappyBackground = Color(0xFFFFFFFF)
+private val WhappySurface = Color(0xFFF7F7F7)
+private val WhappyNavy = Color(0xFF9600FF)
+private val WhappyLine = Color(0xFFE7E7E7)
 
 private enum class WhappyLanguage(val code: String, val label: String) {
     FRENCH("fr", "Français"),
@@ -272,14 +275,14 @@ private val demoLives = listOf(
 )
 
 private val demoChannels = listOf(
-    WhappyChannel("demo-channel-city", "Brazzaville Maintenant", "Actualités utiles, sorties et opportunités de la ville.", "Actualités", "city-owner", "WHAPPY Local", listOf("demo-user"), 12_480, 128, "Les bons plans du week-end sont publiés.", System.currentTimeMillis() - 240_000, true),
-    WhappyChannel("demo-channel-market", "Bons plans WHAPPY", "Promotions vérifiées et nouvelles offres du Marché WHAPPY.", "Shopping", "market-owner", "WHAPPY Marché", emptyList(), 8_205, 74, "Nouvelle sélection tech à moins de 100 000 FCFA.", System.currentTimeMillis() - 3_600_000, true),
-    WhappyChannel("demo-channel-me", whappyFounderChannelName, whappyFounderChannelTagline, "Créateurs", "demo-user", whappyFounderDisplayName, listOf("demo-user"), 1, 1, "Bienvenue dans ma chaîne WHAPPY.", System.currentTimeMillis() - 86_400_000),
+    WhappyChannel("demo-channel-city", "Brazzaville Maintenant", "Actualités utiles, sorties et opportunités de la ville.", "Actualités", "city-owner", "WAPI Local", listOf("demo-user"), 12_480, 128, "Les bons plans du week-end sont publiés.", System.currentTimeMillis() - 240_000, true),
+    WhappyChannel("demo-channel-market", "Bons plans WAPI", "Promotions vérifiées et nouvelles offres du Marché WAPI.", "Shopping", "market-owner", "WAPI Marché", emptyList(), 8_205, 74, "Nouvelle sélection tech à moins de 100 000 FCFA.", System.currentTimeMillis() - 3_600_000, true),
+    WhappyChannel("demo-channel-me", whappyFounderChannelName, whappyFounderChannelTagline, "Créateurs", "demo-user", whappyFounderDisplayName, listOf("demo-user"), 1, 1, "Bienvenue dans ma chaîne WAPI.", System.currentTimeMillis() - 86_400_000),
 )
 
 private val demoChannelPosts = listOf(
-    WhappyChannelPost("demo-post-1", "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", "city-owner", "WHAPPY Local", System.currentTimeMillis() - 86_400_000, mapOf("amina" to "❤️", "junior" to "👍"), pinned = true),
-    WhappyChannelPost("demo-post-2", "Ce week-end : marché des créateurs samedi à Poto-Poto, de 10 h à 18 h.", "city-owner", "WHAPPY Local", System.currentTimeMillis() - 240_000, mapOf("amina" to "🔥")),
+    WhappyChannelPost("demo-post-1", "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", "city-owner", "WAPI Local", System.currentTimeMillis() - 86_400_000, mapOf("amina" to "❤️", "junior" to "👍"), pinned = true),
+    WhappyChannelPost("demo-post-2", "Ce week-end : marché des créateurs samedi à Poto-Poto, de 10 h à 18 h.", "city-owner", "WAPI Local", System.currentTimeMillis() - 240_000, mapOf("amina" to "🔥")),
 )
 
 private val demoDeals = listOf(
@@ -449,8 +452,8 @@ private fun SessionRestoringScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Image(painterResource(R.drawable.whappy_icon), "Logo WHAPPY", Modifier.size(92.dp))
-            Text("WHAPPY", Modifier.padding(top = 18.dp), color = WhappyBlue, fontWeight = FontWeight.Black, fontSize = 28.sp)
+            Image(painterResource(R.drawable.wapi_icon), "Logo WAPI", Modifier.size(92.dp))
+            Text("WAPI", Modifier.padding(top = 18.dp), color = WhappyBlue, fontWeight = FontWeight.Black, fontSize = 28.sp)
             CircularProgressIndicator(Modifier.padding(top = 28.dp).size(30.dp), color = WhappyBlue, strokeWidth = 3.dp)
             Text("Ouverture de votre compte…", Modifier.padding(top = 14.dp), color = WhappyMuted)
         }
@@ -742,7 +745,7 @@ private fun PhoneAuthScreen(controller: PhoneAuthController, onProfileSaved: () 
                     Column(Modifier.padding(24.dp)) {
                         Text(
                             when (state.stage) {
-                                AuthStage.PHONE -> "Votre numéro WHAPPY"
+                                AuthStage.PHONE -> "Votre numéro WAPI"
                                 AuthStage.CODE -> "Vérification rapide"
                                 AuthStage.PROFILE -> "Finalisez votre profil"
                             },
@@ -752,7 +755,7 @@ private fun PhoneAuthScreen(controller: PhoneAuthController, onProfileSaved: () 
                         )
                         Text(
                             when (state.stage) {
-                                AuthStage.PHONE -> "Une seule vérification. Ensuite, WHAPPY s’ouvre directement sur cet appareil."
+                                AuthStage.PHONE -> "Une seule vérification. Ensuite, WAPI s’ouvre directement sur cet appareil."
                                 AuthStage.CODE -> "Entrez les 6 chiffres envoyés au ${state.phoneNumber.ifBlank { "numéro indiqué" }}."
                                 AuthStage.PROFILE -> "Nécessaire uniquement pour un nouveau compte."
                             },
@@ -789,7 +792,7 @@ private fun PhoneAuthScreen(controller: PhoneAuthController, onProfileSaved: () 
                             }
                             AuthStage.PROFILE -> {
                                 OutlinedTextField(name, { name = it.take(60) }, label = { Text("Votre nom") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { controller.saveProfile(name, onProfileSaved) }))
-                                PrimaryAction("Entrer dans WHAPPY", state.busy) { controller.saveProfile(name, onProfileSaved) }
+                                PrimaryAction("Entrer dans WAPI", state.busy) { controller.saveProfile(name, onProfileSaved) }
                             }
                         }
                         if (state.status.isNotBlank()) Text(state.status, Modifier.padding(top = 12.dp), color = WhappyBlue, fontSize = 13.sp)
@@ -901,7 +904,7 @@ private fun WhappyMain(
         else if (selectedChannel != null) onCloseChannel()
         else onCloseConversation()
     }
-    if (state.error != null) AlertDialog(onDismissRequest = onDismissError, confirmButton = { TextButton(onClick = onDismissError) { Text("Fermer") } }, title = { Text("WHAPPY") }, text = { Text(state.error) })
+    if (state.error != null) AlertDialog(onDismissRequest = onDismissError, confirmButton = { TextButton(onClick = onDismissError) { Text("Fermer") } }, title = { Text("WAPI") }, text = { Text(state.error) })
     if (showActivityCenter) ActivityCenterDialog(
         notices = activityNotices,
         lives = activityLives,
@@ -995,10 +998,14 @@ private fun WhappyMain(
                     onProfile = { onTab(WhappyTab.PROFILE) },
                 )
                 // Avoid composing two media-heavy screens during every tab change.
-                key(currentTab) { val tab = currentTab
+                AnimatedContent(
+                    targetState = currentTab,
+                    transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) },
+                    label = "whappy-tab-transition",
+                ) { tab ->
             when (tab) {
                 WhappyTab.MOMENTS -> MomentsScreen(state.twinProfile?.readiness ?: 0, onTab, onOpenWhappies = { showTwinStudio = true })
-                WhappyTab.STATUS -> StatusScreen(
+                WhappyTab.STORIES -> StoriesScreen(
                     statuses = state.statuses,
                     currentUserId = state.user?.uid ?: "demo-user",
                     currentUserName = accountDisplayName,
@@ -1135,18 +1142,15 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
         modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(50.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(WhappyDark),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("W", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black, letterSpacing = 0.4.sp)
-        }
+        Image(
+            painterResource(R.drawable.wapi_icon),
+            "Logo WAPI",
+            Modifier.size(50.dp).clip(RoundedCornerShape(16.dp)),
+            contentScale = ContentScale.Crop,
+        )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text("WHAPPY", color = WhappyBlue, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
+            Text("WAPI", color = WhappyBlue, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
             Text(subtitle, color = WhappyMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = WhappyDark); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
@@ -1193,7 +1197,7 @@ private fun ActivityCenterDialog(
 private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onMore: () -> Unit) {
     val icons = mapOf(
         WhappyTab.MOMENTS to Icons.Rounded.Home,
-        WhappyTab.STATUS to Icons.Rounded.AutoAwesome,
+        WhappyTab.STORIES to Icons.Rounded.AutoAwesome,
         WhappyTab.MESSAGES to Icons.Rounded.ChatBubble,
         WhappyTab.CONTACTS to Icons.Rounded.Person,
         WhappyTab.CALLS to Icons.Rounded.Phone,
@@ -1205,15 +1209,15 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
         WhappyTab.BUSINESS to Icons.Rounded.BusinessCenter,
         WhappyTab.PROFILE to Icons.Rounded.Person,
     )
-    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.STATUS, WhappyTab.MESSAGES, WhappyTab.LIVE)
-    NavigationBar(containerColor = Color.White, tonalElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
+    val visibleTabs = listOf(WhappyTab.MOMENTS, WhappyTab.STORIES, WhappyTab.MESSAGES, WhappyTab.LIVE)
+    NavigationBar(containerColor = Color.White, tonalElevation = 0.dp, modifier = Modifier.navigationBarsPadding()) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
                 selected = selected == tab,
                 onClick = { onTab(tab) },
                 icon = { Icon(icons.getValue(tab), mobileTabLabel(tab, LocalWhappyLanguage.current)) },
                 label = { Text(mobileTabLabel(tab, LocalWhappyLanguage.current), fontSize = 10.sp, maxLines = 1) },
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, indicatorColor = Color.White),
+                colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WhappyBlue.copy(alpha = .10f)),
             )
         }
         NavigationBarItem(
@@ -1221,7 +1225,7 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
             onClick = onMore,
             icon = { Icon(Icons.Rounded.GridView, whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso")) },
             label = { Text(whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso"), fontSize = 10.sp, maxLines = 1) },
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, indicatorColor = Color.White),
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WhappyBlue.copy(alpha = .10f)),
         )
     }
 }
@@ -1238,7 +1242,7 @@ private fun WhappyFeatureHubDialog(onOpen: (WhappyTab) -> Unit, onOpenTwin: () -
         WhappyFeatureShortcut(WhappyTab.GAMES, "Jeux", "Défis et tournois", Icons.Rounded.Bolt),
         WhappyFeatureShortcut(WhappyTab.SERVICES, "Services", "Paiements et outils", Icons.Rounded.Payments),
         WhappyFeatureShortcut(WhappyTab.BUSINESS, "Business", "Pages, Deals et Ads", Icons.Rounded.BusinessCenter),
-        WhappyFeatureShortcut(null, "Mon WHAPPY", "Double et studio", Icons.Rounded.SmartToy),
+        WhappyFeatureShortcut(null, "Mon WAPI", "Double et studio", Icons.Rounded.SmartToy),
         WhappyFeatureShortcut(WhappyTab.PROFILE, "Profil", "Compte et sécurité", Icons.Rounded.Person),
     )
     Dialog(onDismissRequest = onDismiss) {
@@ -1254,7 +1258,7 @@ private fun WhappyFeatureHubDialog(onOpen: (WhappyTab) -> Unit, onOpenTwin: () -
                         Icon(Icons.Rounded.GridView, null, tint = Color.White)
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Tout WHAPPY", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Text("Tout WAPI", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
                         Text("Les mêmes espaces essentiels que sur le Web", color = WhappyMuted, fontSize = 11.sp)
                     }
                     IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fermer", tint = WhappyMuted) }
@@ -1287,7 +1291,7 @@ private fun WhappyFeatureHubDialog(onOpen: (WhappyTab) -> Unit, onOpenTwin: () -
 
 private fun mobileTabLabel(tab: WhappyTab, language: WhappyLanguage): String = when (tab) {
     WhappyTab.MOMENTS -> whappyText(language, "Accueil", "Home", "Ndako")
-    WhappyTab.STATUS -> whappyText(language, "Statuts", "Status", "Ba statut")
+    WhappyTab.STORIES -> whappyText(language, "Stories", "Stories", "Ba Stories")
     WhappyTab.MESSAGES -> whappyText(language, "Messages", "Messages", "Nsango")
     WhappyTab.LIVE -> whappyText(language, "Live", "Live", "Na bomoi")
     WhappyTab.PROFILE -> whappyText(language, "Profil", "Profile", "Profil")
@@ -1295,7 +1299,7 @@ private fun mobileTabLabel(tab: WhappyTab, language: WhappyLanguage): String = w
 }
 
 @Composable
-private fun StatusScreen(
+private fun StoriesScreen(
     statuses: List<WhappyStatus>,
     currentUserId: String,
     currentUserName: String,
@@ -1313,11 +1317,21 @@ private fun StatusScreen(
     val context = LocalContext.current
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val contentType = context.contentResolver.getType(uri).orEmpty()
+            val selectedName = displayName(context, uri)
+            val extension = selectedName.substringAfterLast('.', "").lowercase()
+            val contentType = context.contentResolver.getType(uri).orEmpty().ifBlank {
+                when (extension) {
+                    "png" -> "image/png"
+                    "webp" -> "image/webp"
+                    "mp4" -> "video/mp4"
+                    "webm" -> "video/webm"
+                    else -> "image/jpeg"
+                }
+            }
             if (contentType.startsWith("image/") || contentType in setOf("video/mp4", "video/webm")) {
                 mediaUri = uri
                 mediaType = contentType
-                mediaName = displayName(context, uri)
+                mediaName = selectedName
                 WhappySounds.mediaAdded()
             }
         }
@@ -1338,9 +1352,9 @@ private fun StatusScreen(
         item {
             Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyBlue)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                    Text("WHAPPY STATUS", color = Color.White.copy(alpha = .78f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text(t("Partagez votre moment.", "Share your moment.", "Kabola ntango na yo."), Modifier.padding(top = 7.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
-                    Text(t("Votre statut apparaît immédiatement sur vos appareils et dans la communauté.", "Your status appears instantly across your devices and community.", "Statut na yo ekomonana mbala moko na ba appareil mpe na lisanga."), Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .82f), lineHeight = 18.sp, fontSize = 12.sp)
+                    Text("WAPI STORIES", color = Color.White.copy(alpha = .78f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(t("Partagez votre Story.", "Share your moment.", "Kabola ntango na yo."), Modifier.padding(top = 7.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
+                    Text(t("Votre Story apparaît immédiatement sur vos appareils et dans la communauté.", "Your Story appears instantly across your devices and community.", "Story na yo ekomonana mbala moko na ba appareil mpe na lisanga."), Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .82f), lineHeight = 18.sp, fontSize = 12.sp)
                 }
             }
         }
@@ -1349,7 +1363,7 @@ private fun StatusScreen(
                 Column(Modifier.padding(17.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         UserAvatar("", currentUserName, 46.dp)
-                        Column(Modifier.padding(start = 11.dp)) { Text(currentUserName, color = WhappyDark, fontWeight = FontWeight.Black); Text(t("Nouveau statut", "New status", "Statut ya sika"), color = WhappyMuted, fontSize = 10.sp) }
+                        Column(Modifier.padding(start = 11.dp)) { Text(currentUserName, color = WhappyDark, fontWeight = FontWeight.Black); Text(t("Nouvelle Story", "New Story", "Story ya sika"), color = WhappyMuted, fontSize = 10.sp) }
                     }
                     OutlinedTextField(
                         value = draft,
@@ -1399,13 +1413,13 @@ private fun StatusScreen(
                         shape = RoundedCornerShape(16.dp),
                     ) {
                         if (busy) CircularProgressIndicator(Modifier.size(19.dp), color = Color.White, strokeWidth = 2.dp)
-                        else { Icon(Icons.AutoMirrored.Rounded.Send, null); Text(t("  Publier le statut", "  Publish status", "  Tinda statut"), fontWeight = FontWeight.Black) }
+                        else { Icon(Icons.AutoMirrored.Rounded.Send, null); Text(t("  Publier la Story", "  Publish Story", "  Tinda Story"), fontWeight = FontWeight.Black) }
                     }
                 }
             }
         }
-        item { Text(t("Statuts récents", "Recent status", "Ba statut ya sika"), color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black) }
-        if (visibleStatuses.isEmpty()) item { EmptyState(t("Aucun statut publié", "No status yet", "Statut moko te"), t("Votre première publication apparaîtra ici.", "Your first post will appear here.", "Statut na yo ya liboso ekomonana awa.")) }
+        item { Text(t("Stories récentes", "Recent Stories", "Ba Stories ya sika"), color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black) }
+        if (visibleStatuses.isEmpty()) item { EmptyState(t("Aucune Story publiée", "No Story yet", "Story moko te"), t("Votre première publication apparaîtra ici.", "Your first post will appear here.", "Story na yo ya liboso ekomonana awa.")) }
         items(visibleStatuses, key = { it.id }) { status ->
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
                 Column(Modifier.fillMaxWidth().padding(17.dp)) {
@@ -1419,7 +1433,7 @@ private fun StatusScreen(
                         Surface(Modifier.fillMaxWidth().padding(top = 12.dp).clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.mediaUrl))) } }, color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(15.dp)) {
                             Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(if (status.mediaKind == "video") Icons.Rounded.Movie else Icons.Rounded.Photo, null, tint = WhappyBlue)
-                                Column(Modifier.padding(start = 10.dp)) { Text(if (status.mediaKind == "video") "Vidéo WHAPPY" else "Image WHAPPY", color = WhappyDark, fontWeight = FontWeight.Bold); Text("Appuyez pour ouvrir", color = WhappyMuted, fontSize = 9.sp) }
+                                Column(Modifier.padding(start = 10.dp)) { Text(if (status.mediaKind == "video") "Vidéo WAPI" else "Image WAPI", color = WhappyDark, fontWeight = FontWeight.Bold); Text("Appuyez pour ouvrir", color = WhappyMuted, fontSize = 9.sp) }
                             }
                         }
                     }
@@ -1440,14 +1454,29 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
     var personalMoments by remember { mutableStateOf(prefs.getStringSet("moments", emptySet()).orEmpty().toList().sortedDescending()) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+            Column {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Stories", color = WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                    Text("Voir tout", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.clickable { onTab(WhappyTab.STORIES) })
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 11.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    StoryBubble("Vous", "+", WhappyBlue) { composing = true }
+                    StoryBubble("Amina", "A", Color(0xFF8B5CF6)) { onTab(WhappyTab.STORIES) }
+                    StoryBubble("Junior", "J", Color(0xFFFF8A4C)) { onTab(WhappyTab.STORIES) }
+                    StoryBubble("Mokabi", "M", Color(0xFF00A884)) { onTab(WhappyTab.STORIES) }
+                    StoryBubble("Live", "▶", Color(0xFF202124)) { onTab(WhappyTab.LIVE) }
+                }
+            }
+        }
+        item {
+            Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column(Modifier.padding(24.dp)) {
                     Text("AUJOURD’HUI · BRAZZAVILLE", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                    Text("Tout peut devenir\nune opportunité.", Modifier.padding(top = 10.dp), color = Color.White, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black)
-                    Text("Messages, directs, services, ventes et projets réunis dans votre WHAPPY.", Modifier.padding(top = 10.dp), color = Color.White, lineHeight = 20.sp)
+                    Text("Votre journée,\nen un seul endroit.", Modifier.padding(top = 10.dp), color = WhappyDark, fontSize = 29.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
+                    Text("Messages, directs, services, ventes et projets réunis dans votre WAPI.", Modifier.padding(top = 10.dp), color = WhappyMuted, lineHeight = 20.sp)
                     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { onTab(WhappyTab.LIVE) }, Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Rounded.LiveTv, null); Text("Live", Modifier.padding(start = 7.dp), fontWeight = FontWeight.Bold) }
-                        OutlinedButton(onClick = onOpenWhappies, Modifier.weight(1f).height(52.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), shape = RoundedCornerShape(16.dp)) { Text("Mon WHAPPY", fontWeight = FontWeight.Bold) }
+                        OutlinedButton(onClick = onOpenWhappies, Modifier.weight(1f).height(52.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = WhappyDark), shape = RoundedCornerShape(16.dp)) { Text("Mon WAPI", fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -1456,7 +1485,7 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
             Card(Modifier.fillMaxWidth().clickable { onTab(WhappyTab.LIVE) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LiveTv, null, tint = Color.White, modifier = Modifier.size(29.dp)) }
-                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) { Text("EN DIRECT MAINTENANT", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("WHAPPY Live", color = WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.Black); Text("Créateurs, ventes et communautés", color = WhappyMuted, fontSize = 11.sp) }
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) { Text("EN DIRECT MAINTENANT", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("WAPI Live", color = WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.Black); Text("Créateurs, ventes et communautés", color = WhappyMuted, fontSize = 11.sp) }
                     Text("VOIR ›", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
                 }
             }
@@ -1464,8 +1493,8 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
         item {
             Card(Modifier.fillMaxWidth().clickable(onClick = onOpenWhappies), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, null, tint = WhappyBlue, modifier = Modifier.size(29.dp)) }
-                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) { Text("MON WHAPPY · DOUBLE NUMÉRIQUE", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Votre clone créatif", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black); Text(if (twinReadiness > 0) "Profil prêt à $twinReadiness %" else "Image, voix, mouvements et missions", color = WhappyMuted, fontSize = 11.sp) }
+                    Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, null, tint = WhappyBlue, modifier = Modifier.size(29.dp)) }
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) { Text("MON WAPI · DOUBLE NUMÉRIQUE", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Votre clone créatif", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Black); Text(if (twinReadiness > 0) "Profil prêt à $twinReadiness %" else "Image, voix, mouvements et missions", color = WhappyMuted, fontSize = 11.sp) }
                     Text("OUVRIR ›", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
                 }
             }
@@ -1491,7 +1520,7 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
             val parts = raw.split("|", limit = 3)
             MomentCard("Vous", "MON MOMENT", parts.getOrElse(1) { "Nouveau moment" }, parts.getOrElse(2) { "" })
         }
-        item { MomentCard("Mokabi Studio", "PUBLICATION SPONSORISÉE", "Porter son histoire. Vivre son style.", "Découvrez la nouvelle collection N’Tela et commandez directement dans WHAPPY.") }
+        item { MomentCard("Mokabi Studio", "PUBLICATION SPONSORISÉE", "Porter son histoire. Vivre son style.", "Découvrez la nouvelle collection N’Tela et commandez directement dans WAPI.") }
         item { MomentCard("Amina M.", "RECHERCHE ACTIVE", "Je cherche une table artisanale locale", "Budget raisonnable ou échange possible · Poto-Poto") }
     }
     if (composing) AlertDialog(
@@ -1501,6 +1530,18 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
         confirmButton = { Button(enabled = momentTitle.trim().length >= 2 && momentBody.trim().length >= 3, onClick = { val entry = "${System.currentTimeMillis()}|${momentTitle.trim().replace("|", " ")}|${momentBody.trim().replace("|", " ")}"; personalMoments = (listOf(entry) + personalMoments).take(20); prefs.edit().putStringSet("moments", personalMoments.toSet()).apply(); momentTitle = ""; momentBody = ""; composing = false }) { Text("Publier") } },
         dismissButton = { TextButton(onClick = { composing = false }) { Text("Annuler") } },
     )
+}
+
+@Composable
+private fun StoryBubble(name: String, label: String, color: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp).clickable(onClick = onClick)) {
+        Box(Modifier.size(58.dp).clip(CircleShape).background(color).padding(3.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                Text(label, color = color, fontSize = if (label.length > 1) 14.sp else 20.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        Text(name, color = WhappyDark, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+    }
 }
 
 @Composable
@@ -1600,7 +1641,7 @@ private fun RadioScreen(accountDisplayName: String) {
                             Icon(Icons.Rounded.Radio, null, tint = Color.White, modifier = Modifier.size(30.dp))
                         }
                         Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                            Text("WHAPPY RADIO", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                            Text("WAPI RADIO", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
                             Text(if (broadcasting) if (paused) "Émission en pause" else "En direct maintenant" else "Studio prêt", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
                         }
                         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if (broadcasting && !paused) WhappyBlue else Color.White).padding(horizontal = 10.dp, vertical = 7.dp)) {
@@ -1714,7 +1755,7 @@ private fun RadioMetric(label: String, value: String, modifier: Modifier = Modif
 
 @Composable
 private fun GamesScreen(onBack: () -> Unit) {
-    var selected by rememberSaveable { mutableStateOf("Ludo WHAPPY") }
+    var selected by rememberSaveable { mutableStateOf("Ludo WAPI") }
     var xp by rememberSaveable { mutableStateOf(0) }
     var wins by rememberSaveable { mutableStateOf(0) }
     var dice by rememberSaveable { mutableStateOf(0) }
@@ -1724,9 +1765,9 @@ private fun GamesScreen(onBack: () -> Unit) {
     var answer by rememberSaveable { mutableStateOf<String?>(null) }
     var round by rememberSaveable { mutableStateOf(1) }
     val games = listOf(
-        Triple("Ludo WHAPPY", "Plateau local · dé, pions, captures", "🎲"),
+        Triple("Ludo WAPI", "Plateau local · dé, pions, captures", "🎲"),
         Triple("Défi du jour", "Quiz rapide · gagnez de l’XP", "⚡"),
-        Triple("Duel WHAPPY", "Mode duel prêt pour le multijoueur", "♟"),
+        Triple("Duel WAPI", "Mode duel prêt pour le multijoueur", "♟"),
         Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
     )
     val ludoPlayers = listOf(
@@ -1801,11 +1842,11 @@ private fun GamesScreen(onBack: () -> Unit) {
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
                 Column(Modifier.padding(22.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Bolt, null, tint = WhappyBlue); Text("  WHAPPY PLAY", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Bolt, null, tint = WhappyBlue); Text("  WAPI PLAY", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
                     Text("Jouez pour de vrai.\nAvec vos proches.", Modifier.padding(top = 10.dp), color = Color.White, fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
-                    Text("Ludo local, défis et mini-jeux prêts à évoluer vers le multijoueur WHAPPY.", Modifier.padding(top = 8.dp), color = Color.White, lineHeight = 19.sp)
+                    Text("Ludo local, défis et mini-jeux prêts à évoluer vers le multijoueur WAPI.", Modifier.padding(top = 8.dp), color = Color.White, lineHeight = 19.sp)
                     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatPill("Victoires", wins.toString())
                         StatPill("XP", "$xp")
@@ -1818,13 +1859,13 @@ private fun GamesScreen(onBack: () -> Unit) {
         items(games, key = { it.first }) { game ->
             GameModeCard(game.first, game.second, game.third, selected == game.first) { selected = game.first }
         }
-        if (selected == "Ludo WHAPPY") {
+        if (selected == "Ludo WAPI") {
             item {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text("LUDO WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                Text("LUDO WAPI", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
                                 Text("Tour de ${ludoPlayers[activePlayer].first}", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
                                 Text("Dé : ${if (dice == 0) "—" else dice} · 6 = sortie/rejouer", color = WhappyMuted, fontSize = 11.sp)
                             }
@@ -1970,7 +2011,7 @@ private fun ArcadeChallengeCard(selected: String, round: Int, answer: String?, o
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(selected, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
             Text("Manche $round · question 1/3", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Text("Quel espace WHAPPY permet de diffuser en direct ?", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black, lineHeight = 23.sp)
+            Text("Quel espace WAPI permet de diffuser en direct ?", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black, lineHeight = 23.sp)
             listOf("Le Live", "Le Marché", "Les Services").forEach { option ->
                 OutlinedButton(onClick = { onAnswer(option) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = if (answer == option) WhappyBlue else WhappyDark)) {
                     Text(option, Modifier.weight(1f), textAlign = TextAlign.Start)
@@ -2025,9 +2066,9 @@ private fun ServicesScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
                 Column(Modifier.padding(22.dp)) {
-                    Text("WHAPPY WALLET", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text("WAPI WALLET", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
                     Text(if (walletActive) formatMoney(balance.toLong()) else "Portefeuille non activé", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
                     Text("Mode démonstration sécurisé · aucun débit bancaire réel", Modifier.padding(top = 5.dp), color = Color.White, fontSize = 11.sp)
                     if (!walletActive) {
@@ -2126,8 +2167,8 @@ private fun ServicesScreen(
     if (dialog == "receive") {
         AlertDialog(
             onDismissRequest = { dialog = null },
-            title = { Text("Recevoir sur WHAPPY", fontWeight = FontWeight.Black) },
-            text = { Column(horizontalAlignment = Alignment.CenterHorizontally) { Image(receiveQr.asImageBitmap(), "QR de paiement de $userName", Modifier.size(210.dp).clip(RoundedCornerShape(18.dp))); Text(userName, Modifier.padding(top = 12.dp), fontWeight = FontWeight.Bold); Text(phone, color = WhappyMuted); Text("Ce code ouvre une demande de paiement WHAPPY.", Modifier.padding(top = 8.dp), color = WhappyMuted, fontSize = 11.sp) } },
+            title = { Text("Recevoir sur WAPI", fontWeight = FontWeight.Black) },
+            text = { Column(horizontalAlignment = Alignment.CenterHorizontally) { Image(receiveQr.asImageBitmap(), "QR de paiement de $userName", Modifier.size(210.dp).clip(RoundedCornerShape(18.dp))); Text(userName, Modifier.padding(top = 12.dp), fontWeight = FontWeight.Bold); Text(phone, color = WhappyMuted); Text("Ce code ouvre une demande de paiement WAPI.", Modifier.padding(top = 8.dp), color = WhappyMuted, fontSize = 11.sp) } },
             confirmButton = { TextButton(onClick = { dialog = null }) { Text("Terminé") } },
         )
     }
@@ -2195,7 +2236,7 @@ private fun WhappyStudioScreen(
     val renders = if (preview) localRenders else state.twinRenders
     val readiness = (profile.readiness + if (automations.isNotEmpty()) 20 else 0).coerceAtMost(100)
     var selectedGestures by remember { mutableStateOf(listOf("welcome", "show", "explain", "point")) }
-    var script by remember { mutableStateOf("Bonjour, bienvenue sur WHAPPY. Aujourd’hui je vous présente une opportunité pensée pour vous.") }
+    var script by remember { mutableStateOf("Bonjour, bienvenue sur WAPI. Aujourd’hui je vous présente une opportunité pensée pour vous.") }
     var language by remember { mutableStateOf("fr-FR") }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
@@ -2274,18 +2315,18 @@ private fun WhappyStudioScreen(
     Column(Modifier.fillMaxSize().background(WhappyBackground)) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SmartToy, null, tint = WhappyBlue) }
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SmartToy, null, tint = WhappyBlue) }
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text("MON WHAPPY", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                Text("MON WAPI", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 18.sp)
                 Text("Double numérique · sous votre contrôle", color = WhappyMuted, fontSize = 11.sp)
             }
             if (state.twinBusy) CircularProgressIndicator(Modifier.size(22.dp), color = WhappyBlue, strokeWidth = 2.dp)
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 14.dp, 16.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
-                Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+                Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
                     Column(Modifier.padding(22.dp)) {
-                        Text("WHAPPY DOUBLE ENGINE", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Text("WAPI DOUBLE ENGINE", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
                         Text("Votre présence,\nmultipliée.", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 29.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
                         Text("Préparez votre image, votre voix et vos missions. Vous gardez le dernier mot sur chaque production.", Modifier.padding(top = 9.dp), color = Color.White, lineHeight = 19.sp)
                         Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2341,7 +2382,7 @@ private fun WhappyStudioScreen(
                             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Je suis la personne enregistrée", fontWeight = FontWeight.Bold, color = WhappyDark)
-                                    Text("J’autorise mon image, ma voix et mes mouvements pour mon WHAPPY.", Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp)
+                                    Text("J’autorise mon image, ma voix et mes mouvements pour mon WAPI.", Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp)
                                 }
                                 Switch(checked = profile.identityConsent, onCheckedChange = { consent -> if (preview) localProfile = localProfile.copy(identityConsent = consent, voiceConsent = consent, movementConsent = consent) else onSaveConsent(consent) })
                             }
@@ -2369,7 +2410,7 @@ private fun WhappyStudioScreen(
                                 Box(Modifier.align(Alignment.CenterHorizontally).size(100.dp).clip(CircleShape).background(if (recordingVoice) Color.White else Color.White), contentAlignment = Alignment.Center) {
                                     Icon(if (recordingVoice) Icons.Rounded.Stop else Icons.Rounded.Mic, null, tint = if (recordingVoice) WhappyBlue else WhappyBlue, modifier = Modifier.size(42.dp))
                                 }
-                                Text("« Bonjour, je suis $userName. Cette voix est la mienne et je contrôle son utilisation par mon Double WHAPPY. »", Modifier.padding(top = 18.dp), color = WhappyInk, lineHeight = 21.sp)
+                                Text("« Bonjour, je suis $userName. Cette voix est la mienne et je contrôle son utilisation par mon Double WAPI. »", Modifier.padding(top = 18.dp), color = WhappyInk, lineHeight = 21.sp)
                                 Button(
                                     enabled = profile.identityConsent && !state.twinBusy,
                                     onClick = {
@@ -2387,7 +2428,7 @@ private fun WhappyStudioScreen(
                 }
 
                 WhappyStudioSection.MISSIONS -> {
-                    item { StudioTitle("03 / ORCHESTRATEUR", "Choisissez une mission pour votre WHAPPY", "Chaque action produit un brouillon ou demande votre validation avant publication.") }
+                    item { StudioTitle("03 / ORCHESTRATEUR", "Choisissez une mission pour votre WAPI", "Chaque action produit un brouillon ou demande votre validation avant publication.") }
                     val presets = listOf(
                         listOf("Vendeur 24/7", "incoming-message", "inbox", "reply-video", "Prépare une réponse vidéo aux questions clients."),
                         listOf("Annonce en mouvement", "new-listing", "market", "prepare-video", "Transforme chaque annonce en présentation."),
@@ -2405,7 +2446,7 @@ private fun WhappyStudioScreen(
                             }
                         }
                     }
-                    if (automations.isNotEmpty()) item { Text("Missions du WHAPPY", fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
+                    if (automations.isNotEmpty()) item { Text("Missions du WAPI", fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
                     items(automations, key = { it.id }) { automation ->
                         Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2435,8 +2476,8 @@ private fun WhappyStudioScreen(
                                 Button(
                                     enabled = profile.identityConsent && selectedGestures.isNotEmpty() && script.isNotBlank() && !state.twinBusy,
                                     onClick = {
-                                        if (preview) localRenders = listOf(WhappyTwinRender("local-${System.currentTimeMillis()}", "Séquence commerciale WHAPPY", script, language, "prepared")) + localRenders
-                                        else onCreateRender("Séquence commerciale WHAPPY", script, language, selectedGestures)
+                                        if (preview) localRenders = listOf(WhappyTwinRender("local-${System.currentTimeMillis()}", "Séquence commerciale WAPI", script, language, "prepared")) + localRenders
+                                        else onCreateRender("Séquence commerciale WAPI", script, language, selectedGestures)
                                     },
                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(50.dp),
                                 ) { Icon(Icons.Rounded.Movie, null); Text("Préparer la vidéo", Modifier.padding(start = 7.dp)) }
@@ -2532,14 +2573,14 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+            Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
                 Column(Modifier.padding(23.dp)) {
-                    Text("WHAPPY CALLS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("WAPI CALLS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text("Appelez vos contacts\nen un seul geste.", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
-                    Text("Vos contacts vérifiés et vos conversations restent réunis dans Whappy.", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 12.sp, lineHeight = 18.sp)
+                    Text("Vos contacts vérifiés et vos conversations restent réunis dans Wapi.", Modifier.padding(top = 8.dp), color = Color.White, fontSize = 12.sp, lineHeight = 18.sp)
                     Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         CallMetric("Contacts", conversations.size.toString(), Modifier.weight(1f))
-                        CallMetric("Audio + vidéo", "Whappy", Modifier.weight(1f))
+                        CallMetric("Audio + vidéo", "Wapi", Modifier.weight(1f))
                     }
                 }
             }
@@ -2547,8 +2588,8 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
         item {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Appeler un numéro Whappy", color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Black)
-                    Text("Saisissez le numéro normal : s’il est inscrit, l’appel passe directement sur Whappy.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                    Text("Appeler un numéro Wapi", color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Text("Saisissez le numéro normal : s’il est inscrit, l’appel passe directement sur Wapi.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                     OutlinedTextField(phone, { phone = it.take(28) }, Modifier.fillMaxWidth(), label = { Text("Numéro avec indicatif pays") }, placeholder = { Text("+242 06 123 45 67") }, leadingIcon = { Icon(Icons.Rounded.Phone, null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         Button(enabled = calls != null && phone.isNotBlank(), onClick = { rememberCall(phone, phone, false); calls?.startByPhone(phone, false) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Phone, null); Text("  Audio") }
@@ -2558,7 +2599,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
             }
         }
         item { Text("Appels récents", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 5.dp)) }
-        if (recentCalls.isEmpty()) item { Text("Aucun appel lancé depuis WHAPPY pour le moment.", color = WhappyMuted, modifier = Modifier.padding(vertical = 6.dp)) }
+        if (recentCalls.isEmpty()) item { Text("Aucun appel lancé depuis WAPI pour le moment.", color = WhappyMuted, modifier = Modifier.padding(vertical = 6.dp)) }
         items(recentCalls.take(8), key = { it }) { raw ->
             val parts = raw.split("|", limit = 3)
             val timestamp = parts.firstOrNull()?.toLongOrNull() ?: 0L
@@ -2590,7 +2631,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                 }
             }
         }
-        item { Text("Les appels audio et vidéo utilisent Whappy entre comptes inscrits. Un numéro absent de Whappy n’est jamais appelé via votre opérateur sans votre accord.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)) }
+        item { Text("Les appels audio et vidéo utilisent Wapi entre comptes inscrits. Un numéro absent de Wapi n’est jamais appelé via votre opérateur sans votre accord.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)) }
     }
 }
 
@@ -2753,7 +2794,7 @@ private fun MessagesScreen(
                 if (trimmed.isNotBlank()) {
                     startContactSearch(trimmed, markBusy = true)
                 } else {
-                    scanError = "Ce QR n’est pas un code WHAPPY valide."
+                    scanError = "Ce QR n’est pas un code WAPI valide."
                 }
             }
         }
@@ -2766,7 +2807,7 @@ private fun MessagesScreen(
             val decoded = decodeQrFromImage(context, uri)
             imageScanInProgress = false
             if (decoded == null) {
-                scanError = "Aucun QR lisible trouvé dans cette image. Choisissez une capture nette du code WHAPPY."
+                scanError = "Aucun QR lisible trouvé dans cette image. Choisissez une capture nette du code WAPI."
             } else {
                 processScannedContact(decoded)
             }
@@ -2808,18 +2849,18 @@ private fun MessagesScreen(
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> "Messages" }, fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(when (messageSection) { 1 -> "Vos personnes sur WHAPPY"; 2 -> "Suivez ce qui compte pour vous"; else -> "Vos conversations instantanées" }, color = WhappyMuted) }
+            Column(Modifier.weight(1f)) { Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> "Messages" }, fontSize = 28.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text(when (messageSection) { 1 -> "Vos personnes sur WAPI"; 2 -> "Suivez ce qui compte pour vous"; else -> "Vos conversations instantanées" }, color = WhappyMuted) }
             TextButton(onClick = { when (messageSection) { 2 -> creatingChannel = true; 0 -> creatingGroup = true; else -> { phone = ""; resetContactSearch(); adding = true } } }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.textButtonColors(contentColor = WhappyBlue)) {
                 Icon(Icons.Rounded.Add, when (messageSection) { 2 -> "Créer une chaîne"; 0 -> "Créer un groupe"; else -> "Ajouter un contact" }, modifier = Modifier.size(18.dp))
                 Text(when (messageSection) { 2 -> " Chaîne"; 0 -> " Groupe"; else -> " Ajouter" }, fontWeight = FontWeight.Black)
             }
         }
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 2.dp).clip(RoundedCornerShape(15.dp)).background(Color.White).padding(4.dp)) {
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 2.dp).clip(RoundedCornerShape(15.dp)).background(WhappySurface).padding(4.dp)) {
             listOf("Discussions", "Contacts", "Chaînes").forEachIndexed { index, label ->
                 TextButton(onClick = { messageSection = index; conversationSearch = "" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(containerColor = if (messageSection == index) Color.White else Color.Transparent, contentColor = if (messageSection == index) WhappyDark else WhappyMuted)) { Text(label, fontSize = 11.sp, fontWeight = if (messageSection == index) FontWeight.Black else FontWeight.Medium) }
             }
         }
-        OutlinedTextField(conversationSearch, { conversationSearch = it.take(120) }, Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp), placeholder = { Text(when (messageSection) { 1 -> "Rechercher un contact"; 2 -> "Rechercher une chaîne ou une catégorie"; else -> "Rechercher une discussion" }) }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
+        OutlinedTextField(conversationSearch, { conversationSearch = it.take(120) }, Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp), placeholder = { Text(when (messageSection) { 1 -> "Rechercher un contact"; 2 -> "Rechercher une chaîne ou une catégorie"; else -> "Rechercher une discussion" }) }, leadingIcon = { Icon(Icons.Rounded.Search, null, tint = WhappyMuted) }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedBorderColor = WhappyBlue, unfocusedBorderColor = WhappyLine, focusedContainerColor = Color.White, unfocusedContainerColor = WhappySurface))
         if (messageSection == 2) {
             ChannelDirectory(channels, currentUserId, conversationSearch, onOpenChannel, onSubscribeChannel)
         } else if (messageSection == 1) {
@@ -2831,20 +2872,20 @@ private fun MessagesScreen(
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = WhappyBlue) }
                         Text("Ajoutez votre premier contact", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                        Text("Avec son numéro ou son code QR WHAPPY. Vous le retrouverez ici à tout moment.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                        Text("Avec son numéro ou son code QR WAPI. Vous le retrouverez ici à tout moment.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
                         Text("AJOUTER UN CONTACT", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
             }
             else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                item { Text("CONTACTS WHAPPY", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
+                item { Text("CONTACTS WAPI", Modifier.padding(start = 5.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) }
                 items(visibleContacts, key = { it.member.uid }) { contact ->
                     Card(Modifier.fillMaxWidth().clickable(enabled = !contactBusy) { onOpenContact(contact) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(48.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Text(initials(contact.member.displayName), color = Color.White, fontWeight = FontWeight.Black) }
                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                 Text(contact.member.displayName, fontWeight = FontWeight.Black, color = WhappyDark)
-                                Text(contact.member.phoneNumber.ifBlank { "Contact WHAPPY" }, color = WhappyMuted, fontSize = 11.sp)
+                                Text(contact.member.phoneNumber.ifBlank { "Contact WAPI" }, color = WhappyMuted, fontSize = 11.sp)
                             }
                             Text("Message", color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
@@ -2852,21 +2893,21 @@ private fun MessagesScreen(
                 }
             }
         } else if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-        else if (filteredConversations.isEmpty()) EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WHAPPY." else "Essayez un autre nom ou un mot du dernier message.")
+        else if (filteredConversations.isEmpty()) EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WAPI." else "Essayez un autre nom ou un mot du dernier message.")
         else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (conversationSearch.isBlank()) {
                 item {
-                    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+                    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.Groups, null, tint = Color.White)
+                                Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(WhappyBlue.copy(alpha = .10f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Groups, null, tint = WhappyBlue) }
                                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                                    Text("Groupes WHAPPY", color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                                    Text("${groupConversations.size} groupe${if (groupConversations.size > 1) "s" else ""} · ${directConversations.size} discussion${if (directConversations.size > 1) "s" else ""} directe${if (directConversations.size > 1) "s" else ""}", color = Color.White.copy(alpha = .72f), fontSize = 11.sp)
+                                    Text("Groupes WAPI", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                    Text("${groupConversations.size} groupe${if (groupConversations.size > 1) "s" else ""} · ${directConversations.size} discussion${if (directConversations.size > 1) "s" else ""} directe${if (directConversations.size > 1) "s" else ""}", color = WhappyMuted, fontSize = 11.sp)
                                 }
-                                TextButton(onClick = { creatingGroup = true }, colors = ButtonDefaults.textButtonColors(containerColor = Color.White, contentColor = WhappyBlue), shape = RoundedCornerShape(13.dp)) { Text("+ Groupe", fontWeight = FontWeight.Black) }
+                                TextButton(onClick = { creatingGroup = true }, colors = ButtonDefaults.textButtonColors(contentColor = WhappyBlue), shape = RoundedCornerShape(13.dp)) { Text("+ Groupe", fontWeight = FontWeight.Black) }
                             }
-                            Text("Créez un salon privé pour famille, équipe, communauté ou projet. Les messages, notes vocales et fichiers restent dans la même discussion.", color = Color.White.copy(alpha = .82f), fontSize = 11.sp, lineHeight = 16.sp)
+                            Text("Créez un salon privé pour famille, équipe, communauté ou projet. Les messages, notes vocales et fichiers restent dans la même discussion.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                         }
                     }
                 }
@@ -2889,7 +2930,7 @@ private fun MessagesScreen(
         }
         if (adding) AlertDialog(
             onDismissRequest = { if (!contactBusy) { adding = false; resetContactSearch() } },
-            title = { Text(if (contactSearchResult == null) "Ajouter sur WHAPPY" else "Compte WHAPPY trouvé") },
+            title = { Text(if (contactSearchResult == null) "Ajouter sur WAPI" else "Compte WAPI trouvé") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Card(
@@ -2913,7 +2954,7 @@ private fun MessagesScreen(
                             }
                         }
                     }
-                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact. Si le compte existe, WHAPPY ouvre directement la discussion." else "Compte vérifié : la discussion s’ouvre automatiquement.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(if (contactSearchResult == null) "Saisissez le numéro complet ou scannez le code personnel de votre contact. Si le compte existe, WAPI ouvre directement la discussion." else "Compte vérifié : la discussion s’ouvre automatiquement.", color = WhappyMuted, fontSize = 12.sp, lineHeight = 17.sp)
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { value ->
@@ -2961,7 +3002,7 @@ private fun MessagesScreen(
                             Text(if (imageScanInProgress) "  Lecture…" else "  Image QR", fontWeight = FontWeight.Bold)
                         }
                     }
-                    if (contactBusy) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { CircularProgressIndicator(Modifier.size(18.dp), color = WhappyBlue, strokeWidth = 2.dp); Text(if (contactSearchResult == null) "Recherche du compte WHAPPY…" else "Ajout du contact…", color = WhappyMuted, fontSize = 12.sp) }
+                    if (contactBusy) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { CircularProgressIndicator(Modifier.size(18.dp), color = WhappyBlue, strokeWidth = 2.dp); Text(if (contactSearchResult == null) "Recherche du compte WAPI…" else "Ajout du contact…", color = WhappyMuted, fontSize = 12.sp) }
                     if (contactSearchResult != null) Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                             val isFounderContact = WhappyIdentity.isFounder(contactSearchResult.phoneNumber)
@@ -2980,7 +3021,7 @@ private fun MessagesScreen(
                                 if (isFounderContact) {
                                     Text(WhappyIdentity.founderBadgeLabel, color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 } else {
-                                    Text("Compte WHAPPY vérifié", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text("Compte WAPI vérifié", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -3017,7 +3058,7 @@ private fun MessagesScreen(
         )
         if (scanError != null) AlertDialog(
             onDismissRequest = { scanError = null },
-            title = { Text("Scanner WHAPPY") },
+            title = { Text("Scanner WAPI") },
             text = { Text(scanError.orEmpty()) },
             confirmButton = { TextButton(onClick = { scanError = null }) { Text("Compris") } },
         )
@@ -3088,7 +3129,7 @@ private fun CreateGroupDialog(
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(contentAlignment = Alignment.BottomEnd) {
-                        if (photoUri != null) UserAvatar(photoUri.toString(), groupName.ifBlank { "Groupe WHAPPY" }, 58.dp)
+                        if (photoUri != null) UserAvatar(photoUri.toString(), groupName.ifBlank { "Groupe WAPI" }, 58.dp)
                         else Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.Groups, null, tint = Color.White)
                         }
@@ -3109,7 +3150,7 @@ private fun CreateGroupDialog(
                     onValueChange = onNameChange,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Nom du groupe") },
-                    placeholder = { Text("Ex. Équipe WHAPPY") },
+                    placeholder = { Text("Ex. Équipe WAPI") },
                     supportingText = { Text("${groupName.length}/80") },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
@@ -3136,7 +3177,7 @@ private fun CreateGroupDialog(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(Icons.Rounded.PersonAdd, null, tint = WhappyBlue)
-                        Text("Ajoutez d’abord des contacts WHAPPY", Modifier.padding(top = 8.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
+                        Text("Ajoutez d’abord des contacts WAPI", Modifier.padding(top = 8.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
                         Text("Deux contacts minimum sont nécessaires.", color = WhappyMuted, fontSize = 11.sp)
                     }
                 } else {
@@ -3198,15 +3239,15 @@ private fun ChannelDirectory(
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 categories.forEach { category -> TextButton(onClick = { selectedCategory = category }, colors = ButtonDefaults.textButtonColors(containerColor = if (selectedCategory == category) WhappyBlue else Color.White, contentColor = if (selectedCategory == category) Color.White else WhappyDark), shape = RoundedCornerShape(14.dp)) { Text(category, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }
             }
-            EmptyState(if (search.isBlank()) "Aucune chaîne" else "Aucune chaîne trouvée", if (search.isBlank()) "Créez la première chaîne WHAPPY et commencez à publier." else "Essayez un nom, une catégorie ou un autre mot-clé.")
+            EmptyState(if (search.isBlank()) "Aucune chaîne" else "Aucune chaîne trouvée", if (search.isBlank()) "Créez la première chaîne WAPI et commencez à publier." else "Essayez un nom, une catégorie ou un autre mot-clé.")
         }
         return
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(WhappyDark).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(WhappyNavy).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Notifications, null, tint = Color.White) }
-                Column(Modifier.padding(start = 12.dp)) { Text("CHAÎNES WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Des publications utiles, sans bruit", color = Color.White, fontWeight = FontWeight.Black); Text("${visible.size}/${channels.size} chaîne${if (channels.size > 1) "s" else ""} · filtres rapides", color = Color.White.copy(alpha = .68f), fontSize = 11.sp) }
+                Column(Modifier.padding(start = 12.dp)) { Text("CHAÎNES WAPI", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Des publications utiles, sans bruit", color = Color.White, fontWeight = FontWeight.Black); Text("${visible.size}/${channels.size} chaîne${if (channels.size > 1) "s" else ""} · filtres rapides", color = Color.White.copy(alpha = .68f), fontSize = 11.sp) }
             }
         }
         item {
@@ -3267,7 +3308,16 @@ private fun ChannelScreen(
     var showingChannelCode by remember(channel.id) { mutableStateOf(false) }
     val channelLink = remember(channel.id) { "https://whappy.chat/channel/${channel.id}" }
     val visible = remember(posts, search) { posts.filter { SearchNormalizer.matches(search, it.text, it.authorName) }.sortedWith(compareByDescending<WhappyChannelPost> { it.pinned }.thenBy { it.createdAt }) }
-    LaunchedEffect(posts.size) { if (posts.isNotEmpty() && search.isBlank()) listState.animateScrollToItem(visible.lastIndex.coerceAtLeast(0)) }
+    var channelPositioned by remember(channel.id) { mutableStateOf(false) }
+    LaunchedEffect(channel.id, visible.size, search) {
+        if (visible.isNotEmpty() && search.isBlank()) {
+            val nearBottom = !channelPositioned || listState.firstVisibleItemIndex >= (visible.size - 4).coerceAtLeast(0)
+            if (nearBottom) {
+                if (channelPositioned) listState.animateScrollToItem(visible.lastIndex) else listState.scrollToItem(visible.lastIndex)
+                channelPositioned = true
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -3278,7 +3328,7 @@ private fun ChannelScreen(
             IconButton(onClick = { showingChannelCode = true }) { Icon(Icons.Rounded.Share, "Partager la chaîne", tint = WhappyDark) }
         }
         if (searchOpen) OutlinedTextField(search, { search = it.take(120) }, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher dans la chaîne") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
-        Column(Modifier.fillMaxWidth().background(WhappyDark).padding(horizontal = 16.dp, vertical = 13.dp)) {
+        Column(Modifier.fillMaxWidth().background(WhappyNavy).padding(horizontal = 16.dp, vertical = 13.dp)) {
             Text(channel.description, color = Color.White, fontSize = 12.sp, lineHeight = 17.sp)
             Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) { Text("Par ${channel.ownerName} · ${channel.category}", Modifier.weight(1f), color = Color.White.copy(alpha = .64f), fontSize = 10.sp); if (!owner) Button(onClick = { onSubscribe(!subscribed) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)) { Text(if (subscribed) "Abonné ✓" else "S’abonner", fontSize = 11.sp) } }
             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3322,7 +3372,7 @@ private fun ChannelScreen(
         AlertDialog(onDismissRequest = { selectedPost = null }, title = { Text("Publication", fontWeight = FontWeight.Black) }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(post.text, color = WhappyMuted, maxLines = 4)
             if (subscribed || owner) { Text("Réagir", fontWeight = FontWeight.Bold); Row { listOf("❤️", "👍", "🔥", "👏", "💡").forEach { emoji -> TextButton(onClick = { onReact(post, emoji); selectedPost = null }, contentPadding = PaddingValues(7.dp)) { Text(emoji, fontSize = 20.sp) } } } }
-            OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Publication WHAPPY", post.text)); selectedPost = null }, Modifier.fillMaxWidth()) { Text("Copier la publication") }
+            OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Publication WAPI", post.text)); selectedPost = null }, Modifier.fillMaxWidth()) { Text("Copier la publication") }
             if (owner) { OutlinedButton(onClick = { onPin(post); selectedPost = null }, Modifier.fillMaxWidth()) { Text(if (post.pinned) "Désépingler" else "Épingler en haut") }; OutlinedButton(onClick = { onDelete(post); selectedPost = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = WhappyBlue)) { Text("Supprimer") } }
         } }, confirmButton = { TextButton(onClick = { selectedPost = null }) { Text("Fermer") } })
     }
@@ -3332,7 +3382,7 @@ private fun ChannelScreen(
             Image(qr.asImageBitmap(), "QR de la chaîne ${channel.name}", Modifier.size(210.dp).clip(RoundedCornerShape(18.dp)))
             Text(channel.name, fontWeight = FontWeight.Black, color = WhappyDark)
             Text(channelLink, color = WhappyMuted, fontSize = 10.sp)
-            OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Lien WHAPPY", channelLink)) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.QrCode, null); Text("  Copier le lien") }
+            OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Lien WAPI", channelLink)) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.QrCode, null); Text("  Copier le lien") }
             Button(onClick = { shareWhappyLink(context, channel.name, channelLink) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Share, null); Text("  Partager") }
         } }, confirmButton = { TextButton(onClick = { showingChannelCode = false }) { Text("Terminé") } })
     }
@@ -3380,10 +3430,10 @@ private fun BusinessSearchDialog(
                     items(results, key = { it.id }) { page ->
                         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = WhappyBlue, modifier = Modifier.size(20.dp)) }
+                                Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = WhappyBlue, modifier = Modifier.size(20.dp)) }
                                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                                     Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark)
-                                    Text(listOf(page.category, page.city).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Business WHAPPY" }, color = WhappyMuted, fontSize = 11.sp)
+                                    Text(listOf(page.category, page.city).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Business WAPI" }, color = WhappyMuted, fontSize = 11.sp)
                                     if (page.handle.isNotBlank()) Text("@${page.handle}", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                                 TextButton(enabled = !contactBusy, onClick = { onContact(page) }) { Text("Contacter") }
@@ -3438,6 +3488,8 @@ private fun ChatScreen(
     val listState = rememberLazyListState()
     val chatScope = rememberCoroutineScope()
     val visibleMessages = remember(messages, searchQuery) { messages.filter { SearchNormalizer.matches(searchQuery, it.text, it.mediaName, it.replyText) } }
+    val messageIndexById = remember(visibleMessages) { visibleMessages.mapIndexed { index, message -> message.id to index }.toMap() }
+    var chatPositioned by remember(conversation.id) { mutableStateOf(false) }
     var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
 
     fun updateDraft(value: String) {
@@ -3521,7 +3573,15 @@ private fun ChatScreen(
         if (editingMessage == null && text.isNotBlank()) { onTyping(true); delay(1_400); onTyping(false) }
         else onTyping(false)
     }
-    LaunchedEffect(visibleMessages.size) { if (visibleMessages.isNotEmpty() && searchQuery.isBlank()) listState.animateScrollToItem(visibleMessages.lastIndex) }
+    LaunchedEffect(conversation.id, visibleMessages.size, searchQuery) {
+        if (visibleMessages.isNotEmpty() && searchQuery.isBlank()) {
+            val nearBottom = !chatPositioned || listState.firstVisibleItemIndex >= (visibleMessages.size - 5).coerceAtLeast(0)
+            if (nearBottom) {
+                if (chatPositioned) listState.animateScrollToItem(visibleMessages.lastIndex) else listState.scrollToItem(visibleMessages.lastIndex)
+                chatPositioned = true
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
         Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -3533,7 +3593,7 @@ private fun ChatScreen(
             } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 42.dp)
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
                 Text(conversation.peer.displayName, fontWeight = FontWeight.Bold, color = WhappyDark)
-                Text(if (conversation.isGroup) "Groupe WHAPPY · ${conversation.memberCount} membres" else if (conversation.peerTyping) "écrit…" else "WHAPPY · en ligne", color = WhappyBlue, fontSize = 11.sp, fontWeight = if (conversation.peerTyping) FontWeight.Bold else FontWeight.Normal)
+                Text(if (conversation.isGroup) "Groupe WAPI · ${conversation.memberCount} membres" else if (conversation.peerTyping) "écrit…" else "WAPI · en ligne", color = WhappyBlue, fontSize = 11.sp, fontWeight = if (conversation.peerTyping) FontWeight.Bold else FontWeight.Normal)
             }
             IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Icon(Icons.Rounded.Search, "Rechercher dans la discussion", tint = if (searchOpen) WhappyBlue else WhappyDark) }
             if (conversation.peer.phoneNumber.isNotBlank() && !conversation.isGroup) {
@@ -3568,7 +3628,7 @@ private fun ChatScreen(
             ) {
                 Icon(Icons.Rounded.Schedule, null, tint = WhappyBlue, modifier = Modifier.size(17.dp))
                 Text(
-                    "$pendingCount message${if (pendingCount > 1) "s" else ""} en attente de connexion · WHAPPY va réessayer",
+                    "$pendingCount message${if (pendingCount > 1) "s" else ""} en attente de connexion · WAPI va réessayer",
                     Modifier.weight(1f).padding(horizontal = 9.dp),
                     color = WhappyBlue,
                     fontSize = 11.sp,
@@ -3588,17 +3648,17 @@ private fun ChatScreen(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                         if (conversation.isGroup && !mine) {
-                            UserAvatar("", message.senderName.ifBlank { "Membre WHAPPY" }, 30.dp, Modifier.padding(top = 3.dp))
+                            UserAvatar("", message.senderName.ifBlank { "Membre WAPI" }, 30.dp, Modifier.padding(top = 3.dp))
                             Spacer(Modifier.width(7.dp))
                         }
-                        Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = if (mine) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted && message.deliveryState == "sent") { selectedMessage = message }) {
+                        Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = 0.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted && message.deliveryState == "sent") { selectedMessage = message }) {
                             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                 if (conversation.isGroup && !mine && message.senderName.isNotBlank()) {
                                     Text(message.senderName, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 4.dp))
                                 }
                                 if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (mine) Color.White.copy(alpha = .16f) else Color.White).padding(8.dp)) { Text("↩ ${message.replyText}", color = if (mine) Color.White.copy(alpha = .9f) else WhappyMuted, fontSize = 10.sp, maxLines = 2) }
                                 if (message.replyText.isNotBlank()) {
-                                    val targetIndex = visibleMessages.indexOfFirst { it.id == message.replyToId }
+                                    val targetIndex = messageIndexById[message.replyToId] ?: -1
                                     if (targetIndex >= 0) {
                                         TextButton(
                                             onClick = {
@@ -3614,7 +3674,7 @@ private fun ChatScreen(
                                 when (message.kind) {
                                     "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
-                                    "video" -> MediaMessageRow(Icons.Rounded.Movie, message.mediaName.ifBlank { "Vidéo WHAPPY" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
+                                    "video" -> MediaMessageRow(Icons.Rounded.Movie, message.mediaName.ifBlank { "Vidéo WAPI" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "deleted" -> Text("Message supprimé", color = if (mine) Color.White.copy(alpha = .7f) else WhappyMuted)
                                     else -> MessageLinkText(message.text, mine, actions = actions, onAction = ::handleMessageAction)
                                 }
@@ -3716,7 +3776,7 @@ private fun ChatScreen(
             },
             title = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("WHAPPY ACTION · OFFRE SÉCURISÉE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text("WAPI ACTION · OFFRE SÉCURISÉE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
                     Text("Faire une offre", color = WhappyDark, fontSize = 27.sp, fontWeight = FontWeight.Black)
                 }
             },
@@ -3827,7 +3887,7 @@ private fun ChatScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("❤️", "👍", "😂", "😮", "🙏").forEach { emoji -> TextButton(onClick = { onReact(message, emoji); selectedMessage = null }, contentPadding = PaddingValues(6.dp)) { Text(emoji, fontSize = 20.sp) } } }
                     OutlinedButton(onClick = { replyTo = message; editingMessage = null; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Répondre") }
-                    if (message.text.isNotBlank()) OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WHAPPY", message.text)); selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Copier le texte") }
+                    if (message.text.isNotBlank()) OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WAPI", message.text)); selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Copier le texte") }
                     if (mine && message.kind == "text") OutlinedButton(onClick = { editingMessage = message; replyTo = null; text = message.text; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Modifier") }
                     if (mine) OutlinedButton(onClick = { onDelete(message); selectedMessage = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = WhappyBlue)) { Text("Supprimer pour tous") }
                 }
@@ -4248,14 +4308,14 @@ private fun LiveScreen(
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
                 Column(Modifier.padding(24.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.clip(RoundedCornerShape(8.dp)).background(WhappyBlue).padding(horizontal = 9.dp, vertical = 5.dp)) { Text("● LIVE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp) }
                         Text("$liveNow directs maintenant", Modifier.padding(start = 10.dp), color = Color.White, fontSize = 12.sp)
                     }
                     Text(t("Montez sur scène\nen direct.", "Go live\non stage.", "Matá na scène\nna live."), Modifier.padding(top = 13.dp), color = Color.White, fontSize = 29.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
-                    Text(t("Votre caméra s’ouvre directement. Mon WHAPPY reste une option, jamais une obligation.", "Your camera opens directly. My WHAPPY is optional, never required.", "Caméra na yo ekofungwama mbala moko. Mon WHAPPY ezali kaka option."), Modifier.padding(top = 9.dp), color = Color.White, lineHeight = 19.sp)
+                    Text(t("Votre caméra s’ouvre directement. Mon WAPI reste une option, jamais une obligation.", "Your camera opens directly. My WAPI is optional, never required.", "Caméra na yo ekofungwama mbala moko. Mon WAPI ezali kaka option."), Modifier.padding(top = 9.dp), color = Color.White, lineHeight = 19.sp)
                     Button(onClick = { creating = true }, Modifier.fillMaxWidth().padding(top = 17.dp).height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue)) { Icon(Icons.Rounded.Videocam, null); Text(t("  Monter sur scène", "  Go on stage", "  Matá na scène"), fontWeight = FontWeight.Black) }
                     if (permissionError) Text(t("Autorisez la caméra et le micro pour démarrer le direct.", "Allow camera and microphone to start.", "Pesa ndingisa na caméra mpe micro."), Modifier.padding(top = 10.dp), color = Color.White, fontSize = 11.sp)
                 }
@@ -4265,7 +4325,7 @@ private fun LiveScreen(
             Card(Modifier.fillMaxWidth().clickable(onClick = onOpenTwin), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.AutoAwesome, null, tint = WhappyBlue, modifier = Modifier.size(30.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(t("OPTION CRÉATIVE · FACULTATIVE", "OPTIONAL CREATIVE TOOL", "OPTION YA CRÉATION"), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(t("Animer avec Mon WHAPPY", "Animate with My WHAPPY", "Sala animation na Mon WHAPPY"), color = WhappyDark, fontWeight = FontWeight.Bold) }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(t("OPTION CRÉATIVE · FACULTATIVE", "OPTIONAL CREATIVE TOOL", "OPTION YA CRÉATION"), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(t("Animer avec Mon WAPI", "Animate with My WAPI", "Sala animation na Mon WAPI"), color = WhappyDark, fontWeight = FontWeight.Bold) }
                     Text("›", color = WhappyBlue, fontSize = 25.sp)
                 }
             }
@@ -4297,7 +4357,7 @@ private fun LiveScreen(
                 }
             }
         }
-        item { Text("Chaque profil peut créer un salon. Le statut, l’audience et les réactions sont synchronisés en temps réel; la vidéo multi-appareils utilise l’infrastructure média WHAPPY.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp) }
+        item { Text("Chaque profil peut créer un salon. Le statut, l’audience et les réactions sont synchronisés en temps réel; la vidéo multi-appareils utilise l’infrastructure média WAPI.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp) }
     }
     if (creating) LiveDialog(busy, onDismiss = { creating = false }) { title, category, product, startNow, hostMode, visibility ->
         val createAction = {
@@ -4346,7 +4406,7 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
         Triple("Feu", "🔥", 5),
         Triple("Cœur", "💙", 10),
         Triple("Couronne", "👑", 25),
-        Triple("WHAPPY", "🎁", 50),
+        Triple("WAPI", "🎁", 50),
     )
 
     fun saveLiveEvents(next: List<String>) {
@@ -4425,7 +4485,7 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
                     }
                     if (isOwner && live.status == "live") TextButton(onClick = onEnd, enabled = !busy) { Text(t("Terminer", "End", "Sukisa"), color = WhappyBlue, fontWeight = FontWeight.Black) }
                 }
-                Box(Modifier.fillMaxWidth().weight(1f).background(WhappyDark), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().weight(1f).background(WhappyNavy), contentAlignment = Alignment.Center) {
                     if (isOwner && live.status == "live") LiveCameraPreview(frontCamera)
                     else { Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(62.dp)); Text(if (live.status == "live") t("Le direct est en cours", "Live now", "Live ezali kotambola") else t("Direct à venir", "Upcoming live", "Live ekoya"), Modifier.align(Alignment.BottomCenter).padding(24.dp), color = Color.White, fontWeight = FontWeight.Bold) }
                     Row(Modifier.align(Alignment.TopStart).padding(14.dp).clip(RoundedCornerShape(10.dp)).background(WhappyBlue).padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("● LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("  👀 ${live.viewerCount}", color = Color.White, fontSize = 10.sp) }
@@ -4500,7 +4560,7 @@ private fun LiveDialog(busy: Boolean, onDismiss: () -> Unit, onSave: (String, St
     AlertDialog(onDismissRequest = onDismiss, title = { Column { Text("Créer un Live", fontWeight = FontWeight.Black); Text("Tout le monde peut passer en direct", color = WhappyBlue, fontSize = 11.sp) } }, text = { LazyColumn(Modifier.fillMaxWidth().height(470.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
         item { Text("Je passe en direct comme", color = WhappyDark, fontWeight = FontWeight.Black) }
         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) { listOf("personal" to "👤 Personnel", "creator" to "✦ Créateur", "business" to "▣ Business").forEach { option -> OutlinedButton(onClick = { hostMode = option.first }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (hostMode == option.first) WhappyDark else Color.White, contentColor = if (hostMode == option.first) Color.White else WhappyDark), shape = RoundedCornerShape(13.dp)) { Text(option.second, fontWeight = FontWeight.Bold) } } } }
-        item { Text(when (hostMode) { "business" -> "Vendez, présentez un Deal et recevez des commandes."; "creator" -> "Animez votre communauté et utilisez votre WHAPPY."; else -> "Discutez, partagez un moment ou organisez un événement." }, color = WhappyMuted, fontSize = 11.sp) }
+        item { Text(when (hostMode) { "business" -> "Vendez, présentez un Deal et recevez des commandes."; "creator" -> "Animez votre communauté et utilisez votre WAPI."; else -> "Discutez, partagez un moment ou organisez un événement." }, color = WhappyMuted, fontSize = 11.sp) }
         item { OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Titre du direct") }, singleLine = true) }
         item { OutlinedTextField(category, { category = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Catégorie") }, singleLine = true) }
         if (hostMode == "business") item { OutlinedTextField(product, { product = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Produit ou Deal (facultatif)") }, singleLine = true) }
@@ -4552,9 +4612,9 @@ private fun BusinessScreen(
     val advertisingBudget = visibleCampaigns.filter { it.status == "active" }.sumOf { it.dailyBudget * it.days }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
                 Column(Modifier.padding(24.dp)) {
-                    Text("WHAPPY BUSINESS SUITE", color = WhappyBlue, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                    Text("WAPI BUSINESS SUITE", color = WhappyBlue, fontWeight = FontWeight.Black, fontSize = 11.sp)
                     Text("Tout votre Business,\ndans une seule app.", Modifier.padding(top = 9.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
                     Text("Catalogue, commandes, Deals, publicité, paiements et performances en temps réel.", Modifier.padding(top = 9.dp), color = Color.White, lineHeight = 20.sp)
                     Button(onClick = { if (visiblePages.isEmpty()) creatingPage = true else creatingDeal = true }, Modifier.fillMaxWidth().padding(top = 16.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) { Icon(if (visiblePages.isEmpty()) Icons.Rounded.Add else Icons.Rounded.LocalOffer, null); Text(if (visiblePages.isEmpty()) "Créer ma page Business" else "Créer un Deal", Modifier.padding(start = 7.dp), fontWeight = FontWeight.Bold) }
@@ -4583,7 +4643,7 @@ private fun BusinessScreen(
                 item { BusinessFeatureCard(Icons.Rounded.BusinessCenter, "Commandes", if (paymentNotices.isEmpty()) "Centralisez vos prochaines ventes" else "${paymentNotices.size} commande(s) à suivre") { section = BusinessSection.ORDERS } }
                 item { BusinessFeatureCard(Icons.Rounded.Payments, "Paiements", if (unread > 0) "$unread nouvelle(s) notification(s)" else "Historique et alertes de transactions") { section = BusinessSection.PAYMENTS } }
                 item { BusinessFeatureCard(Icons.Rounded.Visibility, "Performances", "Revenus, stock, ventes et budget publicitaire") { section = BusinessSection.INSIGHTS } }
-                item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Mon WHAPPY pour Business", "Créez des contenus et préparez vos directs") { onOpenTwin() } }
+                item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Mon WAPI pour Business", "Créez des contenus et préparez vos directs") { onOpenTwin() } }
             }
             BusinessSection.PAGES -> {
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Mes pages", Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark); TextButton(onClick = { creatingPage = true }) { Text("+ Nouvelle") } } }
@@ -4604,7 +4664,6 @@ private fun BusinessScreen(
             }
             BusinessSection.ORDERS -> {
                 item { Text("Centre de commandes", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
-                item { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = WhappyDark), shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("COMMANDES CONFIRMÉES", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(paymentNotices.size.toString(), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("$soldUnits article(s) vendu(s)", color = Color.White, fontSize = 11.sp) }; Icon(Icons.AutoMirrored.Rounded.ReceiptLong, null, tint = WhappyBlue, modifier = Modifier.size(42.dp)) } } }
                 if (paymentNotices.isEmpty()) item { EmptyState("Aucune commande", "Les commandes confirmées par paiement apparaîtront ici.") }
                 items(paymentNotices, key = { "order-${it.id}" }) { notice -> OrderCard(notice) }
             }
@@ -4627,7 +4686,7 @@ private fun BusinessScreen(
                 item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { MetricCard("Stock", availableStock.toString(), Modifier.weight(1f)); MetricCard("Publicité", formatMoney(advertisingBudget), Modifier.weight(1f)) } }
                 item { InsightCard("Objectif mensuel", paidTotal, 500_000L, "Continuez avec des Lives et Deals réguliers") }
                 item { InsightCard("Écoulement du stock", soldUnits.toLong(), (soldUnits + availableStock).coerceAtLeast(1).toLong(), "Produits vendus sur le catalogue actif") }
-                item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Créer avec mon WHAPPY", "Préparez une vidéo, un Live ou une campagne") { onOpenTwin() } }
+                item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Créer avec mon WAPI", "Préparez une vidéo, un Live ou une campagne") { onOpenTwin() } }
             }
         }
     }
@@ -4663,7 +4722,7 @@ private fun CatalogCard(deal: WhappyDeal, onAddVariant: () -> Unit) {
     val remaining = (deal.stock - deal.sold).coerceAtLeast(0)
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
+            Box(Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
             Column(Modifier.weight(1f).padding(horizontal = 13.dp)) {
                 Text(deal.title, color = WhappyDark, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(formatMoney(deal.dealPrice), color = WhappyBlue, fontWeight = FontWeight.Black)
@@ -4698,7 +4757,7 @@ private fun InsightCard(title: String, value: Long, target: Long, body: String) 
 }
 
 @Composable
-private fun BusinessPageCard(page: WhappyBusinessPage, onEdit: () -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WhappyBlue) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }; TextButton(onClick = onEdit) { Text("Modifier") } }; FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("📍 ${page.city}", color = WhappyMuted, fontSize = 10.sp); if (page.phone.isNotBlank()) Text("☎ ${page.phone}", color = WhappyMuted, fontSize = 10.sp); if (page.website.isNotBlank()) Text("↗ ${page.website}", color = WhappyBlue, fontSize = 10.sp) } } } }
+private fun BusinessPageCard(page: WhappyBusinessPage, onEdit: () -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) { Text(initials(page.name), color = WhappyBlue, fontWeight = FontWeight.Black) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(page.name, fontWeight = FontWeight.Black, color = WhappyDark); Icon(Icons.Rounded.Verified, null, Modifier.padding(start = 5.dp).size(15.dp), tint = WhappyBlue) }; Text("@${page.handle} · ${page.category}", color = WhappyBlue, fontSize = 11.sp); Text(page.bio.ifBlank { page.city }, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2) }; TextButton(onClick = onEdit) { Text("Modifier") } }; FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("📍 ${page.city}", color = WhappyMuted, fontSize = 10.sp); if (page.phone.isNotBlank()) Text("☎ ${page.phone}", color = WhappyMuted, fontSize = 10.sp); if (page.website.isNotBlank()) Text("↗ ${page.website}", color = WhappyBlue, fontSize = 10.sp) } } } }
 
 @Composable
 private fun DealCard(deal: WhappyDeal, onStatus: (String) -> Unit) { Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(17.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(8.dp)).background(if (deal.status == "active") Color.White else Color.White).padding(horizontal = 8.dp, vertical = 5.dp)) { Text(if (deal.status == "active") "DEAL ACTIF" else deal.status.uppercase(), color = if (deal.status == "active") WhappyBlue else WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(deal.pageName, Modifier.padding(start = 8.dp).weight(1f), color = WhappyMuted, fontSize = 11.sp); Text("${deal.sold}/${deal.stock} vendus", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold) }; Text(deal.title, Modifier.padding(top = 10.dp), color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black); Text(deal.description, Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp); Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.Bottom) { Text(formatMoney(deal.dealPrice), color = WhappyBlue, fontSize = 20.sp, fontWeight = FontWeight.Black); if (deal.originalPrice > deal.dealPrice) Text(formatMoney(deal.originalPrice), Modifier.padding(start = 8.dp), color = WhappyMuted, fontSize = 11.sp); Spacer(Modifier.weight(1f)); Text("Expire ${formatShortDate(deal.endsAt)}", color = WhappyMuted, fontSize = 10.sp) }; Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { if (deal.status == "active") OutlinedButton(onClick = { onStatus("paused") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Suspendre") } else if (deal.status == "paused") Button(onClick = { onStatus("active") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Réactiver") }; OutlinedButton(onClick = { onStatus("ended") }, enabled = deal.status != "ended", modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Terminer") } } } } }
@@ -4731,7 +4790,6 @@ private fun DealDialog(pages: List<WhappyBusinessPage>, busy: Boolean, onDismiss
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(WhappyDark), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue) }; Column(Modifier.padding(start = 11.dp)) { Text("Créer un Deal", fontWeight = FontWeight.Black, fontSize = 22.sp); Text(listOf("Identité de l’offre", "Prix et disponibilité", "Aperçu avant publication")[step], color = WhappyBlue, fontSize = 11.sp) } }
                 Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { repeat(3) { index -> Box(Modifier.weight(1f).height(6.dp).clip(CircleShape).background(if (index <= step) WhappyBlue else Color.White)) } }
             }
         },
@@ -4748,7 +4806,7 @@ private fun DealDialog(pages: List<WhappyBusinessPage>, busy: Boolean, onDismiss
                         Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) { Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) { Text("RÉDUCTION", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Spacer(Modifier.weight(1f)); Text(if (discount > 0) "-$discount %" else "À calculer", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black) } }
                         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) { OutlinedTextField(original, { original = it.filter(Char::isDigit).take(9) }, Modifier.weight(1f), label = { Text("Prix normal") }, suffix = { Text("F") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); OutlinedTextField(price, { price = it.filter(Char::isDigit).take(9) }, Modifier.weight(1f), label = { Text("Prix Deal") }, suffix = { Text("F") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) }
                         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) { OutlinedTextField(stock, { stock = it.filter(Char::isDigit).take(5) }, Modifier.weight(1f), label = { Text("Stock") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true); OutlinedTextField(days, { days = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text("Durée") }, suffix = { Text("j") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) }
-                        Text("WHAPPY affichera automatiquement le stock restant et la date de fin pour créer un sentiment d’urgence.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                        Text("WAPI affichera automatiquement le stock restant et la date de fin pour créer un sentiment d’urgence.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                     }
                     else -> Column(Modifier.fillMaxWidth().height(380.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Voici ce que vos clients verront", color = WhappyDark, fontWeight = FontWeight.Black)
@@ -4765,7 +4823,7 @@ private fun DealDialog(pages: List<WhappyBusinessPage>, busy: Boolean, onDismiss
 
 @Composable
 private fun DealPreviewCard(pageName: String, title: String, description: String, original: Long, price: Long, stock: Int, days: Int, discount: Int) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(9.dp)).background(WhappyBlue).padding(horizontal = 9.dp, vertical = 5.dp)) { Text("DEAL · -$discount %", color = Color.White, fontWeight = FontWeight.Black, fontSize = 10.sp) }; Spacer(Modifier.weight(1f)); Text("$days JOURS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black) }
             Text(title.ifBlank { "Votre Deal exceptionnel" }, Modifier.padding(top = 14.dp), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
@@ -4920,7 +4978,7 @@ private fun ProfileScreen(
         Text(t("La photo reste fixe. Touchez-la pour l’agrandir.", "Your photo stays fixed. Tap it to zoom.", "Foto etikali fixe. Finá yango mpo na kokómisa monene."), Modifier.padding(horizontal = 20.dp, vertical = 2.dp), color = WhappyMuted, fontSize = 10.sp)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 26.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Card(Modifier.fillMaxWidth().clickable(onClick = onOpenWhappies), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = WhappyDark)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White) }; Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text("MON WHAPPY", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Mon double numérique", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp); Text(if (twinReadiness > 0) "Profil prêt à $twinReadiness %" else "Image, voix, mouvements et missions", color = Color.White, fontSize = 11.sp) }; Text("›", color = WhappyBlue, fontSize = 26.sp) } }
+            Card(Modifier.fillMaxWidth().clickable(onClick = onOpenWhappies), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White) }; Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text("MON WAPI", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Mon double numérique", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp); Text(if (twinReadiness > 0) "Profil prêt à $twinReadiness %" else "Image, voix, mouvements et missions", color = Color.White, fontSize = 11.sp) }; Text("›", color = WhappyBlue, fontSize = 26.sp) } }
         }
         item { ProfileControlCenter(onOpenSpace = onOpenSpace) }
         item {
@@ -5013,7 +5071,7 @@ private fun ProfileScreen(
                         Text("Cette option prépare l’interface avant le paiement réel : les cadeaux sont marqués TEST pour éviter toute confusion.", color = WhappyMuted, fontSize = 11.sp)
                     }
                     "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }; Text("Les photos et notes vocales choisies restent accessibles depuis leurs conversations.", color = WhappyMuted, fontSize = 11.sp) }
-                    else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("WHAPPY réunit vos conversations, appels, achats, directs et services. En cas de problème, contactez l’assistance depuis cet appareil.", color = WhappyDark); OutlinedButton(onClick = { uriHandler.openUri("mailto:support@whappy.chat?subject=Aide%20WHAPPY") }, Modifier.fillMaxWidth()) { Text("Contacter l’assistance") } }
+                    else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("WAPI réunit vos conversations, appels, achats, directs et services. En cas de problème, contactez l’assistance depuis cet appareil.", color = WhappyDark); OutlinedButton(onClick = { uriHandler.openUri("mailto:support@whappy.chat?subject=Aide%20WHAPPY") }, Modifier.fillMaxWidth()) { Text("Contacter l’assistance") } }
                 }
             },
             confirmButton = { TextButton(onClick = { settingDialog = null }) { Text("Terminé") } },
@@ -5028,7 +5086,7 @@ private fun ProfileControlCenter(onOpenSpace: (WhappyTab) -> Unit) {
         Triple(WhappyTab.CALLS, "Appels", "Voix, vidéo et historique"),
         Triple(WhappyTab.CONTACTS, "Groupes & chaînes", "Communautés internes"),
         Triple(WhappyTab.LIVE, "Live", "Directs, audio et cadeaux"),
-        Triple(WhappyTab.GAMES, "Jeux", "Ludo et défis WHAPPY"),
+        Triple(WhappyTab.GAMES, "Jeux", "Ludo et défis WAPI"),
         Triple(WhappyTab.BUSINESS, "Business", "Pages, deals et campagnes"),
         Triple(WhappyTab.SERVICES, "Services", "Paiements et outils utiles"),
         Triple(WhappyTab.MARKET, "Marché", "Boutiques et offres"),
@@ -5051,7 +5109,7 @@ private fun ProfileControlCenter(onOpenSpace: (WhappyTab) -> Unit) {
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyDark), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyNavy), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White)
                 }
                 Column(Modifier.weight(1f).padding(start = 11.dp)) {
@@ -5181,20 +5239,20 @@ private fun WhappyCodeDialog(name: String, phone: String, onDismiss: () -> Unit)
     val contactLink = remember(normalized) { normalized.takeIf { it.isNotBlank() }?.let { "https://whappy.chat/contact/${Uri.encode(it)}" }.orEmpty() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Mon code WHAPPY") },
+        title = { Text("Mon code WAPI") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Présentez ce code à ${name.ifBlank { "votre contact" }} pour être ajouté instantanément.", color = WhappyMuted)
                 if (qrCode != null) {
                     Image(
                         bitmap = qrCode.asImageBitmap(),
-                        contentDescription = "Code QR WHAPPY de $name",
+                        contentDescription = "Code QR WAPI de $name",
                         modifier = Modifier.padding(top = 18.dp).size(210.dp).clip(RoundedCornerShape(18.dp)),
                     )
                     Text(normalized, Modifier.padding(top = 11.dp), color = WhappyDark, fontWeight = FontWeight.Bold)
                     Text(contactLink, Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 9.sp)
-                    OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Mon lien WHAPPY", contactLink)) }, Modifier.fillMaxWidth().padding(top = 12.dp), shape = RoundedCornerShape(13.dp)) { Text("Copier mon lien") }
-                    Button(onClick = { shareWhappyLink(context, "Contact WHAPPY", contactLink) }, Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(13.dp)) { Icon(Icons.Rounded.Share, null); Text("  Partager mon contact") }
+                    OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Mon lien WAPI", contactLink)) }, Modifier.fillMaxWidth().padding(top = 12.dp), shape = RoundedCornerShape(13.dp)) { Text("Copier mon lien") }
+                    Button(onClick = { shareWhappyLink(context, "Contact WAPI", contactLink) }, Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(13.dp)) { Icon(Icons.Rounded.Share, null); Text("  Partager mon contact") }
                 } else {
                     Text("Votre numéro sécurisé sera disponible ici dès que votre profil sera synchronisé.", Modifier.padding(top = 16.dp), color = WhappyMuted)
                 }
@@ -5215,7 +5273,7 @@ private fun shareRadioRecording(context: Context, file: File, stationName: Strin
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "audio/mp4"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, stationName.ifBlank { "WHAPPY Radio" })
+        putExtra(Intent.EXTRA_SUBJECT, stationName.ifBlank { "WAPI Radio" })
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Partager l’émission…"))
@@ -5318,7 +5376,7 @@ private fun EmptyState(title: String, body: String) {
                 Box(Modifier.size(74.dp).clip(RoundedCornerShape(24.dp)).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ChatBubble, null, tint = WhappyBlue, modifier = Modifier.size(30.dp)) }
                 Text(title, Modifier.padding(top = 7.dp), fontSize = 20.sp, fontWeight = FontWeight.Black, color = WhappyDark, textAlign = TextAlign.Center)
                 Text(body, color = WhappyMuted, lineHeight = 20.sp, textAlign = TextAlign.Center)
-                Text("WHAPPY · votre espace est prêt", Modifier.padding(top = 7.dp), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text("WAPI · votre espace est prêt", Modifier.padding(top = 7.dp), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
             }
         }
     }

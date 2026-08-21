@@ -1034,7 +1034,7 @@ class WhappyRepository(
                 "kind" to "status",
                 "mediaUrl" to mediaUrl,
                 "mediaKind" to mediaKind,
-                "mediaName" to if (mediaUri == null) "" else "Statut WHAPPY ${if (mediaKind == "video") "vidéo" else "image"}",
+                "mediaName" to if (mediaUri == null) "" else "Story WAPI ${if (mediaKind == "video") "vidéo" else "image"}",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),

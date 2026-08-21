@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         callController = WhappyCallController(this)
-        val preview = BuildConfig.DEBUG && intent.getBooleanExtra("preview_home", false)
+        val preview = false
         incomingLink = intent?.dataString
         pendingCallAction = intent?.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
         setContent {

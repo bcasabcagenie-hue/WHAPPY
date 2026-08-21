@@ -1,5 +1,5 @@
 /* WHAPPY interaction layer — GPU-friendly, responsive and strictly on-brand. */
-:root{--whappy-blue:#1C1C74;--whappy-white:#FFFFFF;--whappy-ink:#111111;--whappy-muted:#667085;--whappy-ease:cubic-bezier(.2,.8,.2,1)}
+:root{--whappy-blue:#9600ff;--whappy-white:#FFFFFF;--whappy-ink:#111111;--whappy-muted:#667085;--whappy-ease:cubic-bezier(.2,.8,.2,1)}
 html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button,a{touch-action:manipulation}
 .orbit-scroll,.space-scroll,.deal-messages,.inbox-list,.channel-posts,.group-messages,[class*="scroll"]{overscroll-behavior:contain;scrollbar-gutter:stable;-webkit-overflow-scrolling:touch}
 .inbox-space,.deal-chat,.nova-topbar,.nova-rail,.channel-shell,.group-shell,.profile-shell{contain:layout paint style}
@@ -124,7 +124,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 }
 .whappy-blue .radio-hero h2 { color:#111111; }
 .whappy-blue .radio-hero h2 em,
-.whappy-blue .radio-hero>div>span { color:#1C1C74; }
+.whappy-blue .radio-hero>div>span { color:#9600ff; }
 .whappy-blue .radio-hero>aside {
   border:0!important;
   background:#FFFFFF!important;
@@ -133,7 +133,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
   backdrop-filter:none;
 }
 .whappy-blue .radio-hero aside small,
-.whappy-blue .radio-wave i { color:#1C1C74; background:#1C1C74; }
+.whappy-blue .radio-wave i { color:#9600ff; background:#9600ff; }
 
 .whappy-blue .radio-tabs button {
   border:0!important;
@@ -142,7 +142,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 }
 .whappy-blue .radio-tabs button.active {
   background:rgba(28,28,88,.08)!important;
-  color:#1C1C74!important;
+  color:#9600ff!important;
   box-shadow:none!important;
 }
 
@@ -198,13 +198,13 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .whappy-blue .podcast-item-actions button {
   border:0!important;
   background:rgba(28,28,88,.06)!important;
-  color:#1C1C74!important;
+  color:#9600ff!important;
 }
 .whappy-blue .radio-actions button.active,
 .whappy-blue .radio-live-button,
 .whappy-blue .radio-pause-button {
   border:0!important;
-  background:#1C1C74!important;
+  background:#9600ff!important;
   color:#FFFFFF!important;
 }
 .whappy-blue .radio-end-button,
@@ -212,18 +212,18 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .whappy-blue .podcast-item-actions button.danger {
   border:0!important;
   background:rgba(28,28,88,.09)!important;
-  color:#1C1C74!important;
+  color:#9600ff!important;
 }
 .whappy-blue .radio-messages form button,
 .whappy-blue .podcast-create form button {
-  background:#1C1C74!important;
+  background:#9600ff!important;
   color:#FFFFFF!important;
 }
 
 .whappy-blue :is(.radio-message-actions button,.radio-gift-button) {
   border:0!important;
   background:#FFFFFF!important;
-  color:#1C1C74!important;
+  color:#9600ff!important;
 }
 .whappy-blue :is(.radio-queue-item b,.radio-lineup-list article b,.radio-lineup-list article strong) {
   color:#111111!important;
@@ -240,7 +240,7 @@ html{scroll-behavior:smooth}body{text-rendering:optimizeLegibility;-webkit-font-
 .radio-dock-message {
   border:0!important;
   background:rgba(28,28,88,.06)!important;
-  color:#1C1C74!important;
+  color:#9600ff!important;
 }
 
 @media (max-width:760px) {

@@ -41,7 +41,7 @@ service firebase.storage {
       allow create: if request.auth != null
         && request.auth.uid == userId
         && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds
-        && ((request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && ((request.resource.contentType.matches('image/(jpeg|jpg|png|webp)')
               && request.resource.size < 20 * 1024 * 1024)
           || (request.resource.contentType.matches('audio/.*')
               && request.resource.size < 12 * 1024 * 1024)

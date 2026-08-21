@@ -4,7 +4,7 @@ import com.google.firebase.auth.FirebaseUser
 
 enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
-    STATUS("Statuts"),
+    STORIES("Stories"),
     MESSAGES("Messages"),
     CONTACTS("Contacts"),
     CALLS("Appels"),

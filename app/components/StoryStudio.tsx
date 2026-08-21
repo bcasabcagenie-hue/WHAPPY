@@ -8,18 +8,12 @@ import { publishStory, removeStory, watchStories, type WhappyStory } from "@/lib
 
 type StoryItem = WhappyStory & { tone?: string };
 
-const demoStories: StoryItem[] = [
-  { id: "demo-amina", authorId: "amina", authorName: "Amina M.", mediaUrl: "", mediaType: "image", caption: "Nouvelles inspirations à Poto-Poto aujourd’hui.", tone: "sunset" },
-  { id: "demo-junior", authorId: "junior", authorName: "Junior K.", mediaUrl: "", mediaType: "image", caption: "Livraisons disponibles cet après-midi.", tone: "city" },
-  { id: "demo-mokabi", authorId: "mokabi", authorName: "Mokabi Store", mediaUrl: "", mediaType: "video", caption: "La collection arrive ce soir sur WHAPPY Live.", tone: "fashion" },
-];
-
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "WH";
 }
 
 export function StoryStudio({ userId, userName, cloud, notify }: { userId: string; userName: string; cloud: boolean; notify: (text: string) => void }) {
-  const [stories, setStories] = useState<StoryItem[]>(cloud ? [] : demoStories);
+  const [stories, setStories] = useState<StoryItem[]>([]);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
@@ -42,10 +36,10 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   useEffect(() => {
     if (!cloud) return;
     return watchStories((next) => { setStories(next); setLoading(false); setOffline(false); }, () => {
-      setStories(demoStories);
+      setStories([]);
       setLoading(false);
       setOffline(true);
-      notifyRef.current("Les Stories sont momentanément hors ligne ; vous pouvez toujours préparer un brouillon.");
+      notifyRef.current("Les Stories sont momentanément indisponibles. Vérifiez votre connexion et réessayez.");
     });
   }, [cloud]);
 
@@ -72,7 +66,9 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.files?.[0] || null;
     if (!next) return;
-    if (!next.type.startsWith("image/") && !next.type.startsWith("video/")) {
+    const extension = next.name.toLowerCase().split(".").pop() || "";
+    const supported = next.type.startsWith("image/") || next.type.startsWith("video/") || ["jpg", "jpeg", "png", "webp", "mp4", "webm"].includes(extension);
+    if (!supported) {
       notify("Choisissez une photo ou une courte vidéo.");
       return;
     }
@@ -90,16 +86,14 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   async function publish(event: FormEvent) {
     event.preventDefault();
     if (!file || busy) return;
+    if (!cloud) {
+      notify("Connectez-vous pour publier une Story et synchroniser vos images.");
+      return;
+    }
     setBusy(true);
     try {
-      if (cloud) {
-        await publishStory(userId, userName, file, caption);
-        notify("Votre Story est publiée pendant 24 heures.");
-      } else {
-        const local: StoryItem = { id: `local-story-${Date.now()}`, authorId: userId, authorName: userName, mediaUrl: preview, mediaType: file.type.startsWith("video/") ? "video" : "image", caption, expiresAt: { toDate: () => new Date(Date.now() + 24 * 60 * 60 * 1000) } };
-        setStories((items) => [local, ...items]);
-        notify("Votre Story est visible dans cette démonstration.");
-      }
+      await publishStory(userId, userName, file, caption);
+      notify("Votre Story est publiée pendant 24 heures.");
       resetCreator();
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
@@ -113,8 +107,7 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
     if (!current || current.authorId !== userId || busy) return;
     setBusy(true);
     try {
-      if (cloud) await removeStory(current, userId);
-      else setStories((items) => items.filter((item) => item.id !== current.id));
+      await removeStory(current, userId);
       setActive(null);
       notify("Votre Story a été supprimée.");
     } catch {
