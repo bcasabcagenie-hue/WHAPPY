@@ -428,3 +428,23 @@ test("renforce les bases internationales, les profils, les groupes et les sons",
   assert.match(data, /photoUrl/);
   assert.match(storageRules, /match \/groups\/\{groupId\}/);
 });
+
+test("propose une offre premium avec image, vidéo, aperçu et sons", async () => {
+  const [page, styles, sounds] = await Promise.all([
+    readFile(new URL("../app/components/WhappyClientApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio.css", import.meta.url), "utf8"),
+    readFile(new URL("../lib/whappy-sounds.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /PremiumOfferModal/);
+  assert.match(page, /name="offerMedia"/);
+  assert.match(page, /accept="image\/\*,video\/\*"/);
+  assert.match(page, /offer-media-preview/);
+  assert.match(page, /DataTransfer/);
+  assert.match(page, /playMediaAddedSound/);
+  assert.match(page, /playOfferSuccessSound/);
+  assert.match(styles, /offer-cinematic-in/);
+  assert.match(styles, /offer-drop-pulse/);
+  assert.match(styles, /prefers-reduced-motion/);
+  assert.match(sounds, /export function playMediaAddedSound/);
+  assert.match(sounds, /export function playOfferSuccessSound/);
+});

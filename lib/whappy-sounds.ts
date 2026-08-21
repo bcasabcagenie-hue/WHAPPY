@@ -35,6 +35,18 @@ export function playMessageSound() {
   note(880, 0.1, 0.18, 0.045);
 }
 
+export function playMediaAddedSound() {
+  note(587.33, 0, 0.08, 0.035);
+  note(783.99, 0.07, 0.11, 0.045);
+  note(987.77, 0.15, 0.16, 0.035);
+}
+
+export function playOfferSuccessSound() {
+  note(523.25, 0, 0.09, 0.04);
+  note(659.25, 0.08, 0.1, 0.045);
+  note(880, 0.17, 0.2, 0.04);
+}
+
 export function playCallConnectedSound() {
   note(523.25, 0, 0.11, 0.05);
   note(659.25, 0.11, 0.11, 0.05);
@@ -61,4 +73,3 @@ export function startRingtone(kind: "incoming" | "outgoing") {
     window.clearInterval(timer);
   };
 }
-

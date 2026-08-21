@@ -29,11 +29,16 @@ export type AdCampaign = {
   pageId: string;
   pageName: string;
   objective: "reach" | "messages" | "traffic" | "sales";
+  placement: "status" | "inbox" | "market" | "live";
+  destination: "message" | "page" | "call" | "website";
   title: string;
   creative: string;
   cta: string;
   audience: string;
   city: string;
+  phone: string;
+  link: string;
+  estimatedReach: number;
   dailyBudget: number;
   days: number;
   totalBudget: number;
@@ -137,7 +142,7 @@ export type Artist = {
 };
 
 export type NewBusinessPage = Pick<BusinessPage, "name" | "type" | "category" | "bio" | "city" | "phone" | "website">;
-export type NewAdCampaign = Pick<AdCampaign, "pageId" | "pageName" | "objective" | "title" | "creative" | "cta" | "audience" | "city" | "dailyBudget" | "days">;
+export type NewAdCampaign = Pick<AdCampaign, "pageId" | "pageName" | "objective" | "title" | "creative" | "cta" | "audience" | "city" | "dailyBudget" | "days"> & Partial<Pick<AdCampaign, "placement" | "destination" | "phone" | "link">>;
 export type NewArtist = Pick<Artist, "name" | "stageName" | "discipline" | "city" | "contact" | "email" | "status" | "nextAction" | "monthlyBudget" | "notes"> & {
   isScouted?: boolean;
 };
@@ -219,17 +224,25 @@ export function watchActiveCampaigns(onCampaigns: (campaigns: AdCampaign[]) => v
 export async function createAdCampaign(ownerId: string, campaign: NewAdCampaign) {
   const dailyBudget = Math.max(500, Math.round(campaign.dailyBudget));
   const days = Math.min(90, Math.max(1, Math.round(campaign.days)));
+  const placement = campaign.placement || "status";
+  const destination = campaign.destination || (campaign.objective === "messages" ? "message" : "page");
+  const estimatedReach = Math.max(120, Math.round((dailyBudget / 500) * days * (placement === "status" ? 180 : placement === "inbox" ? 110 : placement === "live" ? 90 : 140)));
   const reference = await addDoc(collection(db, "adCampaigns"), {
     ...campaign,
+    placement,
+    destination,
     title: campaign.title.trim().slice(0, 120),
     creative: campaign.creative.trim().slice(0, 600),
     cta: campaign.cta.trim().slice(0, 40),
     audience: campaign.audience.trim().slice(0, 120),
     city: campaign.city.trim().slice(0, 80),
+    phone: (campaign.phone || "").trim().slice(0, 40),
+    link: (campaign.link || "").trim().slice(0, 180),
     ownerId,
     dailyBudget,
     days,
     totalBudget: dailyBudget * days,
+    estimatedReach,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

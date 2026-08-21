@@ -25,6 +25,9 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   const [preview, setPreview] = useState("");
   const [caption, setCaption] = useState("");
   const [active, setActive] = useState<number | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [reaction, setReaction] = useState<string | null>(null);
+  const [storyReply, setStoryReply] = useState("");
   const [busy, setBusy] = useState(false);
   const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(cloud);
@@ -49,6 +52,12 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   const activeStories = useMemo(() => stories.filter((story) => (story.expiresAt?.toDate?.()?.getTime() || Date.now() + 1) > Date.now()), [stories]);
   const orderedStories = useMemo(() => [...activeStories].sort((a, b) => Number(b.authorId === userId) - Number(a.authorId === userId)), [activeStories, userId]);
   const current = active === null ? null : orderedStories[active] || null;
+
+  useEffect(() => {
+    if (!current || active === null) return;
+    const timer = window.setTimeout(() => setActive((value) => value === null || value >= orderedStories.length - 1 ? null : value + 1), current.mediaType === "video" ? 10000 : 6000);
+    return () => window.clearTimeout(timer);
+  }, [active, current, orderedStories.length]);
 
   useEffect(() => {
     function closeWithEscape(event: KeyboardEvent) {
@@ -117,6 +126,20 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
 
   function openStory(story: StoryItem) {
     setActive(orderedStories.findIndex((item) => item.id === story.id));
+    setReaction(null);
+    setStoryReply("");
+  }
+
+  function reactToStory(value: string) {
+    setReaction(value);
+    notify(`Réaction ${value} envoyée à ${current?.authorName || "ce contact"}.`);
+  }
+
+  function replyToStory(event: FormEvent) {
+    event.preventDefault();
+    if (!storyReply.trim() || !current) return;
+    notify(`Réponse envoyée à ${current.authorName}.`);
+    setStoryReply("");
   }
 
   const rail = <section className="story-studio" aria-label="Stories Whappy">
@@ -151,7 +174,9 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
 
     {current && <div className="story-viewer" role="dialog" aria-modal="true" aria-label={`Story de ${current.authorName}`}>
       <header><div className="story-progress">{orderedStories.map((story, index) => <i className={index <= (active || 0) ? "seen" : ""} key={story.id}/>)}</div><section><span>{initials(current.authorName)}</span><div><strong>{current.authorName}</strong><small>Story · visible 24 h</small></div>{current.authorId === userId && <button onClick={() => void deleteCurrent()} disabled={busy}>Supprimer</button>}<button onClick={() => setActive(null)} aria-label="Fermer">×</button></section></header>
-      <main className={current.tone || ""}>{current.mediaUrl ? current.mediaType === "video" ? <video src={current.mediaUrl} controls autoPlay playsInline/> : <img src={current.mediaUrl} alt={`Story de ${current.authorName}`}/> : <div className="story-demo-visual"><span>{initials(current.authorName)}</span><strong>WHAPPY STORY</strong></div>}{current.caption && <p>{current.caption}</p>}</main>
+      <main className={current.tone || ""}>{current.mediaUrl ? current.mediaType === "video" ? <video src={current.mediaUrl} controls autoPlay muted={muted} playsInline><track kind="captions" /></video> : <img src={current.mediaUrl} alt={`Story de ${current.authorName}`}/> : <div className="story-demo-visual"><span>{initials(current.authorName)}</span><strong>WHAPPY STORY</strong></div>}{current.caption && <p>{current.caption}</p>}</main>
+      <div className="story-actions"><button type="button" onClick={() => setMuted((value) => !value)}>{muted ? "🔇" : "🔊"}</button>{["❤️", "🔥", "👏"].map((value) => <button type="button" className={reaction === value ? "active" : ""} key={value} onClick={() => reactToStory(value)}>{value}</button>)}</div>
+      <form className="story-reply" onSubmit={replyToStory}><input value={storyReply} onChange={(event) => setStoryReply(event.target.value)} maxLength={280} placeholder={`Répondre à ${current.authorName}…`} /><button type="submit" disabled={!storyReply.trim()}>➤</button></form>
       <button className="story-previous" onClick={() => setActive((value) => value === null ? null : Math.max(0, value - 1))} disabled={active === 0} aria-label="Story précédente">‹</button>
       <button className="story-next" onClick={() => setActive((value) => value === null ? null : value >= orderedStories.length - 1 ? null : value + 1)} aria-label="Story suivante">›</button>
     </div>}

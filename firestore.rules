@@ -137,10 +137,14 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
         allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.keys().hasOnly(["text", "senderId", "kind", "mediaUrl", "mediaName", "duration", "effect", "caption", "replyToId", "replyText", "createdAt", "expiresAt", "viewOnce", "viewedBy"])
+          && request.resource.data.keys().hasOnly(["text", "senderId", "clientMessageId", "encryptionNonce", "encryptionVersion", "kind", "mediaUrl", "mediaName", "duration", "effect", "caption", "replyToId", "replyText", "replyTo", "forwarded", "createdAt", "expiresAt", "viewOnce", "viewedBy"])
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 4000
+          && (!request.resource.data.keys().hasAny(["encryptionVersion", "encryptionNonce"])
+            || (request.resource.data.encryptionVersion == 1
+              && request.resource.data.encryptionNonce is string
+              && request.resource.data.encryptionNonce.size() == 16))
           && (!request.resource.data.keys().hasAny(["replyToId", "replyText"])
             || (request.resource.data.replyToId is string
               && request.resource.data.replyToId.size() > 0

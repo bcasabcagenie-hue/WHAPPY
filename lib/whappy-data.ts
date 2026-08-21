@@ -1,6 +1,7 @@
 import { addDoc, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
+import { encryptWhappyText, ensureEncryptionIdentity, getEncryptionPublicKey } from "@/lib/whappy-encryption";
 
 export type CloudListing = {
   id: string;
@@ -31,6 +32,8 @@ export type CloudRequest = {
 export type CloudMessage = {
   id: string;
   clientMessageId?: string;
+  replyTo?: { id: string; senderName: string; text: string };
+  forwarded?: boolean;
   pending?: boolean;
   text: string;
   senderId: string;
@@ -42,9 +45,12 @@ export type CloudMessage = {
   duration?: number;
   effect?: "comic" | "neon" | "ink" | "pop";
   caption?: string;
+  encryptionNonce?: string;
+  encryptionVersion?: number;
   expiresAt?: { toDate?: () => Date } | null;
   viewOnce?: boolean;
   viewedBy?: Record<string, CloudTimestamp>;
+  viewerNames?: Record<string, string>;
   createdAt?: { toDate?: () => Date } | null;
 };
 
@@ -59,6 +65,7 @@ export type DirectMember = {
   wepiEnabled?: boolean;
   wepiName?: string;
   wepiBusinessName?: string;
+  encryptionPublicKey?: JsonWebKey;
 };
 type CloudTimestamp = { toDate?: () => Date } | null;
 export type CloudConversation = {
@@ -338,12 +345,13 @@ export function watchWhappyUsersById(userIds:string[],onItems:(items:Record<stri
 }
 
 export async function ensureDirectConversation(current:DirectMember,peer:DirectMember) {
+  const identity = await ensureEncryptionIdentity(current.uid);
   const id=`direct-${[current.uid,peer.uid].sort().join("-")}`;
   const reference=doc(db,"conversations",id);
   // A missing conversation cannot be read under the privacy rules because it
   // has no member list yet. Merge directly: Firestore treats this as a create
   // for a new conversation and as a safe update for an existing one.
-  await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[current,peer],typingBy:{},readBy:{},ephemeralSeconds:0,updatedAt:serverTimestamp()},{merge:true});
+  await setDoc(reference,{ownerId:current.uid,memberIds:[current.uid,peer.uid].sort(),members:[{...current, ...identity},peer],typingBy:{},readBy:{},ephemeralSeconds:0,updatedAt:serverTimestamp()},{merge:true});
   return id;
 }
 
@@ -365,15 +373,20 @@ function expiryTimestamp(ephemeralSeconds:number) {
   return ephemeralSeconds > 0 ? Timestamp.fromMillis(Date.now() + ephemeralSeconds * 1000) : null;
 }
 
-export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0,clientMessageId=newClientMessageId()) {
+export async function sendDirectMessage(conversationId:string,userId:string,text:string,ephemeralSeconds=0,clientMessageId=newClientMessageId(),replyTo?: { id: string; senderName: string; text: string },forwarded=false) {
   const value=text.trim();
   if(!value||value.length>4000)throw new Error("invalid-message");
   if(![0,86400,604800].includes(ephemeralSeconds))throw new Error("invalid-expiry");
   const safeClientMessageId=clientMessageId.replace(/[^a-zA-Z0-9_-]/g,"-").slice(0,120);
   if(!safeClientMessageId)throw new Error("invalid-message-id");
-  const payload:Record<string,unknown>={text:value,senderId:userId,clientMessageId:safeClientMessageId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp()};
+  const conversationSnapshot = await getDoc(doc(db, "conversations", conversationId));
+  const peerId = conversationSnapshot.data()?.memberIds?.find((memberId: string) => memberId !== userId) as string | undefined;
+  const peerPublicKey = peerId ? await getEncryptionPublicKey(peerId) : undefined;
+  if (!peerPublicKey) throw new Error("encryption-unavailable");
+  const encrypted = await encryptWhappyText(value, userId, peerPublicKey);
+  const payload:Record<string,unknown>={...encrypted,senderId:userId,clientMessageId:safeClientMessageId,expiresAt:expiryTimestamp(ephemeralSeconds),createdAt:serverTimestamp(),...(replyTo ? { replyTo: { id: replyTo.id, senderName: replyTo.senderName.slice(0, 80), text: replyTo.text.slice(0, 240) } } : {}),...(forwarded ? { forwarded: true } : {})};
   await setDoc(doc(db,"conversations",conversationId,"messages",safeClientMessageId),payload,{merge:true});
-  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:value,updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false}).catch(() => undefined);
+  await updateDoc(doc(db,"conversations",conversationId),{lastMessage:"🔒 Message chiffré",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false}).catch(() => undefined);
   return safeClientMessageId;
 }
 
@@ -393,7 +406,7 @@ export async function sendDirectAttachment(conversationId:string,userId:string,f
   await uploadBytes(mediaRef,file,{contentType:file.type,customMetadata:{quality}});
   const mediaUrl=await getDownloadURL(mediaRef);
   const label=kind==="image"?"Image WHAPPY":kind==="video"?"Vidéo WHAPPY":"Message vocal";
-  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),quality:kind === "audio" ? "standard" : quality,duration:Math.max(0,Math.round(duration)),expiresAt:expiryTimestamp(ephemeralSeconds),viewOnce:viewOnce && kind !== "audio",viewedBy:{},createdAt:serverTimestamp()};
+  const payload:Record<string,unknown>={text:label,senderId:userId,kind,mediaUrl,mediaName:file.name.slice(0,120),quality:kind === "audio" ? "standard" : quality,duration:Math.max(0,Math.round(duration)),expiresAt:expiryTimestamp(ephemeralSeconds),viewOnce,viewedBy:{},createdAt:serverTimestamp()};
   if(kind==="video"){payload.effect=["comic","neon","ink","pop"].includes(effect)?effect:"pop";payload.caption=caption.trim().slice(0,100);}
   await addDoc(collection(db,"conversations",conversationId,"messages"),payload);
   await updateDoc(doc(db,"conversations",conversationId),{lastMessage:kind==="image"?"🎨 Création WHAPPY":kind==="video"?"🎬 Vidéo WHAPPY":"🎙 Message vocal",updatedAt:serverTimestamp(),[`typingBy.${userId}`]:false}).catch(() => undefined);
@@ -542,20 +555,46 @@ export async function publishWhapText(authorId: string, authorName: string, text
 
 export function watchGroupMessages(groupId: string, onMessages: (items: CloudGroupMessage[]) => void, onError: () => void) {
   const messagesQuery = query(collection(db, "groups", groupId, "messages"), orderBy("createdAt", "asc"));
-  return onSnapshot(messagesQuery, (snapshot) => onMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CloudGroupMessage))), onError);
+  return onSnapshot(messagesQuery, { includeMetadataChanges: true }, (snapshot) => onMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data(), pending: item.metadata.hasPendingWrites } as CloudGroupMessage))), onError);
 }
 
-export async function sendGroupMessage(groupId: string, userId: string, senderName: string, text: string) {
+export async function sendGroupMessage(groupId: string, userId: string, senderName: string, text: string, replyTo?: { id: string; senderName: string; text: string }) {
   const value = text.trim();
   if (!value || value.length > 4000) throw new Error("invalid-message");
   const message = await addDoc(collection(db, "groups", groupId, "messages"), {
     text: value,
     senderId: userId,
     senderName: senderName.trim().slice(0, 80) || "Membre Whappy",
+    ...(replyTo ? { replyTo: { id: replyTo.id, senderName: replyTo.senderName.slice(0, 80), text: replyTo.text.slice(0, 240) } } : {}),
     createdAt: serverTimestamp(),
   });
   await updateDoc(doc(db, "groups", groupId), { lastMessage: value, updatedAt: serverTimestamp() });
   return message.id;
+}
+
+export async function sendGroupAttachment(groupId: string, userId: string, senderName: string, file: File, caption = "") {
+  const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "";
+  const maximum = kind === "image" ? 20 * 1024 * 1024 : 60 * 1024 * 1024;
+  if (!kind || !file.size || file.size > maximum) throw new Error("invalid-group-media");
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-90) || `${kind}.bin`;
+  const mediaRef = ref(storage, `groups/${groupId}/${userId}/${Date.now()}-${safeName}`);
+  await uploadBytes(mediaRef, file, { contentType: file.type });
+  const mediaUrl = await getDownloadURL(mediaRef);
+  const message = await addDoc(collection(db, "groups", groupId, "messages"), {
+    text: caption.trim().slice(0, 4000) || (kind === "image" ? "Image" : "Vidéo"),
+    senderId: userId,
+    senderName: senderName.trim().slice(0, 80) || "Membre Whappy",
+    kind,
+    mediaUrl,
+    mediaName: file.name.slice(0, 120),
+    createdAt: serverTimestamp(),
+  });
+  await updateDoc(doc(db, "groups", groupId), { lastMessage: kind === "image" ? "📷 Image" : "🎥 Vidéo", updatedAt: serverTimestamp() });
+  return message.id;
+}
+
+export async function markGroupMessageRead(groupId: string, messageId: string, userId: string, userName = "Membre Whappy") {
+  await updateDoc(doc(db, "groups", groupId, "messages", messageId), { [`viewedBy.${userId}`]: serverTimestamp(), [`viewerNames.${userId}`]: userName.trim().slice(0, 80) });
 }
 
 export function watchGroupActivities(groupId: string, onActivities: (items: CloudGroupActivity[]) => void, onError: () => void) {

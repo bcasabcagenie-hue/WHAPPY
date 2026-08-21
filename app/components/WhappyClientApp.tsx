@@ -3,10 +3,11 @@
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { browserLocalPersistence, ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, setPersistence, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { cancelOrder, createGroup, createOrder, findWhappyUserById, publishListing, publishRequest, removeListing, requestGroupJoin, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, watchWhappyUsersById, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
 import { callingCountries } from "@/lib/countries";
+import { playMediaAddedSound, playOfferSuccessSound } from "@/lib/whappy-sounds";
 
 function messageTime(message: CloudMessage) {
   return message.createdAt?.toDate?.()?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) || "À l’instant";
@@ -50,6 +51,7 @@ const StoryStudio = dynamic(() => import("@/app/components/StoryStudio").then((m
 type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "rooms" | "radio" | "services" | "twin" | "business" | "games";
 type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; sellerPhone?: string; status?: "active" | "reserved" | "sold"; };
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
+type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "image" | "video"; mediaName?: string };
 
 const ANDROID_APP = {
   url: "https://whappy-d97e7.web.app/WHAPPY-Android-1.5.1-native.apk",
@@ -146,6 +148,10 @@ function Mark({ children, color, small = false }: { children: React.ReactNode; c
   return <span className={`op-mark ${small ? "small" : ""}`} style={color ? { background: color } : undefined}>{children}</span>;
 }
 
+function PremiumOfferModal({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (event: FormEvent) => void; notify?: (text: string) => void }) {
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Faire une offre"><form className="action-modal" onSubmit={onSubmit}><button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">×</button><span className="modal-icon">⇄</span><small>WHAPPY ACTION</small><h2>Faire une offre</h2><p>Proposez un prix ou un échange directement dans la conversation.</p><label>Votre proposition<input name="offer" required placeholder="Prix ou échange souhaité" /></label><label>Message<textarea name="message" placeholder="Ajoutez un détail…" /></label><button className="modal-submit" type="submit" disabled={busy}>{busy ? "Envoi sécurisé…" : "Envoyer l’offre ↗"}</button></form></div>;
+}
+
 export default function Home() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authStep, setAuthStep] = useState<"phone" | "code" | "profile">("phone");
@@ -192,7 +198,7 @@ export default function Home() {
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [pulseOpen, setPulseOpen] = useState(false);
   const [directCompose, setDirectCompose] = useState(0);
-  const [demoOffer, setDemoOffer] = useState<{ id: number; text: string } | null>(null);
+  const [demoOffer, setDemoOffer] = useState<DemoOffer | null>(null);
   const [directPhone, setDirectPhone] = useState("");
   const [directPeer, setDirectPeer] = useState<DirectMember | null>(null);
   const [demoContactName, setDemoContactName] = useState("");
@@ -613,9 +619,18 @@ export default function Home() {
     } else if (modal === "message") {
       const offer = String(form.get("offer") || "").trim();
       const details = String(form.get("message") || "").trim();
-      setDemoOffer({ id: Date.now(), text: `◇ Offre : ${offer}${details ? ` — ${details}` : ""}` });
+      const mediaEntry = form.get("offerMedia");
+      const media = mediaEntry instanceof File && mediaEntry.size ? mediaEntry : null;
+      setDemoOffer({
+        id: Date.now(),
+        text: `◇ Offre : ${offer}${details ? ` — ${details}` : ""}`,
+        mediaUrl: media ? URL.createObjectURL(media) : undefined,
+        mediaKind: media?.type.startsWith("video/") ? "video" : media ? "image" : undefined,
+        mediaName: media?.name,
+      });
+      playOfferSuccessSound();
       go("inbox");
-      notify("Votre offre a été ajoutée à la conversation");
+      notify(media ? `Offre envoyée avec ${media.type.startsWith("video/") ? "une vidéo" : "une image"}` : "Votre offre a été ajoutée à la conversation");
     }
     setPublishBusy(false);
     setModal(null);
@@ -845,7 +860,7 @@ export default function Home() {
 
     {liveIndex !== null && <LiveViewerPro live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Whappy",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
     {broadcast && <BroadcastStudio config={broadcast} twinAuthorized={consent} onClose={() => setBroadcast(null)} onOpenTwin={() => { setBroadcast(null); go("twin"); setTwinStep(1); }} notify={notify} />}
-    {modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
+    {modal === "message" ? <PremiumOfferModal busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} notify={notify} /> : modal && <ActionModal type={modal} busy={publishBusy} onClose={() => setModal(null)} onSubmit={submitModal} consent={consent} setConsent={setConsent} setTwinStep={setTwinStep} go={go} notify={notify} />}
     {profileOpen && <ProfilePanel name={accountName} phone={auth.currentUser?.phoneNumber || `${countryCode} ${phone || "06 000 00 00"}`} photoUrl={profilePhotoUrl} founder={founderProfile} onClose={() => setProfileOpen(false)} go={(destination) => { setProfileOpen(false); go(destination); }} onOpenShop={() => { setProfileOpen(false); setShopOpen(true); }} onOpenOrders={() => { setProfileOpen(false); setOrdersOpen(true); }} onSignOut={async () => { if (auth.currentUser) await signOut(auth); setProfileOpen(false); setAuthenticated(false); }} />}
     {shopOpen && <SellerDashboard items={shopListings} cloud={Boolean(userId)} onClose={() => setShopOpen(false)} onCreate={() => { setShopOpen(false); setModal("sell"); }} onUpdate={manageListing} onDelete={deleteShopListing} notify={notify} />}
     {selectedProduct&&<ProductPanel item={selectedProduct} saved={!!saved[String(selectedProduct.id)]} onSave={()=>setSaved(current=>({...current,[selectedProduct.id]:!current[String(selectedProduct.id)]}))} onClose={()=>setSelectedProduct(null)} onContact={(item)=>void contactListing(item)} onAdd={(quantity)=>addToCart(selectedProduct,quantity)}/>}
@@ -1121,10 +1136,10 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
       <div className="games-hero-copy">
         <span className="games-eyebrow"><i /> WHAPPY ARENA · SAISON 01</span>
         <h2>Jouez votre<br /><em>meilleur coup.</em></h2>
-        <p>Des parties exigeantes, un instructeur qui vous accompagne et des tournois où la performance peut être récompensée.</p>
+        <p>Des parties exigeantes, un accompagnement précis et des tournois où chaque progression compte.</p>
         <div className="games-hero-actions">
-          <button className="games-primary" onClick={() => { setView("play"); notify("Nouvelle partie prête dans l’arène"); }}>▶ Commencer une partie</button>
-          <button onClick={() => setView("world")}>Coupe du Monde WHAPPY <span>↗</span></button>
+        <button className="games-primary" onClick={() => { setView("play"); notify("Votre espace de jeu est prêt"); }}>▶ Lancer une partie</button>
+          <button onClick={() => setView("world")}>Compétition mondiale <span>↗</span></button>
         </div>
         <div className="games-proof"><span><strong>2 480</strong> joueurs actifs</span><span><strong>18</strong> tournois ce mois</span><span><strong>425 k</strong> FCFA à gagner</span></div>
       </div>
@@ -1133,11 +1148,11 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
 
     <section className="space-content games-content">
       <nav className="games-tabs" aria-label="Navigation de l’arène">
-        <button className={view === "play" ? "active" : ""} onClick={() => setView("play")}>Jouer maintenant <small>12 en ligne</small></button>
-        <button className={view === "world" ? "active" : ""} onClick={() => setView("world")}>Coupe du Monde <small>4 jeux</small></button>
+        <button className={view === "play" ? "active" : ""} onClick={() => setView("play")}>Jouer <small>12 en ligne</small></button>
+        <button className={view === "world" ? "active" : ""} onClick={() => setView("world")}>Compétition mondiale <small>4 disciplines</small></button>
         <button className={view === "tournaments" ? "active" : ""} onClick={() => setView("tournaments")}>Tournois <small>4 ouverts</small></button>
         <button className={view === "community" ? "active" : ""} onClick={() => setView("community")}>Équipes & échelons <small>{teams.length} équipes</small></button>
-        <button className={view === "coach" ? "active" : ""} onClick={() => setView("coach")}>Mon instructeur <small>4 leçons</small></button>
+        <button className={view === "coach" ? "active" : ""} onClick={() => setView("coach")}>Mon accompagnement <small>4 leçons</small></button>
       </nav>
 
       {view === "world" && <section className="world-view"><header className="world-cup-hero"><div><span className="world-kicker"><i /> COMPÉTITION MONDIALE WHAPPY</span><h3>Une arène.<br /><em>Le monde entier.</em></h3><p>Les meilleurs joueurs, équipes et esprits logiques se retrouvent dans une même saison.</p><button onClick={() => notify("Calendrier de la Coupe du Monde WHAPPY ouvert")}>Voir le calendrier officiel ↗</button></div><div className="world-cup-badge"><span>WHAPPY</span><strong>WORLD<br />CUP</strong><small>SAISON 01 · 2026</small></div></header><div className="world-timeline"><span className="current"><b>01</b><strong>Qualifications</strong><small>Septembre</small></span><i /><span><b>02</b><strong>Phases régionales</strong><small>Octobre</small></span><i /><span><b>03</b><strong>Grande finale</strong><small>Novembre · Brazzaville</small></span></div><div className="world-section-heading"><div><small>4 DISCIPLINES · 1 TITRE MONDIAL</small><h3>Choisissez votre terrain</h3></div><span>Inscription ouverte aux joueurs et aux équipes</span></div><div className="world-event-grid">{worldCupEvents.map((event) => <article className={`world-event-card ${event.tone}`} key={event.game}><header><span className="world-game-mark">{gameProfiles[event.game].mark}</span><span>{event.stage}</span></header><h4>{event.title}</h4><p>{event.date} <i /> {event.players}</p><div className="world-event-footer"><div><small>DOTATION</small><strong>{event.prize}</strong></div><button className={registeredWorld[event.game] ? "registered" : ""} onClick={() => registerWorldCup(event.game)}>{registeredWorld[event.game] ? "✓ Pré-inscrit" : "Se pré-inscrire"}</button></div></article>)}</div><section className="world-ranking"><header><div><small>CLASSEMENT PROVISOIRE</small><h3>Les joueurs à suivre</h3></div><button onClick={() => setView("community")}>Voir les équipes →</button></header><div>{[{ name: "Cyril B.", game: "Échecs", score: "1 842", mark: "CB" }, { name: "Amina M.", game: "Dames", score: "1 776", mark: "AM" }, { name: "Junior K.", game: "Sudoku", score: "1 688", mark: "JK" }].map((player, index) => <article key={player.name}><b>0{index + 1}</b><span>{player.mark}</span><div><strong>{player.name}</strong><small>{player.game}</small></div><strong>{player.score}</strong></article>)}</div></section></section>}
@@ -1153,7 +1168,7 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
             <footer><div><small>TOUR DE JEU</small><strong>{moveCount}</strong></div><div><small>FORMAT</small><strong>{game === "sudoku" ? "9×9" : game === "ludo" ? "4 joueurs" : "10+5"}</strong></div><button onClick={() => game === "ludo" ? notify("Dé lancé : vous avancez de 6 cases") : game === "sudoku" ? notify("Grille vérifiée : 2 erreurs à corriger") : notify("Recherche d’un adversaire de niveau similaire…")}>{game === "ludo" ? "🎲 Lancer le dé" : game === "sudoku" ? "✓ Vérifier la grille" : "⚡ Trouver un adversaire"}</button></footer>
           </section>
           <aside className="games-side-column">
-            <section className="ai-lab-card"><header><div><small>ADVERSAIRE INTELLIGENT</small><strong>Choisissez votre défi</strong></div><span className="ai-status"><i /> PRÊT</span></header><div className="opponent-mode-switch"><button className={opponentMode === "computer" ? "active" : ""} onClick={() => { setOpponentMode("computer"); setMatchResult(null); notify("Mode ordinateur activé"); }}>🤖 Ordinateur</button><button className={opponentMode === "human" ? "active" : ""} onClick={() => { setOpponentMode("human"); setComputerThinking(false); setMatchResult(null); notify("Mode joueur en ligne activé"); }}>♟ Joueur</button></div>{opponentMode === "computer" && <><div className="difficulty-heading"><span>NIVEAU DE DIFFICULTÉ</span><b>{difficultyProfile.rating} Elo</b></div><div className="difficulty-grid">{(Object.keys(difficultyProfiles) as DifficultyId[]).map((level) => <button key={level} className={`${difficulty === level ? "active" : ""} ${difficultyProfiles[level].color}`} onClick={() => { setDifficulty(level); setMatchResult(null); }}><span>{difficultyProfiles[level].rating}</span><strong>{difficultyProfiles[level].name}</strong></button>)}</div><p className="difficulty-detail">{difficultyProfile.detail}. <b>+{difficultyProfile.gain} rating</b> en cas de victoire.</p></>}</section>
+            <section className="ai-lab-card"><header><div><small>ADVERSAIRE ASSISTÉ PAR IA</small><strong>Choisissez votre défi</strong></div><span className="ai-status"><i /> PRÊT</span></header><div className="opponent-mode-switch"><button className={opponentMode === "computer" ? "active" : ""} onClick={() => { setOpponentMode("computer"); setMatchResult(null); notify("Mode ordinateur activé"); }}>🤖 Ordinateur</button><button className={opponentMode === "human" ? "active" : ""} onClick={() => { setOpponentMode("human"); setComputerThinking(false); setMatchResult(null); notify("Mode joueur en ligne activé"); }}>♟ Joueur</button></div>{opponentMode === "computer" && <><div className="difficulty-heading"><span>NIVEAU DE DIFFICULTÉ</span><b>{difficultyProfile.rating} Elo</b></div><div className="difficulty-grid">{(Object.keys(difficultyProfiles) as DifficultyId[]).map((level) => <button key={level} className={`${difficulty === level ? "active" : ""} ${difficultyProfiles[level].color}`} onClick={() => { setDifficulty(level); setMatchResult(null); }}><span>{difficultyProfiles[level].rating}</span><strong>{difficultyProfiles[level].name}</strong></button>)}</div><p className="difficulty-detail">{difficultyProfile.detail}. <b>+{difficultyProfile.gain} points de classement</b> en cas de victoire.</p></>}</section>
             <section className="coach-card"><header><span className="coach-avatar">MK</span><div><small>INSTRUCTEUR · EN LIGNE</small><strong>Maître Kévin</strong><span>FIDE 2 146 · 12 ans d’expérience</span></div><b>●</b></header><div className="coach-lesson"><small>CONSEIL SUR LA POSITION</small><strong>Développez votre cavalier avant de pousser le pion.</strong><p>Votre meilleur coup ici : <b>{game === "chess" ? "♞ f3" : "● c5"}</b></p></div><button className="coach-cta" onClick={() => { setView("coach"); setLessonStarted(true); }}>Ouvrir l’analyse avec l’instructeur ↗</button></section>
             <section className="quick-match"><header><div><small>FORMAT EXPRESS</small><strong>Partie rapide</strong></div><span>+ 126 joueurs</span></header><div className="quick-match-options"><button onClick={() => notify("Match 3+2 recherché")}>3+2 <small>Blitz</small></button><button className="selected" onClick={() => notify("Match 10+5 recherché")}>10+5 <small>Rapide</small></button><button onClick={() => notify("Match 15+10 recherché")}>15+10 <small>Classique</small></button></div><button className="quick-start" onClick={() => notify("Votre adversaire est en cours de recherche…")}>Lancer le matchmaking <span>→</span></button></section>
           <section className="rank-progress-card"><header><div><small>ESCALADE DES ÉCHELONS</small><strong>{currentTier.name}</strong></div><span className={`rank-badge ${currentTier.color}`}>★</span></header><div className="rank-rating-line"><b>{formatRating(currentRating)}</b><span>{nextTier ? `${formatRating(nextTier.minimum)} pour ${nextTier.name}` : "Sommet atteint"}</span></div><div className="rank-track"><i style={{ width: `${rankProgress}%` }} /></div><footer><span>{nextTier ? `${Math.max(0, nextTier.minimum - currentRating)} points avant la promotion` : "Vous êtes au sommet"}</span><button onClick={() => setView("community")}>Voir les échelons →</button></footer><div className="rank-stats"><span><b>{wins}</b><small>victoires</small></span><span><b>{losses}</b><small>défaites</small></span><span><b>{streak}</b><small>série actuelle</small></span></div></section>
@@ -1229,7 +1244,7 @@ function CallsPreviewSpace({ search, onCall, onMessages }: { search:string; onCa
   return <div className="calls-preview-space"><section className="calls-preview-hero"><div><span>WHAPPY CALLS</span><h2>Vos appels,<br/><em>au même endroit.</em></h2><p>Retrouvez vos communications audio et vidéo, rappelez vos contacts en un geste et repérez immédiatement les appels manqués.</p><button onClick={onMessages}>◫ Ouvrir les discussions</button></div><aside><small>ACTIVITÉ RÉCENTE</small><strong>{previewCalls.length}</strong><span>appels enregistrés</span><div><p><b>{previewCalls.length - missed}</b> aboutis</p><p><b>{missed}</b> manqué</p></div></aside></section><section className="calls-preview-body"><header><div><small>HISTORIQUE DES APPELS</small><h3>Audio et vidéo</h3></div><span>Synchronisé sur vos appareils</span></header><div className="call-history">{visible.map((item) => <article className={item.status === "Manqué" ? "missed" : ""} key={`${item.name}-${item.time}`}><span>{item.mark}</span><div><strong>{item.name}</strong><small>{item.direction === "Sortant" ? "↗" : "↙"} {item.direction} · {item.status}</small><time>{item.time}</time></div><i>{item.video ? "VIDÉO" : "AUDIO"}</i><button onClick={() => onCall(item.name, false)} aria-label={`Appeler ${item.name}`}>☎</button><button onClick={() => onCall(item.name, true)} aria-label={`Appel vidéo avec ${item.name}`}>▣</button></article>)}{!visible.length && <div className="call-history-empty"><span>⌕</span><h3>Aucun appel trouvé</h3><p>Essayez le nom d’un autre contact.</p><button onClick={onMessages}>Voir les discussions</button></div>}</div></section></div>;
 }
 
-function InboxSpace({ search, userId, offer, initialContact = "", setModal, notify, onCall }: { search:string; userId:string; offer:{id:number;text:string}|null; initialContact?:string; setModal:(type:"message")=>void; notify:(text:string)=>void; onCall:(contact:string,video:boolean)=>void }) {
+function InboxSpace({ search, userId, offer, initialContact = "", setModal, notify, onCall }: { search:string; userId:string; offer:DemoOffer|null; initialContact?:string; setModal:(type:"message")=>void; notify:(text:string)=>void; onCall:(contact:string,video:boolean)=>void }) {
   const [selected,setSelected]=useState(0); const [text,setText]=useState(""); const [mobileChat,setMobileChat]=useState(false); const [filter,setFilter]=useState("Tout"); const [sent,setSent]=useState<Record<number,CloudMessage[]>>({}); const [sending,setSending]=useState(false);
   const handledOffer=useRef(0);
   const notifyRef=useRef(notify);
@@ -1242,7 +1257,7 @@ function InboxSpace({ search, userId, offer, initialContact = "", setModal, noti
     const contact=messages[selected];
     return watchConversationMessages(userId,contact.mark,contact.name,(items)=>setSent(current=>({...current,[selected]:items})),()=>notifyRef.current("Messages hors ligne — réessayez dans un instant"));
   },[userId,selected]);
-  useEffect(()=>{if(!offer||handledOffer.current===offer.id)return;handledOffer.current=offer.id;setSent((current)=>({...current,[selected]:[...(current[selected]||[]),{id:`offer-${offer.id}`,text:offer.text,senderId:"local",createdAt:{toDate:()=>new Date()}}]}));},[offer,selected]);
+  useEffect(()=>{if(!offer||handledOffer.current===offer.id)return;handledOffer.current=offer.id;setSent((current)=>({...current,[selected]:[...(current[selected]||[]),{id:`offer-${offer.id}`,text:offer.text,senderId:"local",kind:offer.mediaKind,mediaUrl:offer.mediaUrl,mediaName:offer.mediaName,createdAt:{toDate:()=>new Date()}}]}));},[offer,selected]);
   async function send(e:FormEvent){
     e.preventDefault();const value=text.trim();if(!value||sending)return;
     const contact=messages[selected];setText("");
@@ -1252,7 +1267,7 @@ function InboxSpace({ search, userId, offer, initialContact = "", setModal, noti
     catch{setText(value);notify("Échec de l'envoi — votre message a été conservé");}
     finally{setSending(false);}
   }
-  return <div className={`inbox-space ${mobileChat?"chat-open":""}`}><aside className="inbox-list"><div className="inbox-title"><div><small>MESSAGERIE PRIORITAIRE</small><strong>Discussions <span>3 nouvelles</span></strong></div><button onClick={()=>{setText("Bonjour, ");notify("Choisissez un contact puis écrivez votre message")}} aria-label="Nouvelle conversation">＋</button></div><div className="inbox-presence"><button onClick={()=>notify("Votre statut est disponible")}><span className="presence-me">CB<i>＋</i></span><small>Mon statut</small></button>{messages.slice(0,3).map(m=><button key={m.name} onClick={()=>notify(`Statut de ${m.name} ouvert`)}><span>{m.mark}<i/></span><small>{m.name.split(" ")[0]}</small></button>)}</div><div className="inbox-filters">{["Tout","Non lus","Groupes","Affaires"].map(item=><button key={item} className={filter===item?"active":""} onClick={()=>setFilter(item)}>{item}</button>)}</div>{filteredMessages.map(({message:m,index})=><button className={selected===index?"active":""} onClick={()=>{setSelected(index);setMobileChat(true)}} key={m.name}><span className="profile-avatar"><Mark color={m.color}>{m.mark}</Mark><i/></span><span><strong>{m.name}<em>{m.badge}</em></strong><small>{m.text}</small></span><i>{m.time}</i>{m.unread>0&&<b>{m.unread}</b>}</button>)}{filteredMessages.length===0&&<p className="empty-messages">Aucune conversation trouvée.</p>}</aside><section className="deal-chat"><header><button className="chat-back" onClick={()=>setMobileChat(false)} aria-label="Retour aux discussions">←</button><span className="profile-avatar large"><Mark color={messages[selected].color}>{messages[selected].mark}</Mark><i/></span><div><strong>{messages[selected].name}</strong><small><i/> En ligne · Identité vérifiée</small></div><button onClick={()=>onCall(messages[selected].name,false)} aria-label="Appel audio">☎</button><button onClick={()=>onCall(messages[selected].name,true)} aria-label="Appel vidéo">▣</button><button onClick={()=>notify("Options de conversation : silencieux, bloquer, signaler")} aria-label="Options">•••</button></header><div className="profile-pulse"><span>✦</span><div><small>{messages[selected].badge} · {messages[selected].streak} ÉCHANGES RÉUSSIS</small><strong>{messages[selected].mood}</strong></div><button onClick={()=>notify(`Profil de ${messages[selected].name} ouvert`)}>Voir le profil ↗</button></div><div className="deal-context"><span className="product-thumb">◇</span><div><small>CONVERSATION LIÉE À UNE OPPORTUNITÉ</small><strong>{selected===0?"Canapé modulable en velours":"MacBook Air M3 · Comme neuf"}</strong><p>{selected===0?"Échange accepté":"750 000 FCFA"}</p></div><button onClick={()=>notify("Annonce ouverte")}>Voir l&apos;annonce ↗</button></div><div className="deal-messages" key={selected}><span className="chat-date">AUJOURD&apos;HUI</span><div className="theirs">Bonjour ! Est-ce que votre annonce est toujours disponible ?<small>12:03</small></div><div className="mine">Oui, absolument. On peut aussi discuter d&apos;un échange.<small>12:05 · <b className="message-seen">✓✓ Vu</b></small></div><div className="theirs">Parfait, je vous envoie ma proposition.<small>12:08</small></div>{(sent[selected]||[]).map((message)=><div className="mine" key={message.id}>{message.text}<small><time>{messageTime(message)}</time> · <b className="message-seen">✓✓ Vu</b></small></div>)}</div><div className="smart-replies" aria-label="Réponses rapides">{["Oui, c’est disponible","Je vous appelle ?","Faire une offre"].map(reply=><button key={reply} onClick={()=>setText(reply)}>{reply}<span>＋</span></button>)}</div><form onSubmit={send}><label className="chat-upload" aria-label="Ajouter une pièce jointe">＋<input type="file" accept="image/*,video/*,.pdf" onChange={e=>e.target.files?.[0]&&notify(`${e.target.files[0].name} prêt à envoyer`)}/></label><button type="button" onClick={()=>setText(value=>`${value} 😊`)} aria-label="Ajouter un emoji">☺</button><input value={text} onChange={e=>setText(e.target.value)} maxLength={4000} placeholder="Écrire un message…"/><button className="voice-action" type="button" onClick={()=>notify("Enregistrement vocal prêt — appuyez de nouveau pour envoyer")} aria-label="Message vocal">◉</button><button className="offer-action" type="button" onClick={()=>setModal("message")}>◇ Offre</button><button className="send-action" type="submit" disabled={sending} aria-label={sending?"Envoi en cours":"Envoyer"}>{sending?"···":"➤"}</button></form></section></div>;
+  return <div className={`inbox-space ${mobileChat?"chat-open":""}`}><aside className="inbox-list"><div className="inbox-title"><div><small>MESSAGERIE PRIORITAIRE</small><strong>Discussions <span>3 nouvelles</span></strong></div><button onClick={()=>{setText("Bonjour, ");notify("Choisissez un contact puis écrivez votre message")}} aria-label="Nouvelle conversation">＋</button></div><div className="inbox-filters">{["Tout","Non lus","Groupes","Affaires"].map(item=><button key={item} className={filter===item?"active":""} onClick={()=>setFilter(item)}>{item}</button>)}</div>{filteredMessages.map(({message:m,index})=><button className={selected===index?"active":""} onClick={()=>{setSelected(index);setMobileChat(true)}} key={m.name}><span className="profile-avatar"><Mark color={m.color}>{m.mark}</Mark><i/></span><span><strong>{m.name}<em>{m.badge}</em></strong><small>{m.text}</small></span><i>{m.time}</i>{m.unread>0&&<b>{m.unread}</b>}</button>)}{filteredMessages.length===0&&<p className="empty-messages">Aucune conversation trouvée.</p>}</aside><section className="deal-chat"><header><button className="chat-back" onClick={()=>setMobileChat(false)} aria-label="Retour aux discussions">←</button><span className="profile-avatar large"><Mark color={messages[selected].color}>{messages[selected].mark}</Mark><i/></span><div><strong>{messages[selected].name}</strong><small><i/> En ligne · Identité vérifiée</small></div><button onClick={()=>onCall(messages[selected].name,false)} aria-label="Appel audio">☎</button><button onClick={()=>onCall(messages[selected].name,true)} aria-label="Appel vidéo">▣</button><button onClick={()=>notify("Options de conversation : silencieux, bloquer, signaler")} aria-label="Options">•••</button></header><div className="profile-pulse"><span>✦</span><div><small>{messages[selected].badge} · {messages[selected].streak} ÉCHANGES RÉUSSIS</small><strong>{messages[selected].mood}</strong></div><button onClick={()=>notify(`Profil de ${messages[selected].name} ouvert`)}>Voir le profil ↗</button></div><div className="deal-context"><span className="product-thumb">◇</span><div><small>CONVERSATION LIÉE À UNE OPPORTUNITÉ</small><strong>{selected===0?"Canapé modulable en velours":"MacBook Air M3 · Comme neuf"}</strong><p>{selected===0?"Échange accepté":"750 000 FCFA"}</p></div><button onClick={()=>notify("Annonce ouverte")}>Voir l&apos;annonce ↗</button></div><div className="deal-messages" key={selected}><span className="chat-date">AUJOURD&apos;HUI</span><div className="theirs">Bonjour ! Est-ce que votre annonce est toujours disponible ?<small>12:03</small></div><div className="mine">Oui, absolument. On peut aussi discuter d&apos;un échange.<small>12:05 · <b className="message-seen">✓✓ Vu</b></small></div><div className="theirs">Parfait, je vous envoie ma proposition.<small>12:08</small></div>{(sent[selected]||[]).map((message)=><div className="mine" key={message.id}>{message.text}<small><time>{messageTime(message)}</time> · <b className="message-seen">✓✓ Vu</b></small></div>)}</div><div className="smart-replies" aria-label="Réponses rapides">{["Oui, c’est disponible","Je vous appelle ?","Faire une offre"].map(reply=><button key={reply} onClick={()=>setText(reply)}>{reply}<span>＋</span></button>)}</div><form onSubmit={send}><label className="chat-upload" aria-label="Ajouter une pièce jointe">＋<input type="file" accept="image/*,video/*,.pdf" onChange={e=>e.target.files?.[0]&&notify(`${e.target.files[0].name} prêt à envoyer`)}/></label><button type="button" onClick={()=>setText(value=>`${value} 😊`)} aria-label="Ajouter un emoji">☺</button><input value={text} onChange={e=>setText(e.target.value)} maxLength={4000} placeholder="Écrire un message…"/><button className="voice-action" type="button" onClick={()=>notify("Enregistrement vocal prêt — appuyez de nouveau pour envoyer")} aria-label="Message vocal">◉</button><button className="offer-action" type="button" onClick={()=>setModal("message")}>◇ Offre</button><button className="send-action" type="submit" disabled={sending} aria-label={sending?"Envoi en cours":"Envoyer"}>{sending?"···":"➤"}</button></form></section></div>;
 }
 
 function TwinSpace({ step, setStep, consent, setConsent, notify }: { step:number; setStep:(n:number)=>void; consent:boolean; setConsent:(v:boolean)=>void; notify:(text:string)=>void }) {
@@ -1843,6 +1858,64 @@ function LiveViewerPro({ live,onClose,notify,onAdd }: { live:(typeof lives)[numb
     )}
   </div>;
 }
+function PremiumOfferModalLegacy({ busy,onClose,onSubmit,notify }: { busy:boolean;onClose:()=>void;onSubmit:(e:FormEvent)=>void;notify:(t:string)=>void }) {
+  const [offer,setOffer]=useState("");
+  const [details,setDetails]=useState("");
+  const [media,setMedia]=useState<{file:File;url:string;kind:"image"|"video"}|null>(null);
+  const [dragging,setDragging]=useState(false);
+  const [submitting,setSubmitting]=useState(false);
+  const inputRef=useRef<HTMLInputElement>(null);
+
+  useEffect(()=>()=>{if(media?.url)URL.revokeObjectURL(media.url);},[media?.url]);
+
+  function chooseMedia(file?:File){
+    if(!file)return;
+    const kind=file.type.startsWith("image/")?"image":file.type.startsWith("video/")?"video":null;
+    if(!kind){notify("Choisissez une image ou une vidéo compatible");return;}
+    const limit=kind==="image"?20*1024*1024:60*1024*1024;
+    if(file.size>limit){notify(kind==="image"?"L’image doit peser moins de 20 Mo":"La vidéo doit peser moins de 60 Mo");return;}
+    if(media?.url)URL.revokeObjectURL(media.url);
+    setMedia({file,url:URL.createObjectURL(file),kind});
+    playMediaAddedSound();
+    notify(`${kind==="image"?"Image":"Vidéo"} ajoutée à votre offre`);
+  }
+
+  function removeMedia(){
+    if(media?.url)URL.revokeObjectURL(media.url);
+    setMedia(null);
+    if(inputRef.current)inputRef.current.value="";
+    notify("Média retiré de l’offre");
+  }
+
+  function dropMedia(event:DragEvent<HTMLLabelElement>){
+    event.preventDefault();setDragging(false);
+    const file=event.dataTransfer.files?.[0];
+    if(!file)return;
+    chooseMedia(file);
+    if(inputRef.current){const transfer=new DataTransfer();transfer.items.add(file);inputRef.current.files=transfer.files;}
+  }
+
+  const progress=offer.trim()?details.trim()||media?100:68:32;
+  return <div className="modal-layer offer-premium-layer" role="dialog" aria-modal="true" aria-label="Faire une offre">
+    <form className={`action-modal offer-premium ${submitting?"is-sending":""}`} onSubmit={event=>{setSubmitting(true);onSubmit(event)}}>
+      <div className="offer-aurora" aria-hidden="true"><i/><i/><i/></div>
+      <div className="offer-progress" aria-label={`Offre complétée à ${progress}%`}><span style={{width:`${progress}%`}}/></div>
+      <button type="button" className="modal-close offer-close" onClick={onClose} aria-label="Fermer">×</button>
+      <header className="offer-head"><span className="modal-icon">⇄</span><div><small>WHAPPY ACTION · OFFRE SÉCURISÉE</small><h2>Faire une offre</h2><p>Proposez un prix ou un échange. Ajoutez une image ou une vidéo pour rendre votre proposition plus claire.</p></div></header>
+      <div className="offer-step-row"><span className={offer?"done":"active"}><b>{offer?"✓":"1"}</b> Proposition</span><i/><span className={media||details?"done":""}><b>{media||details?"✓":"2"}</b> Détails</span><i/><span><b>3</b> Envoi</span></div>
+      <label className="offer-field"><span>Votre proposition <b>OBLIGATOIRE</b></span><div className="offer-input-wrap"><i>◇</i><input name="offer" value={offer} onChange={event=>setOffer(event.target.value)} required maxLength={160} placeholder="Votre prix ou ce que vous proposez en échange"/></div></label>
+      <label className="offer-field"><span>Message <em>FACULTATIF</em></span><textarea name="message" value={details} onChange={event=>setDetails(event.target.value)} maxLength={1000} placeholder="Expliquez les détails, la disponibilité ou les conditions de votre offre…"/><small>{details.length}/1000</small></label>
+      <label className={`offer-media-drop ${dragging?"dragging":""} ${media?"has-media":""}`} onDragOver={event=>{event.preventDefault();setDragging(true)}} onDragLeave={()=>setDragging(false)} onDrop={dropMedia}>
+        <input ref={inputRef} name="offerMedia" type="file" accept="image/*,video/*" onChange={event=>chooseMedia(event.target.files?.[0])}/>
+        {media?<div className="offer-media-preview">{media.kind==="image"?<Image src={media.url} alt="Aperçu du média de l’offre" width={210} height={152} unoptimized/>:<video src={media.url} controls muted playsInline preload="metadata"/>}<div><span>{media.kind==="image"?"IMAGE AJOUTÉE":"VIDÉO AJOUTÉE"}</span><strong>{media.file.name}</strong><small>{(media.file.size/1024/1024).toFixed(1)} Mo · Prêt à envoyer</small></div><button type="button" onClick={event=>{event.preventDefault();removeMedia()}} aria-label="Retirer le média">×</button></div>:<div className="offer-media-empty"><span>＋</span><div><strong>Ajouter une image ou une vidéo</strong><small>Glissez ici ou appuyez pour parcourir · JPG, PNG, WEBP, MP4, MOV</small></div><b>PARCOURIR</b></div>}
+      </label>
+      <div className="offer-assurance"><span>✓</span><div><strong>Votre offre reste dans cette conversation</strong><small>Vous pourrez encore discuter avant toute validation.</small></div><i>🔊 Son activé</i></div>
+      <button className="modal-submit offer-submit" type="submit" disabled={busy||submitting||!offer.trim()}><span>{busy||submitting?"Envoi sécurisé en cours…":"Envoyer l’offre"}</span><b>{busy||submitting?"···":"↗"}</b></button>
+    </form>
+  </div>;
+}
+
+void PremiumOfferModalLegacy;
 function ActionModal({ type,busy,onClose,onSubmit,consent,setConsent,setTwinStep,go,notify }: { type:"sell"|"seek"|"live"|"message";busy:boolean;onClose:()=>void;onSubmit:(e:FormEvent)=>void;consent:boolean;setConsent:(v:boolean)=>void;setTwinStep:(v:number)=>void;go:(s:Space)=>void;notify:(t:string)=>void }) {
   const [liveMode,setLiveMode]=useState<"human"|"twin">("human");
   const [fileCount,setFileCount]=useState(0);
