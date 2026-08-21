@@ -1,6 +1,7 @@
 # WHAPPY pour iOS
 
-Application native SwiftUI ciblant iOS 17 et versions suivantes.
+Application native SwiftUI ciblant iOS 17 et versions suivantes, connectée au
+même projet Firebase que WHAPPY Web et Android.
 
 Depuis une conversation, les boutons téléphone et vidéo lancent respectivement
 l’appel audio dans l’app Téléphone et l’appel vidéo dans FaceTime. Cette fonction
@@ -11,7 +12,8 @@ nécessite un iPhone configuré (elle n’est pas disponible dans le simulateur)
 ```bash
 cd ios
 ruby generate_project.rb
-xcodebuild -project Whappy.xcodeproj -scheme Whappy -sdk iphonesimulator \
+pod install
+xcodebuild -workspace Whappy.xcworkspace -scheme Whappy -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 

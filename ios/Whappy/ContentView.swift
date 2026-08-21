@@ -145,7 +145,7 @@ struct MessagesView: View {
                 List(filtered) { conversation in
                     NavigationLink(value: conversation) {
                         HStack(spacing: 13) {
-                            InitialsAvatar(text: conversation.initials)
+                            ConversationAvatar(conversation: conversation)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(conversation.name).font(.headline)
                                 Text(conversation.lastMessage).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
@@ -640,7 +640,11 @@ private struct ConversationView: View {
             ZoomablePhotoViewer(image: photo.image, onDismiss: { zoomedPhoto = nil })
         }
         .onChange(of: photoItem) { _, item in guard let item else { return }; Task { await attachPhoto(item) } }
-        .onAppear { if draft.isEmpty { draft = UserDefaults.standard.string(forKey: draftKey) ?? "" } }
+        .onAppear {
+            if draft.isEmpty { draft = UserDefaults.standard.string(forKey: draftKey) ?? "" }
+            if let conversation { store.openFirebaseConversation(conversation) }
+        }
+        .onDisappear { store.closeFirebaseConversation() }
         .onChange(of: draft) { _, value in if editingMessage == nil { UserDefaults.standard.set(value, forKey: draftKey) } }
     }
 

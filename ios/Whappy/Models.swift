@@ -361,6 +361,10 @@ struct Conversation: Identifiable, Hashable, Codable {
     var unread: Bool
     var readAt: Date = .distantPast
     var messages: [Message]
+    var remoteID: String? = nil
+    var source: String? = nil
+    var peerUID: String? = nil
+    var photoURL: String? = nil
 }
 
 enum CallMode: String, Identifiable, Codable {
@@ -393,13 +397,17 @@ struct Message: Identifiable, Hashable, Codable {
     var deleted: Bool = false
     var edited: Bool = false
     var status: String = "sent"
+    var remoteID: String? = nil
+    var senderID: String? = nil
+    var senderName: String? = nil
 
-    init(id: UUID, text: String, mine: Bool, sentAt: Date, kind: String = "text", mediaPath: String? = nil, replyToID: UUID? = nil, replyText: String? = nil, reactions: [String: String] = [:], deleted: Bool = false, edited: Bool = false, status: String = "sent") {
+    init(id: UUID, text: String, mine: Bool, sentAt: Date, kind: String = "text", mediaPath: String? = nil, replyToID: UUID? = nil, replyText: String? = nil, reactions: [String: String] = [:], deleted: Bool = false, edited: Bool = false, status: String = "sent", remoteID: String? = nil, senderID: String? = nil, senderName: String? = nil) {
         self.id = id; self.text = text; self.mine = mine; self.sentAt = sentAt; self.kind = kind; self.mediaPath = mediaPath; self.replyToID = replyToID; self.replyText = replyText; self.reactions = reactions; self.deleted = deleted; self.edited = edited
         self.status = status
+        self.remoteID = remoteID; self.senderID = senderID; self.senderName = senderName
     }
 
-    private enum CodingKeys: String, CodingKey { case id, text, mine, sentAt, kind, mediaPath, replyToID, replyText, reactions, deleted, edited, status }
+    private enum CodingKeys: String, CodingKey { case id, text, mine, sentAt, kind, mediaPath, replyToID, replyText, reactions, deleted, edited, status, remoteID, senderID, senderName }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -415,6 +423,9 @@ struct Message: Identifiable, Hashable, Codable {
         deleted = try values.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
         edited = try values.decodeIfPresent(Bool.self, forKey: .edited) ?? false
         status = try values.decodeIfPresent(String.self, forKey: .status) ?? "sent"
+        remoteID = try values.decodeIfPresent(String.self, forKey: .remoteID)
+        senderID = try values.decodeIfPresent(String.self, forKey: .senderID)
+        senderName = try values.decodeIfPresent(String.self, forKey: .senderName)
     }
 }
 

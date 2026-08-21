@@ -6,10 +6,18 @@ struct WhappyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(store)
-                .tint(.whappyBlue)
-                .onOpenURL { store.handleWhappyURL($0) }
+            Group {
+                if store.firebaseSessionLoading {
+                    ProgressView("Connexion sécurisée à WHAPPY…")
+                } else if store.firebaseUserID == nil {
+                    WhappyPhoneSignInView()
+                } else {
+                    ContentView()
+                        .onOpenURL { store.handleWhappyURL($0) }
+                }
+            }
+            .environmentObject(store)
+            .tint(.whappyBlue)
         }
     }
 }

@@ -1,0 +1,13 @@
+platform :ios, '17.0'
+
+project 'Whappy.xcodeproj'
+
+target 'Whappy' do
+  use_frameworks! :linkage => :static
+
+  pod 'FirebaseAuth', '12.17.0'
+  pod 'FirebaseCore', '12.17.0'
+  pod 'FirebaseFirestore', '12.17.0'
+  pod 'FirebaseMessaging', '12.17.0'
+  pod 'FirebaseStorage', '12.17.0'
+end

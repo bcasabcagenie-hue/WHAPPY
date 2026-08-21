@@ -1,4 +1,7 @@
 import Foundation
+import FirebaseAuth
+import FirebaseCore
+import FirebaseFirestore
 
 @MainActor
 final class WhappyStore: ObservableObject {
@@ -21,6 +24,18 @@ final class WhappyStore: ObservableObject {
     @Published var pendingContactPhone: String?
     @Published var pendingChannelID: UUID?
     @Published var pendingSearch: String?
+    @Published var firebaseUserID: String?
+    @Published var firebaseSessionLoading = true
+    @Published var firebaseBusy = false
+    @Published var firebaseMessage: String?
+    @Published var firebaseCodeSent = false
+
+    var firebaseVerificationID: String?
+    var firebaseAuthHandle: AuthStateDidChangeListenerHandle?
+    var firebaseConversationListeners: [ListenerRegistration] = []
+    var firebaseMessageListener: ListenerRegistration?
+    var firebaseDirectConversations: [Conversation] = []
+    var firebaseGroupConversations: [Conversation] = []
 
     private let defaults = UserDefaults.standard
     private let encoder = JSONEncoder()
@@ -29,15 +44,7 @@ final class WhappyStore: ObservableObject {
 
     init() {
         let now = Date()
-        conversations = [
-            Conversation(id: UUID(), name: "Amina M.", initials: "AM", phoneNumber: "+242065550101", lastMessage: "Le troc est accepté pour le canapé ?", unread: true, messages: [
-                Message(id: UUID(), text: "Bonjour, le canapé est toujours disponible.", mine: false, sentAt: now.addingTimeInterval(-180)),
-                Message(id: UUID(), text: "Bonjour Amina. Le troc est accepté ?", mine: true, sentAt: now.addingTimeInterval(-120)),
-                Message(id: UUID(), text: "Oui, envoyez-moi votre proposition.", mine: false, sentAt: now.addingTimeInterval(-60))
-            ]),
-            Conversation(id: UUID(), name: "Junior K.", initials: "JK", phoneNumber: "+242058842160", lastMessage: "Je peux livrer cet après-midi.", unread: false, messages: []),
-            Conversation(id: UUID(), name: "Mokabi Studio", initials: "MS", phoneNumber: "+242064420222", lastMessage: "Votre commande est prête ✦", unread: false, messages: [])
-        ]
+        conversations = []
         channels = [
             WhappyChannel(id: UUID(), name: "Brazzaville Maintenant", description: "Actualités utiles, sorties et opportunités de la ville.", category: "Actualités", ownerName: "WHAPPY Local", owner: false, subscribed: true, memberCount: 12_480, verified: true, posts: [
                 WhappyChannelPost(id: UUID(), text: "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", authorName: "WHAPPY Local", createdAt: now.addingTimeInterval(-86_400), reactions: ["amina": "❤️", "junior": "👍"], pinned: true),
@@ -74,6 +81,7 @@ final class WhappyStore: ObservableObject {
         pendingSearch = nil
         restore()
         restoring = false
+        configureFirebaseMessaging()
     }
 
     var unreadCount: Int { conversations.filter(\.unread).count }
@@ -107,6 +115,10 @@ final class WhappyStore: ObservableObject {
     func send(_ text: String, to conversationID: UUID, replyTo: Message? = nil) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+        if conversations[index].remoteID != nil {
+            sendFirebaseMessage(value, conversation: conversations[index], replyTo: replyTo)
+            return
+        }
         let messageID = UUID()
         let now = Date()
         conversations[index].messages.append(Message(id: messageID, text: value, mine: true, sentAt: now, replyToID: replyTo?.id, replyText: replyTo?.text, status: "sending"))
@@ -124,11 +136,19 @@ final class WhappyStore: ObservableObject {
 
     func react(to messageID: UUID, in conversationID: UUID, emoji: String) {
         guard let conversation = conversations.firstIndex(where: { $0.id == conversationID }), let message = conversations[conversation].messages.firstIndex(where: { $0.id == messageID }) else { return }
+        if conversations[conversation].remoteID != nil, conversations[conversation].messages[message].remoteID != nil {
+            reactFirebase(conversation: conversations[conversation], message: conversations[conversation].messages[message], emoji: emoji)
+            return
+        }
         conversations[conversation].messages[message].reactions["me"] = emoji
     }
 
     func deleteMessage(_ messageID: UUID, in conversationID: UUID) {
         guard let conversation = conversations.firstIndex(where: { $0.id == conversationID }), let message = conversations[conversation].messages.firstIndex(where: { $0.id == messageID }), conversations[conversation].messages[message].mine else { return }
+        if conversations[conversation].remoteID != nil, conversations[conversation].messages[message].remoteID != nil {
+            deleteFirebaseMessage(conversation: conversations[conversation], message: conversations[conversation].messages[message])
+            return
+        }
         conversations[conversation].messages[message].deleted = true
         conversations[conversation].messages[message].kind = "deleted"
         conversations[conversation].messages[message].mediaPath = nil
@@ -137,6 +157,10 @@ final class WhappyStore: ObservableObject {
     func editMessage(_ messageID: UUID, in conversationID: UUID, text: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, let conversation = conversations.firstIndex(where: { $0.id == conversationID }), let message = conversations[conversation].messages.firstIndex(where: { $0.id == messageID }), conversations[conversation].messages[message].mine, conversations[conversation].messages[message].kind == "text" else { return }
+        if conversations[conversation].remoteID != nil, conversations[conversation].messages[message].remoteID != nil {
+            editFirebaseMessage(conversation: conversations[conversation], message: conversations[conversation].messages[message], text: value)
+            return
+        }
         let previous = conversations[conversation].messages[message]
         let status = previous.status == "sending" ? "sending" : "sent"
         conversations[conversation].messages[message] = Message(id: previous.id, text: value, mine: true, sentAt: previous.sentAt, kind: previous.kind, mediaPath: previous.mediaPath, replyToID: previous.replyToID, replyText: previous.replyText, reactions: previous.reactions, deleted: false, edited: true, status: status)
@@ -145,6 +169,10 @@ final class WhappyStore: ObservableObject {
 
     func sendMedia(kind: String, path: String, to conversationID: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+        if conversations[index].remoteID != nil {
+            sendFirebaseMedia(kind: kind, path: path, conversation: conversations[index])
+            return
+        }
         let label = kind == "image" ? "📷 Photo" : "🎤 Note vocale"
         let messageID = UUID()
         let now = Date()
@@ -172,6 +200,10 @@ final class WhappyStore: ObservableObject {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleanName.count >= 2, cleanPhone.count >= 8 else { return }
+        if firebaseUserID != nil {
+            createFirebaseConversation(name: cleanName, phone: cleanPhone)
+            return
+        }
         let initials = cleanName.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
         conversations.insert(Conversation(id: UUID(), name: cleanName, initials: initials, phoneNumber: cleanPhone, lastMessage: "Nouvelle conversation", unread: false, messages: []), at: 0)
     }
