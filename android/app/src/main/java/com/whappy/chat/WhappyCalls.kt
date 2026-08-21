@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.media.ToneGenerator
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VideocamOff
+import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -101,6 +104,7 @@ data class WhappyCallUiState(
     val status: String = "",
     val muted: Boolean = false,
     val cameraEnabled: Boolean = true,
+    val speakerOn: Boolean = false,
     val mediaReady: Boolean = false,
     val error: String? = null,
 )
@@ -274,6 +278,22 @@ class WhappyCallController(private val activity: ComponentActivity) {
         state = state.copy(cameraEnabled = enabled)
     }
 
+    fun toggleSpeaker() {
+        val enabled = !state.speakerOn
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (Build.VERSION.SDK_INT >= 31) {
+            if (enabled) {
+                audioManager.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let(audioManager::setCommunicationDevice)
+            } else {
+                audioManager.clearCommunicationDevice()
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = enabled
+        }
+        state = state.copy(speakerOn = enabled)
+    }
+
     fun switchCamera() {
         videoCapturer?.switchCamera(null)
     }
@@ -386,7 +406,14 @@ class WhappyCallController(private val activity: ComponentActivity) {
 
     private fun preparePeer(video: Boolean, localCandidateCollection: String) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager.isSpeakerphoneOn = video
+        if (Build.VERSION.SDK_INT >= 31) {
+            if (video) audioManager.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let(audioManager::setCommunicationDevice)
+            else audioManager.clearCommunicationDevice()
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = video
+        }
+        state = state.copy(speakerOn = video)
         localAudioSource = factory.createAudioSource(MediaConstraints())
         localAudioTrack = factory.createAudioTrack("whappy-audio", localAudioSource).also { it.setEnabled(true) }
         if (video) {
@@ -561,6 +588,11 @@ class WhappyCallController(private val activity: ComponentActivity) {
         remoteDescriptionReady = false
         answerApplied = false
         audioManager.mode = AudioManager.MODE_NORMAL
+        if (Build.VERSION.SDK_INT >= 31) audioManager.clearCommunicationDevice()
+        else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = false
+        }
     }
 
     fun release() {
@@ -661,6 +693,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     FilledIconButton(onClick = controller::toggleMicrophone, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, "Micro", tint = Color(BRAND_BLUE)) }
+                    FilledIconButton(onClick = controller::toggleSpeaker, colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (call.speakerOn) Color(0xFF38BDF8) else Color.White)) { Icon(if (call.speakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, "Haut-parleur", tint = if (call.speakerOn) Color.White else Color(BRAND_BLUE)) }
                     if (call.video) FilledIconButton(onClick = controller::toggleCamera, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", tint = Color(BRAND_BLUE)) }
                     if (call.video) FilledIconButton(onClick = controller::switchCamera, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White)) { Icon(Icons.Rounded.Cameraswitch, "Changer de caméra", tint = Color(BRAND_BLUE)) }
                     FilledIconButton(onClick = controller::hangUp, colors = IconButtonDefaults.filledIconButtonColors(containerColor = declineRed)) { Icon(Icons.Rounded.CallEnd, "Raccrocher", tint = Color.White) }

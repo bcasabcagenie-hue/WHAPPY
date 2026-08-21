@@ -1849,6 +1849,10 @@ private fun GamesScreen(onBack: () -> Unit) {
     val games = listOf(
         Triple("Ludo WAPI", "Plateau 3D · dé, pions, captures", "🎲"),
         Triple("WAPI Sky 3D", "Course interactive · réflexes et progression", "🚀"),
+        Triple("Billard 3D", "Table, visée, puissance et collisions", "🎱"),
+        Triple("Échecs", "Duel stratégique · plateau interactif", "♚"),
+        Triple("Jeu de dames", "Captures diagonales et couronnement", "⛀"),
+        Triple("Cartes WAPI", "Bataille rapide · manches et score", "🂡"),
         Triple("Défi du jour", "Quiz rapide · gagnez de l’XP", "⚡"),
         Triple("Duel WAPI", "Mode duel prêt pour le multijoueur", "♟"),
         Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
@@ -1976,6 +1980,14 @@ private fun GamesScreen(onBack: () -> Unit) {
             }
         } else if (selected == "WAPI Sky 3D") {
             item { SkyRun3D(onXp = { gained -> xp += gained }, onWin = { wins += 1 }) }
+        } else if (selected == "Billard 3D") {
+            item { Billiards3D(onXp = { xp += it }, onWin = { wins += 1 }) }
+        } else if (selected == "Échecs") {
+            item { StrategyBoardGame(checkers = false, onXp = { xp += it }, onWin = { wins += 1 }) }
+        } else if (selected == "Jeu de dames") {
+            item { StrategyBoardGame(checkers = true, onXp = { xp += it }, onWin = { wins += 1 }) }
+        } else if (selected == "Cartes WAPI") {
+            item { WapiCardDuel(onXp = { xp += it }, onWin = { wins += 1 }) }
         } else {
             item {
                 ArcadeChallengeCard(
@@ -2167,6 +2179,102 @@ private fun SkyRun3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
+    val context = LocalContext.current
+    var aim by rememberSaveable { mutableStateOf(0) }
+    var power by rememberSaveable { mutableStateOf(2) }
+    var shots by rememberSaveable { mutableStateOf(0) }
+    var balls by rememberSaveable { mutableStateOf(9) }
+    var score by rememberSaveable { mutableStateOf(0) }
+    var message by rememberSaveable { mutableStateOf("Réglez l’angle et la puissance, puis frappez la bille blanche.") }
+    val ballRotation by animateFloatAsState(targetValue = shots * 115f, animationSpec = spring(stiffness = 180f), label = "pool-ball")
+    fun shoot() {
+        shots += 1
+        WhappySounds.dice(); WhappySounds.haptic(context)
+        val pocketed = ((aim + power * 3 + shots) % 4 == 0) || power == 4
+        if (pocketed && balls > 0) {
+            balls -= 1; score += 100; onXp(15); WhappySounds.reward(); message = "Bille empochée · +100 points"
+            if (balls == 0) { onWin(); onXp(150); message = "TABLE NETTOYÉE · victoire !" }
+        } else { score = (score - 10).coerceAtLeast(0); message = "La bille touche la bande. Ajustez votre angle." }
+    }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF072D25))) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("WAPI BILLIARDS 3D", color = Color(0xFF72F2C8), fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Table professionnelle", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text("$score pts · $balls billes", color = Color.White, fontWeight = FontWeight.Bold) }
+            BoxWithConstraints(Modifier.fillMaxWidth().height(300.dp).graphicsLayer { rotationX = 9f; rotationY = -2f; cameraDistance = 22f; shadowElevation = 28f }.clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(listOf(Color(0xFF07845F), Color(0xFF034C3B))))) {
+                listOf(Alignment.TopStart, Alignment.TopEnd, Alignment.BottomStart, Alignment.BottomEnd, Alignment.TopCenter, Alignment.BottomCenter).forEach { alignment -> Box(Modifier.align(alignment).padding(3.dp).size(24.dp).clip(CircleShape).background(Color(0xFF021D17))) }
+                repeat(balls) { index ->
+                    val row = index / 4; val col = index % 4
+                    Box(Modifier.offset(x = maxWidth * (.50f + col * .075f), y = (98 + row * 34).dp).size(27.dp).graphicsLayer { rotationX = ballRotation + index * 9f; rotationY = ballRotation; shadowElevation = 14f }.clip(CircleShape).background(listOf(Color(0xFFFFC928), Color(0xFFE53935), Color(0xFF236DE8), Color(0xFF7C3AED))[index % 4]), contentAlignment = Alignment.Center) { Text((index + 1).toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                }
+                Box(Modifier.offset(x = maxWidth * (.15f + aim * .035f), y = (190 - power * 12).dp).size(30.dp).graphicsLayer { rotationX = ballRotation; rotationY = ballRotation * .7f; shadowElevation = 18f }.clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) { Text("W", color = WhappyDark, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                Text("ANGLE ${aim * 6}°  ·  PUISSANCE $power/4", Modifier.align(Alignment.TopCenter).padding(top = 16.dp).clip(RoundedCornerShape(9.dp)).background(Color.Black.copy(alpha = .30f)).padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
+            }
+            Text(message, color = Color.White.copy(alpha = .85f), fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { aim = (aim - 1).coerceAtLeast(-4) }, Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("← VISER") }; OutlinedButton(onClick = { power = if (power == 4) 1 else power + 1 }, Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("FORCE $power") }; OutlinedButton(onClick = { aim = (aim + 1).coerceAtMost(4) }, Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("VISER →") } }
+            Button(onClick = ::shoot, enabled = balls > 0, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("FRAPPER", fontWeight = FontWeight.Black) }
+        }
+    }
+}
+
+private fun initialStrategyBoard(checkers: Boolean): List<String> = if (checkers) List(64) { index ->
+    val row = index / 8; val col = index % 8
+    if ((row + col) % 2 == 1 && row < 3) "b" else if ((row + col) % 2 == 1 && row > 4) "w" else ""
+} else listOf("♜","♞","♝","♛","♚","♝","♞","♜") + List(8) { "♟" } + List(32) { "" } + List(8) { "♙" } + listOf("♖","♘","♗","♕","♔","♗","♘","♖")
+
+private fun whitePiece(piece: String) = piece in setOf("w", "W", "♙", "♖", "♘", "♗", "♕", "♔")
+private fun blackPiece(piece: String) = piece.isNotBlank() && !whitePiece(piece)
+
+@Composable
+private fun StrategyBoardGame(checkers: Boolean, onXp: (Int) -> Unit, onWin: () -> Unit) {
+    val context = LocalContext.current
+    var board by rememberSaveable(checkers) { mutableStateOf(initialStrategyBoard(checkers)) }
+    var selected by rememberSaveable(checkers) { mutableStateOf(-1) }
+    var whiteTurn by rememberSaveable(checkers) { mutableStateOf(true) }
+    var message by rememberSaveable(checkers) { mutableStateOf(if (checkers) "Les blancs commencent. Capturez en diagonale." else "Les blancs commencent. Sélectionnez une pièce puis une case.") }
+    fun choose(index: Int) {
+        val piece = board[index]
+        if (selected < 0) {
+            if ((whiteTurn && whitePiece(piece)) || (!whiteTurn && blackPiece(piece))) { selected = index; WhappySounds.haptic(context) }
+            return
+        }
+        val from = selected; val moving = board[from]
+        if ((whiteTurn && whitePiece(piece)) || (!whiteTurn && blackPiece(piece))) { selected = index; return }
+        val fr = from / 8; val fc = from % 8; val tr = index / 8; val tc = index % 8
+        val dr = kotlin.math.abs(tr - fr); val dc = kotlin.math.abs(tc - fc)
+        val legal = if (checkers) dr in 1..2 && dr == dc else when (moving) {
+            "♘", "♞" -> (dr == 2 && dc == 1) || (dr == 1 && dc == 2)
+            "♖", "♜" -> dr == 0 || dc == 0
+            "♗", "♝" -> dr == dc
+            "♕", "♛" -> dr == dc || dr == 0 || dc == 0
+            "♔", "♚" -> dr <= 1 && dc <= 1
+            else -> dc <= 1 && dr in 1..2
+        }
+        if (!legal) { message = "Mouvement non autorisé."; WhappySounds.impact(); selected = -1; return }
+        val next = board.toMutableList(); val captured = next[index].isNotBlank()
+        if (checkers && dr == 2) next[((fr + tr) / 2) * 8 + (fc + tc) / 2] = ""
+        next[index] = if (checkers && ((moving == "w" && tr == 0) || (moving == "b" && tr == 7))) moving.uppercase() else moving
+        next[from] = ""; board = next; selected = -1; whiteTurn = !whiteTurn
+        onXp(if (captured || (checkers && dr == 2)) 12 else 3); WhappySounds.move(); message = if (captured || (checkers && dr == 2)) "Capture réussie · +12 XP" else "À ${if (whiteTurn) "Blanc" else "Noir"} de jouer"
+        if (next.none(::blackPiece) || next.none(::whitePiece)) { onWin(); onXp(120); WhappySounds.reward(); message = "VICTOIRE · plateau maîtrisé" }
+    }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row { Column(Modifier.weight(1f)) { Text(if (checkers) "WAPI DAMES" else "WAPI CHESS", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (checkers) "Jeu de dames 3D" else "Échecs stratégiques", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text(if (whiteTurn) "BLANC" else "NOIR", color = Color.White, fontWeight = FontWeight.Black) }
+        BoxWithConstraints(Modifier.fillMaxWidth().graphicsLayer { rotationX = 6f; rotationY = -2f; cameraDistance = 24f; shadowElevation = 24f }.clip(RoundedCornerShape(16.dp))) { val cell = maxWidth / 8; Column { repeat(8) { row -> Row { repeat(8) { col -> val index = row * 8 + col; val piece = board[index]; Box(Modifier.size(cell).background(if (selected == index) WhappySky else if ((row + col) % 2 == 0) Color(0xFFEAF4FB) else Color(0xFF2875A7)).clickable { choose(index) }, contentAlignment = Alignment.Center) { if (piece.isNotBlank()) Text(if (piece == "w") "⛀" else if (piece == "b") "⛂" else if (piece == "W") "⛁" else if (piece == "B") "⛃" else piece, fontSize = (cell.value * .62f).sp, color = if (whitePiece(piece)) Color.White else Color(0xFF091D2E), modifier = Modifier.graphicsLayer { rotationX = -8f; rotationY = 12f; shadowElevation = 12f }) } } } } } }
+        Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp)
+        OutlinedButton(onClick = { board = initialStrategyBoard(checkers); selected = -1; whiteTurn = true; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("NOUVELLE PARTIE") }
+    } }
+}
+
+@Composable
+private fun WapiCardDuel(onXp: (Int) -> Unit, onWin: () -> Unit) {
+    val context = LocalContext.current
+    var round by rememberSaveable { mutableStateOf(0) }; var player by rememberSaveable { mutableStateOf(0) }; var rival by rememberSaveable { mutableStateOf(0) }; var playerScore by rememberSaveable { mutableStateOf(0) }; var rivalScore by rememberSaveable { mutableStateOf(0) }; var message by rememberSaveable { mutableStateOf("Tirez une carte. La plus forte remporte la manche.") }
+    val names = listOf("2","3","4","5","6","7","8","9","10","V","D","R","A")
+    fun draw() { round += 1; player = ((System.currentTimeMillis() / 31L) % 13L).toInt() + 2; rival = ((System.currentTimeMillis() / 47L + round) % 13L).toInt() + 2; when { player > rival -> { playerScore++; onXp(10); WhappySounds.reward(); message = "Manche gagnée · +10 XP" }; rival > player -> { rivalScore++; WhappySounds.impact(); message = "L’adversaire gagne cette manche." }; else -> message = "Égalité parfaite." }; WhappySounds.haptic(context); if (playerScore == 5) { onWin(); onXp(100); message = "VICTOIRE DU DUEL · +100 XP" } }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF121A47))) { Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("WAPI CARDS 3D", color = WhappySky, fontWeight = FontWeight.Black, fontSize = 10.sp); Text("$playerScore  —  $rivalScore", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black); Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) { listOf(player to "VOUS", rival to "RIVAL").forEachIndexed { index, card -> Card(Modifier.size(112.dp, 164.dp).graphicsLayer { rotationY = if (round == 0) 180f else if (index == 0) -8f else 8f; rotationX = 4f; shadowElevation = 28f; cameraDistance = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(card.second, color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(if (card.first == 0) "W" else names[(card.first - 2).coerceIn(0, 12)], color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 38.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterHorizontally)); Text(if (index == 0) "◆" else "♥", color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 22.sp) } } } }; Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp); Button(onClick = ::draw, enabled = playerScore < 5, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("TIRER LES CARTES", fontWeight = FontWeight.Black) }; OutlinedButton(onClick = { round = 0; player = 0; rival = 0; playerScore = 0; rivalScore = 0; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") } } }
 }
 
 @Composable
@@ -2728,6 +2836,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
     val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
     var recentCalls by remember { mutableStateOf(prefs.getStringSet("recent_calls", emptySet()).orEmpty().toList().sortedDescending()) }
     var phone by rememberSaveable { mutableStateOf("") }
+    var selectedGroupCall by remember { mutableStateOf<WhappyConversation?>(null) }
 
     fun rememberCall(name: String, phoneNumber: String, video: Boolean) {
         val entry = "${System.currentTimeMillis()}|${name.replace("|", " ")}|${phoneNumber.replace("|", " ")}|${if (video) "video" else "audio"}"
@@ -2785,18 +2894,19 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                         UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 52.dp)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(conversation.peer.displayName, color = WhappyDark, fontWeight = FontWeight.Black)
-                            Text(if (callable) "☎ ${conversation.peer.phoneNumber}" else "Numéro protégé", color = WhappyMuted, fontSize = 11.sp)
+                            Text(if (conversation.isGroup) "${conversation.memberCount} participants · appel de groupe" else if (callable) "☎ ${conversation.peer.phoneNumber}" else "Numéro protégé", color = WhappyMuted, fontSize = 11.sp)
                             Text(formatTime(conversation.updatedAt), color = WhappyMuted, fontSize = 10.sp)
                         }
                         IconButton(onClick = { onOpenConversation(conversation) }) { Icon(Icons.Rounded.ChatBubble, "Écrire à ${conversation.peer.displayName}", tint = WhappyBlue) }
-                        FilledIconButton(enabled = callable && calls != null && !conversation.isGroup, onClick = { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, false); calls?.start(conversation.peer, false) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
-                        FilledIconButton(enabled = callable && calls != null && !conversation.isGroup, onClick = { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, true); calls?.start(conversation.peer, true) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Videocam, "Appel vidéo ${conversation.peer.displayName}", tint = Color.White) }
+                        FilledIconButton(enabled = conversation.isGroup || (callable && calls != null), onClick = { if (conversation.isGroup) selectedGroupCall = conversation else { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, false); calls?.start(conversation.peer, false) } }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(if (conversation.isGroup) Icons.Rounded.Groups else Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
+                        FilledIconButton(enabled = conversation.isGroup || (callable && calls != null), onClick = { if (conversation.isGroup) selectedGroupCall = conversation else { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, true); calls?.start(conversation.peer, true) } }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Videocam, "Appel vidéo ${conversation.peer.displayName}", tint = Color.White) }
                     }
                 }
             }
         }
         item { Text("Les appels audio et vidéo utilisent Wapi entre comptes inscrits. Un numéro absent de Wapi n’est jamais appelé via votre opérateur sans votre accord.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)) }
     }
+    selectedGroupCall?.let { group -> GroupCallRoomDialog(group = group, onDismiss = { selectedGroupCall = null }) }
 }
 
 @Composable
@@ -2806,6 +2916,33 @@ private fun CallMetric(label: String, value: String, modifier: Modifier = Modifi
         Text(value, Modifier.padding(top = 4.dp), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
     }
 }
+
+@Composable
+private fun GroupCallRoomDialog(group: WhappyConversation, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var muted by rememberSaveable(group.id) { mutableStateOf(false) }
+    var speaker by rememberSaveable(group.id) { mutableStateOf(true) }
+    var video by rememberSaveable(group.id) { mutableStateOf(false) }
+    var seconds by rememberSaveable(group.id) { mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(1_000); seconds += 1 } }
+    @Suppress("DEPRECATION")
+    LaunchedEffect(speaker) { audioManager.mode = AudioManager.MODE_IN_COMMUNICATION; audioManager.isSpeakerphoneOn = speaker }
+    @Suppress("DEPRECATION")
+    DisposableEffect(Unit) { onDispose { audioManager.mode = AudioManager.MODE_NORMAL; audioManager.isSpeakerphoneOn = false } }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = WhappyNavy) { Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour", tint = Color.White) }; Column(Modifier.weight(1f)) { Text("APPEL DE GROUPE · BÊTA", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(group.peer.displayName, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black) }; Text("%02d:%02d".format(seconds / 60, seconds % 60), color = Color.White) }
+            Text("Salon chiffré · jusqu’à ${group.memberCount.coerceAtLeast(2)} participants", Modifier.padding(top = 18.dp), color = Color.White.copy(alpha = .72f), fontSize = 12.sp)
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { val size = (maxWidth / 3).coerceAtMost(104.dp); FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp), maxItemsInEachRow = 3) { repeat(group.memberCount.coerceIn(2, 9)) { index -> Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(size).graphicsLayer { rotationX = 4f; rotationY = if (index % 2 == 0) -5f else 5f; shadowElevation = 20f }.clip(RoundedCornerShape(28.dp)).background(if (index == 0) WhappyAurora else Brush.linearGradient(listOf(Color(0xFF0C5C91), Color(0xFF0A3557)))), contentAlignment = Alignment.Center) { Text(if (index == 0) "VOUS" else "${index + 1}", color = Color.White, fontWeight = FontWeight.Black) }; Text(if (index == 0) "Vous" else "Participant ${index + 1}", Modifier.padding(top = 7.dp), color = Color.White, fontSize = 10.sp) } } } }
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .10f))) { Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceEvenly) { GroupCallControl(if (muted) "🔇" else "🎙", if (muted) "Micro coupé" else "Micro") { muted = !muted; WhappySounds.haptic(context) }; GroupCallControl(if (speaker) "🔊" else "🔈", "Haut-parleur") { speaker = !speaker; WhappySounds.haptic(context) }; GroupCallControl(if (video) "📹" else "📷", "Caméra") { video = !video; WhappySounds.haptic(context) }; GroupCallControl("☎", "Quitter", danger = true, onClick = onDismiss) } }
+            Text("Le salon de groupe prépare le routage multi-participants. La conférence distante complète nécessite le serveur média WAPI.", Modifier.padding(top = 12.dp), color = Color.White.copy(alpha = .55f), fontSize = 9.sp, textAlign = TextAlign.Center)
+        } }
+    }
+}
+
+@Composable
+private fun GroupCallControl(symbol: String, label: String, danger: Boolean = false, onClick: () -> Unit) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick)) { Box(Modifier.size(52.dp).clip(CircleShape).background(if (danger) Color(0xFFE53935) else Color.White.copy(alpha = .16f)), contentAlignment = Alignment.Center) { Text(symbol, fontSize = 22.sp) }; Text(label, Modifier.padding(top = 6.dp), color = Color.White, fontSize = 9.sp) } }
 
 @Composable
 private fun MessagesScreen(
@@ -4621,6 +4758,9 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
     var message by remember(live.id) { mutableStateOf("") }
     var liveEvents by remember(live.id) { mutableStateOf(prefs.getStringSet("events-${live.id}", emptySet()).orEmpty().toList().sorted()) }
     var giftPanel by rememberSaveable(live.id) { mutableStateOf(false) }
+    var giftBalance by rememberSaveable(live.id) { mutableStateOf(prefs.getInt("gift-balance", 250)) }
+    var pendingGiftIndex by rememberSaveable(live.id) { mutableStateOf(-1) }
+    var animatedGift by rememberSaveable(live.id) { mutableStateOf("") }
     var soundOn by rememberSaveable(live.id) { mutableStateOf(true) }
     var micOpen by rememberSaveable(live.id) { mutableStateOf(isOwner && live.status == "live") }
     var voiceFeedback by rememberSaveable(live.id) { mutableStateOf<String?>(null) }
@@ -4629,12 +4769,12 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
     var frontCamera by rememberSaveable(live.id) { mutableStateOf(true) }
     val youLabel = t("Vous", "You", "Yo")
     val giftOptions = listOf(
-        Triple("Rose", "🌹", 1),
-        Triple("Étoile", "⭐", 3),
-        Triple("Feu", "🔥", 5),
-        Triple("Cœur", "💙", 10),
-        Triple("Couronne", "👑", 25),
-        Triple("WAPI", "🎁", 50),
+        Triple("Rose", "🌹", 5),
+        Triple("Étoile", "⭐", 15),
+        Triple("Feu", "🔥", 25),
+        Triple("Cœur", "💙", 50),
+        Triple("Couronne", "👑", 120),
+        Triple("WAPI Premium", "🎁", 250),
     )
 
     fun saveLiveEvents(next: List<String>) {
@@ -4652,6 +4792,21 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
         tts.language = Locale.FRANCE
         tts.speak(text, TextToSpeech.QUEUE_ADD, null, "whappy-live-${System.currentTimeMillis()}")
     }
+
+    fun sendGift(index: Int) {
+        val gift = giftOptions.getOrNull(index) ?: return
+        if (giftBalance < gift.third) { voiceFeedback = "Solde W-Coins insuffisant. Rechargez votre portefeuille test."; return }
+        giftBalance -= gift.third
+        prefs.edit().putInt("gift-balance", giftBalance).apply()
+        appendLiveEvent("gift", youLabel, gift.second, gift.first, gift.third)
+        reactionCount += gift.third
+        animatedGift = gift.second
+        speakLive("$youLabel a envoyé ${gift.first}")
+        WhappySounds.reward(); WhappySounds.haptic(context, strong = true)
+        giftPanel = false; pendingGiftIndex = -1
+    }
+
+    LaunchedEffect(animatedGift) { if (animatedGift.isNotBlank()) { delay(1_500); animatedGift = "" } }
 
     fun startLiveVoice() {
         if (!isOwner || live.status != "live") return
@@ -4722,6 +4877,7 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
                         if (isOwner && live.status == "live") TextButton(onClick = { if (micOpen) stopLiveVoice() else startLiveVoice() }, colors = ButtonDefaults.textButtonColors(containerColor = Color.Black.copy(alpha = .48f), contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text(if (micOpen) "🎙️ Micro ON" else "🎙️ Micro", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                     }
                     if (isOwner) Text(t("Caméra de votre téléphone", "Your phone camera", "Caméra ya telefone na yo"), Modifier.align(Alignment.BottomCenter).padding(bottom = 15.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .55f)).padding(horizontal = 12.dp, vertical = 7.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (animatedGift.isNotBlank()) Box(Modifier.align(Alignment.Center).size(150.dp).graphicsLayer { rotationX = -12f; rotationY = reactionCount * 13f; shadowElevation = 40f; cameraDistance = 18f }.clip(RoundedCornerShape(42.dp)).background(Brush.radialGradient(listOf(Color.White.copy(alpha = .96f), WhappySky.copy(alpha = .82f), WhappyBlue.copy(alpha = .15f)))), contentAlignment = Alignment.Center) { Text(animatedGift, fontSize = 74.sp) }
                 }
                 voiceFeedback?.let { value -> Text(value, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 7.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 if (isOwner && live.status == "live") {
@@ -4737,22 +4893,29 @@ private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, on
                         val author = parts.getOrElse(2) { youLabel }
                         val value = parts.getOrElse(3) { "" }
                         val label = parts.getOrElse(4) { "" }
-                        Text(if (type == "gift") "$value $author a envoyé $label · gratuit" else "$author : $value", color = if (type == "gift") WhappyBlue else WhappyMuted, fontSize = 11.sp, fontWeight = if (type == "gift") FontWeight.Bold else FontWeight.Normal)
+                        val cost = parts.getOrElse(5) { "0" }
+                        Text(if (type == "gift") "$value $author a envoyé $label · $cost W-Coins" else "$author : $value", color = if (type == "gift") WhappyBlue else WhappyMuted, fontSize = 11.sp, fontWeight = if (type == "gift") FontWeight.Bold else FontWeight.Normal)
                     }
                 }
-                if (giftPanel) FlowRow(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    giftOptions.forEach { gift ->
-                        OutlinedButton(onClick = {
-                            appendLiveEvent("gift", youLabel, gift.second, gift.first, gift.third)
-                            reactionCount += gift.third
-                            speakLive("$youLabel a envoyé ${gift.first}")
-                            giftPanel = false
-                        }, shape = RoundedCornerShape(14.dp)) { Text("${gift.second} ${gift.first}", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                    }
+                if (giftPanel) Column(Modifier.fillMaxWidth().background(WhappyAuroraSoft).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("CADEAUX 3D", color = WhappyDark, fontWeight = FontWeight.Black); Text("Solde : $giftBalance W-Coins · portefeuille test", color = WhappyMuted, fontSize = 10.sp) }; TextButton(onClick = { giftBalance += 250; prefs.edit().putInt("gift-balance", giftBalance).apply(); voiceFeedback = "+250 W-Coins de démonstration" }) { Text("+ Recharger") } }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(9.dp)) { giftOptions.forEachIndexed { index, gift -> Card(Modifier.width(112.dp).clickable { pendingGiftIndex = index }.graphicsLayer { rotationX = 5f; rotationY = if (index % 2 == 0) -4f else 4f; shadowElevation = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(gift.second, fontSize = 38.sp); Text(gift.first, color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1); Text("${gift.third} W-Coins", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold) } } } }
+                    Text("Aucun paiement bancaire réel n’est effectué dans cette version.", color = WhappyMuted, fontSize = 9.sp)
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { message = it.take(180) }, Modifier.weight(1f), placeholder = { Text(t("Écrire dans le Live", "Write in the live", "Koma na Live")) }, singleLine = true, shape = RoundedCornerShape(15.dp)); IconButton(onClick = { giftPanel = !giftPanel }) { Text("🎁", fontSize = 22.sp) }; IconButton(onClick = { if (message.isNotBlank()) { val value = message.trim(); appendLiveEvent("comment", youLabel, value); speakLive(value); message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, t("Envoyer", "Send", "Tinda"), tint = WhappyBlue) }; TextButton(onClick = { reactionCount += 1 }) { Text("💙 $reactionCount") } }
             }
         }
+    }
+    if (pendingGiftIndex >= 0) {
+        val gift = giftOptions[pendingGiftIndex]
+        AlertDialog(
+            onDismissRequest = { pendingGiftIndex = -1 },
+            icon = { Text(gift.second, fontSize = 54.sp, modifier = Modifier.graphicsLayer { rotationX = -8f; rotationY = 12f; shadowElevation = 22f }) },
+            title = { Text("Envoyer ${gift.first} ?", fontWeight = FontWeight.Black) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("Prix : ${gift.third} W-Coins"); Text("Solde après envoi : ${(giftBalance - gift.third).coerceAtLeast(0)} W-Coins", color = WhappyMuted); if (giftBalance < gift.third) Text("Solde insuffisant", color = Color(0xFFE53935), fontWeight = FontWeight.Bold) } },
+            confirmButton = { Button(enabled = giftBalance >= gift.third, onClick = { sendGift(pendingGiftIndex) }) { Text("Confirmer") } },
+            dismissButton = { TextButton(onClick = { pendingGiftIndex = -1 }) { Text("Annuler") } },
+        )
     }
 }
 
