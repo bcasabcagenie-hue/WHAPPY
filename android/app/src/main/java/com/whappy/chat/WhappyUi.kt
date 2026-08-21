@@ -213,18 +213,18 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFFA100FF)
-private val WhappyDark = Color(0xFF28113D)
-private val WhappyInk = Color(0xFF1D1227)
-private val WhappyMuted = Color(0xFF80658F)
-private val WhappyBackground = Color(0xFFFFFBFF)
-private val WhappySurface = Color(0xFFF6EEFF)
-private val WhappyNavy = Color(0xFF35104F)
-private val WhappyLine = Color(0xFFE8D7F3)
-private val WhappyMagenta = Color(0xFFFF3FC8)
-private val WhappyCyan = Color(0xFF59E4FF)
-private val WhappyAurora = Brush.linearGradient(listOf(WhappyBlue, WhappyMagenta, Color(0xFF6D4AFF)))
-private val WhappyAuroraSoft = Brush.linearGradient(listOf(Color(0xFFF3E6FF), Color(0xFFFFE8F8), Color(0xFFE7F8FF)))
+private val WhappyBlue = Color(0xFF0094F0)
+private val WhappyDark = Color(0xFF082B49)
+private val WhappyInk = Color(0xFF10283C)
+private val WhappyMuted = Color(0xFF607B91)
+private val WhappyBackground = Color(0xFFF8FCFF)
+private val WhappySurface = Color(0xFFEDF8FF)
+private val WhappyNavy = Color(0xFF063A65)
+private val WhappyLine = Color(0xFFD5EAF7)
+private val WhappyDeepBlue = Color(0xFF0068C9)
+private val WhappySky = Color(0xFF7BD9FF)
+private val WhappyAurora = Brush.linearGradient(listOf(WhappyBlue, Color(0xFF00B7F4), WhappyDeepBlue))
+private val WhappyAuroraSoft = Brush.linearGradient(listOf(Color(0xFFE5F7FF), Color(0xFFF4FBFF), Color(0xFFDDF2FF)))
 
 private enum class WhappyLanguage(val code: String, val label: String) {
     FRENCH("fr", "Français"),
@@ -315,8 +315,8 @@ fun WhappyTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(
             primary = WhappyBlue,
-            secondary = WhappyMagenta,
-            tertiary = WhappyCyan,
+            secondary = WhappyDeepBlue,
+            tertiary = WhappySky,
             onPrimary = Color.White,
             background = WhappyBackground,
             onBackground = WhappyInk,
@@ -1161,7 +1161,7 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
             Text("WAPI", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
             Text(subtitle, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = Color.White); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(WhappyCyan), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = WhappyDark, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
+        IconButton(onClick = onActivity) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = Color.White); if (unread > 0) Box(Modifier.size(16.dp).clip(CircleShape).background(WhappySky), contentAlignment = Alignment.Center) { Text(unread.coerceAtMost(9).toString(), color = WhappyDark, fontSize = 8.sp, fontWeight = FontWeight.Black) } } }
         if (avatar) UserAvatar(photoUrl, name, 44.dp, Modifier.clickable(onClick = onProfile))
     }
 }
@@ -1360,7 +1360,7 @@ private fun StoriesScreen(
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(WhappyAurora).padding(22.dp)) {
                 Column {
-                    Text("WAPI STORIES", color = WhappyCyan, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+                    Text("WAPI STORIES", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
                     Text(t("Partagez votre Story.", "Share your Story.", "Kabola Story na yo."), Modifier.padding(top = 7.dp), color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
                     Text(t("Une photo, une vidéo, un moment. Tout reste synchronisé avec vos contacts.", "A photo, a video, a moment. Everything stays synced with your contacts.", "Elilingi, video, ntango. Nyonso ekotikala synchronisé na ba contacts na yo."), Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .82f), lineHeight = 18.sp, fontSize = 12.sp)
                 }
@@ -1470,7 +1470,7 @@ private fun MomentsScreen(statuses: List<WhappyStatus>, twinReadiness: Int, onTa
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 13.dp), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                     StoryBubble("Vous", "+", WhappyBlue) { onTab(WhappyTab.STORIES) }
-                    storyAuthors.forEachIndexed { index, story -> StoryBubble(story.authorName.split(" ").firstOrNull() ?: "Contact", story.authorName.take(1).uppercase(), if (index % 2 == 0) WhappyMagenta else WhappyCyan) { onTab(WhappyTab.STORIES) } }
+                    storyAuthors.forEachIndexed { index, story -> StoryBubble(story.authorName.split(" ").firstOrNull() ?: "Contact", story.authorName.take(1).uppercase(), if (index % 2 == 0) WhappyBlue else WhappySky) { onTab(WhappyTab.STORIES) } }
                     if (storyAuthors.isEmpty()) Text("Aucune Story pour le moment", color = WhappyMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 19.dp))
                 }
             }
@@ -1478,7 +1478,7 @@ private fun MomentsScreen(statuses: List<WhappyStatus>, twinReadiness: Int, onTa
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(WhappyAurora).padding(22.dp)) {
                 Column {
-                    Text("WAPI AURORA", color = WhappyCyan, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
+                    Text("WAPI BLUE", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
                     Text("Votre monde,\nplus vivant.", color = Color.White, fontSize = 29.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 8.dp))
                     Text("Messages, Stories, appels et créations dans une expérience lumineuse.", color = Color.White.copy(alpha = .82f), fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp))
                     Row(Modifier.padding(top = 17.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
