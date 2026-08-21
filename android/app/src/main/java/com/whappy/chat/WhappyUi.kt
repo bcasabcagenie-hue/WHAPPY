@@ -214,15 +214,20 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
 private val WhappyBlue = Color(0xFF0094F0)
-private val WhappyDark = Color(0xFF082B49)
-private val WhappyInk = Color(0xFF10283C)
-private val WhappyMuted = Color(0xFF607B91)
-private val WhappyBackground = Color(0xFFF8FCFF)
-private val WhappySurface = Color(0xFFEDF8FF)
+private val WhappyDark = Color(0xFF191919)
+private val WhappyInk = Color(0xFF202020)
+private val WhappyMuted = Color(0xFF7A7A7A)
+private val WhappyBackground = Color(0xFFF5F5F5)
+private val WhappySurface = Color(0xFFF7F7F7)
 private val WhappyNavy = Color(0xFF063A65)
-private val WhappyLine = Color(0xFFD5EAF7)
+private val WhappyLine = Color(0xFFE5E5E5)
 private val WhappyDeepBlue = Color(0xFF0068C9)
 private val WhappySky = Color(0xFF7BD9FF)
+private val WeChatGreen = Color(0xFF07C160)
+private val WeChatBubble = Color(0xFF95EC69)
+private val WeChatChatBackground = Color(0xFFEDEDED)
+private val WeChatToolbar = Color(0xFFF7F7F7)
+private val WeChatMenu = Color(0xFF4C4C4C)
 private val WhappyAurora = Brush.linearGradient(listOf(WhappyBlue, Color(0xFF00B7F4), WhappyDeepBlue))
 private val WhappyAuroraSoft = Brush.linearGradient(listOf(Color(0xFFE5F7FF), Color(0xFFF4FBFF), Color(0xFFDDF2FF)))
 
@@ -3473,6 +3478,7 @@ private fun ChatScreen(
     val draftPrefs = remember { WhappyFastStorage.preferences(context, "whappy_chat_drafts") }
     var text by remember(conversation.id) { mutableStateOf(draftPrefs.getString(conversation.id, "").orEmpty()) }
     var showEmoji by remember(conversation.id) { mutableStateOf(false) }
+    var showMore by remember(conversation.id) { mutableStateOf(false) }
     var recording by remember(conversation.id) { mutableStateOf(false) }
     var recordStartedAt by remember(conversation.id) { mutableStateOf(0L) }
     var recorder by remember(conversation.id) { mutableStateOf<MediaRecorder?>(null) }
@@ -3589,25 +3595,26 @@ private fun ChatScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(WhappyBackground).imePadding()) {
-        Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().background(WeChatChatBackground).imePadding()) {
+        Row(Modifier.fillMaxWidth().background(WeChatToolbar).padding(horizontal = 6.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
             if (conversation.isGroup && conversation.peer.photoUrl.isBlank()) {
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(WeChatGreen), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Groups, null, tint = Color.White)
                 }
-            } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 42.dp)
+            } else UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 40.dp)
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text(conversation.peer.displayName, fontWeight = FontWeight.Bold, color = WhappyDark)
-                Text(if (conversation.isGroup) "Groupe WAPI · ${conversation.memberCount} membres" else if (conversation.peerTyping) "écrit…" else "WAPI · en ligne", color = WhappyBlue, fontSize = 11.sp, fontWeight = if (conversation.peerTyping) FontWeight.Bold else FontWeight.Normal)
+                Text(conversation.peer.displayName, fontWeight = FontWeight.SemiBold, color = WhappyDark, fontSize = 16.sp)
+                Text(if (conversation.isGroup) "${conversation.memberCount} membres" else if (conversation.peerTyping) "écrit…" else "en ligne", color = if (conversation.peerTyping) WeChatGreen else WhappyMuted, fontSize = 11.sp)
             }
-            IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Icon(Icons.Rounded.Search, "Rechercher dans la discussion", tint = if (searchOpen) WhappyBlue else WhappyDark) }
+            IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Icon(Icons.Rounded.Search, "Rechercher dans la discussion", tint = if (searchOpen) WeChatGreen else WhappyDark) }
             if (conversation.peer.phoneNumber.isNotBlank() && !conversation.isGroup) {
                 IconButton(enabled = calls != null, onClick = { calls?.start(conversation.peer, false) }) { Icon(Icons.Rounded.Phone, "Appel audio ${conversation.peer.displayName}") }
                 IconButton(enabled = calls != null, onClick = { calls?.start(conversation.peer, true) }) { Icon(Icons.Rounded.Videocam, "Appel vidéo ${conversation.peer.displayName}") }
             }
         }
-        if (searchOpen) OutlinedTextField(searchQuery, { searchQuery = it.take(120) }, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher un message") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(WhappyLine))
+        if (searchOpen) OutlinedTextField(searchQuery, { searchQuery = it.take(120) }, Modifier.fillMaxWidth().background(WeChatToolbar).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher un message") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(8.dp))
         if (conversation.isGroup) {
             Row(Modifier.fillMaxWidth().background(Color.White).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
@@ -3620,7 +3627,8 @@ private fun ChatScreen(
                         onClick = {
                             updateDraft(option.second + text.removePrefix(option.second))
                         },
-                        shape = RoundedCornerShape(13.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = WhappyDark),
                         contentPadding = PaddingValues(horizontal = 11.dp, vertical = 5.dp),
                     ) { Text(option.first, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
@@ -3644,25 +3652,27 @@ private fun ChatScreen(
             }
         }
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-        else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (visibleMessages.isEmpty() && searchQuery.isNotBlank()) item { Text("Aucun message ne correspond à « $searchQuery ».", Modifier.padding(24.dp), color = WhappyMuted) }
             itemsIndexed(visibleMessages, key = { _, message -> message.id }) { index, message ->
                 val mine = message.senderId == currentUserId
                 Column(Modifier.fillMaxWidth()) {
                     if (index == 0 || !isSameDay(message.createdAt, visibleMessages[index - 1].createdAt)) {
-                        Text(formatMessageDay(message.createdAt), Modifier.align(Alignment.CenterHorizontally).padding(vertical = 7.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(horizontal = 10.dp, vertical = 4.dp), color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(formatMessageDay(message.createdAt), Modifier.align(Alignment.CenterHorizontally).padding(vertical = 7.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFFD3D3D3)).padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                         if (conversation.isGroup && !mine) {
                             UserAvatar("", message.senderName.ifBlank { "Membre WAPI" }, 30.dp, Modifier.padding(top = 3.dp))
                             Spacer(Modifier.width(7.dp))
                         }
-                        Surface(color = if (mine) WhappyBlue else Color.White, shape = RoundedCornerShape(20.dp), shadowElevation = 0.dp, modifier = Modifier.fillMaxWidth(0.78f).clickable(enabled = !message.deleted && message.deliveryState == "sent") { selectedMessage = message }) {
-                            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Surface(color = if (mine) WeChatBubble else Color.White, shape = RoundedCornerShape(6.dp), shadowElevation = 0.dp, modifier = Modifier.fillMaxWidth(0.76f).pointerInput(message.id, message.deleted, message.deliveryState) {
+                            detectTapGestures(onLongPress = { if (!message.deleted && message.deliveryState == "sent") selectedMessage = message })
+                        }) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                                 if (conversation.isGroup && !mine && message.senderName.isNotBlank()) {
-                                    Text(message.senderName, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 4.dp))
+                                    Text(message.senderName, color = WeChatGreen, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 4.dp))
                                 }
-                                if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (mine) Color.White.copy(alpha = .16f) else Color.White).padding(8.dp)) { Text("↩ ${message.replyText}", color = if (mine) Color.White.copy(alpha = .9f) else WhappyMuted, fontSize = 10.sp, maxLines = 2) }
+                                if (message.replyText.isNotBlank()) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = .06f)).padding(7.dp)) { Text("↩ ${message.replyText}", color = Color(0xFF666666), fontSize = 10.sp, maxLines = 2) }
                                 if (message.replyText.isNotBlank()) {
                                     val targetIndex = messageIndexById[message.replyToId] ?: -1
                                     if (targetIndex >= 0) {
@@ -3672,7 +3682,7 @@ private fun ChatScreen(
                                             },
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                         ) {
-                                            Text("Voir le message d’origine", color = if (mine) Color.White else WhappyBlue, fontSize = 9.sp)
+                                            Text("Voir le message d’origine", color = WeChatGreen, fontSize = 9.sp)
                                         }
                                     }
                                 }
@@ -3681,7 +3691,7 @@ private fun ChatScreen(
                                     "audio" -> MediaMessageRow(Icons.Rounded.AudioFile, "Note vocale · ${message.durationSeconds}s", mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "image" -> MediaMessageRow(Icons.Rounded.Photo, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
                                     "video" -> MediaMessageRow(Icons.Rounded.Movie, message.mediaName.ifBlank { "Vidéo WAPI" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
-                                    "deleted" -> Text("Message supprimé", color = if (mine) Color.White.copy(alpha = .7f) else WhappyMuted)
+                                    "deleted" -> Text("Message supprimé", color = WhappyMuted)
                                     else -> MessageLinkText(message.text, mine, actions = actions, onAction = ::handleMessageAction)
                                 }
                                 if (actions.isNotEmpty()) {
@@ -3694,10 +3704,10 @@ private fun ChatScreen(
                                         }
                                     }
                                 }
-                                if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { message.reactions.values.groupingBy { it }.eachCount().forEach { (emoji, count) -> Text("$emoji${if (count > 1) " $count" else ""}", modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (mine) Color.White.copy(alpha = .18f) else Color.White).padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp) } }
+                                if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { message.reactions.values.groupingBy { it }.eachCount().forEach { (emoji, count) -> Text("$emoji${if (count > 1) " $count" else ""}", modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(Color.Black.copy(alpha = .06f)).padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp) } }
                                 Row(Modifier.align(Alignment.End).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (message.edited) Text("modifié · ", color = if (mine) Color.White.copy(alpha = .68f) else WhappyMuted, fontSize = 9.sp)
-                                    Text(formatTime(message.createdAt), color = if (mine) Color.White.copy(alpha = .75f) else WhappyMuted, fontSize = 9.sp)
+                                    if (message.edited) Text("modifié · ", color = WhappyMuted, fontSize = 9.sp)
+                                    Text(formatTime(message.createdAt), color = WhappyMuted, fontSize = 9.sp)
                                     if (mine) {
                                         val pending = message.deliveryState != "sent"
                                         val read = !pending && message.createdAt > 0L && conversation.peerReadAt >= message.createdAt
@@ -3707,11 +3717,11 @@ private fun ChatScreen(
                                             read -> " · Lu"
                                             else -> " · Envoyé"
                                         }
-                                        Text(label, color = Color.White.copy(alpha = if (read) .95f else .72f), fontSize = 9.sp)
+                                        Text(label, color = Color(0xFF5F7E55), fontSize = 9.sp)
                                         Icon(
                                             if (pending) Icons.Rounded.Schedule else Icons.Rounded.CheckCircle,
                                             null,
-                                            tint = Color.White.copy(alpha = if (read) 1f else .7f),
+                                            tint = Color(0xFF5F7E55),
                                             modifier = Modifier.padding(start = 3.dp).size(12.dp),
                                         )
                                     }
@@ -3725,8 +3735,8 @@ private fun ChatScreen(
         if (showEmoji) EmojiTray(onEmoji = { updateDraft(text + it) }, onClose = { showEmoji = false })
         if (recording) {
             Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(WhappyBlue))
-                Text("Note vocale en cours… appuyez sur Stop pour envoyer", Modifier.weight(1f).padding(start = 9.dp), color = WhappyBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Box(Modifier.size(10.dp).clip(CircleShape).background(WeChatGreen))
+                Text("Note vocale en cours… appuyez sur Stop pour envoyer", Modifier.weight(1f).padding(start = 9.dp), color = WeChatGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 TextButton(onClick = { finishRecording(false) }) { Text("Annuler") }
             }
         }
@@ -3738,36 +3748,52 @@ private fun ChatScreen(
                 onDismiss = { previewImage = null },
             )
         }
-        Row(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(enabled = !recording, onClick = { mediaPicker.launch(arrayOf("image/*", "video/*")) }) { Icon(Icons.Rounded.AttachFile, "Joindre une image ou une vidéo", tint = WhappyMuted) }
-            IconButton(enabled = !recording, onClick = { offerOpen = true; showEmoji = false; keyboard?.hide() }) { Icon(Icons.Rounded.LocalOffer, "Faire une offre", tint = WhappyBlue) }
-            IconButton(enabled = !recording, onClick = { showEmoji = !showEmoji; if (showEmoji) keyboard?.hide() }) { Icon(Icons.Rounded.EmojiEmotions, "Émojis", tint = if (showEmoji) WhappyBlue else WhappyMuted) }
+        Row(Modifier.fillMaxWidth().background(WeChatToolbar).padding(horizontal = 5.dp, vertical = 7.dp), verticalAlignment = Alignment.Bottom) {
+            IconButton(
+                enabled = !sending,
+                onClick = {
+                    if (recording) finishRecording(true)
+                    else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
+                    else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                },
+            ) { Icon(if (recording) Icons.Rounded.Stop else Icons.Rounded.Mic, if (recording) "Envoyer la note vocale" else "Note vocale", tint = WhappyDark) }
             OutlinedTextField(
                 value = text,
                 onValueChange = { updateDraft(it) },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text(if (recording) "Enregistrement…" else "Message…") },
                 enabled = !recording,
-                maxLines = 5,
-                shape = RoundedCornerShape(20.dp),
+                maxLines = 4,
+                shape = RoundedCornerShape(7.dp),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = true),
                 keyboardActions = KeyboardActions(onSend = { submitText(); keyboard?.hide() }),
             )
-            IconButton(
-                enabled = text.isNotBlank() || recording || !sending,
-                onClick = {
-                    if (text.isNotBlank()) submitText()
-                    else if (recording) finishRecording(true)
-                    else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
-                    else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-                },
-                modifier = Modifier.padding(start = 6.dp).size(52.dp).clip(CircleShape).background(if (text.isNotBlank() || recording) WhappyBlue else Color.White),
-            ) {
-                when {
-                    text.isNotBlank() -> Icon(Icons.AutoMirrored.Rounded.Send, "Envoyer", tint = Color.White)
-                    recording -> Icon(Icons.Rounded.Stop, "Arrêter et envoyer", tint = Color.White)
-                    sending -> CircularProgressIndicator(Modifier.size(20.dp), color = WhappyBlue, strokeWidth = 2.dp)
-                    else -> Icon(Icons.Rounded.Mic, "Enregistrer une note vocale", tint = WhappyBlue)
+            IconButton(enabled = !recording, onClick = { showEmoji = !showEmoji; showMore = false; if (showEmoji) keyboard?.hide() }) { Icon(Icons.Rounded.EmojiEmotions, "Émojis", tint = WhappyDark) }
+            if (text.isNotBlank()) Button(
+                enabled = !sending,
+                onClick = { submitText() },
+                modifier = Modifier.padding(start = 2.dp).height(42.dp),
+                shape = RoundedCornerShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = WeChatGreen),
+                contentPadding = PaddingValues(horizontal = 13.dp),
+            ) { Text("Envoyer", color = Color.White, fontSize = 12.sp) }
+            else IconButton(enabled = !recording, onClick = { showMore = !showMore; showEmoji = false; keyboard?.hide() }) { Icon(Icons.Rounded.Add, "Plus", tint = WhappyDark, modifier = Modifier.size(28.dp)) }
+        }
+        if (showMore) {
+            Row(Modifier.fillMaxWidth().background(WeChatToolbar).padding(horizontal = 20.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { showMore = false; mediaPicker.launch(arrayOf("image/*", "video/*")) }) {
+                    Box(Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Photo, "Photos et vidéos", tint = WhappyDark, modifier = Modifier.size(25.dp)) }
+                    Text("Album", Modifier.padding(top = 6.dp), color = WhappyMuted, fontSize = 11.sp)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { showMore = false; offerOpen = true }) {
+                    Box(Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, "Faire une offre", tint = WhappyDark, modifier = Modifier.size(25.dp)) }
+                    Text("Offre", Modifier.padding(top = 6.dp), color = WhappyMuted, fontSize = 11.sp)
                 }
             }
         }
@@ -3867,40 +3893,73 @@ private fun ChatScreen(
     selectedMessage?.let { message ->
         val mine = message.senderId == currentUserId
         val messageActions = remember(message.text) { detectMessageActions(message.text) }
-        AlertDialog(
-            onDismissRequest = { selectedMessage = null },
-            title = { Text("Actions du message", fontWeight = FontWeight.Black) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(message.text.ifBlank { message.mediaName.ifBlank { "Média" } }, color = WhappyMuted, maxLines = 3)
-                    if (messageActions.isNotEmpty()) {
-                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            messageActions.forEach { action ->
-                                OutlinedButton(
-                                    onClick = { handleMessageAction(action); selectedMessage = null },
-                                    modifier = Modifier.height(30.dp),
-                                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
-                                ) {
-                                    Text(
-                                        if (action.type == MessageActionType.Phone) "Appeler ${action.title}"
-                                        else "Ouvrir ${action.title}",
-                                        color = WhappyDark,
-                                        fontSize = 12.sp,
-                                    )
-                                }
+        Dialog(onDismissRequest = { selectedMessage = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxWidth(.86f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(color = Color.White, shape = RoundedCornerShape(10.dp), shadowElevation = 8.dp) {
+                    Row(Modifier.padding(horizontal = 7.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                        listOf("❤️", "👍", "😂", "😮", "🙏").forEach { emoji ->
+                            TextButton(onClick = { onReact(message, emoji); selectedMessage = null }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp)) { Text(emoji, fontSize = 21.sp) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(7.dp))
+                Surface(color = WeChatMenu, shape = RoundedCornerShape(9.dp), shadowElevation = 10.dp) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                        Row(Modifier.fillMaxWidth()) {
+                            WeChatMenuAction("↩", "Répondre", Modifier.weight(1f)) { replyTo = message; editingMessage = null; selectedMessage = null }
+                            WeChatMenuAction("▣", "Copier", Modifier.weight(1f), enabled = message.text.isNotBlank()) {
+                                (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WAPI", message.text))
+                                selectedMessage = null
+                            }
+                            WeChatMenuAction("↗", "Transférer", Modifier.weight(1f)) { forwardWhappyMessage(context, message); selectedMessage = null }
+                            WeChatMenuAction("⋯", "Plus", Modifier.weight(1f)) {
+                                messageActions.firstOrNull()?.let(::handleMessageAction)
+                                selectedMessage = null
+                            }
+                        }
+                        if (mine) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = .10f)))
+                            Row(Modifier.fillMaxWidth()) {
+                                if (message.kind == "text") WeChatMenuAction("✎", "Modifier", Modifier.weight(1f)) { editingMessage = message; replyTo = null; text = message.text; selectedMessage = null }
+                                WeChatMenuAction("⌫", "Supprimer", Modifier.weight(1f), destructive = true) { onDelete(message); selectedMessage = null }
+                                Spacer(Modifier.weight(if (message.kind == "text") 2f else 3f))
                             }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("❤️", "👍", "😂", "😮", "🙏").forEach { emoji -> TextButton(onClick = { onReact(message, emoji); selectedMessage = null }, contentPadding = PaddingValues(6.dp)) { Text(emoji, fontSize = 20.sp) } } }
-                    OutlinedButton(onClick = { replyTo = message; editingMessage = null; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Répondre") }
-                    if (message.text.isNotBlank()) OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Message WAPI", message.text)); selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Copier le texte") }
-                    if (mine && message.kind == "text") OutlinedButton(onClick = { editingMessage = message; replyTo = null; text = message.text; selectedMessage = null }, Modifier.fillMaxWidth()) { Text("Modifier") }
-                    if (mine) OutlinedButton(onClick = { onDelete(message); selectedMessage = null }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = WhappyBlue)) { Text("Supprimer pour tous") }
                 }
-            },
-            confirmButton = { TextButton(onClick = { selectedMessage = null }) { Text("Fermer") } },
-        )
+                Text("Appui long sur un message", Modifier.padding(top = 9.dp), color = Color.White.copy(alpha = .86f), fontSize = 10.sp)
+            }
+        }
     }
+}
+
+@Composable
+private fun WeChatMenuAction(
+    symbol: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier.height(67.dp).clickable(enabled = enabled, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        val color = if (!enabled) Color.White.copy(alpha = .28f) else if (destructive) Color(0xFFFF8A80) else Color.White
+        Text(symbol, color = color, fontSize = 21.sp, fontWeight = FontWeight.Medium)
+        Text(label, Modifier.padding(top = 3.dp), color = color, fontSize = 10.sp)
+    }
+}
+
+private fun forwardWhappyMessage(context: Context, message: WhappyMessage) {
+    val value = message.text.ifBlank { message.mediaUrl.ifBlank { message.mediaName.ifBlank { "Message WAPI" } } }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, value)
+    }
+    context.startActivity(Intent.createChooser(intent, "Transférer le message…"))
 }
 
 @Composable
@@ -3911,7 +3970,7 @@ private fun MessageLinkText(
     onAction: (MessageAction) -> Unit,
 ) {
     if (actions.isEmpty()) {
-        Text(text, color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp)
+        Text(text, color = WhappyInk, lineHeight = 20.sp)
         return
     }
     val annotated = buildAnnotatedString {
@@ -3921,7 +3980,7 @@ private fun MessageLinkText(
             addStringAnnotation("message-action", action.target, action.start, action.end)
             addStyle(
                 SpanStyle(
-                    color = if (mine) Color.White.copy(alpha = .92f) else WhappyBlue,
+                    color = Color(0xFF1769AA),
                     textDecoration = TextDecoration.Underline,
                     fontWeight = FontWeight.SemiBold,
                 ),
@@ -3932,7 +3991,7 @@ private fun MessageLinkText(
     }
     ClickableText(
         text = annotated,
-        style = TextStyle(color = if (mine) Color.White else WhappyInk, lineHeight = 20.sp),
+        style = TextStyle(color = WhappyInk, lineHeight = 20.sp),
         onClick = { offset ->
             val clicked = annotated.getStringAnnotations("message-action", offset, offset).firstOrNull()
             if (clicked != null) {
@@ -4017,8 +4076,8 @@ private fun sanitizeMessageRange(start: Int, end: Int, text: String): IntRange {
 @Composable
 private fun MediaMessageRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, mine: Boolean, onOpen: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpen).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = if (mine) Color.White else WhappyBlue, modifier = Modifier.size(28.dp))
-        Text(label, Modifier.padding(start = 9.dp), color = if (mine) Color.White else WhappyInk, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Icon(icon, null, tint = if (mine) Color(0xFF3E7430) else WeChatGreen, modifier = Modifier.size(28.dp))
+        Text(label, Modifier.padding(start = 9.dp), color = WhappyInk, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -5364,7 +5423,7 @@ private fun UserAvatar(photoUrl: String, name: String, size: Dp, modifier: Modif
             bitmap = loaded
         }
     }
-    Box(modifier.size(size).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
+    Box(modifier.size(size).clip(RoundedCornerShape((size.value * .22f).dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap = bitmap!!, contentDescription = "Photo de profil de $name", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Text(initials(name), color = Color.White, fontSize = (size.value * 0.31f).sp, fontWeight = FontWeight.Black)
     }
