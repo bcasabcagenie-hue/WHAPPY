@@ -395,6 +395,16 @@ class WhappyRepository(
                     dailyBudget = document.getLong("dailyBudget") ?: 0L,
                     days = document.getLong("days")?.toInt() ?: 1,
                     status = document.getString("status") ?: "active",
+                    ownerId = document.getString("ownerId").orEmpty(),
+                    placement = document.getString("placement") ?: "profile_story",
+                    destination = document.getString("destination") ?: "message",
+                    creative = document.getString("creative").orEmpty(),
+                    cta = document.getString("cta") ?: "Nous contacter",
+                    audience = document.getString("audience") ?: "Public local",
+                    city = document.getString("city").orEmpty(),
+                    phone = document.getString("phone").orEmpty(),
+                    link = document.getString("link").orEmpty(),
+                    estimatedReach = document.getLong("estimatedReach") ?: 0L,
                 )
             })
         }
@@ -450,7 +460,7 @@ class WhappyRepository(
                     createdAt = document.timestampMillis("createdAt"),
                     mediaUrl = mediaUrl,
                     mediaKind = document.getString("mediaType").orEmpty(),
-                    mediaName = if (document.getString("mediaType") == "video") "Vidéo WAPI" else "Image WAPI",
+                    mediaName = when (document.getString("mediaType")) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; else -> "Image WAPI" },
                 )
             }.sortedByDescending { it.createdAt })
         }
@@ -969,14 +979,19 @@ class WhappyRepository(
                 "pageId" to draft.pageId,
                 "pageName" to draft.pageName,
                 "objective" to draft.objective,
+                "placement" to draft.placement,
+                "destination" to draft.destination,
                 "title" to draft.title.trim(),
                 "creative" to draft.creative.trim(),
                 "cta" to draft.cta.trim().take(40),
                 "audience" to draft.audience.trim().take(120),
                 "city" to draft.city.trim().take(80),
+                "phone" to draft.phone.trim().take(40),
+                "link" to draft.link.trim().take(180),
                 "dailyBudget" to draft.dailyBudget,
                 "days" to draft.days,
                 "totalBudget" to draft.dailyBudget * draft.days,
+                "estimatedReach" to ((draft.dailyBudget / 500L) * draft.days * if (draft.placement == "profile_story") 180L else 120L).coerceAtLeast(120L),
                 "status" to "active",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
@@ -1017,14 +1032,15 @@ class WhappyRepository(
             mediaUri == null -> "text"
             mediaContentType.startsWith("image/") -> "image"
             mediaContentType.startsWith("video/") -> "video"
+            mediaContentType.startsWith("audio/") -> "audio"
             else -> error("invalid-status-media")
         }
         val mediaSize = mediaUri?.let { uri -> runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L) } ?: 0L
-        val maximumSize = if (mediaKind == "video") 50L * 1024L * 1024L else 12L * 1024L * 1024L
+        val maximumSize = when (mediaKind) { "video" -> 50L * 1024L * 1024L; "audio" -> 25L * 1024L * 1024L; else -> 12L * 1024L * 1024L }
         require(mediaUri == null || mediaSize < 0L || mediaSize in 1..maximumSize)
         var storagePath = ""
         val mediaUrl = if (mediaUri == null) "" else {
-            val extension = mediaContentType.substringAfter('/', if (mediaKind == "video") "mp4" else "jpg").substringBefore('+').replace("quicktime", "mov").take(8)
+            val extension = mediaContentType.substringAfter('/', when (mediaKind) { "video" -> "mp4"; "audio" -> "m4a"; else -> "jpg" }).substringBefore('+').replace("quicktime", "mov").take(8)
             storagePath = "stories/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
             val mediaRef = storage.reference.child(storagePath)
             mediaRef.putFile(mediaUri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()

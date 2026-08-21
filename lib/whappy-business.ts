@@ -29,7 +29,7 @@ export type AdCampaign = {
   pageId: string;
   pageName: string;
   objective: "reach" | "messages" | "traffic" | "sales";
-  placement: "status" | "inbox" | "market" | "live";
+  placement: "profile_story" | "inbox" | "market" | "live";
   destination: "message" | "page" | "call" | "website";
   title: string;
   creative: string;
@@ -224,9 +224,9 @@ export function watchActiveCampaigns(onCampaigns: (campaigns: AdCampaign[]) => v
 export async function createAdCampaign(ownerId: string, campaign: NewAdCampaign) {
   const dailyBudget = Math.max(500, Math.round(campaign.dailyBudget));
   const days = Math.min(90, Math.max(1, Math.round(campaign.days)));
-  const placement = campaign.placement || "status";
+  const placement = campaign.placement || "profile_story";
   const destination = campaign.destination || (campaign.objective === "messages" ? "message" : "page");
-  const estimatedReach = Math.max(120, Math.round((dailyBudget / 500) * days * (placement === "status" ? 180 : placement === "inbox" ? 110 : placement === "live" ? 90 : 140)));
+  const estimatedReach = Math.max(120, Math.round((dailyBudget / 500) * days * (placement === "profile_story" ? 180 : placement === "inbox" ? 110 : placement === "live" ? 90 : 140)));
   const reference = await addDoc(collection(db, "adCampaigns"), {
     ...campaign,
     placement,

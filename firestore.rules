@@ -455,7 +455,7 @@ service cloud.firestore {
         && request.resource.data.authorName.size() >= 2
         && request.resource.data.authorName.size() <= 80
         && request.resource.data.mediaUrl is string
-        && request.resource.data.mediaType in ["text", "image", "video"]
+        && request.resource.data.mediaType in ["text", "image", "video", "audio"]
         && request.resource.data.caption is string
         && request.resource.data.caption.size() <= 600
         && request.resource.data.storagePath is string
@@ -463,7 +463,7 @@ service cloud.firestore {
               && request.resource.data.caption.size() >= 1
               && request.resource.data.mediaUrl == ""
               && request.resource.data.storagePath == "")
-          || (request.resource.data.mediaType in ["image", "video"]
+          || (request.resource.data.mediaType in ["image", "video", "audio"]
               && request.resource.data.mediaUrl.matches('https://firebasestorage.googleapis.com/.*')
               && request.resource.data.storagePath.matches('stories/' + request.auth.uid + '/.*')))
         && request.resource.data.expiresAt is timestamp
@@ -676,9 +676,11 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
-        && request.resource.data.keys().hasOnly(["ownerId", "pageId", "pageName", "objective", "title", "creative", "cta", "audience", "city", "dailyBudget", "days", "totalBudget", "status", "createdAt", "updatedAt"])
+        && request.resource.data.keys().hasOnly(["ownerId", "pageId", "pageName", "objective", "placement", "destination", "title", "creative", "cta", "audience", "city", "phone", "link", "estimatedReach", "dailyBudget", "days", "totalBudget", "status", "createdAt", "updatedAt"])
         && get(/databases/$(database)/documents/businessPages/$(request.resource.data.pageId)).data.ownerId == request.auth.uid
         && request.resource.data.objective in ["reach", "messages", "traffic", "sales"]
+        && request.resource.data.placement in ["profile_story", "inbox", "market", "live"]
+        && request.resource.data.destination in ["message", "page", "call", "website"]
         && request.resource.data.title is string
         && request.resource.data.title.size() >= 2
         && request.resource.data.title.size() <= 120
@@ -691,6 +693,12 @@ service cloud.firestore {
         && request.resource.data.audience.size() <= 120
         && request.resource.data.city is string
         && request.resource.data.city.size() <= 80
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() <= 40
+        && request.resource.data.link is string
+        && request.resource.data.link.size() <= 180
+        && request.resource.data.estimatedReach is number
+        && request.resource.data.estimatedReach >= 120
         && request.resource.data.dailyBudget is number
         && request.resource.data.dailyBudget >= 500
         && request.resource.data.days is number

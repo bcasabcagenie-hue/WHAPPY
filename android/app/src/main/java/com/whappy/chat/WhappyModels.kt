@@ -6,6 +6,7 @@ enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
     STORIES("Stories"),
     MESSAGES("Messages"),
+    WEPI("WEPI"),
     CONTACTS("Contacts"),
     CALLS("Appels"),
     MARKET("Marché"),
@@ -117,6 +118,16 @@ data class WhappyCampaign(
     val dailyBudget: Long,
     val days: Int,
     val status: String,
+    val ownerId: String = "",
+    val placement: String = "profile_story",
+    val destination: String = "message",
+    val creative: String = "",
+    val cta: String = "Nous contacter",
+    val audience: String = "Public local",
+    val city: String = "",
+    val phone: String = "",
+    val link: String = "",
+    val estimatedReach: Long = 0L,
 )
 
 data class WhappyCampaignDraft(
@@ -130,6 +141,10 @@ data class WhappyCampaignDraft(
     val city: String,
     val dailyBudget: Long,
     val days: Int,
+    val placement: String = "profile_story",
+    val destination: String = "message",
+    val phone: String = "",
+    val link: String = "",
 )
 
 data class WhappyLive(
