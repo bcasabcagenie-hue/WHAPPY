@@ -61,7 +61,18 @@ class WhappyViewModel(
         channelPostsListener = null
         messagesListener?.remove()
         remoteConversationMessages = emptyList()
-        _uiState.update { it.copy(selectedConversation = conversation, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), loading = true, error = null) }
+        val cachedMessages = repository.cachedMessages(conversation.id, conversation.source)
+        remoteConversationMessages = cachedMessages
+        _uiState.update {
+            it.copy(
+                selectedConversation = conversation,
+                messages = cachedMessages,
+                selectedChannel = null,
+                channelPosts = emptyList(),
+                loading = cachedMessages.isEmpty(),
+                error = null,
+            )
+        }
         messagesListener = repository.observeMessages(
             conversation.id,
             source = conversation.source,
@@ -73,7 +84,15 @@ class WhappyViewModel(
                     viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid) } }
                 }
             },
-            onError = { _uiState.update { it.copy(loading = false, online = false, error = "Messages momentanément indisponibles") } },
+            onError = {
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        online = false,
+                        error = if (it.messages.isEmpty()) "Messages momentanément indisponibles" else null,
+                    )
+                }
+            },
         )
     }
 
