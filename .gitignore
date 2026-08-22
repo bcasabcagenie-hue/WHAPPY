@@ -50,6 +50,8 @@ yarn-error.log*
 /releases/*.apk.idsig
 /public-hosting/*.apk
 /public/downloads/*.apk
+!/public-hosting/WAPI-Android-1.9.0-native.apk
+!/public/downloads/WAPI-Android-1.9.0-native.apk
 !/public-hosting/WAPI-Android-1.8.9-native.apk
 !/public/downloads/WAPI-Android-1.8.9-native.apk
 /outputs/

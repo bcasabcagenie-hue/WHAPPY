@@ -1,7 +1,7 @@
 self.addEventListener("push", (event) => {
   const data = event.data?.json?.() || {};
   const title = data.title || "Whappy";
-  const options = { body: data.body || "Vous avez une nouvelle activité.", icon: "/whappy-app-icon.png", badge: "/whappy-app-icon.png", data: data.url || "/" };
+  const options = { body: data.body || "Vous avez une nouvelle activité.", icon: "/wapi-logo.svg", badge: "/wapi-logo.svg", data: data.url || "/" };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 

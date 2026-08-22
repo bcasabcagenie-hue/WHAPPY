@@ -450,7 +450,7 @@ private fun SessionRestoringScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Image(painterResource(R.drawable.wapi_icon), "Logo WAPI", Modifier.size(92.dp))
+            Image(painterResource(R.drawable.wapi_identity), "Logo WAPI", Modifier.size(92.dp))
             Text("WAPI", Modifier.padding(top = 18.dp), color = WhappyBlue, fontWeight = FontWeight.Black, fontSize = 28.sp)
             CircularProgressIndicator(Modifier.padding(top = 28.dp).size(30.dp), color = WhappyBlue, strokeWidth = 3.dp)
             Text("Ouverture de votre compte…", Modifier.padding(top = 14.dp), color = WhappyMuted)
@@ -1160,7 +1160,7 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(
-            painterResource(R.drawable.wapi_icon),
+            painterResource(R.drawable.wapi_identity),
             "Logo WAPI",
             Modifier.size(50.dp).clip(RoundedCornerShape(16.dp)),
             contentScale = ContentScale.Crop,
@@ -4261,6 +4261,10 @@ private fun ChatScreen(
         removeGroupPhoto = false
     }
 
+    LaunchedEffect(conversation.id) {
+        WhappyNotifications.markConversationOpened(context, conversation.id)
+    }
+
     fun updateDraft(value: String) {
         if (value.length > text.length) WhappySounds.typing(context)
         text = value.take(4_000)
@@ -4373,7 +4377,7 @@ private fun ChatScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(WapiChatBackground).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(WapiChatBackground).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().background(WapiToolbar).padding(horizontal = 6.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
             if (conversation.isGroup && conversation.peer.photoUrl.isBlank()) {
@@ -4384,8 +4388,19 @@ private fun ChatScreen(
             Column(Modifier.weight(1f).padding(start = 10.dp).clickable { showPeerProfile = true }) {
                 Text(conversation.peer.displayName, fontWeight = FontWeight.SemiBold, color = WhappyDark, fontSize = 16.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(6.dp).clip(CircleShape).background(WapiChatAccent))
-                    Text(if (conversation.isGroup) "  ${conversation.memberCount} membres" else if (conversation.peerTyping) "  écrit…" else "  en ligne", color = if (conversation.peerTyping) WapiChatAccent else WhappyMuted, fontSize = 11.sp)
+                    val activelyPresent = conversation.peerTyping || conversation.peer.isOnline
+                    if (activelyPresent) Box(Modifier.size(6.dp).clip(CircleShape).background(WapiChatAccent))
+                    Text(
+                        when {
+                            conversation.isGroup -> "  ${conversation.memberCount} membres"
+                            conversation.peerTyping -> "  écrit…"
+                            conversation.peer.isOnline -> "  en ligne"
+                            conversation.peer.lastSeenAt > 0L -> "  ${formatLastSeen(conversation.peer.lastSeenAt)}"
+                            else -> "  hors ligne"
+                        },
+                        color = if (activelyPresent) WapiChatAccent else WhappyMuted,
+                        fontSize = 11.sp,
+                    )
                 }
             }
             IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Icon(Icons.Rounded.Search, "Rechercher dans la discussion", tint = if (searchOpen) WapiChatAccent else WhappyDark) }
@@ -6576,6 +6591,18 @@ private fun EmptyState(title: String, body: String) {
 private fun initials(name: String): String = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase().ifBlank { "WH" }
 
 private fun formatTime(timestamp: Long): String = if (timestamp <= 0) "" else SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(timestamp))
+
+private fun formatLastSeen(timestamp: Long): String {
+    if (timestamp <= 0L) return "hors ligne"
+    val now = Calendar.getInstance()
+    val seen = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val time = SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(timestamp))
+    return if (now.get(Calendar.YEAR) == seen.get(Calendar.YEAR) && now.get(Calendar.DAY_OF_YEAR) == seen.get(Calendar.DAY_OF_YEAR)) {
+        "vu à $time"
+    } else {
+        "vu le ${SimpleDateFormat("d MMM", Locale.FRANCE).format(Date(timestamp))} à $time"
+    }
+}
 
 private fun isSameDay(first: Long, second: Long): Boolean {
     if (first <= 0L || second <= 0L) return first == second

@@ -1642,11 +1642,17 @@ class WhappyRepository(
 
     private fun DocumentSnapshot.toMember(): WhappyMember {
         val phone = getString("phoneNumber").orEmpty()
+        val presenceUpdatedAt = timestampMillis("presenceUpdatedAt")
+        val lastSeenAt = timestampMillis("lastSeenAt").takeIf { it > 0L } ?: presenceUpdatedAt
+        val isOnline = getString("presenceState") == "online" &&
+            presenceUpdatedAt >= System.currentTimeMillis() - 90_000L
         return WhappyMember(
             uid = id,
             displayName = WhappyIdentity.resolveAccountName(getString("displayName").orEmpty(), phone),
             phoneNumber = phone,
             photoUrl = getString("photoUrl").orEmpty(),
+            isOnline = isOnline,
+            lastSeenAt = lastSeenAt,
         )
     }
 

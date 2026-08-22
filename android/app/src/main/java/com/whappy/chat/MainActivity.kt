@@ -59,6 +59,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val model: WhappyViewModel = viewModel()
             val state by model.uiState.collectAsStateWithLifecycle()
+            LaunchedEffect(state.user?.uid) {
+                WapiPresence.setActiveUser(state.user?.uid)
+            }
             LaunchedEffect(incomingLink, state.user?.uid, state.sessionRestoring) {
                 val link = incomingLink
                 if (!link.isNullOrBlank() && (preview || (state.user != null && !state.sessionRestoring))) {
@@ -156,6 +159,16 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         incomingLink = intent.dataString
         pendingCallAction = intent.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        WapiPresence.onForeground()
+    }
+
+    override fun onStop() {
+        WapiPresence.onBackground()
+        super.onStop()
     }
 
     override fun onDestroy() {

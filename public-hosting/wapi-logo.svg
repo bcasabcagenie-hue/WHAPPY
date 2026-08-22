@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">WAPI</title>
-  <desc id="desc">Monogramme WAPI bleu, cyan et bleu profond.</desc>
+  <desc id="desc">Monogramme WAPI bleu, cyan et bleu profond avec un W blanc lisible.</desc>
   <defs>
     <clipPath id="inner"><path d="M512 244C346 244 238 348 238 478c0 140 110 210 274 210h190c31 0 56-25 56-56V478c0-130-101-234-246-234Z"/></clipPath>
   </defs>
@@ -11,4 +11,5 @@
     <path d="M510 244c143 0 248 104 248 234v154c0 31-25 56-56 56H562c-43 0-78-35-78-78V474c0-69-35-139-101-191 39-25 82-39 127-39Z" fill="#0066CF"/>
     <path d="M338 266c102 20 202 115 202 220v124c0 43-35 78-78 78h-18c-126 0-206-75-206-190 0-96 37-179 100-232Z" fill="#00A2E6"/>
   </g>
+  <path d="M336 409h49l33 145 44-108h50l44 108 33-145h49l-49 214h-48l-53-124-53 124h-48Z" fill="#fff"/>
 </svg>

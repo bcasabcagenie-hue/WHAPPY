@@ -22,7 +22,7 @@ export function NotificationCenter({ unread, onNotify }: NotificationCenterProps
     if (permission !== "granted" || unread < 1 || document.visibilityState !== "hidden") return;
     const notice = new Notification("Whappy · messages en attente", {
       body: `${unread} conversation${unread > 1 ? "s" : ""} attend${unread > 1 ? "ent" : ""} votre réponse.`,
-      icon: "/whappy-app-icon.png",
+      icon: "/wapi-logo.svg",
       tag: "whappy-unread-messages",
     });
     notice.onclick = () => window.focus();

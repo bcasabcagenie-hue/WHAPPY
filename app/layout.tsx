@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/favicon.svg",
-    apple: "/whappy-app-icon.png",
+    apple: "/wapi-logo.svg",
   },
   title: "Wapi — Tout peut devenir une opportunité",
   description: "Wapi réunit messages privés, communautés, vidéos personnalisées, Business et doubles IA avec contrôle humain.",

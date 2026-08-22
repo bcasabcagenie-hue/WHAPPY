@@ -25,6 +25,8 @@ data class WhappyMember(
     val displayName: String,
     val phoneNumber: String = "",
     val photoUrl: String = "",
+    val isOnline: Boolean = false,
+    val lastSeenAt: Long = 0L,
 )
 
 data class WhappyConversation(
