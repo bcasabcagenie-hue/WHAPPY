@@ -1094,7 +1094,7 @@ private fun WhappyMain(
                             busy = state.actionBusy,
                             onPublishEpisode = onPublishRadioEpisode,
                         )
-                        WhappyTab.GAMES -> GamesScreen(onBack = { onTab(WhappyTab.MOMENTS) })
+                        WhappyTab.GAMES -> GamesScreen(currentUserId = state.user?.uid.orEmpty(), accountName = accountDisplayName, onBack = { onTab(WhappyTab.MOMENTS) })
                         WhappyTab.SERVICES -> ServicesScreen(
                             userName = accountDisplayName,
                             phone = state.user?.phoneNumber.orEmpty().ifBlank { "+242 06 000 00 00" },
@@ -1948,7 +1948,7 @@ private fun WapiAudioMeter(inputLevel: Float, active: Boolean) {
 }
 
 @Composable
-private fun GamesScreen(onBack: () -> Unit) {
+private fun GamesScreen(currentUserId: String, accountName: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val gamePrefs = remember { WhappyFastStorage.preferences(context, "wapi_play") }
     var selected by rememberSaveable { mutableStateOf("Ludo WAPI") }
@@ -2070,6 +2070,7 @@ private fun GamesScreen(onBack: () -> Unit) {
             GameModeCard(game.first, game.second, game.third, selected == game.first) { selected = game.first; gameOpen = true }
         }
         if (selected == "Ludo WAPI") {
+            item { WapiOnlineLudoCard(userId = currentUserId, userName = accountName) }
             item {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
