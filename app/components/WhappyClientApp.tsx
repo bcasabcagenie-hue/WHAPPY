@@ -187,6 +187,7 @@ export default function Home() {
   const [customListings, setCustomListings] = useState<Listing[]>([]);
   const [customRequests, setCustomRequests] = useState<RequestItem[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [demoGuideOpen, setDemoGuideOpen] = useState(true);
   const [selectedContactProfile, setSelectedContactProfile] = useState<{ name: string; phone?: string; mark: string; note: string; online: boolean } | null>(null);
   const [shopOpen, setShopOpen] = useState(false);
   const [userId, setUserId] = useState("");
@@ -861,6 +862,8 @@ export default function Home() {
 
       <AccountSwitcher mode={accountMode} onToggle={() => go(accountMode === "business" ? "inbox" : "business")} />
 
+      {demoMode && demoGuideOpen && <DemoGuide onClose={() => setDemoGuideOpen(false)} onNavigate={go} onProfile={() => setProfileOpen(true)} />}
+
       <WhappyNow
         unread={messages.reduce((sum,item)=>sum+item.unread,0)}
         listingCount={customListings.length+listings.length}
@@ -902,7 +905,7 @@ export default function Home() {
       {space === "services" && <SuperHub search={search} go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinEngineStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} consent={consent} setConsent={setConsent} notify={notify} cloud={Boolean(userId)}/>}
       {space === "business" && <>{(founderProfile || demoMode) && <HappyFounderDashboard ownerId={userId||"happy-demo"} userName={businessName} search={search} notify={notify} demo={demoMode}/>}<div id="business-studio"><BusinessStudio userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div><div id="business-growth"><BusinessGrowthTools userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div></>}
-      {space === "games" && <GamesSpace notify={notify} />}
+      {space === "games" && <GamesSpace notify={notify} demo={demoMode} />}
     </section>
 
     {liveIndex !== null && <LiveViewerPro live={lives[liveIndex]} onClose={() => setLiveIndex(null)} notify={notify} onAdd={(live,quantity)=>addToCart({id:`live-${live.product}`,title:live.product,price:`${live.price} FCFA`,place:"Direct Wapi",seller:live.host,mark:live.host.split(" ").map(part=>part[0]).join("").slice(0,2),tone:live.tone,category:"Direct",mode:"vente",trust:98},quantity)} />}
@@ -1014,7 +1017,36 @@ const worldCupEvents = [
   { game: "ludo" as GameKind, title: "Coupe du Monde WAPI · Ludo", date: "Équipes · 28 septembre", stage: "FORMAT PAR ÉQUIPES", prize: "300 000 FCFA", players: "512 équipes", tone: "red" },
 ];
 
-function GamesSpace({ notify }: { notify: (text: string) => void }) {
+const LUDO_TRACK = [
+  ...Array.from({ length: 13 }, (_, index) => ({ row: 0, column: index + 1 })),
+  ...Array.from({ length: 13 }, (_, index) => ({ row: index + 1, column: 14 })),
+  ...Array.from({ length: 13 }, (_, index) => ({ row: 14, column: 13 - index })),
+  ...Array.from({ length: 13 }, (_, index) => ({ row: 13 - index, column: 0 })),
+];
+const LUDO_HOME_SPOTS = [{ row: 12, column: 3 }, { row: 12, column: 5 }, { row: 10, column: 3 }, { row: 10, column: 5 }];
+
+function LudoBoard3D({ tokens, die, rolling, moving, status, onRoll, onMove, onReset }: { tokens: number[]; die: number | null; rolling: boolean; moving: boolean; status: string; onRoll: () => void; onMove: (index: number) => void; onReset: () => void }) {
+  return <div className="ludo-3d-wrap">
+    <div className="ludo-3d-stage"><div className="ludo-3d-board" aria-label="Plateau de Ludo en trois dimensions">
+      <div className="ludo-zone zone-red"/><div className="ludo-zone zone-blue"/><div className="ludo-zone zone-green"/><div className="ludo-zone zone-yellow"/>
+      {LUDO_TRACK.map((cell, index) => <span className={`ludo-track-cell ${index % 13 === 0 ? "start" : ""}`} key={`${cell.row}-${cell.column}`} style={{ left: `${((cell.column + .5) / 15) * 100}%`, top: `${((cell.row + .5) / 15) * 100}%` }}>{index % 13 === 0 ? "★" : ""}</span>)}
+      <div className="ludo-center"><span>WAPI</span><strong>✦</strong></div>
+      {tokens.map((position, index) => { const spot = position < 0 ? LUDO_HOME_SPOTS[index] : position >= 52 ? { row: 7, column: 7 } : LUDO_TRACK[position]; return <button key={index} className={`ludo-token token-${index} ${position >= 52 ? "finished" : ""}`} style={{ left: `${((spot.column + .5) / 15) * 100}%`, top: `${((spot.row + .5) / 15) * 100}%` }} onClick={() => onMove(index)} disabled={moving} aria-label={`Pion ${index + 1}, ${position < 0 ? "dans la base" : position >= 52 ? "arrivé" : `case ${position + 1}`}`}><span>{index + 1}</span></button>; })}
+    </div></div>
+    <div className="ludo-controls"><div className="ludo-die-shell"><button className={`ludo-die ${rolling ? "rolling" : ""}`} onClick={onRoll} disabled={rolling || moving} aria-label="Lancer le dé"><span>{die || "?"}</span></button><small>{rolling ? "Le dé roule…" : die ? `Résultat : ${die}` : "Lancer le dé"}</small></div><div className="ludo-status"><small>TOUR DU JOUEUR</small><strong>{status}</strong><p>Un 6 fait sortir un pion. Cliquez sur un pion après le lancer pour le déplacer.</p></div><button className="ludo-reset" onClick={onReset}>↺ Recommencer</button></div>
+  </div>;
+}
+
+function DemoGuide({ onClose, onNavigate, onProfile }: { onClose: () => void; onNavigate: (space: Space) => void; onProfile: () => void }) {
+  return <section className="demo-guide" aria-label="Guide de découverte de la démo">
+    <div className="demo-guide-orb">✦</div>
+    <div className="demo-guide-copy"><small>APERÇU INTERACTIF WAPI</small><strong>Découvrez tout ce que vous pouvez tester.</strong><p>Explorez les Stories, lancez une partie, ouvrez un profil ou simulez une annonce en quelques clics.</p></div>
+    <div className="demo-guide-actions"><button onClick={() => onNavigate("orbit")}><span>▦</span><b>Actus</b><small>Stories</small></button><button onClick={() => onNavigate("games")}><span>♞</span><b>Jeux</b><small>Jouer</small></button><button onClick={onProfile}><span>●</span><b>Profil</b><small>Personnaliser</small></button></div>
+    <button className="demo-guide-close" onClick={onClose} aria-label="Fermer le guide de démo">×</button>
+  </section>;
+}
+
+function GamesSpace({ notify, demo = false }: { notify: (text: string) => void; demo?: boolean }) {
   const [game, setGame] = useState<GameKind>("chess");
   const [view, setView] = useState<GamesView>("play");
   const [selectedSquare, setSelectedSquare] = useState<number | null>(null);
@@ -1039,6 +1071,11 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
   const [difficulty, setDifficulty] = useState<DifficultyId>("expert");
   const [computerThinking, setComputerThinking] = useState(false);
   const [matchResult, setMatchResult] = useState<"win" | "loss" | null>(null);
+  const [ludoTokens, setLudoTokens] = useState([-1, -1, -1, -1]);
+  const [ludoDie, setLudoDie] = useState<number | null>(null);
+  const [ludoRolling, setLudoRolling] = useState(false);
+  const [ludoMoving, setLudoMoving] = useState(false);
+  const [ludoStatus, setLudoStatus] = useState("Lancez le dé pour commencer");
   const [ratings, setRatings] = useState<Record<GameKind, number>>({ chess: 1842, checkers: 1564, ludo: 1206, sudoku: 1688 });
   const [wins, setWins] = useState(14);
   const [losses, setLosses] = useState(4);
@@ -1116,7 +1153,60 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
     setMatchStarted(true);
     setComputerThinking(false);
     setMatchResult(null);
+    setLudoTokens([-1, -1, -1, -1]);
+    setLudoDie(null);
+    setLudoRolling(false);
+    setLudoMoving(false);
+    setLudoStatus("Lancez le dé pour commencer");
     notify(`Nouvelle partie ${profile.name} prête`);
+  }
+
+  function rollLudoDice() {
+    if (ludoRolling || ludoMoving || matchResult) return;
+    setLudoRolling(true);
+    setLudoStatus("Le dé roule sur le plateau…");
+    window.setTimeout(() => {
+      const value = Math.floor(Math.random() * 6) + 1;
+      setLudoDie(value);
+      setLudoRolling(false);
+      const available = ludoTokens.some((position) => position < 0 ? value === 6 : position + value <= 57);
+      setLudoStatus(available ? `Vous avez fait ${value}. Choisissez un pion.` : `Vous avez fait ${value}. Aucun déplacement possible.`);
+      if (!available) window.setTimeout(() => setLudoDie(null), 900);
+    }, 720);
+  }
+
+  function moveLudoToken(index: number) {
+    if (ludoDie === null || ludoMoving || matchResult) return;
+    const currentPosition = ludoTokens[index];
+    const steps = currentPosition < 0 ? (ludoDie === 6 ? 1 : 0) : ludoDie;
+    if (!steps || currentPosition + steps > 57) {
+      setLudoStatus(ludoDie === 6 ? "Ce pion ne peut pas sortir ici." : "Ce pion ne peut pas avancer autant.");
+      return;
+    }
+    setLudoMoving(true);
+    let step = 0;
+    const advance = () => {
+      step += 1;
+      setLudoTokens((current) => current.map((position, tokenIndex) => tokenIndex === index ? (currentPosition < 0 ? 0 : Math.min(57, position + 1)) : position));
+      if (step < steps) {
+        window.setTimeout(advance, 180);
+        return;
+      }
+      const finalPosition = currentPosition < 0 ? 0 : currentPosition + steps;
+      setLudoDie(null);
+      setLudoMoving(false);
+      setMoveCount((count) => count + 1);
+      if (finalPosition >= 57) {
+        setMatchResult("win");
+        setMatchStarted(false);
+        setLudoStatus("Pion arrivé au centre. Victoire !");
+        notify("Victoire Ludo · votre pion atteint l’arrivée");
+      } else {
+        setLudoStatus(`Pion ${index + 1} déplacé de ${steps} case${steps > 1 ? "s" : ""}.`);
+        notify(`Pion ${index + 1} avance de ${steps} case${steps > 1 ? "s" : ""}`);
+      }
+    };
+    advance();
   }
 
   function formatClock(totalSeconds: number) {
@@ -1193,7 +1283,7 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
   return <div className="space-scroll games-space">
     <section className="games-hero">
       <div className="games-hero-copy">
-        <span className="games-eyebrow"><i /> WAPI ARENA · SAISON 01</span>
+        <span className="games-eyebrow"><i /> WAPI ARENA · SAISON 01 {demo && <b className="games-demo-badge">MODE DÉMO</b>}</span>
         <h2>Jouez votre<br /><em>meilleur coup.</em></h2>
         <p>Des parties exigeantes, un accompagnement précis et des tournois où chaque progression compte.</p>
         <div className="games-hero-actions">
@@ -1223,8 +1313,8 @@ function GamesSpace({ notify }: { notify: (text: string) => void }) {
         <div className="arena-grid">
           <section className={`board-panel ${game}`}>
             <header><div><span className="live-pill"><i /> {matchResult ? "PARTIE TERMINÉE" : "MATCH EN DIRECT"}</span><strong>{profile.name} · {opponentMode === "computer" ? `Ordinateur ${difficultyProfile.name}` : "Adversaire en ligne"}</strong></div><div className="match-clock"><button onClick={() => setMatchStarted((current) => !current)} aria-label={matchStarted ? "Mettre la partie en pause" : "Reprendre la partie"} disabled={Boolean(matchResult)}>{matchStarted ? "Ⅱ" : "▶"}</button><span className="board-clock">{formatClock(matchSeconds)}</span></div></header>
-            <div className="board-frame">{game !== "sudoku" && <div className="board-coordinates board-files">{["a", "b", "c", "d", "e", "f", "g", "h"].map((file) => <span key={file}>{file}</span>)}</div>}<div className={`game-board ${game === "sudoku" ? "sudoku-board" : ""} ${matchResult ? "game-finished" : ""}`} role="grid" aria-label={`Plateau de ${profile.name}`}>{Array.from({ length: game === "sudoku" ? 81 : 64 }, (_, index) => { const boardSize = game === "sudoku" ? 9 : 8; const row = Math.floor(index / boardSize); const column = index % boardSize; const dark = game === "sudoku" ? (Math.floor(row / 3) + Math.floor(column / 3)) % 2 === 1 : (row + column) % 2 === 1; const piece = pieceAt(index); const selected = selectedSquare === index; return <button key={index} className={`game-square ${dark ? "dark" : "light"} ${selected ? "selected" : ""} ${piece ? "has-piece" : ""}`} onClick={() => chooseSquare(index)} aria-label={`${squareLabel(index)}${piece ? `, ${piece}` : ""}`} disabled={Boolean(matchResult)}><span>{piece}</span></button>; })}</div>{computerThinking && <div className="computer-thinking"><i /> L’ordinateur calcule sa réponse…</div>}</div>
-            <footer><div><small>TOUR DE JEU</small><strong>{moveCount}</strong></div><div><small>FORMAT</small><strong>{game === "sudoku" ? "9×9" : game === "ludo" ? "4 joueurs" : "10+5"}</strong></div><button onClick={() => game === "ludo" ? notify("Dé lancé : vous avancez de 6 cases") : game === "sudoku" ? notify("Grille vérifiée : 2 erreurs à corriger") : notify("Recherche d’un adversaire de niveau similaire…")}>{game === "ludo" ? "🎲 Lancer le dé" : game === "sudoku" ? "✓ Vérifier la grille" : "⚡ Trouver un adversaire"}</button></footer>
+            <div className="board-frame">{game === "ludo" ? <LudoBoard3D tokens={ludoTokens} die={ludoDie} rolling={ludoRolling} moving={ludoMoving} status={ludoStatus} onRoll={rollLudoDice} onMove={moveLudoToken} onReset={resetMatch} /> : <>{game !== "sudoku" && <div className="board-coordinates board-files">{["a", "b", "c", "d", "e", "f", "g", "h"].map((file) => <span key={file}>{file}</span>)}</div>}<div className={`game-board ${game === "sudoku" ? "sudoku-board" : ""} ${matchResult ? "game-finished" : ""}`} role="grid" aria-label={`Plateau de ${profile.name}`}>{Array.from({ length: game === "sudoku" ? 81 : 64 }, (_, index) => { const boardSize = game === "sudoku" ? 9 : 8; const row = Math.floor(index / boardSize); const column = index % boardSize; const dark = game === "sudoku" ? (Math.floor(row / 3) + Math.floor(column / 3)) % 2 === 1 : (row + column) % 2 === 1; const piece = pieceAt(index); const selected = selectedSquare === index; return <button key={index} className={`game-square ${dark ? "dark" : "light"} ${selected ? "selected" : ""} ${piece ? "has-piece" : ""}`} onClick={() => chooseSquare(index)} aria-label={`${squareLabel(index)}${piece ? `, ${piece}` : ""}`} disabled={Boolean(matchResult)}><span>{piece}</span></button>; })}</div>{computerThinking && <div className="computer-thinking"><i /> L’ordinateur calcule sa réponse…</div>}</>}</div>
+            <footer><div><small>TOUR DE JEU</small><strong>{moveCount}</strong></div><div><small>FORMAT</small><strong>{game === "sudoku" ? "9×9" : game === "ludo" ? "4 joueurs" : "10+5"}</strong></div><button onClick={() => game === "ludo" ? rollLudoDice() : game === "sudoku" ? notify("Grille vérifiée : 2 erreurs à corriger") : notify("Recherche d’un adversaire de niveau similaire…")}>{game === "ludo" ? "🎲 Lancer le dé" : game === "sudoku" ? "✓ Vérifier la grille" : "⚡ Trouver un adversaire"}</button></footer>
           </section>
           <aside className="games-side-column">
             <section className="ai-lab-card"><header><div><small>ADVERSAIRE ASSISTÉ PAR IA</small><strong>Choisissez votre défi</strong></div><span className="ai-status"><i /> PRÊT</span></header><div className="opponent-mode-switch"><button className={opponentMode === "computer" ? "active" : ""} onClick={() => { setOpponentMode("computer"); setMatchResult(null); notify("Mode ordinateur activé"); }}>🤖 Ordinateur</button><button className={opponentMode === "human" ? "active" : ""} onClick={() => { setOpponentMode("human"); setComputerThinking(false); setMatchResult(null); notify("Mode joueur en ligne activé"); }}>♟ Joueur</button></div>{opponentMode === "computer" && <><div className="difficulty-heading"><span>NIVEAU DE DIFFICULTÉ</span><b>{difficultyProfile.rating} Elo</b></div><div className="difficulty-grid">{(Object.keys(difficultyProfiles) as DifficultyId[]).map((level) => <button key={level} className={`${difficulty === level ? "active" : ""} ${difficultyProfiles[level].color}`} onClick={() => { setDifficulty(level); setMatchResult(null); }}><span>{difficultyProfiles[level].rating}</span><strong>{difficultyProfiles[level].name}</strong></button>)}</div><p className="difficulty-detail">{difficultyProfile.detail}. <b>+{difficultyProfile.gain} points de classement</b> en cas de victoire.</p></>}</section>
