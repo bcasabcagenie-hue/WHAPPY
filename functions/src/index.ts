@@ -188,3 +188,36 @@ export const getWebRtcIceServers = onCall(async (request) => {
     turnConfigured: false,
   };
 });
+
+/**
+ * Firestore rules intentionally protect an expired story with server time.
+ * A direct client query cannot prove its local timestamp is newer than the
+ * server timestamp, so this callable is the safe, server-authoritative read
+ * path for the Actus screen.
+ */
+export const listVisibleStories = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  }
+  const snapshot = await db.collection("stories")
+    .where("audienceIds", "array-contains", request.auth.uid)
+    .where("expiresAt", ">", new Date())
+    .limit(250)
+    .get();
+  const stories = snapshot.docs.map((document) => {
+    const value = document.data();
+    const createdAt = value.createdAt;
+    return {
+      id: document.id,
+      authorName: String(value.authorName || "Contact WAPI"),
+      caption: String(value.caption || ""),
+      mediaUrl: String(value.mediaUrl || ""),
+      mediaType: String(value.mediaType || "text"),
+      createdAt: createdAt && typeof createdAt.toDate === "function"
+        ? createdAt.toDate().toISOString()
+        : null,
+    };
+  });
+  stories.sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+  return { stories };
+});

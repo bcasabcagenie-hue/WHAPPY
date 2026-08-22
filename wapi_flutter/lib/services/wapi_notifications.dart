@@ -10,6 +10,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 // receive the current sound, vibration and badge configuration. Android keeps
 // channel settings immutable after their first creation.
 const _channelId = 'wapi_messages_v2';
+const _callChannelId = 'wapi_calls_v1';
 const _groupKey = 'wapi_message_group';
 const _summaryId = 2;
 
@@ -23,8 +24,20 @@ const _channel = AndroidNotificationChannel(
   showBadge: true,
 );
 
+const _callChannel = AndroidNotificationChannel(
+  _callChannelId,
+  'Appels WAPI',
+  description: 'Appels audio et vidéo entrants WAPI',
+  importance: Importance.max,
+  playSound: true,
+  enableVibration: true,
+  showBadge: false,
+  audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+);
+
 final _notifications = FlutterLocalNotificationsPlugin();
-typedef WapiNotificationTap = Future<void> Function(String payload);
+typedef WapiNotificationTap =
+    Future<void> Function(String payload, String? actionId);
 
 @pragma('vm:entry-point')
 Future<void> wapiFirebaseBackgroundHandler(RemoteMessage message) async {
@@ -48,7 +61,7 @@ class WapiNotifications {
       onDidReceiveNotificationResponse: (response) {
         final payload = response.payload;
         if (payload != null && onTap != null) {
-          onTap(payload);
+          onTap(payload, response.actionId);
         }
       },
     );
@@ -57,6 +70,7 @@ class WapiNotifications {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await androidPlugin?.createNotificationChannel(_channel);
+    await androidPlugin?.createNotificationChannel(_callChannel);
     _initialized = true;
 
     final launchDetails = await _notifications
@@ -65,7 +79,7 @@ class WapiNotifications {
     if (launchDetails?.didNotificationLaunchApp == true &&
         payload != null &&
         onTap != null) {
-      await onTap(payload);
+      await onTap(payload, launchDetails?.notificationResponse?.actionId);
     }
   }
 
@@ -95,6 +109,7 @@ class WapiNotifications {
     final conversationId = data['conversationId']?.toString() ?? '';
     final badgeCount = int.tryParse(data['badgeCount']?.toString() ?? '') ?? 1;
     final isMessage = type == 'message' && conversationId.isNotEmpty;
+    final isIncomingCall = type == 'incoming_call' && data['callId'] != null;
     final id = isMessage
         ? _stableId(conversationId)
         : _stableId(data['callId']?.toString() ?? body);
@@ -103,6 +118,39 @@ class WapiNotifications {
         : conversationId.isNotEmpty
         ? 'conversation:$conversationId'
         : null;
+
+    if (isIncomingCall) {
+      await _notifications.show(
+        id,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _callChannelId,
+            'Appels WAPI',
+            channelDescription: 'Appels audio et vidéo entrants WAPI',
+            importance: Importance.max,
+            priority: Priority.max,
+            category: AndroidNotificationCategory.call,
+            fullScreenIntent: true,
+            ongoing: true,
+            autoCancel: true,
+            icon: 'ic_stat_wapi',
+            color: const Color(0xFF0094F0),
+            actions: const [
+              AndroidNotificationAction(
+                'answer_call',
+                'Répondre',
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction('decline_call', 'Refuser'),
+            ],
+          ),
+        ),
+        payload: payload,
+      );
+      return;
+    }
 
     await _notifications.show(
       id,

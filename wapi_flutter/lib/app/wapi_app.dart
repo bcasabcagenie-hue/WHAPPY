@@ -54,7 +54,7 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
     ).then((_) => WapiNotifications.register(widget.user));
   }
 
-  Future<void> _openNotification(String payload) async {
+  Future<void> _openNotification(String payload, String? actionId) async {
     if (payload.startsWith('conversation:')) {
       final conversationId = payload.substring('conversation:'.length);
       if (conversationId.isNotEmpty && mounted) {
@@ -64,6 +64,13 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
     }
     if (!payload.startsWith('call:')) return;
     final callId = payload.substring('call:'.length);
+    if (actionId == 'decline_call') {
+      await FirebaseFirestore.instance.collection('calls').doc(callId).update({
+        'status': 'declined',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return;
+    }
     final call = await FirebaseFirestore.instance
         .collection('calls')
         .doc(callId)

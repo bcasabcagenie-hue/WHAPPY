@@ -6,7 +6,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter/material.dart';
@@ -1142,9 +1144,21 @@ class _ContactsPage extends StatelessWidget {
   final WapiRepository repository;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: const _WapiAppBar(
+    appBar: _WapiAppBar(
       title: 'Contacts',
       subtitle: 'Personnes sur WAPI',
+      actions: [
+        IconButton(
+          onPressed: () => _showMyQr(context),
+          icon: const Icon(Icons.qr_code_2_outlined),
+          tooltip: 'Mon code WAPI',
+        ),
+        IconButton(
+          onPressed: () => _showAddContact(context),
+          icon: const Icon(Icons.person_add_alt_1_outlined),
+          tooltip: 'Ajouter un contact',
+        ),
+      ],
     ),
     body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -1174,9 +1188,19 @@ class _ContactsPage extends StatelessWidget {
         }
         return ListView.builder(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: contacts.length,
+          itemCount: contacts.length + 1,
           itemBuilder: (context, index) {
-            final doc = contacts[index];
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                child: FilledButton.icon(
+                  onPressed: () => _showAddContact(context),
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: const Text('Ajouter un contact WAPI'),
+                ),
+              );
+            }
+            final doc = contacts[index - 1];
             final item = doc.data();
             final name =
                 ((item['displayName'] as String?)?.trim().isNotEmpty == true
@@ -1201,56 +1225,206 @@ class _ContactsPage extends StatelessWidget {
               ),
               subtitle: Text(phone.isEmpty ? 'Profil WAPI' : phone),
               trailing: const Icon(Icons.chat_bubble_outline),
-              onTap: () async {
-                try {
-                  final id = await repository.ensureDirectConversation(
-                    user: user,
-                    peerId: doc.id,
-                    peerName: name,
-                    peerPhone: phone,
-                    peerPhotoUrl: (item['photoUrl'] as String?) ?? '',
-                  );
-                  if (context.mounted) {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => _ChatPage(
-                          user: user,
-                          repository: repository,
-                          conversation: WapiConversation(
-                            id: id,
-                            title: name,
-                            preview: '',
-                            updatedAt: null,
-                            unread: false,
-                            isGroup: false,
-                            peerId: doc.id,
-                            avatarUrl: (item['photoUrl'] as String?) ?? '',
-                            memberNames: {
-                              user.uid: user.displayName ?? 'Vous',
-                              doc.id: name,
-                            },
-                            memberPhotoUrls: {
-                              user.uid: user.photoURL ?? '',
-                              doc.id: (item['photoUrl'] as String?) ?? '',
-                            },
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-                } catch (error) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Conversation impossible : $error'),
-                      ),
-                    );
-                  }
-                }
-              },
+              onTap: () => _openContact(
+                context,
+                uid: doc.id,
+                name: name,
+                phone: phone,
+                photoUrl: (item['photoUrl'] as String?) ?? '',
+              ),
             );
           },
         );
+      },
+    ),
+  );
+
+  Future<void> _openContact(
+    BuildContext context, {
+    required String uid,
+    required String name,
+    required String phone,
+    required String photoUrl,
+  }) async {
+    try {
+      final id = await repository.ensureDirectConversation(
+        user: user,
+        peerId: uid,
+        peerName: name,
+        peerPhone: phone,
+        peerPhotoUrl: photoUrl,
+      );
+      if (!context.mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _ChatPage(
+            user: user,
+            repository: repository,
+            conversation: WapiConversation(
+              id: id,
+              title: name,
+              preview: '',
+              updatedAt: null,
+              unread: false,
+              isGroup: false,
+              peerId: uid,
+              avatarUrl: photoUrl,
+              memberNames: {user.uid: user.displayName ?? 'Vous', uid: name},
+              memberPhotoUrls: {user.uid: user.photoURL ?? '', uid: photoUrl},
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Conversation impossible : $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showMyQr(BuildContext context) => showModalBottomSheet<void>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Mon code WAPI',
+              style: Theme.of(
+                sheetContext,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text('Scannez ce code pour ouvrir une discussion avec vous.'),
+            const SizedBox(height: 20),
+            QrImageView(
+              data: 'wapi://contact/${user.uid}',
+              version: QrVersions.auto,
+              size: 236,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: WapiColors.blue,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: WapiColors.ink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _showAddContact(BuildContext context) async {
+    final controller = TextEditingController();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Ajouter un contact',
+              style: Theme.of(
+                sheetContext,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(sheetContext).pop('scan'),
+              icon: const Icon(Icons.qr_code_scanner_outlined),
+              label: const Text('Scanner un code WAPI'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Numéro international',
+                hintText: '+242 06 000 00 00',
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () => Navigator.of(sheetContext).pop(controller.text),
+              child: const Text('Ajouter ce contact'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (!context.mounted || choice == null || choice.trim().isEmpty) return;
+    final code = choice == 'scan'
+        ? await Navigator.of(context).push<String>(
+            MaterialPageRoute(builder: (_) => const _ContactQrScanner()),
+          )
+        : choice;
+    if (!context.mounted || code == null || code.trim().isEmpty) return;
+    try {
+      final contact = await repository.resolveWapiContact(code);
+      if (!context.mounted) return;
+      if (contact['uid'] == user.uid) {
+        throw ArgumentError('C’est votre propre code WAPI.');
+      }
+      await _openContact(
+        context,
+        uid: contact['uid']!,
+        name: contact['displayName']!,
+        phone: contact['phoneNumber']!,
+        photoUrl: contact['photoUrl']!,
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ajout impossible : $error')));
+      }
+    }
+  }
+}
+
+class _ContactQrScanner extends StatefulWidget {
+  const _ContactQrScanner();
+  @override
+  State<_ContactQrScanner> createState() => _ContactQrScannerState();
+}
+
+class _ContactQrScannerState extends State<_ContactQrScanner> {
+  bool _handled = false;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: const _WapiAppBar(
+      title: 'Scanner un code WAPI',
+      subtitle: 'Cadrez le QR de votre contact',
+    ),
+    body: MobileScanner(
+      onDetect: (capture) {
+        if (_handled) return;
+        String? value;
+        for (final barcode in capture.barcodes) {
+          final candidate = barcode.rawValue;
+          if (candidate != null && candidate.startsWith('wapi://contact/')) {
+            value = candidate;
+            break;
+          }
+        }
+        if (value == null || !value.startsWith('wapi://contact/')) return;
+        _handled = true;
+        Navigator.of(context).pop(value);
       },
     ),
   );

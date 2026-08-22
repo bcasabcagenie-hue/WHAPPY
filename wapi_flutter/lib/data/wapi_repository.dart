@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
@@ -162,6 +163,20 @@ class WapiStory {
       mediaType: (data['mediaType'] as String?) ?? 'text',
     );
   }
+
+  factory WapiStory.fromMap(Map<String, dynamic> data) {
+    final rawCreatedAt = data['createdAt'];
+    return WapiStory(
+      id: (data['id'] as String?) ?? '',
+      authorName: (data['authorName'] as String?) ?? 'Contact WAPI',
+      text: (data['caption'] as String?) ?? '',
+      createdAt: rawCreatedAt is String
+          ? DateTime.tryParse(rawCreatedAt)
+          : null,
+      mediaUrl: (data['mediaUrl'] as String?) ?? '',
+      mediaType: (data['mediaType'] as String?) ?? 'text',
+    );
+  }
 }
 
 class WapiRepository {
@@ -189,25 +204,69 @@ class WapiRepository {
       .snapshots()
       .map((snapshot) => snapshot.docs.map(WapiMessage.fromDoc).toList());
 
-  Stream<List<WapiStory>> stories(String userId) => _db
-      .collection('stories')
-      .where('audienceIds', arrayContains: userId)
-      .where('expiresAt', isGreaterThan: Timestamp.now())
-      .snapshots()
-      .map((snapshot) {
-        final stories = snapshot.docs.map(WapiStory.fromDoc).toList();
-        stories.sort(
-          (left, right) =>
-              (right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-                  .compareTo(
-                    left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
-                  ),
-        );
-        return stories;
-      });
+  Stream<List<WapiStory>> stories(String userId) async* {
+    if (userId.isEmpty) {
+      yield const [];
+      return;
+    }
+    final callable = FirebaseFunctions.instanceFor(
+      region: 'europe-west1',
+    ).httpsCallable('listVisibleStories');
+    while (true) {
+      final result = await callable.call<Map<String, dynamic>>();
+      final rawStories = List<Map<String, dynamic>>.from(
+        (result.data['stories'] as List? ?? const []).map(
+          (story) => Map<String, dynamic>.from(story as Map),
+        ),
+      );
+      yield rawStories.map(WapiStory.fromMap).toList(growable: false);
+      await Future<void>.delayed(const Duration(seconds: 20));
+    }
+  }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> profile(String userId) =>
       _db.collection('users').doc(userId).snapshots();
+
+  /// Resolves only an existing WAPI account. A QR code carries the opaque
+  /// Firebase uid, while manual entry accepts the verified E.164 phone number
+  /// stored on the WAPI profile.
+  Future<Map<String, String>> resolveWapiContact(String value) async {
+    final input = value.trim();
+    if (input.isEmpty) {
+      throw ArgumentError('Saisissez un numéro WAPI ou scannez un code QR.');
+    }
+    const prefix = 'wapi://contact/';
+    DocumentSnapshot<Map<String, dynamic>>? profile;
+    if (input.startsWith(prefix)) {
+      final uid = input.substring(prefix.length).trim();
+      if (uid.isEmpty) throw ArgumentError('Ce code QR WAPI est invalide.');
+      profile = await _db.collection('users').doc(uid).get();
+    } else {
+      final phone = input.replaceAll(RegExp(r'[^0-9+]'), '');
+      if (phone.length < 8) {
+        throw ArgumentError('Utilisez le code QR ou le numéro international.');
+      }
+      final result = await _db
+          .collection('users')
+          .where('phoneNumber', isEqualTo: phone)
+          .limit(1)
+          .get();
+      if (result.docs.isNotEmpty) profile = result.docs.first;
+    }
+    if (profile == null || !profile.exists) {
+      throw StateError('Aucun compte WAPI correspondant n’a été trouvé.');
+    }
+    final data = profile.data() ?? const <String, dynamic>{};
+    final name = (data['displayName'] as String?)?.trim();
+    return {
+      'uid': profile.id,
+      'displayName': name?.isNotEmpty == true
+          ? name!
+          : (data['phoneNumber'] as String?) ?? 'Membre WAPI',
+      'phoneNumber': (data['phoneNumber'] as String?) ?? '',
+      'photoUrl': (data['photoUrl'] as String?) ?? '',
+    };
+  }
 
   Future<void> markConversationRead({
     required String conversationId,
