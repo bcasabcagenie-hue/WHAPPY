@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
@@ -228,27 +229,13 @@ class _HomePage extends StatelessWidget {
               icon: Icons.notifications_outlined,
               title: 'Chaînes',
               detail: 'Médias et créateurs',
-              onTap: () => _push(
-                context,
-                const _FeedPage(
-                  title: 'Chaînes',
-                  collection: 'channels',
-                  icon: Icons.notifications_outlined,
-                ),
-              ),
+              onTap: () => _push(context, _ChannelsPage(user: user)),
             ),
             _HomeShortcut(
               icon: Icons.radio_outlined,
               title: 'Radio',
               detail: 'Émissions publiées',
-              onTap: () => _push(
-                context,
-                const _FeedPage(
-                  title: 'Radio & podcasts',
-                  collection: 'radioEpisodes',
-                  icon: Icons.radio_outlined,
-                ),
-              ),
+              onTap: () => _push(context, _RadioPage(user: user)),
             ),
             _HomeShortcut(
               icon: Icons.auto_awesome_outlined,
@@ -341,7 +328,7 @@ class _CallsPage extends StatelessWidget {
             icon: Icons.call_outlined,
             title: 'Aucun appel récent',
             body:
-                'Les appels audio et vidéo apparaîtront ici une fois le transport WebRTC Flutter connecté.',
+                'Lancez un appel audio ou vidéo depuis une conversation WAPI.',
           );
         }
         return ListView.builder(
@@ -411,6 +398,613 @@ class _AssistantPage extends StatelessWidget {
           'L’interface Flutter est prête. Le service assistant sera activé dès qu’une API POST JSON valide sera disponible, sans réponse locale inventée.',
     ),
   );
+}
+
+class _ChannelsPage extends StatelessWidget {
+  const _ChannelsPage({required this.user});
+  final User user;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: const _WapiAppBar(
+      title: 'Chaînes',
+      subtitle: 'Créateurs, médias et informations',
+    ),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: () => _createChannel(context),
+      icon: const Icon(Icons.add),
+      label: const Text('Créer'),
+    ),
+    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('channels')
+          .orderBy('updatedAt', descending: true)
+          .limit(80)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _StateMessage(
+            icon: Icons.cloud_off_outlined,
+            title: 'Chaînes indisponibles',
+            body: 'La liste ne peut pas être chargée pour le moment.',
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final channels = snapshot.data!.docs;
+        if (channels.isEmpty) {
+          return _StateMessage(
+            icon: Icons.campaign_outlined,
+            title: 'Créez la première chaîne',
+            body:
+                'Publiez des informations, épisodes et annonces suivies par votre audience.',
+            actionLabel: 'Créer une chaîne',
+            onAction: () => _createChannel(context),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          itemCount: channels.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final doc = channels[index];
+            final data = doc.data();
+            final count = (data['memberCount'] as num?)?.toInt() ?? 0;
+            return Card(
+              child: ListTile(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        _ChannelDetailPage(user: user, channelId: doc.id),
+                  ),
+                ),
+                leading: const CircleAvatar(
+                  backgroundColor: WapiColors.blueSoft,
+                  foregroundColor: WapiColors.blue,
+                  child: Icon(Icons.campaign_outlined),
+                ),
+                title: Text(
+                  (data['name'] as String?) ?? 'Chaîne WAPI',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text(
+                  '${(data['category'] as String?)?.isNotEmpty == true ? '${data['category']} · ' : ''}$count abonné${count > 1 ? 's' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            );
+          },
+        );
+      },
+    ),
+  );
+
+  Future<void> _createChannel(BuildContext context) async {
+    final name = TextEditingController();
+    final description = TextEditingController();
+    final category = TextEditingController(text: 'Actualités');
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Nouvelle chaîne',
+              style: Theme.of(
+                sheetContext,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: name,
+              maxLength: 80,
+              decoration: const InputDecoration(labelText: 'Nom de la chaîne'),
+            ),
+            TextField(
+              controller: category,
+              maxLength: 40,
+              decoration: const InputDecoration(labelText: 'Catégorie'),
+            ),
+            TextField(
+              controller: description,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: 300,
+              decoration: const InputDecoration(labelText: 'Présentation'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: () async {
+                try {
+                  final id = await WapiRepository(FirebaseFirestore.instance)
+                      .createChannel(
+                        user: user,
+                        name: name.text,
+                        description: description.text,
+                        category: category.text,
+                      );
+                  if (!sheetContext.mounted) return;
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          _ChannelDetailPage(user: user, channelId: id),
+                    ),
+                  );
+                } catch (error) {
+                  if (sheetContext.mounted) {
+                    ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      SnackBar(content: Text('Création impossible : $error')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Créer la chaîne'),
+            ),
+          ],
+        ),
+      ),
+    );
+    name.dispose();
+    description.dispose();
+    category.dispose();
+  }
+}
+
+class _ChannelDetailPage extends StatelessWidget {
+  const _ChannelDetailPage({required this.user, required this.channelId});
+  final User user;
+  final String channelId;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: FirebaseFirestore.instance
+        .collection('channels')
+        .doc(channelId)
+        .snapshots(),
+    builder: (context, channelSnapshot) {
+      if (!channelSnapshot.hasData) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      final data = channelSnapshot.data!.data();
+      if (data == null) {
+        return const Scaffold(
+          body: _StateMessage(
+            icon: Icons.error_outline,
+            title: 'Chaîne introuvable',
+            body: 'Cette chaîne a été supprimée.',
+          ),
+        );
+      }
+      final owner = data['ownerId'] == user.uid;
+      final members = List<String>.from(data['memberIds'] as List? ?? const []);
+      final joined = members.contains(user.uid);
+      return Scaffold(
+        appBar: AppBar(title: Text((data['name'] as String?) ?? 'Chaîne WAPI')),
+        body: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (data['description'] as String?) ?? '',
+                    style: const TextStyle(
+                      color: WapiColors.muted,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Text(
+                        '${(data['memberCount'] as num?)?.toInt() ?? 0} abonné(s)',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const Spacer(),
+                      if (!owner && !joined)
+                        FilledButton.icon(
+                          onPressed: () async {
+                            try {
+                              await WapiRepository(
+                                FirebaseFirestore.instance,
+                              ).joinChannel(
+                                channelId: channelId,
+                                userId: user.uid,
+                              );
+                            } catch (error) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Abonnement impossible : $error',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.add),
+                          label: const Text('Suivre'),
+                        )
+                      else
+                        const Chip(label: Text('Abonné')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('channels')
+                    .doc(channelId)
+                    .collection('posts')
+                    .orderBy('createdAt', descending: true)
+                    .snapshots(),
+                builder: (context, postsSnapshot) {
+                  if (postsSnapshot.hasError) {
+                    return const _StateMessage(
+                      icon: Icons.cloud_off_outlined,
+                      title: 'Publications indisponibles',
+                      body: 'Réessayez dans un instant.',
+                    );
+                  }
+                  if (!postsSnapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final posts = postsSnapshot.data!.docs;
+                  if (posts.isEmpty) {
+                    return const _StateMessage(
+                      icon: Icons.edit_note_outlined,
+                      title: 'Aucune publication',
+                      body:
+                          'Le créateur peut publier le premier message de cette chaîne.',
+                    );
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: posts.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final post = posts[index].data();
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (post['authorName'] as String?) ??
+                                    'Créateur WAPI',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text((post['text'] as String?) ?? ''),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            if (owner) _ChannelComposer(user: user, channelId: channelId),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ChannelComposer extends StatefulWidget {
+  const _ChannelComposer({required this.user, required this.channelId});
+  final User user;
+  final String channelId;
+  @override
+  State<_ChannelComposer> createState() => _ChannelComposerState();
+}
+
+class _ChannelComposerState extends State<_ChannelComposer> {
+  final _controller = TextEditingController();
+  bool _sending = false;
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              minLines: 1,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: 'Publier dans la chaîne',
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _sending
+                ? null
+                : () async {
+                    setState(() => _sending = true);
+                    try {
+                      await WapiRepository(
+                        FirebaseFirestore.instance,
+                      ).publishChannelPost(
+                        user: widget.user,
+                        channelId: widget.channelId,
+                        text: _controller.text,
+                      );
+                      _controller.clear();
+                    } catch (error) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Publication impossible : $error'),
+                          ),
+                        );
+                      }
+                    } finally {
+                      if (mounted) setState(() => _sending = false);
+                    }
+                  },
+            icon: _sending
+                ? const CircularProgressIndicator()
+                : const Icon(Icons.send),
+            color: WapiColors.blue,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _RadioPage extends StatefulWidget {
+  const _RadioPage({required this.user});
+  final User user;
+  @override
+  State<_RadioPage> createState() => _RadioPageState();
+}
+
+class _RadioPageState extends State<_RadioPage> {
+  final _repository = WapiRepository(FirebaseFirestore.instance);
+  final _player = AudioPlayer();
+  String _playingId = '';
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: const _WapiAppBar(
+      title: 'Radio & podcasts',
+      subtitle: 'Épisodes publiés sur WAPI',
+    ),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: _publish,
+      icon: const Icon(Icons.upload_file_outlined),
+      label: const Text('Publier'),
+    ),
+    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('radioEpisodes')
+          .orderBy('createdAt', descending: true)
+          .limit(80)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _StateMessage(
+            icon: Icons.cloud_off_outlined,
+            title: 'Radio indisponible',
+            body: 'Les épisodes ne peuvent pas être chargés pour le moment.',
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final episodes = snapshot.data!.docs;
+        if (episodes.isEmpty) {
+          return _StateMessage(
+            icon: Icons.radio_outlined,
+            title: 'Publiez le premier épisode',
+            body:
+                'Importez un fichier audio : il sera stocké dans votre espace WAPI puis disponible à l’écoute.',
+            actionLabel: 'Publier un épisode',
+            onAction: _publish,
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          itemCount: episodes.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final doc = episodes[index];
+            final data = doc.data();
+            final isPlaying = _playingId == doc.id;
+            final duration = Duration(
+              seconds: (data['durationSeconds'] as num?)?.toInt() ?? 0,
+            );
+            return Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: WapiColors.blueSoft,
+                  foregroundColor: WapiColors.blue,
+                  child: Icon(
+                    isPlaying ? Icons.graphic_eq : Icons.radio_outlined,
+                  ),
+                ),
+                title: Text(
+                  (data['title'] as String?) ?? 'Épisode WAPI',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text(
+                  '${(data['stationName'] as String?) ?? 'Radio WAPI'} · ${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
+                ),
+                trailing: IconButton(
+                  onPressed: () async {
+                    final url = (data['audioUrl'] as String?) ?? '';
+                    if (url.isEmpty) return;
+                    if (isPlaying) {
+                      await _player.stop();
+                      if (mounted) setState(() => _playingId = '');
+                      return;
+                    }
+                    try {
+                      await _player.setUrl(url);
+                      await _player.play();
+                      if (mounted) setState(() => _playingId = doc.id);
+                    } catch (_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Lecture audio impossible.'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  icon: Icon(
+                    isPlaying
+                        ? Icons.stop_circle_outlined
+                        : Icons.play_circle_outline,
+                  ),
+                  color: WapiColors.blue,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ),
+  );
+
+  Future<void> _publish() async {
+    final station = TextEditingController(text: 'Ma radio WAPI');
+    final title = TextEditingController();
+    var publishing = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Publier un épisode',
+                style: Theme.of(sheetContext).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: station,
+                maxLength: 60,
+                decoration: const InputDecoration(labelText: 'Nom de la radio'),
+              ),
+              TextField(
+                controller: title,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  labelText: 'Titre de l’épisode',
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: publishing
+                    ? null
+                    : () async {
+                        final audio = await FilePicker.pickFile(
+                          type: FileType.audio,
+                        );
+                        if (audio?.path == null) return;
+                        setSheetState(() => publishing = true);
+                        try {
+                          final probe = AudioPlayer();
+                          final duration = await probe.setFilePath(
+                            audio!.path!,
+                          );
+                          await probe.dispose();
+                          await _repository.publishRadioEpisode(
+                            user: widget.user,
+                            file: File(audio.path!),
+                            fileName: audio.name,
+                            stationName: station.text,
+                            title: title.text,
+                            durationSeconds: duration?.inSeconds ?? 0,
+                          );
+                          if (sheetContext.mounted) {
+                            Navigator.of(sheetContext).pop();
+                          }
+                        } catch (error) {
+                          if (sheetContext.mounted) {
+                            ScaffoldMessenger.of(sheetContext).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Publication impossible : $error',
+                                ),
+                              ),
+                            );
+                          }
+                        } finally {
+                          if (sheetContext.mounted) {
+                            setSheetState(() => publishing = false);
+                          }
+                        }
+                      },
+                icon: publishing
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.audiotrack_outlined),
+                label: const Text('Choisir le fichier audio'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    station.dispose();
+    title.dispose();
+  }
 }
 
 class _FeedPage extends StatelessWidget {
@@ -582,6 +1176,14 @@ class _ContactsPage extends StatelessWidget {
                             isGroup: false,
                             peerId: doc.id,
                             avatarUrl: (item['photoUrl'] as String?) ?? '',
+                            memberNames: {
+                              user.uid: user.displayName ?? 'Vous',
+                              doc.id: name,
+                            },
+                            memberPhotoUrls: {
+                              user.uid: user.photoURL ?? '',
+                              doc.id: (item['photoUrl'] as String?) ?? '',
+                            },
                           ),
                         ),
                       ),
@@ -1363,169 +1965,224 @@ class _ChatPageState extends State<_ChatPage> {
                     alignment: mine
                         ? Alignment.centerRight
                         : Alignment.centerLeft,
-                    child: InkWell(
-                      onLongPress: () => _messageActions(message),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        constraints: const BoxConstraints(maxWidth: 320),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 13,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: mine ? WapiColors.blue : Colors.white,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!mine) ...[
+                          CircleAvatar(
+                            radius: 17,
+                            backgroundColor: WapiColors.blueSoft,
+                            backgroundImage:
+                                widget
+                                        .conversation
+                                        .memberPhotoUrls[message.senderId]
+                                        ?.isNotEmpty ==
+                                    true
+                                ? NetworkImage(
+                                    widget.conversation.memberPhotoUrls[message
+                                        .senderId]!,
+                                  )
+                                : null,
+                            child:
+                                widget
+                                        .conversation
+                                        .memberPhotoUrls[message.senderId]
+                                        ?.isNotEmpty ==
+                                    true
+                                ? null
+                                : const Icon(
+                                    Icons.person_outline,
+                                    color: WapiColors.blue,
+                                    size: 19,
+                                  ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        InkWell(
+                          onLongPress: () => _messageActions(message),
                           borderRadius: BorderRadius.circular(16),
-                          border: mine
-                              ? null
-                              : Border.all(color: WapiColors.line),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (message.replyText.isNotEmpty)
-                              Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: mine
-                                      ? Colors.white.withValues(alpha: .16)
-                                      : WapiColors.blueSoft,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  message.replyText,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: mine ? Colors.white : WapiColors.ink,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            if (message.kind == 'image' &&
-                                message.mediaUrl.isNotEmpty)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Image.network(
-                                  message.mediaUrl,
-                                  width: 250,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            if (message.kind == 'video')
-                              InkWell(
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => _WapiVideoPlayer(
-                                      url: message.mediaUrl,
-                                      title: message.mediaName.isEmpty
-                                          ? 'Vidéo WAPI'
-                                          : message.mediaName,
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: mine ? 320 : 276,
+                            ),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: mine ? WapiColors.blue : Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: mine
+                                  ? null
+                                  : Border.all(color: WapiColors.line),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (!mine && widget.conversation.isGroup) ...[
+                                  Text(
+                                    widget.conversation.memberNames[message
+                                            .senderId] ??
+                                        'Membre WAPI',
+                                    style: const TextStyle(
+                                      color: WapiColors.muted,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.play_circle_fill,
-                                      color: Colors.white,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Flexible(
-                                      child: Text(
-                                        message.mediaName.isEmpty
-                                            ? 'Lire la vidéo'
-                                            : message.mediaName,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            if (message.kind == 'audio')
-                              InkWell(
-                                onTap: () => _playAudio(message.mediaUrl),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.play_arrow_rounded,
+                                  const SizedBox(height: 4),
+                                ],
+                                if (message.replyText.isNotEmpty)
+                                  Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
                                       color: mine
-                                          ? Colors.white
-                                          : WapiColors.blue,
+                                          ? Colors.white.withValues(alpha: .16)
+                                          : WapiColors.blueSoft,
+                                      borderRadius: BorderRadius.circular(10),
                                     ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      message.durationSeconds > 0
-                                          ? '${message.durationSeconds}s · Note vocale'
-                                          : 'Écouter la note vocale',
+                                    child: Text(
+                                      message.replyText,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: mine
                                             ? Colors.white
                                             : WapiColors.ink,
+                                        fontSize: 12,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                            if (message.kind == 'text' ||
-                                message.text.isNotEmpty &&
-                                    message.text != 'Photo' &&
-                                    message.text != 'Vidéo' &&
-                                    message.text != 'Message vocal') ...[
-                              if (message.kind != 'text')
-                                const SizedBox(height: 8),
-                              Text(
-                                message.text,
-                                style: TextStyle(
-                                  color: mine ? Colors.white : WapiColors.ink,
-                                ),
-                              ),
-                            ],
-                            if (message.reactions.isNotEmpty) ...[
-                              const SizedBox(height: 7),
-                              Wrap(
-                                spacing: 4,
-                                children: message.reactions.values
-                                    .toSet()
-                                    .map(
-                                      (emoji) => DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          color: mine
-                                              ? Colors.white.withValues(
-                                                  alpha: .18,
-                                                )
-                                              : WapiColors.blueSoft,
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
+                                  ),
+                                if (message.kind == 'image' &&
+                                    message.mediaUrl.isNotEmpty)
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.network(
+                                      message.mediaUrl,
+                                      width: 250,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                if (message.kind == 'video')
+                                  InkWell(
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => _WapiVideoPlayer(
+                                          url: message.mediaUrl,
+                                          title: message.mediaName.isEmpty
+                                              ? 'Vidéo WAPI'
+                                              : message.mediaName,
                                         ),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 3,
-                                          ),
+                                      ),
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.play_circle_fill,
+                                          color: Colors.white,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
                                           child: Text(
-                                            emoji,
+                                            message.mediaName.isEmpty
+                                                ? 'Lire la vidéo'
+                                                : message.mediaName,
                                             style: const TextStyle(
-                                              fontSize: 12,
+                                              color: Colors.white,
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            ],
-                          ],
+                                      ],
+                                    ),
+                                  ),
+                                if (message.kind == 'audio')
+                                  InkWell(
+                                    onTap: () => _playAudio(message.mediaUrl),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.play_arrow_rounded,
+                                          color: mine
+                                              ? Colors.white
+                                              : WapiColors.blue,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          message.durationSeconds > 0
+                                              ? '${message.durationSeconds}s · Note vocale'
+                                              : 'Écouter la note vocale',
+                                          style: TextStyle(
+                                            color: mine
+                                                ? Colors.white
+                                                : WapiColors.ink,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (message.kind == 'text' ||
+                                    message.text.isNotEmpty &&
+                                        message.text != 'Photo' &&
+                                        message.text != 'Vidéo' &&
+                                        message.text != 'Message vocal') ...[
+                                  if (message.kind != 'text')
+                                    const SizedBox(height: 8),
+                                  Text(
+                                    message.text,
+                                    style: TextStyle(
+                                      color: mine
+                                          ? Colors.white
+                                          : WapiColors.ink,
+                                    ),
+                                  ),
+                                ],
+                                if (message.reactions.isNotEmpty) ...[
+                                  const SizedBox(height: 7),
+                                  Wrap(
+                                    spacing: 4,
+                                    children: message.reactions.values
+                                        .toSet()
+                                        .map(
+                                          (emoji) => DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              color: mine
+                                                  ? Colors.white.withValues(
+                                                      alpha: .18,
+                                                    )
+                                                  : WapiColors.blueSoft,
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 3,
+                                                  ),
+                                              child: Text(
+                                                emoji,
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   );
                 },

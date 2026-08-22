@@ -1,14 +1,15 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../app/wapi_theme.dart';
 
-/// Appel WebRTC direct. Firestore ne transporte que l'offre, la réponse et les
-/// candidats ICE ; les flux audio/vidéo ne sont jamais stockés dans Firebase.
+/// Appel WebRTC WAPI : Firebase ne transporte que la signalisation chiffrée.
+/// Le média ne passe ni par Firebase, ni par un fournisseur vidéo tiers.
 class WapiCallPage extends StatefulWidget {
   const WapiCallPage.outgoing({
     super.key,
@@ -44,6 +45,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
   final _candidateIds = <String>{};
   final _pendingCandidates = <Map<String, dynamic>>[];
   final _subscriptions = <StreamSubscription<dynamic>>[];
+  List<Map<String, dynamic>> _iceServers = const [];
 
   RTCPeerConnection? _peer;
   MediaStream? _localStream;
@@ -65,6 +67,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     try {
       await _localRenderer.initialize();
       await _remoteRenderer.initialize();
+      _iceServers = await _loadIceServers();
       await _openLocalMedia();
       await _openPeerConnection();
       if (_incoming) {
@@ -73,7 +76,9 @@ class _WapiCallPageState extends State<WapiCallPage> {
         await _placeOutgoing();
       }
     } catch (error) {
-      if (mounted) setState(() => _status = 'Appel impossible : $error');
+      if (mounted) {
+        setState(() => _status = 'Appel impossible : $error');
+      }
     }
   }
 
@@ -81,7 +86,12 @@ class _WapiCallPageState extends State<WapiCallPage> {
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': widget.video
-          ? {'facingMode': 'user', 'width': 720, 'height': 1280}
+          ? {
+              'facingMode': 'user',
+              'width': 720,
+              'height': 1280,
+              'frameRate': 30,
+            }
           : false,
     });
     _localRenderer.srcObject = _localStream;
@@ -90,10 +100,8 @@ class _WapiCallPageState extends State<WapiCallPage> {
   Future<void> _openPeerConnection() async {
     final peer = await createPeerConnection({
       'sdpSemantics': 'unified-plan',
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-        {'urls': 'stun:stun1.l.google.com:19302'},
-      ],
+      'iceTransportPolicy': 'all',
+      'iceServers': _iceServers,
     });
     _peer = peer;
     for (final track
@@ -114,8 +122,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
         'sdpMLineIndex': candidate.sdpMLineIndex,
         'createdAt': FieldValue.serverTimestamp(),
       };
-      final ref = _call;
-      if (ref == null) {
+      if (_call == null) {
         _pendingCandidates.add(value);
       } else {
         _writeCandidate(value);
@@ -137,8 +144,31 @@ class _WapiCallPageState extends State<WapiCallPage> {
     await Helper.setSpeakerphoneOn(true);
   }
 
+  Future<List<Map<String, dynamic>>> _loadIceServers() async {
+    const fallback = [
+      {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+    ];
+    try {
+      final result = await FirebaseFunctions.instanceFor(
+        region: 'europe-west1',
+      ).httpsCallable('getWebRtcIceServers').call<Map<String, dynamic>>();
+      final raw = result.data['iceServers'];
+      if (raw is! List) return fallback;
+      final servers = raw
+          .whereType<Map>()
+          .map((value) => Map<String, dynamic>.from(value))
+          .where((value) => value['urls'] != null)
+          .toList();
+      return servers.isEmpty ? fallback : servers;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   Future<void> _placeOutgoing() async {
-    final peer = _peer!;
+    final peer = _peer;
+    if (peer == null) throw StateError('Moteur WebRTC indisponible.');
     final offer = await peer.createOffer({});
     await peer.setLocalDescription(offer);
     final local = await peer.getLocalDescription();
@@ -161,7 +191,9 @@ class _WapiCallPageState extends State<WapiCallPage> {
     await _flushPendingCandidates();
     _listenCall();
     _listenCandidates('calleeCandidates');
-    if (mounted) setState(() => _status = 'Appel de ${widget.peerName}…');
+    if (mounted) {
+      setState(() => _status = 'Appel de ${widget.peerName}…');
+    }
   }
 
   Future<void> _answerIncoming() async {
@@ -174,7 +206,8 @@ class _WapiCallPageState extends State<WapiCallPage> {
         offer['sdp'] is! String) {
       throw StateError('Cet appel n’est plus disponible.');
     }
-    final peer = _peer!;
+    final peer = _peer;
+    if (peer == null) throw StateError('Moteur WebRTC indisponible.');
     await peer.setRemoteDescription(
       RTCSessionDescription(
         offer['sdp'] as String,
@@ -192,14 +225,16 @@ class _WapiCallPageState extends State<WapiCallPage> {
     });
     await _flushPendingCandidates();
     _listenCall();
-    if (mounted) setState(() => _status = 'Connexion à ${widget.peerName}…');
+    if (mounted) {
+      setState(() => _status = 'Connexion à ${widget.peerName}…');
+    }
   }
 
   void _listenCall() {
-    final ref = _call;
-    if (ref == null) return;
+    final call = _call;
+    if (call == null) return;
     _subscriptions.add(
-      ref.snapshots().listen((snapshot) async {
+      call.snapshots().listen((snapshot) async {
         final data = snapshot.data();
         if (data == null || _ended) return;
         final status = data['status'] as String? ?? '';
@@ -209,19 +244,17 @@ class _WapiCallPageState extends State<WapiCallPage> {
         }
         if (!_incoming && status == 'accepted' && data['answer'] is Map) {
           final answer = Map<String, dynamic>.from(data['answer'] as Map);
-          if (answer['sdp'] is String) {
-            final current = await _peer?.getRemoteDescription();
-            if (current == null) {
-              await _peer?.setRemoteDescription(
-                RTCSessionDescription(
-                  answer['sdp'] as String,
-                  answer['type'] as String? ?? 'answer',
-                ),
-              );
-              if (mounted) {
-                setState(() => _status = 'Connexion à ${widget.peerName}…');
-              }
-            }
+          if (answer['sdp'] is! String) return;
+          final current = await _peer?.getRemoteDescription();
+          if (current != null) return;
+          await _peer?.setRemoteDescription(
+            RTCSessionDescription(
+              answer['sdp'] as String,
+              answer['type'] as String? ?? 'answer',
+            ),
+          );
+          if (mounted) {
+            setState(() => _status = 'Connexion à ${widget.peerName}…');
           }
         }
       }),
@@ -229,28 +262,25 @@ class _WapiCallPageState extends State<WapiCallPage> {
   }
 
   void _listenCandidates(String collection) {
-    final ref = _call;
-    if (ref == null) return;
+    final call = _call;
+    if (call == null) return;
     _subscriptions.add(
-      ref.collection(collection).snapshots().listen((snapshot) {
+      call.collection(collection).snapshots().listen((snapshot) {
         for (final change in snapshot.docChanges) {
           if (change.type != DocumentChangeType.added ||
               !_candidateIds.add(change.doc.id)) {
             continue;
           }
           final data = change.doc.data();
-          if (data == null) {
-            continue;
-          }
-          final candidate = data['candidate'] as String?;
+          final candidate = data?['candidate'] as String?;
           if (candidate == null) {
             continue;
           }
           _peer?.addCandidate(
             RTCIceCandidate(
               candidate,
-              data['sdpMid'] as String?,
-              (data['sdpMLineIndex'] as num?)?.toInt(),
+              data?['sdpMid'] as String?,
+              (data?['sdpMLineIndex'] as num?)?.toInt(),
             ),
           );
         }
@@ -431,6 +461,7 @@ class _CallAction extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool destructive;
+
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,

@@ -14,6 +14,8 @@ class WapiConversation {
     required this.isGroup,
     required this.peerId,
     required this.avatarUrl,
+    required this.memberNames,
+    required this.memberPhotoUrls,
   });
 
   final String id;
@@ -24,6 +26,8 @@ class WapiConversation {
   final bool isGroup;
   final String peerId;
   final String avatarUrl;
+  final Map<String, String> memberNames;
+  final Map<String, String> memberPhotoUrls;
 
   factory WapiConversation.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -64,6 +68,17 @@ class WapiConversation {
       avatarUrl: isGroup
           ? (data['groupPhotoUrl'] as String?) ?? ''
           : (peer?['photoUrl'] as String?) ?? '',
+      memberNames: {
+        for (final member in members)
+          if ((member['uid'] as String?)?.isNotEmpty == true)
+            member['uid'] as String:
+                (member['displayName'] as String?) ?? 'Membre WAPI',
+      },
+      memberPhotoUrls: {
+        for (final member in members)
+          if ((member['uid'] as String?)?.isNotEmpty == true)
+            member['uid'] as String: (member['photoUrl'] as String?) ?? '',
+      },
     );
   }
 }
@@ -193,6 +208,143 @@ class WapiRepository {
         'lastSeenAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+  Future<String> createChannel({
+    required User user,
+    required String name,
+    required String description,
+    required String category,
+  }) async {
+    final channelName = name.trim();
+    final channelDescription = description.trim();
+    if (channelName.length < 3 || channelName.length > 80) {
+      throw ArgumentError(
+        'Le nom de la chaîne doit contenir entre 3 et 80 caractères.',
+      );
+    }
+    if (channelDescription.length < 10 || channelDescription.length > 300) {
+      throw ArgumentError(
+        'La présentation doit contenir entre 10 et 300 caractères.',
+      );
+    }
+    final channel = _db.collection('channels').doc();
+    await channel.set({
+      'ownerId': user.uid,
+      'ownerName': user.displayName?.trim().isNotEmpty == true
+          ? user.displayName!.trim()
+          : user.phoneNumber ?? 'Créateur WAPI',
+      'name': channelName,
+      'description': channelDescription,
+      'category': category.trim().take(40),
+      'memberIds': [user.uid],
+      'memberCount': 1,
+      'postCount': 0,
+      'verified': false,
+      'lastPost': '',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    return channel.id;
+  }
+
+  Future<void> joinChannel({
+    required String channelId,
+    required String userId,
+  }) async {
+    final channel = _db.collection('channels').doc(channelId);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(channel);
+      final data = snapshot.data();
+      if (data == null) throw StateError('Cette chaîne n’existe plus.');
+      final members = List<String>.from(data['memberIds'] as List? ?? const []);
+      if (members.contains(userId)) return;
+      members.add(userId);
+      transaction.update(channel, {
+        'memberIds': members,
+        'memberCount': members.length,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  Future<void> publishChannelPost({
+    required User user,
+    required String channelId,
+    required String text,
+  }) async {
+    final value = text.trim();
+    if (value.isEmpty || value.length > 4000) {
+      throw ArgumentError(
+        'La publication doit contenir entre 1 et 4000 caractères.',
+      );
+    }
+    final channel = _db.collection('channels').doc(channelId);
+    final post = channel.collection('posts').doc();
+    final batch = _db.batch();
+    batch.set(post, {
+      'authorId': user.uid,
+      'authorName': user.displayName?.trim().isNotEmpty == true
+          ? user.displayName!.trim()
+          : user.phoneNumber ?? 'Créateur WAPI',
+      'text': value,
+      'reactions': <String, String>{},
+      'pinned': false,
+      'deleted': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    batch.update(channel, {
+      'lastPost': value.take(200),
+      'postCount': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+  }
+
+  Future<void> publishRadioEpisode({
+    required User user,
+    required File file,
+    required String fileName,
+    required String stationName,
+    required String title,
+    required int durationSeconds,
+  }) async {
+    final station = stationName.trim();
+    final episodeTitle = title.trim();
+    if (station.length < 2 || station.length > 60) {
+      throw ArgumentError(
+        'Le nom de la station doit contenir entre 2 et 60 caractères.',
+      );
+    }
+    if (episodeTitle.length < 2 || episodeTitle.length > 100) {
+      throw ArgumentError('Le titre doit contenir entre 2 et 100 caractères.');
+    }
+    if (durationSeconds < 1 || durationSeconds > 3600) {
+      throw ArgumentError(
+        'Le fichier audio doit durer entre 1 seconde et 60 minutes.',
+      );
+    }
+    final safeName = fileName
+        .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_')
+        .take(120);
+    final path =
+        'radio/${user.uid}/${DateTime.now().millisecondsSinceEpoch}-$safeName';
+    final ref = _storage.ref(path);
+    await ref.putFile(file, SettableMetadata(contentType: 'audio/mpeg'));
+    final url = await ref.getDownloadURL();
+    await _db.collection('radioEpisodes').add({
+      'ownerId': user.uid,
+      'authorName': user.displayName?.trim().isNotEmpty == true
+          ? user.displayName!.trim()
+          : user.phoneNumber ?? 'Créateur WAPI',
+      'stationName': station,
+      'title': episodeTitle,
+      'audioUrl': url,
+      'storagePath': path,
+      'durationSeconds': durationSeconds,
+      'status': 'published',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   Future<String> createGroup({
     required User user,

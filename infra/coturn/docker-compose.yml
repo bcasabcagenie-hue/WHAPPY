@@ -1,0 +1,23 @@
+services:
+  coturn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --realm=${WAPI_TURN_REALM}
+      - --use-auth-secret
+      - --static-auth-secret=${WAPI_TURN_SHARED_SECRET}
+      - --fingerprint
+      - --lt-cred-mech
+      - --no-cli
+      - --no-loopback-peers
+      - --no-multicast-peers
+      - --external-ip=${WAPI_TURN_EXTERNAL_IP}
+      - --min-port=49152
+      - --max-port=65535
+      - --cert=/certs/fullchain.pem
+      - --pkey=/certs/privkey.pem
+    volumes:
+      - /etc/letsencrypt/live/${WAPI_TURN_DOMAIN}:/certs:ro
