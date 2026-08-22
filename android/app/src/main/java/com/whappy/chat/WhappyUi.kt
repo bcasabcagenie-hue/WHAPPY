@@ -213,7 +213,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
 import java.nio.ByteBuffer
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
@@ -5606,6 +5605,7 @@ private fun ProfileScreen(
     var typingSounds by rememberSaveable { mutableStateOf(prefs.getBoolean("typing_sounds", true)) }
     var hapticFeedback by rememberSaveable { mutableStateOf(prefs.getBoolean("haptic_feedback", true)) }
     var experimentalTools by rememberSaveable { mutableStateOf(prefs.getBoolean("experimental_tools", true)) }
+    var storageUsage by remember { mutableStateOf(WapiMediaStore.usage(context)) }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -5732,7 +5732,13 @@ private fun ProfileScreen(
                         }
                         Text("Cette option prépare l’interface avant le paiement réel : les cadeaux sont marqués TEST pour éviter toute confusion.", color = WhappyMuted, fontSize = 11.sp)
                     }
-                    "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }; Text("Les photos et notes vocales choisies restent accessibles depuis leurs conversations.", color = WhappyMuted, fontSize = 11.sp) }
+                    "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }
+                        Text("Cache temporaire : ${formatStorageBytes(storageUsage.cacheBytes)}", color = WhappyDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Médias conservés : ${formatStorageBytes(storageUsage.mediaBytes)} · Envois en attente : ${formatStorageBytes(storageUsage.outboxBytes)}", color = WhappyMuted, fontSize = 11.sp)
+                        OutlinedButton(onClick = { WapiMediaStore.clearRebuildableCache(context); storageUsage = WapiMediaStore.usage(context) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Delete, null); Text("  Vider uniquement le cache") }
+                        Text("Le cache peut être recréé depuis le cloud. Les messages, les pièces jointes en attente et les médias conservés ne sont jamais supprimés par cette action.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                    }
                     else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("WAPI réunit vos conversations, appels, achats, directs et services. En cas de problème, contactez l’assistance depuis cet appareil.", color = WhappyDark); OutlinedButton(onClick = { uriHandler.openUri("mailto:support@whappy.chat?subject=Aide%20WHAPPY") }, Modifier.fillMaxWidth()) { Text("Contacter l’assistance") } }
                 }
             },
@@ -6023,15 +6029,16 @@ private fun loadImageBitmap(context: Context, source: String): androidx.compose.
     return decoded?.asImageBitmap()
 }
 
+private fun formatStorageBytes(bytes: Long): String = when {
+    bytes < 1_024L -> "$bytes o"
+    bytes < 1_024L * 1_024L -> "%.0f Ko".format(Locale.FRANCE, bytes / 1_024.0)
+    bytes < 1_024L * 1_024L * 1_024L -> "%.1f Mo".format(Locale.FRANCE, bytes / (1_024.0 * 1_024.0))
+    else -> "%.2f Go".format(Locale.FRANCE, bytes / (1_024.0 * 1_024.0 * 1_024.0))
+}
+
 private fun loadRemoteImageBytes(context: Context, source: String): ByteArray? {
-    val cacheDirectory = File(context.cacheDir, "wapi_image_cache").apply { mkdirs() }
-    val key = MessageDigest.getInstance("SHA-256")
-        .digest(source.toByteArray())
-        .joinToString("") { "%02x".format(it) }
-    val cached = File(cacheDirectory, "$key.img")
-    if (cached.isFile && cached.length() in 1..(8L * 1024L * 1024L)) {
-        return runCatching { cached.readBytes() }.getOrNull()
-    }
+    val key = WapiMediaStore.keyFor(source)
+    WapiMediaStore.readCache(context, key, maxBytes = 8L * 1024L * 1024L)?.let { return it }
     return runCatching {
         val connection = URL(source).openConnection().apply {
             connectTimeout = 7_000
@@ -6040,7 +6047,7 @@ private fun loadRemoteImageBytes(context: Context, source: String): ByteArray? {
         }
         val downloaded = connection.getInputStream().use { it.readBytes() }
         if (downloaded.size in 1..(8 * 1024 * 1024)) {
-            runCatching { cached.writeBytes(downloaded) }
+            WapiMediaStore.writeCache(context, key, downloaded, maxBytes = 8L * 1024L * 1024L)
             downloaded
         } else null
     }.getOrNull()

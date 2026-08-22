@@ -319,7 +319,9 @@ class WhappyViewModel(
                     source = conversation.source,
                     senderName = accountName(),
                 )
-            }.onSuccess { _uiState.update { current -> current.copy(sending = false, online = true) } }
+            }.onSuccess { delivery ->
+                _uiState.update { current -> current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT) }
+            }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le média n’a pas été envoyé") } }
         }
     }

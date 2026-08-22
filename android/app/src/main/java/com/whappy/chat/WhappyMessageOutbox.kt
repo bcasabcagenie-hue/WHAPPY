@@ -16,6 +16,13 @@ data class WhappyPendingMessage(
     val replyToId: String,
     val replyText: String,
     val createdAt: Long,
+    val kind: String = "text",
+    val localMediaPath: String = "",
+    val contentType: String = "",
+    val mediaName: String = "",
+    val durationSeconds: Int = 0,
+    val source: String = "conversations",
+    val senderName: String = "Membre WAPI",
     val attempts: Int = 0,
 )
 
@@ -92,6 +99,13 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
         .put("replyToId", replyToId)
         .put("replyText", replyText)
         .put("createdAt", createdAt)
+        .put("kind", kind)
+        .put("localMediaPath", localMediaPath)
+        .put("contentType", contentType)
+        .put("mediaName", mediaName)
+        .put("durationSeconds", durationSeconds)
+        .put("source", source)
+        .put("senderName", senderName)
         .toString()
 
     private fun pendingMessageFromJson(value: String, attempts: Int): WhappyPendingMessage =
@@ -104,6 +118,13 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
                 replyToId = json.optString("replyToId"),
                 replyText = json.optString("replyText"),
                 createdAt = json.getLong("createdAt"),
+                kind = json.optString("kind", "text"),
+                localMediaPath = json.optString("localMediaPath"),
+                contentType = json.optString("contentType"),
+                mediaName = json.optString("mediaName"),
+                durationSeconds = json.optInt("durationSeconds"),
+                source = json.optString("source", "conversations"),
+                senderName = json.optString("senderName", "Membre WAPI"),
                 attempts = attempts,
             )
         }

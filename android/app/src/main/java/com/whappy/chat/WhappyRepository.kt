@@ -16,6 +16,7 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
+import java.io.File
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -44,6 +45,10 @@ class WhappyRepository(
                     createdAt = pending.createdAt,
                     replyToId = pending.replyToId,
                     replyText = pending.replyText,
+                    kind = pending.kind,
+                    mediaUrl = pending.localMediaPath,
+                    mediaName = pending.mediaName,
+                    durationSeconds = pending.durationSeconds,
                     deliveryState = if (pending.attempts > 1) "retrying" else "queued",
                 )
             }
@@ -760,32 +765,53 @@ class WhappyRepository(
                 return false
             }
             messageOutbox.remove(pending.id)
+            if (pending.localMediaPath.isNotBlank()) File(pending.localMediaPath).delete()
         }
         return true
     }
 
     private suspend fun deliverPendingMessage(message: WhappyPendingMessage) {
-        val conversation = db.collection("conversations").document(message.conversationId)
+        val root = if (message.source == "groups") "groups" else "conversations"
+        val conversation = db.collection(root).document(message.conversationId)
+        val mediaUrl = if (message.kind in setOf("image", "audio", "video")) {
+            val file = File(message.localMediaPath)
+            require(file.isFile && file.length() > 0L) { "attachment-missing" }
+            val extension = message.mediaName.substringAfterLast('.', "bin").take(8)
+            val objectName = "${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
+            val objectRef = storage.reference.child("$root/${message.conversationId}/${message.senderId}/$objectName")
+            objectRef.putFile(
+                Uri.fromFile(file),
+                com.google.firebase.storage.StorageMetadata.Builder().setContentType(message.contentType).build(),
+            ).await()
+            objectRef.downloadUrl.await().toString()
+        } else ""
         conversation.collection("messages").document(message.id).set(
             buildMap<String, Any> {
                 put("text", message.text)
                 put("senderId", message.senderId)
+                if (message.source == "groups") put("senderName", message.senderName)
                 put("createdAt", Timestamp(Date(message.createdAt)))
                 put("clientMessageId", message.id)
+                if (message.kind != "text") {
+                    put("kind", message.kind)
+                    put("mediaUrl", mediaUrl)
+                    put("mediaName", message.mediaName)
+                    put("duration", message.durationSeconds)
+                }
                 if (message.replyToId.isNotBlank()) {
                     put("replyToId", message.replyToId)
                     put("replyText", message.replyText)
                 }
             },
         ).await()
-        conversation.update(
-            mapOf(
-                "lastMessage" to message.text,
-                "lastSenderId" to message.senderId,
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "typingBy.${message.senderId}" to false,
-            ),
-        ).await()
+        conversation.update(buildMap<String, Any> {
+            put("lastMessage", message.text)
+            put("updatedAt", FieldValue.serverTimestamp())
+            if (message.source != "groups") {
+                put("lastSenderId", message.senderId)
+                put("typingBy.${message.senderId}", false)
+            }
+        }).await()
     }
 
     suspend fun reactToMessage(conversationId: String, messageId: String, userId: String, emoji: String, source: String = "conversations") {
@@ -964,7 +990,7 @@ class WhappyRepository(
         durationSeconds: Int = 0,
         source: String = "conversations",
         senderName: String = "Membre WHAPPY",
-    ) {
+    ): WhappyDeliveryResult {
         require(kind in setOf("image", "audio", "video"))
         require(if (kind == "image") contentType.startsWith("image/") else if (kind == "video") contentType.startsWith("video/") else contentType.startsWith("audio/"))
         val mediaSize = runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L)
@@ -976,37 +1002,41 @@ class WhappyRepository(
             else -> contentType.substringAfter('/', "jpg").substringBefore('+').take(8)
         }
         val safeName = mediaName.trim().take(120).ifBlank { "whappy-${kind}.${extension}" }
-        val objectName = "${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
-        val root = if (source == "groups") "groups" else "conversations"
-        val objectRef = storage.reference.child("$root/$conversationId/$userId/$objectName")
-        objectRef.putFile(uri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(contentType).build()).await()
-        val downloadUrl = objectRef.downloadUrl.await().toString()
         val label = when (kind) {
             "audio" -> "Note vocale"
             "video" -> "Vidéo"
             else -> "Photo"
         }
-        val conversation = db.collection(root).document(conversationId)
-        conversation.collection("messages").add(
-            buildMap<String, Any> {
-                put("text", label)
-                put("senderId", userId)
-                if (source == "groups") put("senderName", senderName.trim().take(80).ifBlank { "Membre WHAPPY" })
-                put("kind", kind)
-                put("mediaUrl", downloadUrl)
-                put("mediaName", safeName)
-                put("duration", durationSeconds.coerceIn(0, 600))
-                put("createdAt", FieldValue.serverTimestamp())
-            },
-        ).await()
-        conversation.update(buildMap<String, Any> {
-            put("lastMessage", label)
-            put("updatedAt", FieldValue.serverTimestamp())
-            if (source != "groups") {
-                put("lastSenderId", userId)
-                put("typingBy.$userId", false)
-            }
-        }).await()
+        val localFile = WapiMediaStore.copyToOutbox(appContext, uri, kind, safeName)
+            ?: error("attachment-unreadable")
+        val pending = WhappyPendingMessage(
+            id = db.collection(if (source == "groups") "groups" else "conversations")
+                .document(conversationId).collection("messages").document().id,
+            conversationId = conversationId,
+            senderId = userId,
+            text = label,
+            replyToId = "",
+            replyText = "",
+            createdAt = System.currentTimeMillis(),
+            kind = kind,
+            localMediaPath = localFile.absolutePath,
+            contentType = contentType,
+            mediaName = safeName,
+            durationSeconds = durationSeconds.coerceIn(0, 600),
+            source = source,
+            senderName = senderName.trim().take(80).ifBlank { "Membre WHAPPY" },
+        )
+        messageOutbox.enqueue(pending)
+        return runCatching {
+            withTimeout(15_000L) { deliverPendingMessage(pending) }
+            messageOutbox.remove(pending.id)
+            localFile.delete()
+            WhappyDeliveryResult.SENT
+        }.getOrElse {
+            messageOutbox.markAttempt(pending.id)
+            WhappyMessageSync.schedule(appContext)
+            WhappyDeliveryResult.QUEUED
+        }
     }
 
     suspend fun publishListing(user: WhappyMember, title: String, price: String, place: String, mode: String) {

@@ -38,6 +38,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WhappyFastStorage.initialize(applicationContext)
+        // Cache is disposable; trim it at launch without touching messages,
+        // pending uploads or media the user chose to keep offline.
+        WapiMediaStore.trimCache(applicationContext)
         WhappyMessageSync.schedule(applicationContext)
         if (!EmojiCompat.isConfigured()) {
             DefaultEmojiCompatConfig.create(applicationContext)?.let { EmojiCompat.init(it) }
