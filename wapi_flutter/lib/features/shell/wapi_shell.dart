@@ -13,11 +13,13 @@ import 'package:flutter/services.dart';
 
 import '../../app/wapi_theme.dart';
 import '../../data/wapi_repository.dart';
+import '../../services/wapi_notifications.dart';
 import '../calls/wapi_call_page.dart';
 
 class WapiShell extends StatefulWidget {
-  const WapiShell({super.key, required this.user});
+  const WapiShell({super.key, required this.user, this.initialConversationId});
   final User user;
+  final String? initialConversationId;
   @override
   State<WapiShell> createState() => _WapiShellState();
 }
@@ -30,11 +32,21 @@ class _WapiShellState extends State<WapiShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _setPresence(true);
+    _syncNotifications();
+    final conversationId = widget.initialConversationId;
+    if (conversationId != null && conversationId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openConversationFromNotification(conversationId),
+      );
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _setPresence(state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed) {
+      _syncNotifications();
+    }
   }
 
   Future<void> _setPresence(bool isOnline) async {
@@ -42,6 +54,42 @@ class _WapiShellState extends State<WapiShell> with WidgetsBindingObserver {
       await _repository.updatePresence(user: widget.user, isOnline: isOnline);
     } catch (_) {
       // La présence ne doit jamais empêcher l’ouverture de l’application.
+    }
+  }
+
+  Future<void> _syncNotifications() async {
+    try {
+      await WapiNotifications.syncUnreadBadge(widget.user.uid);
+    } catch (_) {
+      // Le badge ne doit jamais empêcher WAPI de s’ouvrir.
+    }
+  }
+
+  Future<void> _openConversationFromNotification(String conversationId) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('conversations')
+          .doc(conversationId)
+          .get();
+      final data = snapshot.data();
+      if (!mounted ||
+          data == null ||
+          !(data['memberIds'] as List? ?? const []).contains(widget.user.uid)) {
+        return;
+      }
+      final conversation = WapiConversation.fromDoc(snapshot, widget.user.uid);
+      setState(() => _index = 1);
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _ChatPage(
+            user: widget.user,
+            repository: _repository,
+            conversation: conversation,
+          ),
+        ),
+      );
+    } catch (_) {
+      // Une notification périmée ne doit pas interrompre l’ouverture de WAPI.
     }
   }
 
@@ -1566,6 +1614,27 @@ class _ChatPageState extends State<_ChatPage> {
   bool _sending = false;
   bool _recording = false;
   WapiMessage? _replyingTo;
+  @override
+  void initState() {
+    super.initState();
+    _markConversationRead();
+  }
+
+  Future<void> _markConversationRead() async {
+    try {
+      await widget.repository.markConversationRead(
+        conversationId: widget.conversation.id,
+        userId: widget.user.uid,
+      );
+      await WapiNotifications.clearConversation(
+        widget.conversation.id,
+        widget.user.uid,
+      );
+    } catch (_) {
+      // La conversation doit rester lisible même si le réseau est indisponible.
+    }
+  }
+
   @override
   void dispose() {
     _composer.dispose();

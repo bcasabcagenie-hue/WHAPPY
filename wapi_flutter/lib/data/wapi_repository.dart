@@ -201,6 +201,13 @@ class WapiRepository {
   Stream<DocumentSnapshot<Map<String, dynamic>>> profile(String userId) =>
       _db.collection('users').doc(userId).snapshots();
 
+  Future<void> markConversationRead({
+    required String conversationId,
+    required String userId,
+  }) => _db.collection('conversations').doc(conversationId).update({
+    'readBy.$userId': FieldValue.serverTimestamp(),
+  });
+
   Future<void> updatePresence({required User user, required bool isOnline}) =>
       _db.collection('users').doc(user.uid).set({
         'uid': user.uid,

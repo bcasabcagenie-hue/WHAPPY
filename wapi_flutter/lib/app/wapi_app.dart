@@ -44,6 +44,8 @@ class _AuthenticatedWapi extends StatefulWidget {
 }
 
 class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
+  String? _conversationFromNotification;
+
   @override
   void initState() {
     super.initState();
@@ -53,9 +55,14 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
   }
 
   Future<void> _openNotification(String payload) async {
-    if (!payload.startsWith('call:')) {
+    if (payload.startsWith('conversation:')) {
+      final conversationId = payload.substring('conversation:'.length);
+      if (conversationId.isNotEmpty && mounted) {
+        setState(() => _conversationFromNotification = conversationId);
+      }
       return;
     }
+    if (!payload.startsWith('call:')) return;
     final callId = payload.substring('call:'.length);
     final call = await FirebaseFirestore.instance
         .collection('calls')
@@ -86,7 +93,11 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
   }
 
   @override
-  Widget build(BuildContext context) => WapiShell(user: widget.user);
+  Widget build(BuildContext context) => WapiShell(
+    key: ValueKey(_conversationFromNotification ?? 'wapi-shell'),
+    user: widget.user,
+    initialConversationId: _conversationFromNotification,
+  );
 }
 
 class _LaunchScreen extends StatelessWidget {
