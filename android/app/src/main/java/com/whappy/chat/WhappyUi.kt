@@ -2973,7 +2973,6 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
     val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
     var recentCalls by remember { mutableStateOf(prefs.getStringSet("recent_calls", emptySet()).orEmpty().toList().sortedDescending()) }
     var phone by rememberSaveable { mutableStateOf("") }
-    var selectedGroupCall by remember { mutableStateOf<WhappyConversation?>(null) }
 
     fun rememberCall(name: String, phoneNumber: String, video: Boolean) {
         val entry = "${System.currentTimeMillis()}|${name.replace("|", " ")}|${phoneNumber.replace("|", " ")}|${if (video) "video" else "audio"}"
@@ -3011,7 +3010,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
         item { Text("Appels récents", color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 5.dp)) }
         if (recentCalls.isEmpty()) item { Text("Aucun appel lancé depuis WAPI pour le moment.", color = WhappyMuted, modifier = Modifier.padding(vertical = 6.dp)) }
         items(recentCalls.take(8), key = { it }) { raw ->
-            val parts = raw.split("|", limit = 3)
+            val parts = raw.split("|", limit = 4)
             val timestamp = parts.firstOrNull()?.toLongOrNull() ?: 0L
             val name = parts.getOrElse(1) { "Contact" }
             val recentPhone = parts.getOrElse(2) { "" }
@@ -3035,15 +3034,16 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                             Text(formatTime(conversation.updatedAt), color = WhappyMuted, fontSize = 10.sp)
                         }
                         IconButton(onClick = { onOpenConversation(conversation) }) { Icon(Icons.Rounded.ChatBubble, "Écrire à ${conversation.peer.displayName}", tint = WhappyBlue) }
-                        FilledIconButton(enabled = conversation.isGroup || (callable && calls != null), onClick = { if (conversation.isGroup) selectedGroupCall = conversation else { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, false); calls?.start(conversation.peer, false) } }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(if (conversation.isGroup) Icons.Rounded.Groups else Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
-                        FilledIconButton(enabled = conversation.isGroup || (callable && calls != null), onClick = { if (conversation.isGroup) selectedGroupCall = conversation else { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, true); calls?.start(conversation.peer, true) } }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Videocam, "Appel vidéo ${conversation.peer.displayName}", tint = Color.White) }
+                        if (!conversation.isGroup) {
+                            FilledIconButton(enabled = callable && calls != null, onClick = { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, false); calls?.start(conversation.peer, false) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Phone, "Appeler ${conversation.peer.displayName}", tint = Color.White) }
+                            FilledIconButton(enabled = callable && calls != null, onClick = { rememberCall(conversation.peer.displayName, conversation.peer.phoneNumber, true); calls?.start(conversation.peer, true) }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(Icons.Rounded.Videocam, "Appel vidéo ${conversation.peer.displayName}", tint = Color.White) }
+                        }
                     }
                 }
             }
         }
-        item { Text("Les appels audio et vidéo utilisent Wapi entre comptes inscrits. Un numéro absent de Wapi n’est jamais appelé via votre opérateur sans votre accord.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)) }
+        item { Text("Les appels audio et vidéo individuels utilisent WAPI entre comptes inscrits. Un numéro absent de WAPI n’est jamais appelé via votre opérateur sans votre accord.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)) }
     }
-    selectedGroupCall?.let { group -> GroupCallRoomDialog(group = group, onDismiss = { selectedGroupCall = null }) }
 }
 
 @Composable
@@ -3053,44 +3053,6 @@ private fun CallMetric(label: String, value: String, modifier: Modifier = Modifi
         Text(value, Modifier.padding(top = 4.dp), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
     }
 }
-
-@Composable
-private fun GroupCallRoomDialog(group: WhappyConversation, onDismiss: () -> Unit) {
-    // Do not render invented participant tiles. A real group call needs an
-    // SFU/media room; the 1:1 WebRTC controller remains available separately.
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Groups, null, tint = WhappyBlue) },
-        title = { Text("Appel de groupe", fontWeight = FontWeight.Black) },
-        text = { Text("Le salon de groupe est prêt côté interface, mais aucun serveur média WAPI n’est encore configuré pour transporter la voix et la vidéo entre appareils. Aucun faux participant ne sera affiché.") },
-        confirmButton = { Button(onClick = onDismiss) { Text("Fermer") } },
-    )
-    return
-
-    val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    var muted by rememberSaveable(group.id) { mutableStateOf(false) }
-    var speaker by rememberSaveable(group.id) { mutableStateOf(true) }
-    var video by rememberSaveable(group.id) { mutableStateOf(false) }
-    var seconds by rememberSaveable(group.id) { mutableStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(1_000); seconds += 1 } }
-    @Suppress("DEPRECATION")
-    LaunchedEffect(speaker) { audioManager.mode = AudioManager.MODE_IN_COMMUNICATION; audioManager.isSpeakerphoneOn = speaker }
-    @Suppress("DEPRECATION")
-    DisposableEffect(Unit) { onDispose { audioManager.mode = AudioManager.MODE_NORMAL; audioManager.isSpeakerphoneOn = false } }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize(), color = WhappyNavy) { Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour", tint = Color.White) }; Column(Modifier.weight(1f)) { Text("APPEL DE GROUPE · BÊTA", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(group.peer.displayName, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black) }; Text("%02d:%02d".format(seconds / 60, seconds % 60), color = Color.White) }
-            Text("Salon chiffré · jusqu’à ${group.memberCount.coerceAtLeast(2)} participants", Modifier.padding(top = 18.dp), color = Color.White.copy(alpha = .72f), fontSize = 12.sp)
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { val size = (maxWidth / 3).coerceAtMost(104.dp); FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp), maxItemsInEachRow = 3) { repeat(group.memberCount.coerceIn(2, 9)) { index -> Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(size).graphicsLayer { rotationX = 4f; rotationY = if (index % 2 == 0) -5f else 5f; shadowElevation = 20f }.clip(RoundedCornerShape(28.dp)).background(if (index == 0) WhappyAurora else Brush.linearGradient(listOf(Color(0xFF0C5C91), Color(0xFF0A3557)))), contentAlignment = Alignment.Center) { Text(if (index == 0) "VOUS" else "${index + 1}", color = Color.White, fontWeight = FontWeight.Black) }; Text(if (index == 0) "Vous" else "Participant ${index + 1}", Modifier.padding(top = 7.dp), color = Color.White, fontSize = 10.sp) } } } }
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .10f))) { Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceEvenly) { GroupCallControl(if (muted) "🔇" else "🎙", if (muted) "Micro coupé" else "Micro") { muted = !muted; WhappySounds.haptic(context) }; GroupCallControl(if (speaker) "🔊" else "🔈", "Haut-parleur") { speaker = !speaker; WhappySounds.haptic(context) }; GroupCallControl(if (video) "📹" else "📷", "Caméra") { video = !video; WhappySounds.haptic(context) }; GroupCallControl("☎", "Quitter", danger = true, onClick = onDismiss) } }
-            Text("Le salon de groupe prépare le routage multi-participants. La conférence distante complète nécessite le serveur média WAPI.", Modifier.padding(top = 12.dp), color = Color.White.copy(alpha = .55f), fontSize = 9.sp, textAlign = TextAlign.Center)
-        } }
-    }
-}
-
-@Composable
-private fun GroupCallControl(symbol: String, label: String, danger: Boolean = false, onClick: () -> Unit) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick)) { Box(Modifier.size(52.dp).clip(CircleShape).background(if (danger) Color(0xFFE53935) else Color.White.copy(alpha = .16f)), contentAlignment = Alignment.Center) { Text(symbol, fontSize = 22.sp) }; Text(label, Modifier.padding(top = 6.dp), color = Color.White, fontSize = 9.sp) } }
 
 @Composable
 private fun MessagesScreen(
