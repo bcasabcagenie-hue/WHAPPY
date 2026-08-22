@@ -5,6 +5,7 @@ import android.net.Uri
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Local media policy for WAPI.
@@ -22,6 +23,8 @@ object WapiMediaStore {
     private const val MAX_CACHED_FILE_BYTES = 12L * 1024L * 1024L
     private const val OUTBOX_LIMIT_BYTES = 256L * 1024L * 1024L
     private const val MAX_OUTBOX_FILE_BYTES = 128L * 1024L * 1024L
+    private const val CACHE_MAX_AGE_MILLIS = 30L * 24L * 60L * 60L * 1_000L
+    private const val TEMP_FILE_MAX_AGE_MILLIS = 60L * 60L * 1_000L
 
     data class Usage(
         val cacheBytes: Long,
@@ -76,7 +79,7 @@ object WapiMediaStore {
         if (advertisedSize > MAX_OUTBOX_FILE_BYTES || (advertisedSize > 0L && directorySize(outbox) + advertisedSize > OUTBOX_LIMIT_BYTES)) {
             return null
         }
-        val target = File(outboxDirectory(context), "${System.currentTimeMillis()}-$safeName")
+        val target = File(outbox, "${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(8)}-$safeName")
         return runCatching {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 target.outputStream().use { output ->
@@ -104,6 +107,16 @@ object WapiMediaStore {
         // Remove the pre-1.8.1 image cache once; it was rebuildable and unbounded.
         File(context.cacheDir, "wapi_image_cache").takeIf(File::exists)?.deleteRecursively()
         val directory = cacheDirectory(context)
+        val now = System.currentTimeMillis()
+        val files = directory.walkTopDown().filter(File::isFile).toList()
+        files.filter { file ->
+            val age = now - file.lastModified()
+            file.name.endsWith(".tmp") && age > TEMP_FILE_MAX_AGE_MILLIS
+        }.forEach(File::delete)
+        files.filter { file ->
+            val age = now - file.lastModified()
+            !file.name.endsWith(".tmp") && age > CACHE_MAX_AGE_MILLIS
+        }.forEach(File::delete)
         var total = directory.walkTopDown().filter(File::isFile).sumOf(File::length)
         if (total <= limitBytes) return
         directory.walkTopDown()

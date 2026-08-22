@@ -28,7 +28,7 @@ fun detectRadioEffectSupport() = WapiRadioEffectSupport(
 
 @Suppress("DEPRECATION")
 fun createRadioRecorder(context: Context, profile: WapiMicProfile): WapiRadioRecording {
-    val file = File(context.cacheDir, "wapi-radio-${System.currentTimeMillis()}.m4a")
+    val file = File(WapiMediaStore.cacheDirectory(context), "wapi-radio-${System.currentTimeMillis()}.m4a")
     val recorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) MediaRecorder(context) else MediaRecorder()
     recorder.setAudioSource(profile.audioSource)
     recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)

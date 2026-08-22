@@ -2667,7 +2667,7 @@ private fun WhappyStudioScreen(
     }
 
     fun launchVideoCapture(kind: String) {
-        val file = File(context.cacheDir, "whappy-$kind-${System.currentTimeMillis()}.mp4")
+        val file = File(WapiMediaStore.cacheDirectory(context), "whappy-$kind-${System.currentTimeMillis()}.mp4")
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
         pendingVideoKind = kind
         pendingVideoUri = uri
@@ -4732,7 +4732,7 @@ private fun EmojiTray(onEmoji: (String) -> Unit, onClose: () -> Unit) {
 
 @Suppress("DEPRECATION")
 private fun createVoiceRecorder(context: Context): Pair<MediaRecorder, File> {
-    val file = File(context.cacheDir, "whappy-voice-${System.currentTimeMillis()}.m4a")
+    val file = File(WapiMediaStore.cacheDirectory(context), "whappy-voice-${System.currentTimeMillis()}.m4a")
     val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else MediaRecorder()
     recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
     recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
