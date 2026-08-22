@@ -65,7 +65,9 @@ object WhappyNotifications {
     const val ACTION_DECLINE_CALL = "com.whappy.chat.DECLINE_CALL"
 
     private const val BRAND_COLOR = 0xFF0094F0.toInt()
-    private const val CHANNEL_MESSAGES = "wapi_messages_v4"
+    // Android keeps a channel's sound policy after its first creation.  A new
+    // id deliberately upgrades devices that installed an older silent build.
+    private const val CHANNEL_MESSAGES = "wapi_messages_v5"
     private const val CHANNEL_CALLS = "whappy_calls_v3"
     private const val CHANNEL_ACTIVITY = "whappy_activity_v2"
     private const val CALL_NOTIFICATION_BASE = 6_100
@@ -137,6 +139,8 @@ object WhappyNotifications {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            .setVibrate(longArrayOf(0, 120, 80, 120))
             .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
             .setNumber(unreadCount)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
@@ -224,8 +228,8 @@ object WhappyNotifications {
         if (callId.isNotBlank()) NotificationManagerCompat.from(context).cancel(callNotificationId(callId))
     }
 
-    private fun canNotify(context: Context): Boolean = Build.VERSION.SDK_INT < 33 ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    private fun canNotify(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+        (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
     private fun preferences(context: Context) = WhappyFastStorage.preferences(context, "whappy_consumer")
 

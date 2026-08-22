@@ -9,21 +9,40 @@ setGlobalOptions({ region: "europe-west1", maxInstances: 20, memory: "256MiB" })
 
 const db = getFirestore();
 
-async function deviceTokens(userIds: string[]): Promise<string[]> {
+type PushDevice = {
+  token: string;
+  remove: () => Promise<unknown>;
+};
+
+async function pushDevices(userIds: string[]): Promise<PushDevice[]> {
   const snapshots = await Promise.all(
     [...new Set(userIds.filter(Boolean))].map((userId) =>
       db.collection("users").doc(userId).collection("devices").where("enabled", "==", true).get(),
     ),
   );
-  return [...new Set(snapshots.flatMap((snapshot) => snapshot.docs.map((document) => String(document.get("token") || "")).filter(Boolean)))];
+  const devices = new Map<string, PushDevice>();
+  snapshots.flatMap((snapshot) => snapshot.docs).forEach((document) => {
+    const token = String(document.get("token") || "").trim();
+    if (!token || devices.has(token)) return;
+    devices.set(token, { token, remove: () => document.ref.delete() });
+  });
+  return [...devices.values()];
 }
 
-async function sendInBatches(tokens: string[], message: Omit<MulticastMessage, "tokens">) {
-  for (let index = 0; index < tokens.length; index += 500) {
-    const batch = tokens.slice(index, index + 500);
+function staleRegistration(errorCode?: string) {
+  return errorCode === "messaging/registration-token-not-registered" || errorCode === "messaging/invalid-registration-token";
+}
+
+async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessage, "tokens">) {
+  for (let index = 0; index < devices.length; index += 500) {
+    const batch = devices.slice(index, index + 500);
     if (!batch.length) continue;
-    const response = await getMessaging().sendEachForMulticast({ ...message, tokens: batch });
-    if (response.failureCount) logger.warn("Certaines notifications WHAPPY n’ont pas été livrées", { failures: response.failureCount });
+    const response = await getMessaging().sendEachForMulticast({ ...message, tokens: batch.map((device) => device.token) });
+    const stale = response.responses.flatMap((result, responseIndex) =>
+      !result.success && staleRegistration(result.error?.code) ? [batch[responseIndex].remove()] : [],
+    );
+    if (stale.length) await Promise.allSettled(stale);
+    if (response.failureCount) logger.warn("Certaines notifications WAPI n’ont pas été livrées", { failures: response.failureCount, staleTokens: stale.length });
   }
 }
 
@@ -35,22 +54,26 @@ export const notifyNewMessage = onDocumentCreated("conversations/{conversationId
   const senderId = String(message.senderId || "");
   const recipients = (conversation.get("memberIds") as string[] | undefined)?.filter((id) => id && id !== senderId) ?? [];
   if (!recipients.length) return;
-  const [sender, tokens] = await Promise.all([db.collection("users").doc(senderId).get(), deviceTokens(recipients)]);
-  if (!tokens.length) return;
+  const [sender, devices] = await Promise.all([db.collection("users").doc(senderId).get(), pushDevices(recipients)]);
+  if (!devices.length) return;
   const senderName = String(sender.get("displayName") || conversation.get("contactName") || "Contact WHAPPY");
   const kind = String(message.kind || "text");
   const text = String(message.text || "").trim();
   const body = kind === "image" ? "📷 Photo" : kind === "audio" ? "🎙️ Note vocale" : kind === "video" ? "🎥 Vidéo" : text.slice(0, 240);
   const groupTitle = String(conversation.get("title") || "").trim();
-  await sendInBatches(tokens, {
+  await sendInBatches(devices, {
     data: {
       type: "message",
       title: groupTitle || senderName,
       body: body || "Nouveau message",
       senderName,
       conversationId: event.params.conversationId,
+      messageId: event.params.messageId,
     },
-    android: { priority: "high", ttl: 86_400_000, collapseKey: `message-${event.params.conversationId}` },
+    // Data-only + high priority reaches FirebaseMessagingService even when
+    // WAPI is not open.  Messages are intentionally not collapsed: each
+    // delivery increments the real unread badge on the launcher.
+    android: { priority: "high", ttl: 86_400_000 },
   });
 });
 
@@ -58,11 +81,11 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
   const call = event.data?.data();
   if (!call || call.status !== "ringing") return;
   const calleeId = String(call.calleeId || "");
-  const tokens = await deviceTokens([calleeId]);
-  if (!tokens.length) return;
+  const devices = await pushDevices([calleeId]);
+  if (!devices.length) return;
   const callerName = String(call.callerName || "Contact WHAPPY");
   const video = call.video === true;
-  await sendInBatches(tokens, {
+  await sendInBatches(devices, {
     data: {
       type: "incoming_call",
       title: callerName,

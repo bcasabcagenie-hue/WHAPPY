@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
@@ -59,6 +60,29 @@ class MainActivity : ComponentActivity() {
         setContent {
             val model: WhappyViewModel = viewModel()
             val state by model.uiState.collectAsStateWithLifecycle()
+            var notificationPrompted by remember { mutableStateOf(false) }
+            val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                if (granted) WhappyNotifications.ensureChannel(this@MainActivity)
+                // Keep the FCM token registered even if permission was denied;
+                // enabling notifications later in Android settings then works
+                // without another login or device reconfiguration.
+                model.registerPushNotifications()
+            }
+            LaunchedEffect(state.user?.uid) {
+                if (state.user == null) {
+                    notificationPrompted = false
+                } else {
+                    WhappyNotifications.ensureChannel(this@MainActivity)
+                    model.registerPushNotifications()
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                        !notificationPrompted
+                    ) {
+                        notificationPrompted = true
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
             LaunchedEffect(state.user?.uid) {
                 WapiPresence.setActiveUser(state.user?.uid)
             }
@@ -75,12 +99,6 @@ class MainActivity : ComponentActivity() {
                 if (pendingCallAction == WhappyNotifications.ACTION_ACCEPT_CALL && callState.incoming) {
                     callController.acceptIncoming()
                     pendingCallAction = null
-                }
-            }
-            val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-                if (granted) {
-                    WhappyNotifications.ensureChannel(this)
-                    model.registerPushNotifications()
                 }
             }
             CompositionLocalProvider(LocalWhappyCalls provides callController) {

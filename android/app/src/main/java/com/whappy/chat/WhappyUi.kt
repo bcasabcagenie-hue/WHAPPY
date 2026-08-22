@@ -39,6 +39,7 @@ import androidx.compose.animation.core.spring
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -1420,12 +1421,20 @@ private fun StoriesScreen(
                         name = "Ma Story",
                         subtitle = when { myStories.isEmpty() -> "Ajouter"; myStories.size == 1 -> formatTime(myStories.last().createdAt); else -> "${myStories.size} Stories" },
                         active = myStories.isNotEmpty(),
+                        story = myStories.lastOrNull(),
+                        publishing = myStories.any { it.mediaName == "Publication en cours" },
                         onClick = { if (myStories.isEmpty()) showComposer = true else selectedStoryAuthorId = currentUserId },
                         add = myStories.isEmpty(),
                     )
                     contactStoryGroups.forEach { stories ->
                         val latest = stories.last()
-                        StoryCircle(latest.authorName, if (stories.size == 1) formatTime(latest.createdAt) else "${stories.size} Stories", active = true, onClick = { selectedStoryAuthorId = latest.authorId })
+                        StoryCircle(
+                            name = latest.authorName,
+                            subtitle = if (stories.size == 1) formatTime(latest.createdAt) else "${stories.size} Stories",
+                            active = true,
+                            story = latest,
+                            onClick = { selectedStoryAuthorId = latest.authorId },
+                        )
                     }
                     if (contactStoryGroups.isEmpty()) {
                         Text("Les Stories de vos contacts apparaîtront ici.", Modifier.width(190.dp).padding(top = 17.dp), color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
@@ -1496,6 +1505,11 @@ private fun StoriesScreen(
                         onClick = {
                             val value = draft.trim()
                             openOwnStoryAfterCount = myStories.size
+                            // Select the owner before the upload begins.  The
+                            // optimistic Story added by the view model then
+                            // opens as soon as it is rendered, rather than
+                            // leaving the user on an apparently empty rail.
+                            selectedStoryAuthorId = currentUserId
                             if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, "personal", System.currentTimeMillis(), mediaUri?.toString().orEmpty(), if (mediaType.startsWith("audio/")) "audio" else if (mediaType.startsWith("video/")) "video" else if (mediaUri != null) "image" else "text", mediaName)) + previewStatuses
                             else onPublish(value, "personal", mediaUri, mediaType)
                             draft = ""; mediaUri = null; mediaType = ""; mediaName = ""; showComposer = false
@@ -1522,16 +1536,38 @@ private fun StoriesScreen(
 }
 
 @Composable
-private fun StoryCircle(name: String, subtitle: String, active: Boolean, add: Boolean = false, onClick: () -> Unit) {
+private fun StoryCircle(
+    name: String,
+    subtitle: String,
+    active: Boolean,
+    story: WhappyStatus? = null,
+    publishing: Boolean = false,
+    add: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val storyAccent = Brush.sweepGradient(listOf(WhappyBlue, WhappySky, Color(0xFF0066CF), WhappyBlue))
     Column(Modifier.width(74.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(shape = CircleShape, color = Color.White, border = androidx.compose.foundation.BorderStroke(3.dp, if (active) WhappyBlue else WhappyLine)) {
-            Box(Modifier.padding(3.dp), contentAlignment = Alignment.BottomEnd) {
-                UserAvatar("", name, 54.dp, Modifier.clip(CircleShape))
-                if (add) Box(Modifier.size(20.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
+        Box(
+            Modifier
+                .size(64.dp)
+                .border(if (active) 3.dp else 1.dp, if (active) storyAccent else Brush.linearGradient(listOf(WhappyLine, WhappyLine)), CircleShape)
+                .padding(3.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            UserAvatar(if (story?.mediaKind == "image") story.mediaUrl else "", name, 54.dp, Modifier.clip(CircleShape))
+            if (story?.mediaKind == "video" || story?.mediaKind == "audio") {
+                Box(
+                    Modifier.align(Alignment.Center).size(25.dp).clip(CircleShape).background(Color.Black.copy(alpha = .56f)),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(if (story.mediaKind == "video") Icons.Rounded.PlayArrow else Icons.Rounded.AudioFile, null, tint = Color.White, modifier = Modifier.size(15.dp)) }
             }
+            if (publishing) Box(Modifier.size(22.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(12.dp), color = Color.White, strokeWidth = 1.5.dp) }
+            else if (add) Box(Modifier.size(20.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
         }
         Text(name.substringBefore(" ").ifBlank { name }, Modifier.padding(top = 6.dp), color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(subtitle, color = WhappyMuted, fontSize = 8.sp, maxLines = 1)
+        Text(if (publishing) "Publication…" else subtitle, color = if (publishing) WhappyBlue else WhappyMuted, fontSize = 8.sp, maxLines = 1)
     }
 }
 
@@ -1574,7 +1610,9 @@ private fun StoryViewerDialog(
         if (activeIndex < stories.lastIndex) activeIndex += 1 else onDismiss()
     }
 
-    LaunchedEffect(story.id) {
+    val uploading = own && story.mediaName == "Publication en cours"
+    LaunchedEffect(story.id, uploading) {
+        if (uploading) return@LaunchedEffect
         progress.snapTo(0f)
         progress.animateTo(
             targetValue = 1f,
@@ -1623,7 +1661,7 @@ private fun StoryViewerDialog(
                 ) { Text("›", color = Color.White, fontSize = 30.sp) }
             }
             Text(
-                if (own) "Votre Story · visible 24 h" else "Story personnelle · visible 24 h",
+                if (uploading) "Publication sécurisée en cours…" else if (own) "Votre Story · visible 24 h" else "Story personnelle · visible 24 h",
                 Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 color = Color.White.copy(alpha = .58f),
                 fontSize = 10.sp,

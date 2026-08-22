@@ -11,6 +11,7 @@ import android.view.SoundEffectConstants
 
 object WhappySounds {
     private var lastKeyAt = 0L
+    private var keyboardTone: ToneGenerator? = null
 
     private fun tone(type: Int, duration: Int, volume: Int = 55) {
         runCatching {
@@ -34,10 +35,24 @@ object WhappySounds {
     fun typing(context: Context) {
         if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("typing_sounds", true)) return
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastKeyAt < 34L) return
+        // A normal keyboard can emit 10–15 input events per second.  Keeping
+        // the click at 48 ms avoids a harsh machine-gun effect while staying
+        // responsive enough to feel like a native chat composer.
+        if (now - lastKeyAt < 48L) return
         lastKeyAt = now
-        (context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)
-            ?.playSoundEffect(SoundEffectConstants.CLICK, .12f)
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        // Use the media stream deliberately: the click follows the volume the
+        // person controls on the device, even when Android system touch sounds
+        // have been disabled.  It remains silent when media volume is zero.
+        if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) <= 0) return
+        runCatching {
+            val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 16).also { keyboardTone = it }
+            generator.startTone(ToneGenerator.TONE_PROP_BEEP, 22)
+        }.onFailure {
+            // A few OEMs restrict ToneGenerator. Their native sound effect is
+            // a graceful fallback rather than making typing soundless.
+            runCatching { audioManager.playSoundEffect(SoundEffectConstants.CLICK, .12f) }
+        }
     }
 
     fun haptic(context: Context, strong: Boolean = false) {

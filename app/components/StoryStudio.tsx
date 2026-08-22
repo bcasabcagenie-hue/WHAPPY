@@ -144,6 +144,10 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
     try {
       const created = await publishStory(userId, userName, file, caption);
       setStories((current) => [created, ...current.filter((story) => story.id !== created.id)]);
+      // Match the native Story behavior: a successful post immediately opens
+      // the owner's Story rather than leaving an empty-looking rail behind.
+      setActiveItem(0);
+      setActiveAuthorId(userId);
       notify("Votre Story est publiée pendant 24 heures.");
       resetCreator();
     } catch (error) {

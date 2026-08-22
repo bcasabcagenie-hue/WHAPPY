@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Wapi côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WAPI-Android-1\.8\.9-native\.apk/);
+  assert.match(html, /WAPI-Android-1\.9\.1-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -142,7 +142,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
     readFile(new URL("../android/app/src/main/java/com/whappy/chat/WhappyMessageSync.kt", import.meta.url), "utf8"),
   ]);
   assert.match(notifications, /NotificationCompat\.CallStyle\.forIncomingCall/);
-  assert.match(notifications, /whappy_messages_v3/);
+  assert.match(notifications, /wapi_messages_v5/);
   assert.match(notifications, /whappy_calls_v3/);
   assert.match(notifications, /TYPE_NOTIFICATION/);
   assert.match(notifications, /USAGE_NOTIFICATION\)/);
@@ -154,7 +154,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(androidBuild, /emoji2:1\.5\.0/);
   assert.match(androidBuild, /com\.tencent:mmkv:2\.4\.1/);
   assert.match(androidBuild, /work-runtime-ktx:2\.10\.1/);
-  assert.match(androidBuild, /versionName "1\.8\.9-native"/);
+  assert.match(androidBuild, /versionName "1\.9\.1-native"/);
   assert.match(fastStorage, /MMKV\.SINGLE_PROCESS_MODE, cryptKey/);
   assert.match(outbox, /WhappyCryptoVault\.encrypt/);
   assert.match(messageSync, /NetworkType\.CONNECTED/);
@@ -390,7 +390,7 @@ test("sépare Actus, Stories privées et messagerie plein écran", async () => {
   assert.match(ui, /ActusQuickRow/);
   assert.match(ui, /"Chaînes"[\s\S]*"Radios"[\s\S]*"Podcasts"/);
   assert.match(manifest, /windowSoftInputMode="adjustResize"/);
-  assert.doesNotMatch(ui, /background\(WapiChatBackground\)\.navigationBarsPadding\(\)\.imePadding\(\)/);
+  assert.match(ui, /background\(WapiChatBackground\)\.navigationBarsPadding\(\)\.imePadding\(\)/);
   assert.match(ui, /snapshotFlow/);
   assert.match(ui, /followLatest/);
   assert.match(viewModel, /pendingStories/);
