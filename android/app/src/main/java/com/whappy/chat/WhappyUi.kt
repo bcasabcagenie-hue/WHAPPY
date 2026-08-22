@@ -1481,7 +1481,8 @@ private fun WepiScreen(
     fun submit(value: String) {
         val clean = value.trim()
         if (clean.isBlank()) return
-        messages = messages + WepiChatMessage(clean, true) + WepiChatMessage(WapiPilotis.reply(clean, activeSettings, userName), false)
+        val pilotisResponse = WapiPilotis.response(clean, activeSettings, userName)
+        messages = messages + WepiChatMessage(clean, true) + WepiChatMessage(pilotisResponse.text, false)
         prompt = ""
     }
     LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
