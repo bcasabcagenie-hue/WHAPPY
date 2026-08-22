@@ -1480,7 +1480,7 @@ private fun WepiScreen(
     var lastIntentName by rememberSaveable { mutableStateOf(WapiPilotisIntent.OTHER.name) }
     val activeSettings = settings ?: WapiWepiSettings(ownerId = userId)
     var messages by remember {
-        mutableStateOf(listOf(WepiChatMessage("Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis ${activeSettings.assistantName}, le moteur WEPI Pilotis intégré à WAPI.", false)))
+        mutableStateOf(listOf(WepiChatMessage("Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis ${activeSettings.assistantName}, l’IA intégrée à WAPI.", false)))
     }
     val listState = rememberLazyListState()
     fun submit(value: String) {
@@ -1497,7 +1497,7 @@ private fun WepiScreen(
         Column(Modifier.fillMaxWidth().background(WhappyAurora).padding(horizontal = 20.dp, vertical = 18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .16f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SmartToy, null, tint = Color.White, modifier = Modifier.size(27.dp)) }
-                Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(activeSettings.assistantName, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black); Text("Moteur Pilotis · Intelligence privée WAPI", color = Color.White.copy(alpha = .76f), fontSize = 11.sp) }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(activeSettings.assistantName, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black); Text("Intelligence privée WAPI", color = Color.White.copy(alpha = .76f), fontSize = 11.sp) }
                 Text(if (activeSettings.enabled) "ACTIF" else "EN PAUSE", color = if (activeSettings.enabled) Color.White else Color.White.copy(alpha = .62f), fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
             Text("Un assistant pour passer de l’idée à l’action.", Modifier.padding(top = 14.dp), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -1505,7 +1505,7 @@ private fun WepiScreen(
         Surface(Modifier.fillMaxWidth().clickable { showSettings = true }, color = Color.White, shadowElevation = 2.dp) {
             Row(Modifier.padding(horizontal = 15.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.SmartToy, null, tint = WhappyBlue)
-                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) { Text("Pilotis synchronisé", color = WhappyDark, fontWeight = FontWeight.Black); Text("Même configuration WEPI sur le Web et Android", color = WhappyMuted, fontSize = 10.sp) }
+                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) { Text("IA synchronisée", color = WhappyDark, fontWeight = FontWeight.Black); Text("Même configuration WEPI sur le Web et Android", color = WhappyMuted, fontSize = 10.sp) }
                 Text("RÉGLER ›", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
         }
@@ -1558,7 +1558,7 @@ private fun WepiPilotisSettingsDialog(settings: WapiWepiSettings, busy: Boolean,
     var instructions by remember(settings) { mutableStateOf(settings.instructions) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Column { Text("WEPI Pilotis", fontWeight = FontWeight.Black); Text("Configuration cloud du compte", color = WhappyMuted, fontSize = 10.sp) } },
+        title = { Column { Text("WEPI", fontWeight = FontWeight.Black); Text("Configuration cloud du compte", color = WhappyMuted, fontSize = 10.sp) } },
         text = {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Activer WEPI", fontWeight = FontWeight.Bold); Text("Assistant disponible dans WAPI", color = WhappyMuted, fontSize = 10.sp) }; Switch(enabled, { enabled = it }) } }
@@ -1567,7 +1567,7 @@ private fun WepiPilotisSettingsDialog(settings: WapiWepiSettings, busy: Boolean,
                 item { OutlinedTextField(businessName, { businessName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Nom du business") }, singleLine = true) }
                 item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("chaleureux", "expert", "direct").forEach { option -> OutlinedButton(onClick = { tone = option }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (tone == option) WhappyBlue else Color.Transparent, contentColor = if (tone == option) Color.White else WhappyBlue)) { Text(option.replaceFirstChar { it.uppercase() }) } } } }
                 item { OutlinedTextField(welcome, { welcome = it.take(240) }, Modifier.fillMaxWidth(), label = { Text("Message d’accueil") }, minLines = 2) }
-                item { OutlinedTextField(instructions, { instructions = it.take(600) }, Modifier.fillMaxWidth(), label = { Text("Consignes Pilotis") }, minLines = 3) }
+                item { OutlinedTextField(instructions, { instructions = it.take(600) }, Modifier.fillMaxWidth(), label = { Text("Consignes de l’IA") }, minLines = 3) }
             }
         },
         confirmButton = { Button(enabled = !busy && assistantName.trim().length >= 2, onClick = { onSave(settings.copy(enabled = enabled, autoReply = autoReply, assistantName = assistantName, businessName = businessName, tone = tone, welcomeMessage = welcome, instructions = instructions)) }) { Text(if (busy) "Synchronisation…" else "Enregistrer") } },

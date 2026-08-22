@@ -126,8 +126,8 @@ export function buildWepiResponse(message: Pick<CloudMessage, "text">, settings:
 
   const text = (() => {
     switch (intent) {
-      case "greeting": return `${greeting}${name} Je suis ${assistant}, le chatbot Pilotis intégré à WAPI pour ${business}. ${tone}`;
-      case "identity": return `Je suis ${assistant}, le chatbot Pilotis intégré à WAPI. Je peux vous aider dans les messages, les groupes, les Stories, Business, les appels, la radio et les jeux. Je reste transparent : je n’invente ni prix, ni disponibilité, ni action effectuée.`;
+      case "greeting": return `${greeting}${name} Je suis ${assistant}, l’IA intégrée à WAPI pour ${business}. ${tone}`;
+      case "identity": return `Je suis ${assistant}, l’IA intégrée à WAPI. Je peux vous aider dans les messages, les groupes, les Stories, Business, les appels, la radio et les jeux. Je reste transparent : je n’invente ni prix, ni disponibilité, ni action effectuée.`;
       case "price": return `Merci pour votre question${name}. Je n’invente pas de tarif : aucun catalogue prix n’est configuré pour ${business}. Ajoutez vos offres dans Business ou demandez le relais d’un membre de l’équipe. ${tone}`;
       case "availability": return `Merci${name}. Je peux enregistrer votre demande pour ${business}, mais je ne peux pas confirmer un stock ou une livraison sans donnée connectée. Un membre de l’équipe doit valider la disponibilité. ${tone}`;
       case "messages": return `Je peux vous guider pour répondre, citer un message, le transférer, suivre les vues d’un groupe ou ouvrir la conversation concernée. Dites-moi l’action à faire et le contact visé.`;
@@ -138,7 +138,7 @@ export function buildWepiResponse(message: Pick<CloudMessage, "text">, settings:
       case "calls": return `Pour un appel WAPI, utilisez Audio ou Vidéo puis activez le haut-parleur depuis l’écran d’appel. Les appels de groupe nécessitent une salle média active ; si elle n’est pas disponible, je vous le signale au lieu de simuler des participants.`;
       case "radio": return `La Radio WAPI permet d’écouter un direct, de changer de station et de retrouver les podcasts publiés. Un épisode doit posséder une vraie source audio cloud avant d’être annoncé comme disponible.`;
       case "privacy": return `WAPI garde les messages récents en cache local pour afficher la conversation rapidement, synchronise les données cloud quand la connexion revient et ne présente jamais un cache comme une donnée confirmée. Les messages protégés restent chiffrés côté conversation.`;
-      case "help": return `Je suis Pilotis dans WAPI. Essayez : « comment publier une Story ? », « créer une campagne régionale », « ouvrir un jeu en ligne », « lancer un direct radio » ou « gérer mon groupe ».`;
+      case "help": return `Je suis l’IA de WAPI. Essayez : « comment publier une Story ? », « créer une campagne régionale », « ouvrir un jeu en ligne », « lancer un direct radio » ou « gérer mon groupe ».`;
       default: return `${greeting}${name} J’ai reçu votre demande pour ${business}. ${configuredInstructions} Pour une réponse précise, indiquez l’action WAPI, le contact ou le service concerné. ${tone}`;
     }
   })();

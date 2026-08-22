@@ -24,7 +24,7 @@ class WapiPilotisTest {
         val reply = WapiPilotis.reply("Bonjour", settings, "Cyril Bokilo")
         assertTrue(reply.contains("WEPI"))
         assertTrue(reply.contains("BCA SA"))
-        assertTrue(reply.contains("chatbot Pilotis"))
+        assertTrue(reply.contains("l’IA intégrée à WAPI"))
     }
 
     @Test

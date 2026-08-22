@@ -660,7 +660,7 @@ class WhappyViewModel(
         repository.deleteStatus(user.uid, statusId)
     }
 
-    fun saveWepiSettings(settings: WapiWepiSettings) = runBusinessAction("Les réglages WEPI Pilotis n’ont pas été enregistrés") { user ->
+    fun saveWepiSettings(settings: WapiWepiSettings) = runBusinessAction("Les réglages WEPI n’ont pas été enregistrés") { user ->
         repository.saveWepiSettings(settings.copy(ownerId = user.uid))
     }
 
