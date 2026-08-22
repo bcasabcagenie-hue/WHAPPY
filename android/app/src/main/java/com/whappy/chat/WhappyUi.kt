@@ -83,6 +83,7 @@ import androidx.compose.material.icons.rounded.BusinessCenter
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.EmojiEmotions
@@ -124,6 +125,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -327,6 +329,7 @@ fun WhappyRoot(
     onCloseChannel: () -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
+    onUpdateGroup: (String, String, Uri?, String, Boolean) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
@@ -396,6 +399,7 @@ fun WhappyRoot(
         onCloseChannel = onCloseChannel,
         onCreateChannel = onCreateChannel,
         onCreateGroup = onCreateGroup,
+        onUpdateGroup = onUpdateGroup,
         onSubscribeChannel = onSubscribeChannel,
         onPublishChannelPost = onPublishChannelPost,
         onReactChannelPost = onReactChannelPost,
@@ -826,6 +830,7 @@ private fun WhappyMain(
     onCloseChannel: () -> Unit,
     onCreateChannel: (String, String, String) -> Unit,
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
+    onUpdateGroup: (String, String, Uri?, String, Boolean) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
@@ -966,6 +971,7 @@ private fun WhappyMain(
                     },
                     onTyping = { if (!preview) onTyping(it) },
                     onRetryPending = { if (!preview) onRetryMessages() },
+                    onUpdateGroup = { name, uri, contentType, remove -> if (!preview) onUpdateGroup(selected.id, name, uri, contentType, remove) },
                 )
             } else if (showTwinStudio) {
                 WhappyStudioScreen(
@@ -4039,6 +4045,7 @@ private fun ChatScreen(
     onEdit: (WhappyMessage, String) -> Unit,
     onTyping: (Boolean) -> Unit,
     onRetryPending: () -> Unit,
+    onUpdateGroup: (String, Uri?, String, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val draftPrefs = remember { WhappyFastStorage.preferences(context, "whappy_chat_drafts") }
@@ -4070,6 +4077,14 @@ private fun ChatScreen(
     var chatPositioned by remember(conversation.id) { mutableStateOf(false) }
     var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
     var showPeerProfile by remember(conversation.id) { mutableStateOf(false) }
+    var showGroupEditor by remember(conversation.id) { mutableStateOf(false) }
+    var groupNameDraft by remember(conversation.id) { mutableStateOf(conversation.peer.displayName) }
+    var groupPhotoUri by remember(conversation.id) { mutableStateOf<Uri?>(null) }
+    var removeGroupPhoto by remember(conversation.id) { mutableStateOf(false) }
+    val groupPhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        groupPhotoUri = uri
+        removeGroupPhoto = false
+    }
 
     fun updateDraft(value: String) {
         if (value.length > text.length) WhappySounds.typing(context)
@@ -4228,7 +4243,7 @@ private fun ChatScreen(
         else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (visibleMessages.isEmpty() && searchQuery.isNotBlank()) item { Text("Aucun message ne correspond à « $searchQuery ».", Modifier.padding(24.dp), color = WhappyMuted) }
             itemsIndexed(visibleMessages, key = { _, message -> message.id }) { index, message ->
-                val mine = message.senderId == currentUserId
+                    val mine = message.senderId == currentUserId && message.kind != "system"
                 Column(Modifier.fillMaxWidth()) {
                     if (index == 0 || !isSameDay(message.createdAt, visibleMessages[index - 1].createdAt)) {
                         Text(formatMessageDay(message.createdAt), Modifier.align(Alignment.CenterHorizontally).padding(vertical = 7.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFFD3D3D3)).padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp)
@@ -4239,11 +4254,11 @@ private fun ChatScreen(
                             Spacer(Modifier.width(7.dp))
                         }
                         Surface(
-                            color = if (mine) WapiBubbleOutgoing else Color.White,
+                            color = if (message.kind == "system") Color(0xFFF0F3F6) else if (mine) WapiBubbleOutgoing else Color.White,
                             shape = if (mine) RoundedCornerShape(topStart = 18.dp, topEnd = 5.dp, bottomEnd = 18.dp, bottomStart = 18.dp) else RoundedCornerShape(topStart = 5.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
                             shadowElevation = 1.dp,
                             modifier = Modifier.fillMaxWidth(0.76f).pointerInput(message.id, message.deleted, message.deliveryState) {
-                            detectTapGestures(onLongPress = { if (!message.deleted && message.deliveryState == "sent") selectedMessage = message })
+                                    detectTapGestures(onLongPress = { if (message.kind != "system" && !message.deleted && message.deliveryState == "sent") selectedMessage = message })
                         }) {
                             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                                 if (conversation.isGroup && !mine && message.senderName.isNotBlank()) {
@@ -4269,6 +4284,7 @@ private fun ChatScreen(
                                     "image" -> InlineImageMessage(message.mediaUrl, message.mediaName.ifBlank { "Photo" }, mine) { previewImage = message.mediaUrl }
                                     "video" -> MediaMessageRow(Icons.Rounded.Movie, message.mediaName.ifBlank { "Vidéo WAPI" }, mine) { runCatching { uriHandler.openUri(message.mediaUrl) } }
                                     "deleted" -> Text("Message supprimé", color = WhappyMuted)
+                                    "system" -> Text(message.text, color = WhappyMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                                     else -> MessageLinkText(message.text, mine, actions = actions, onAction = ::handleMessageAction)
                                 }
                                 if (actions.isNotEmpty()) {
@@ -4487,6 +4503,12 @@ private fun ChatScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (conversation.peer.phoneNumber.isNotBlank()) Text(conversation.peer.phoneNumber, color = WhappyDark, fontWeight = FontWeight.SemiBold)
                     Text(if (conversation.isGroup) "Ouvrez les informations du groupe, ses membres et ses médias depuis cette fiche." else "Photo, identité et moyens de contact de ce compte.", color = WhappyMuted, lineHeight = 19.sp)
+                    if (conversation.isGroup && conversation.groupOwnerId == currentUserId) {
+                        OutlinedButton(onClick = { groupNameDraft = conversation.peer.displayName; groupPhotoUri = null; removeGroupPhoto = false; showGroupEditor = true; showPeerProfile = false }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Edit, null)
+                            Text("  Modifier le groupe")
+                        }
+                    }
                     if (!conversation.isGroup && conversation.peer.phoneNumber.isNotBlank()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             OutlinedButton(onClick = { calls?.start(conversation.peer, false); showPeerProfile = false }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Phone, null); Text(" Appeler") }
@@ -4496,6 +4518,33 @@ private fun ChatScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showPeerProfile = false }) { Text("Fermer") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+        )
+    }
+    if (showGroupEditor && conversation.isGroup) {
+        AlertDialog(
+            onDismissRequest = { showGroupEditor = false },
+            title = { Text("Modifier le groupe", color = WhappyDark, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 68.dp, Modifier.align(Alignment.CenterHorizontally))
+                    OutlinedButton(onClick = { groupPhotoPicker.launch(arrayOf("image/jpeg", "image/png", "image/webp")) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Photo, null)
+                        Text(if (groupPhotoUri == null) "Choisir une photo" else "Nouvelle photo sélectionnée")
+                    }
+                    if (conversation.peer.photoUrl.isNotBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = removeGroupPhoto, onCheckedChange = { removeGroupPhoto = it; if (it) groupPhotoUri = null })
+                            Text("Supprimer la photo actuelle", color = WhappyMuted, fontSize = 12.sp)
+                        }
+                    }
+                    OutlinedTextField(value = groupNameDraft, onValueChange = { groupNameDraft = it.take(80) }, modifier = Modifier.fillMaxWidth(), label = { Text("Nom du groupe") }, singleLine = true)
+                    Text("La modification sera publiée comme un événement visible par tous les membres.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                }
+            },
+            confirmButton = { Button(enabled = groupNameDraft.trim().length in 2..80, onClick = { onUpdateGroup(groupNameDraft.trim(), groupPhotoUri, "image/jpeg", removeGroupPhoto); showGroupEditor = false }) { Text("Enregistrer") } },
+            dismissButton = { TextButton(onClick = { showGroupEditor = false }) { Text("Annuler") } },
             containerColor = Color.White,
             shape = RoundedCornerShape(26.dp),
         )

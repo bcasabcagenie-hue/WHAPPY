@@ -940,7 +940,55 @@ class WhappyRepository(
             isGroup = true,
             memberCount = members.size,
             source = "groups",
+            groupOwnerId = current.uid,
         )
+    }
+
+    suspend fun updateGroup(
+        groupId: String,
+        userId: String,
+        actorName: String,
+        name: String,
+        photoUri: Uri? = null,
+        photoContentType: String = "image/jpeg",
+        removePhoto: Boolean = false,
+    ): WhappyConversation {
+        val group = db.collection("groups").document(groupId)
+        val snapshot = group.get().await()
+        val ownerId = snapshot.getString("ownerId").orEmpty()
+        val memberIds = (snapshot.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+        require(ownerId == userId && userId in memberIds)
+        val cleanName = name.trim()
+        require(cleanName.length in 2..80)
+        val oldName = snapshot.getString("name").orEmpty()
+        val changed = buildList {
+            if (cleanName != oldName) add("nom")
+            if (photoUri != null) add("photo")
+            if (removePhoto && snapshot.getString("photoUrl").orEmpty().isNotBlank()) add("photo")
+        }
+        require(changed.isNotEmpty())
+        var photoUrl = snapshot.getString("photoUrl").orEmpty()
+        if (photoUri != null) {
+            val safeContentType = normalizeImageContentType(photoContentType)
+            val extension = when (safeContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
+            val photoRef = storage.reference.child("groups/$groupId/$userId/cover-${UUID.randomUUID()}.$extension")
+            val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
+            photoRef.putFile(photoUri, metadata).await()
+            photoUrl = photoRef.downloadUrl.await().toString()
+        } else if (removePhoto) photoUrl = ""
+        val action = when {
+            changed.contains("nom") && changed.contains("photo") -> "a modifié le nom et la photo du groupe"
+            changed.contains("nom") -> "a renommé le groupe en « $cleanName »"
+            removePhoto -> "a supprimé la photo du groupe"
+            else -> "a changé la photo du groupe"
+        }
+        val eventText = "${actorName.trim().take(80).ifBlank { "Un administrateur" }} $action"
+        val message = group.collection("messages").document()
+        val batch = db.batch()
+        batch.update(group, mapOf("name" to cleanName, "photoUrl" to photoUrl, "lastMessage" to eventText, "updatedAt" to FieldValue.serverTimestamp()))
+        batch.set(message, mapOf("text" to eventText, "senderId" to userId, "senderName" to actorName.trim().take(80).ifBlank { "Administrateur" }, "kind" to "system", "createdAt" to FieldValue.serverTimestamp(), "deleted" to false))
+        batch.commit().await()
+        return WhappyConversation(groupId, WhappyMember(groupId, cleanName, photoUrl = photoUrl), eventText, System.currentTimeMillis(), false, isGroup = true, memberCount = memberIds.size, source = "groups", groupOwnerId = ownerId)
     }
 
     suspend fun setChannelSubscription(channelId: String, userId: String, subscribed: Boolean) {
@@ -1566,6 +1614,7 @@ class WhappyRepository(
             isGroup = true,
             memberCount = ids.size,
             source = "groups",
+            groupOwnerId = getString("ownerId").orEmpty(),
         )
     }
 

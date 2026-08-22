@@ -334,7 +334,10 @@ service cloud.firestore {
               || (request.resource.data.inviteToken is string && request.resource.data.inviteToken.size() == 32))
             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["photoUrl"])
               || request.resource.data.photoUrl is string)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["memberIds", "memberNames", "lastMessage", "inviteToken", "photoUrl", "updatedAt"])));
+            && request.resource.data.name is string
+            && request.resource.data.name.size() >= 2
+            && request.resource.data.name.size() <= 80
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "memberIds", "memberNames", "lastMessage", "inviteToken", "photoUrl", "updatedAt"])));
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /messages/{messageId} {

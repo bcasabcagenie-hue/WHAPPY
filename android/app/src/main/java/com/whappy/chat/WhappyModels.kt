@@ -36,6 +36,7 @@ data class WhappyConversation(
     val isGroup: Boolean = false,
     val memberCount: Int = 2,
     val source: String = "conversations",
+    val groupOwnerId: String = "",
 )
 
 data class WhappyContact(

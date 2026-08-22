@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
                     onCloseChannel = model::closeChannel,
                     onCreateChannel = model::createChannel,
                     onCreateGroup = model::createGroup,
+                    onUpdateGroup = model::updateGroup,
                     onSubscribeChannel = model::setChannelSubscription,
                     onPublishChannelPost = model::publishChannelPost,
                     onReactChannelPost = model::reactToChannelPost,

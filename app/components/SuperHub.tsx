@@ -14,13 +14,14 @@ type BookContact = { name: string; mark: string; note: string; online: boolean; 
 type PhoneBookEntry = { name?: string[]; tel?: string[] };
 type ContactPickerNavigator = Navigator & { contacts?: { select: (properties: string[], options?: { multiple?: boolean }) => Promise<PhoneBookEntry[]> } };
 
-export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, onCreateGroup, onMessage, onCall, notify }: {
+export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, onCreateGroup, onMessage, onCall, onUpdateGroup, notify }: {
   search: string;
   cloud: boolean;
   userId: string;
   userName: string;
   cloudGroups: CloudGroup[];
   onCreateGroup: (name: string, description: string, members: string[], kind?: "community" | "business", photo?: File | null) => Promise<boolean>;
+  onUpdateGroup: (group: CloudGroup, changes: { name: string; photo?: File | null; removePhoto?: boolean }) => Promise<boolean>;
   onMessage: (contact: { name: string; phone?: string }) => void;
   onCall: (name: string) => void;
   notify: (text: string) => void;
@@ -34,6 +35,11 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
   const [groupMessages,setGroupMessages]=useState<Record<string,CloudGroupMessage[]>>({});
   const [groupText,setGroupText]=useState("");
   const [groupInfo,setGroupInfo]=useState(false);
+  const [groupEditor,setGroupEditor]=useState(false);
+  const [groupNameDraft,setGroupNameDraft]=useState("");
+  const [groupEditFile,setGroupEditFile]=useState<File|null>(null);
+  const [groupEditPreview,setGroupEditPreview]=useState("");
+  const [removeGroupPhoto,setRemoveGroupPhoto]=useState(false);
   const [notificationsEnabled,setNotificationsEnabled]=useState(true);
   const [activities,setActivities]=useState<Record<string,CloudGroupActivity[]>>({});
   const [groupView,setGroupView]=useState<"chat"|"activities">("chat");
@@ -46,7 +52,7 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
   useEffect(()=>{notifyRef.current=notify;},[notify]);
   const visible = useMemo(() => contactList.filter((contact) => `${contact.name} ${contact.note}`.toLowerCase().includes(search.toLowerCase())), [contactList, search]);
   const groups = useMemo(() => {
-    const synced = cloudGroups.map((group) => ({ id: group.id, name: group.name, mark: group.mark, photoUrl: group.photoUrl, kind: group.kind || "community", note: `${group.memberNames.length + 1} membre${group.memberNames.length ? "s" : ""} · ${group.description || "Groupe Whappy"}`, description:group.description, memberNames:group.memberNames }));
+    const synced = cloudGroups.map((group) => ({ id: group.id, name: group.name, mark: group.mark, photoUrl: group.photoUrl, ownerId: group.ownerId, memberIds: group.memberIds, inviteToken: group.inviteToken, kind: group.kind || "community", note: `${group.memberNames.length + 1} membre${group.memberNames.length ? "s" : ""} · ${group.description || "Groupe Whappy"}`, description:group.description, memberNames:group.memberNames }));
     return synced;
   }, [cloudGroups]);
   const currentGroup=groups.find((group)=>group.id===selectedGroup)||groups[0];
@@ -73,6 +79,27 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
   }
 
   async function publishActivity(activity:ActivityDraft){if(!currentGroup)return;setBusy(true);try{const created=userId&&cloudGroups.some((group)=>group.id===currentGroup.id)?await createGroupActivity(currentGroup.id,userId,userName,activity):{...activity,id:`local-activity-${Date.now()}`,creatorId:userId||"local",creatorName:userName,createdAt:null};setActivities((current)=>({...current,[currentGroup.id]:[created,...(current[currentGroup.id]||[])]}));setGroupView("activities");notify(activity.type==="poll"?"Sondage publié":activity.type==="event"?"Événement publié":"Annonce publiée");}catch{notify("La publication n’a pas pu être créée.");}finally{setBusy(false);}}
+
+  async function saveGroupDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentGroup || !groupNameDraft.trim() || busy) return;
+    setBusy(true);
+    try {
+      if (cloud && userId) {
+        const updated = await onUpdateGroup(currentGroup as CloudGroup, { name: groupNameDraft, photo: groupEditFile, removePhoto: removeGroupPhoto });
+        if (!updated) return;
+      } else {
+        notify("Connectez-vous pour synchroniser les modifications du groupe.");
+        return;
+      }
+      setGroupEditor(false);
+      setGroupInfo(false);
+      setGroupEditFile(null);
+      setGroupEditPreview("");
+      setRemoveGroupPhoto(false);
+      notify("Les informations du groupe sont synchronisées pour tous les membres.");
+    } finally { setBusy(false); }
+  }
 
   async function createEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -142,11 +169,13 @@ export function ContactsSpace({ search, cloud, userId, userName, cloudGroups, on
       </main>
     </div>
     {tab === "groups" && <div className="business-group-callout"><div><small>WHAPPY BUSINESS</small><strong>Un espace séparé pour vos équipes</strong><span>Les groupes Business ont leurs membres, rôles et communications professionnelles distincts.</span></div><button onClick={() => { setBusinessGroupMode(true); setCreator("group"); }}>＋ Créer un groupe Business</button></div>}
-    {creator && <div className="contact-create-layer"><button className="contact-create-dismiss" onClick={() => { setCreator(null); setGroupPhotoPreview(""); }} aria-label="Fermer"/><form onSubmit={createEntry}><header><div><small>CARNET WHAPPY</small><h3>{creator === "group" ? "Créer un groupe" : "Ajouter un contact"}</h3></div><button type="button" onClick={() => { setCreator(null); setGroupPhotoPreview(""); }}>×</button></header>{creator==="group"&&<label className={`group-photo-picker ${groupPhotoPreview?"selected":""}`}><span style={groupPhotoPreview?{backgroundImage:`url(${groupPhotoPreview})`}:undefined}>{groupPhotoPreview?"":"◎"}</span><div><strong>{groupPhotoPreview?"Photo prête":"Ajouter la photo du groupe"}</strong><small>PNG, JPG ou WebP · 8 Mo maximum</small></div><b>＋</b><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event)=>{const file=event.target.files?.[0];if(!file){setGroupPhotoPreview("");return;}if(file.size>8*1024*1024){event.target.value="";notify("La photo du groupe doit faire moins de 8 Mo");return;}setGroupPhotoPreview(URL.createObjectURL(file));}}/></label>}<label>{creator === "group" ? "Nom du groupe" : "Nom complet"}<input name="name" required placeholder={creator === "group" ? "Ex. Équipe projet" : "Ex. Grâce M."}/></label>{creator === "contact" ? <label>Numéro ou Whappy ID<input name="phone" required inputMode="tel" placeholder="+242 06…"/></label> : <><label>Description<input name="description" placeholder="Ex. Coordination du projet"/></label><label>Membres à inviter<input name="members" placeholder="Noms séparés par des virgules"/></label></>}<p>{creator === "group" ? cloud ? "Le groupe et sa photo seront synchronisés avec votre compte Whappy." : "Le groupe restera disponible sur cet appareil en mode démonstration." : "Seuls les contacts que vous ajoutez apparaissent ici."}</p><button className="contact-create-submit" disabled={busy}>{busy ? "Création…" : creator === "group" ? "Créer le groupe →" : "Ajouter le contact →"}</button></form></div>}
+    {creator && <div className="contact-create-layer"><button className="contact-create-dismiss" onClick={() => { setCreator(null); setGroupPhotoPreview(""); }} aria-label="Fermer"/><form onSubmit={createEntry}><header><div><small>CARNET WHAPPY</small><h3>{creator === "group" ? "Créer un groupe" : "Ajouter un contact"}</h3></div><button type="button" onClick={() => { setCreator(null); setGroupPhotoPreview(""); }}>×</button></header>{creator==="group"&&<label className={`group-photo-picker ${groupPhotoPreview?"selected":""}`}><span style={groupPhotoPreview?{backgroundImage:`url(${groupPhotoPreview})`}:undefined}>{groupPhotoPreview?"":"◎"}</span><div><strong>{groupPhotoPreview?"Photo prête":"Ajouter la photo du groupe"}</strong><small>PNG, JPG ou WebP · 8 Mo maximum</small></div><b>＋</b><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event)=>{const file=event.target.files?.[0];if(!file){setGroupPhotoPreview("");return;}if(file.size>8*1024*1024){event.target.value="";notify("La photo du groupe doit faire moins de 8 Mo");return;}setGroupPhotoPreview(URL.createObjectURL(file));}}/></label>}<label>{creator === "group" ? "Nom du groupe" : "Nom complet"}<input name="name" required placeholder={creator === "group" ? "Ex. Équipe projet" : "Ex. Grâce M."}/></label>{creator === "contact" ? <label>Numéro ou Whappy ID<input name="phone" required inputMode="tel" placeholder="+242 06…"/></label> : <><label>Description<input name="description" placeholder="Ex. Coordination du projet"/></label><label>Membres à inviter<input name="members" placeholder="Noms séparés par des virgules"/></label></>}<p>{creator === "group" ? cloud ? "Le groupe et sa photo seront synchronisés avec votre compte Whappy." : "Le groupe restera disponible sur cet appareil en mode aperçu." : "Seuls les contacts que vous ajoutez apparaissent ici."}</p><button className="contact-create-submit" disabled={busy}>{busy ? "Création…" : creator === "group" ? "Créer le groupe →" : "Ajouter le contact →"}</button></form></div>}
+    {groupEditor && currentGroup && <div className="contact-create-layer"><button className="contact-create-dismiss" onClick={()=>setGroupEditor(false)} aria-label="Fermer"/><form onSubmit={saveGroupDetails}><header><div><small>ADMINISTRATION DU GROUPE</small><h3>Modifier le groupe</h3></div><button type="button" onClick={()=>setGroupEditor(false)}>×</button></header><label className={`group-photo-picker ${groupEditPreview?"selected":""}`}><span style={groupEditPreview?{backgroundImage:`url(${groupEditPreview})`}:currentGroup.photoUrl?{backgroundImage:`url(${currentGroup.photoUrl})`}:undefined}>{groupEditPreview||currentGroup.photoUrl?"":"◎"}</span><div><strong>{groupEditPreview?"Nouvelle photo prête":currentGroup.photoUrl?"Photo actuelle":"Ajouter une photo"}</strong><small>La modification sera journalisée dans la discussion.</small></div><b>＋</b><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event)=>{const file=event.target.files?.[0]||null;setGroupEditFile(file);setRemoveGroupPhoto(false);setGroupEditPreview(file?URL.createObjectURL(file):"");}}/></label><label>Nom du groupe<input value={groupNameDraft} onChange={(event)=>setGroupNameDraft(event.target.value)} maxLength={80} required/></label>{currentGroup.photoUrl&&<label className="group-remove-photo"><input type="checkbox" checked={removeGroupPhoto} onChange={(event)=>{setRemoveGroupPhoto(event.target.checked);if(event.target.checked){setGroupEditFile(null);setGroupEditPreview("");}}}/> Supprimer la photo actuelle</label>}<p>Seul l’administrateur peut modifier ces informations. Tous les membres voient l’événement dans le salon.</p><button className="contact-create-submit" disabled={busy}>{busy?"Synchronisation…":"Enregistrer les changements →"}</button></form></div>}
     {tab==="groups"&&currentGroup&&<div className={`community-drawer ${groupView==="activities"?"open":""}`}><button className="community-toggle" onClick={()=>setGroupView((view)=>view==="chat"?"activities":"chat")}>{groupView==="chat"?`✦ Communauté · ${(activities[currentGroup.id]||[]).length}`:"× Retour au salon"}</button>{groupView==="activities"&&<GroupActivities groupId={currentGroup.id} userId={userId} cloud={cloudGroups.some((group)=>group.id===currentGroup.id)} items={activities[currentGroup.id]||[]} busy={busy} onCreate={publishActivity} notify={notify}/>}</div>}
     {tab==="groups"&&currentGroup&&<GroupJoinRequests ownerId={userId} groupId={currentGroup.id} groupName={currentGroup.name} enabled={cloudGroups.some((group)=>group.id===currentGroup.id&&group.ownerId===userId)} notify={notify}/>}
     {tab === "groups" && <section className="groups-account-index" aria-label="Types de groupes Whappy"><header><div><small>ARCHITECTURE DES ESPACES</small><strong>Deux façons de travailler ensemble</strong></div><span>{cloudGroups.length} espace{cloudGroups.length > 1 ? "s" : ""}</span></header><div><article><span className="group-index-icon community">◎</span><div><strong>Communautés normales</strong><small>Famille, amis, projets et échanges ouverts.</small></div><b>{cloudGroups.filter((group) => group.kind !== "business").length}</b></article><article><span className="group-index-icon business">▥</span><div><strong>Groupes Business</strong><small>Équipes, rôles, clients et communications professionnelles.</small></div><b>{cloudGroups.filter((group) => group.kind === "business").length}</b></article></div></section>}
     {groupInvite&&<GroupInvitePanel groupName={groupInvite.name} link={groupInvite.link} onClose={()=>setGroupInvite(null)}/>}
+    {groupInfo&&currentGroup&&currentGroup.ownerId===userId&&<button className="group-info-edit-launch" onClick={()=>{setGroupNameDraft(currentGroup.name);setGroupEditFile(null);setGroupEditPreview("");setRemoveGroupPhoto(false);setGroupEditor(true);}} aria-label="Modifier les informations du groupe">Modifier</button>}
   </div>;
 }
 

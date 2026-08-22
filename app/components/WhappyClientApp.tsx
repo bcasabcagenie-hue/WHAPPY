@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { browserLocalPersistence, ConfirmationResult, onAuthStateChanged, RecaptchaVerifier, setPersistence, signInWithPhoneNumber, signOut, updateProfile } from "firebase/auth";
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
-import { cancelOrder, createGroup, createOrder, findWhappyUserById, publishListing, publishRequest, removeListing, requestGroupJoin, sendConversationMessage, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, watchWhappyUsersById, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
+import { cancelOrder, createGroup, createOrder, findWhappyUserById, publishListing, publishRequest, removeListing, requestGroupJoin, sendConversationMessage, updateGroupDetails, updateListing, watchConversationMessages, watchUserGroups, watchUserOrders, watchWhappyData, watchWhappyUsersById, type CloudGroup, type CloudMessage, type CloudOrder } from "@/lib/whappy-data";
 import { callingCountries } from "@/lib/countries";
 import { playMediaAddedSound, playOfferSuccessSound } from "@/lib/whappy-sounds";
 
@@ -567,6 +567,19 @@ export default function Home() {
     }
   }
 
+  async function updateTrackedGroup(group: CloudGroup, changes: { name: string; photo?: File | null; removePhoto?: boolean }) {
+    try {
+      if (!userId) return false;
+      const updated = await updateGroupDetails(group, userId, auth.currentUser?.displayName || profileName || "Administrateur", changes);
+      setGroups((current) => current.map((item) => item.id === group.id ? { ...item, ...updated } : item));
+      return true;
+    } catch {
+      setSyncStatus("offline");
+      notify("La modification du groupe n’a pas pu être synchronisée.");
+      return false;
+    }
+  }
+
   async function submitModal(event: FormEvent) {
     event.preventDefault();
     const form = new FormData(event.currentTarget as HTMLFormElement);
@@ -855,7 +868,7 @@ export default function Home() {
       {space === "seek" && <SeekSpace setModal={setModal} notify={notify} items={[...customRequests, ...requests]} />}
       {space === "inbox" && (userId ? <RealTimeInbox key={directCompose} embedded composeToken={directCompose} composePhone={directPhone} composePeer={directPeer} search={search} user={directUser} founder={founderProfile} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <InboxSpace search={search} userId={userId} offer={demoOffer} initialContact={demoContactName} setModal={setModal} notify={notify} onCall={(contact,video)=>setCall({contact,video})} />)}
       {space === "calls" && (userId ? <RealTimeInbox key={`calls-${directCompose}`} embedded initialView="calls" search={search} user={directUser} founder={founderProfile} notify={notify} onCall={(peer,video)=>setCall({contact:peer.displayName,video,peer})}/> : <CallsPreviewSpace search={search} onCall={(contact,video)=>setCall({contact,video})} onMessages={()=>go("inbox")}/>)}
-      {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} notify={notify} onCall={(contact)=>setCall({contact,video:false})} onMessage={(contact)=>{setDirectPeer(null);setDirectPhone(contact.phone||"");setDirectCompose((value)=>value+1);go("inbox");notify(contact.phone?`Ouverture de la conversation avec ${contact.name}`:`Entrez le numéro Wapi de ${contact.name}`)}} />}
+      {space === "contacts" && <ContactsSpace search={search} cloud={Boolean(userId)} userId={userId} userName={auth.currentUser?.displayName||profileName||"Vous"} cloudGroups={groups} onCreateGroup={createTrackedGroup} onUpdateGroup={updateTrackedGroup} notify={notify} onCall={(contact)=>{if (contact.includes("appel de groupe")) notify("Appel de groupe : le transport média SFU WAPI doit être activé avant de connecter plusieurs appareils."); else setCall({contact,video:false})}} onMessage={(contact)=>{setDirectPeer(null);setDirectPhone(contact.phone||"");setDirectCompose((value)=>value+1);go("inbox");notify(contact.phone?`Ouverture de la conversation avec ${contact.name}`:`Entrez le numéro Wapi de ${contact.name}`)}} />}
       {space === "rooms" && <RoomsSpace userId={userId||"demo-user"} userName={accountName} search={search} cloud={Boolean(userId)} notify={notify} />}
       <RadioStudio
         active={space === "radio"}

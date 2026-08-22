@@ -174,6 +174,23 @@ class WhappyViewModel(
         }
     }
 
+    fun updateGroup(groupId: String, name: String, photoUri: Uri?, photoContentType: String, removePhoto: Boolean) {
+        val user = _uiState.value.user ?: return
+        val conversation = _uiState.value.selectedConversation?.takeIf { it.id == groupId && it.isGroup } ?: return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.updateGroup(groupId, user.uid, accountName(), name, photoUri, photoContentType, removePhoto) }
+                .onSuccess { updated ->
+                    _uiState.update { current -> current.copy(actionBusy = false, selectedConversation = updated, conversations = current.conversations.map { if (it.id == updated.id) updated else it }, online = true) }
+                }
+                .onFailure { error ->
+                    val message = if (error is IllegalArgumentException) "Le nom ou la photo du groupe est invalide" else "La modification du groupe n’a pas pu être synchronisée"
+                    _uiState.update { it.copy(actionBusy = false, error = message) }
+                }
+        }
+    }
+
     fun setChannelSubscription(channelId: String, subscribed: Boolean) {
         val user = _uiState.value.user ?: return
         viewModelScope.launch {

@@ -485,6 +485,35 @@ export async function createGroup(userId: string, name: string, description: str
   return { ...payload, id: document.id, photoUrl: photoUrl || undefined, createdAt: null } satisfies CloudGroup;
 }
 
+export async function updateGroupDetails(group: CloudGroup, userId: string, actorName: string, changes: { name: string; photo?: File | null; removePhoto?: boolean }) {
+  if (group.ownerId !== userId) throw new Error("not-group-owner");
+  const name = changes.name.trim();
+  if (name.length < 2 || name.length > 80) throw new Error("invalid-group-name");
+  const groupRef = doc(db, "groups", group.id);
+  const eventParts: string[] = [];
+  const payload: Record<string, unknown> = { name, updatedAt: serverTimestamp() };
+  if (name !== group.name.trim()) eventParts.push(`a renommé le groupe en « ${name} »`);
+  if (changes.removePhoto) {
+    payload.photoUrl = "";
+    eventParts.push("a supprimé la photo du groupe");
+  } else if (changes.photo) {
+    if (!/^image\/(jpeg|png|webp)$/.test(changes.photo.type) || changes.photo.size > 8 * 1024 * 1024) throw new Error("invalid-group-photo");
+    const extension = changes.photo.type.split("/")[1].replace("jpeg", "jpg");
+    const fileRef = ref(storage, `groups/${group.id}/${userId}/cover-${crypto.randomUUID()}.${extension}`);
+    await uploadBytes(fileRef, changes.photo, { contentType: changes.photo.type });
+    payload.photoUrl = await getDownloadURL(fileRef);
+    eventParts.push("a changé la photo du groupe");
+  }
+  if (!eventParts.length) return { ...group, name } satisfies CloudGroup;
+  const messageRef = doc(collection(db, "groups", group.id, "messages"));
+  const eventText = `${actorName.trim().slice(0, 80) || "Un administrateur"} ${eventParts.join(" et ")}`;
+  const batch = writeBatch(db);
+  batch.update(groupRef, { ...payload, lastMessage: eventText });
+  batch.set(messageRef, { text: eventText, senderId: userId, senderName: actorName.trim().slice(0, 80) || "Administrateur", kind: "system", createdAt: serverTimestamp() });
+  await batch.commit();
+  return { ...group, ...payload, lastMessage: eventText, name, photoUrl: typeof payload.photoUrl === "string" ? payload.photoUrl : group.photoUrl } satisfies CloudGroup;
+}
+
 function newInviteToken() {
   return crypto.randomUUID().replace(/-/g, "");
 }
