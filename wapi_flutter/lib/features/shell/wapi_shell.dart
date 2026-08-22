@@ -1160,32 +1160,34 @@ class _ContactsPage extends StatelessWidget {
         ),
       ],
     ),
-    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .limit(80)
-          .snapshots(),
+    body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: repository.profile(user.uid),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const _StateMessage(
             icon: Icons.cloud_off_outlined,
             title: 'Contacts indisponibles',
-            body: 'WAPI ne peut pas charger les profils pour le moment.',
+            body: 'WAPI ne peut pas charger votre carnet pour le moment.',
           );
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final contacts = snapshot.data!.docs
-            .where((doc) => doc.id != user.uid)
-            .toList();
-        if (contacts.isEmpty) {
-          return const _StateMessage(
-            icon: Icons.person_add_alt_1_outlined,
-            title: 'Aucun contact trouvé',
-            body: 'Les personnes présentes sur WAPI apparaîtront ici.',
-          );
-        }
+        final contactMap = Map<String, dynamic>.from(
+          snapshot.data?.data()?['contacts'] as Map? ?? const {},
+        );
+        final contacts =
+            contactMap.entries.map((entry) {
+              final value = Map<String, dynamic>.from(
+                entry.value as Map? ?? const {},
+              );
+              value['uid'] = entry.key;
+              return value;
+            }).toList()..sort(
+              (left, right) => (left['displayName'] ?? '').toString().compareTo(
+                (right['displayName'] ?? '').toString(),
+              ),
+            );
         return ListView.builder(
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: contacts.length + 1,
@@ -1200,8 +1202,8 @@ class _ContactsPage extends StatelessWidget {
                 ),
               );
             }
-            final doc = contacts[index - 1];
-            final item = doc.data();
+            final item = contacts[index - 1];
+            final uid = item['uid'] as String;
             final name =
                 ((item['displayName'] as String?)?.trim().isNotEmpty == true
                 ? item['displayName'] as String
@@ -1227,7 +1229,7 @@ class _ContactsPage extends StatelessWidget {
               trailing: const Icon(Icons.chat_bubble_outline),
               onTap: () => _openContact(
                 context,
-                uid: doc.id,
+                uid: uid,
                 name: name,
                 phone: phone,
                 photoUrl: (item['photoUrl'] as String?) ?? '',
@@ -1271,6 +1273,7 @@ class _ContactsPage extends StatelessWidget {
               avatarUrl: photoUrl,
               memberNames: {user.uid: user.displayName ?? 'Vous', uid: name},
               memberPhotoUrls: {user.uid: user.photoURL ?? '', uid: photoUrl},
+              ownerId: user.uid,
             ),
           ),
         ),
@@ -1636,17 +1639,12 @@ class _InboxPage extends StatelessWidget {
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
           height: MediaQuery.sizeOf(sheetContext).height * .78,
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .limit(100)
-                .snapshots(),
+          child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: repository.profile(user.uid),
             builder: (context, snapshot) {
-              final contacts =
-                  snapshot.data?.docs
-                      .where((doc) => doc.id != user.uid)
-                      .toList() ??
-                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final contacts = _savedContacts(
+                snapshot.data?.data()?['contacts'] as Map?,
+              );
               return StatefulBuilder(
                 builder: (context, setSheetState) => Column(
                   children: [
@@ -1678,21 +1676,16 @@ class _InboxPage extends StatelessWidget {
                               itemCount: contacts.length,
                               itemBuilder: (_, index) {
                                 final contact = contacts[index];
-                                final data = contact.data();
                                 final name =
-                                    (data['displayName'] as String?)
-                                            ?.trim()
-                                            .isNotEmpty ==
-                                        true
-                                    ? data['displayName'] as String
-                                    : (data['phoneNumber'] as String?) ??
-                                          'Membre WAPI';
+                                    contact['displayName'] ??
+                                    contact['phoneNumber'] ??
+                                    'Membre WAPI';
                                 return CheckboxListTile(
-                                  value: selected.contains(contact.id),
+                                  value: selected.contains(contact['uid']),
                                   onChanged: (value) => setSheetState(() {
                                     value == true
-                                        ? selected.add(contact.id)
-                                        : selected.remove(contact.id);
+                                        ? selected.add(contact['uid']!)
+                                        : selected.remove(contact['uid']);
                                   }),
                                   title: Text(name),
                                 );
@@ -1708,26 +1701,14 @@ class _InboxPage extends StatelessWidget {
                               ? null
                               : () async {
                                   final members = contacts
-                                      .where((doc) => selected.contains(doc.id))
-                                      .map((doc) {
-                                        final data = doc.data();
-                                        return <String, String>{
-                                          'uid': doc.id,
-                                          'displayName':
-                                              (data['displayName']
-                                                  as String?) ??
-                                              (data['phoneNumber']
-                                                  as String?) ??
-                                              'Membre WAPI',
-                                          'phoneNumber':
-                                              (data['phoneNumber']
-                                                  as String?) ??
-                                              '',
-                                          'photoUrl':
-                                              (data['photoUrl'] as String?) ??
-                                              '',
-                                        };
-                                      })
+                                      .where(
+                                        (contact) =>
+                                            selected.contains(contact['uid']),
+                                      )
+                                      .map(
+                                        (contact) =>
+                                            Map<String, String>.from(contact),
+                                      )
                                       .toList();
                                   try {
                                     await repository.createGroup(
@@ -2674,89 +2655,313 @@ class _ChatPageState extends State<_ChatPage> {
   }
 
   Future<void> _editGroup() async {
+    final groupSnapshot = await FirebaseFirestore.instance
+        .collection('conversations')
+        .doc(widget.conversation.id)
+        .get();
+    if (!mounted || !groupSnapshot.exists) return;
+    final group = groupSnapshot.data() ?? const <String, dynamic>{};
+    final owner = group['ownerId'] == widget.user.uid;
+    final members = List<Map<String, dynamic>>.from(
+      (group['members'] as List? ?? const []).whereType<Map>().map(
+        (member) => Map<String, dynamic>.from(member),
+      ),
+    );
     final title = TextEditingController(text: widget.conversation.title);
+    final existingPhotoUrl = (group['groupPhotoUrl'] as String?) ?? '';
     File? photo;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Informations du groupe',
-                style: Theme.of(sheetContext).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+        builder: (context, setSheetState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * .84,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
               ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: () async {
-                  final image = await _picker.pickImage(
-                    source: ImageSource.gallery,
-                    imageQuality: 92,
-                  );
-                  if (image != null) {
-                    setSheetState(() => photo = File(image.path));
-                  }
-                },
-                borderRadius: BorderRadius.circular(42),
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: WapiColors.blueSoft,
-                  backgroundImage: photo == null ? null : FileImage(photo!),
-                  child: photo == null
-                      ? const Icon(
-                          Icons.add_a_photo_outlined,
-                          color: WapiColors.blue,
-                        )
-                      : null,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: title,
-                maxLength: 80,
-                decoration: const InputDecoration(labelText: 'Nom du groupe'),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: () async {
-                    try {
-                      await widget.repository.updateGroupDetails(
-                        user: widget.user,
-                        conversationId: widget.conversation.id,
-                        title: title.text,
-                        photo: photo,
+              child: Column(
+                children: [
+                  Text(
+                    'Informations du groupe',
+                    style: Theme.of(sheetContext).textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () async {
+                      final image = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 92,
                       );
-                      if (sheetContext.mounted) Navigator.pop(sheetContext);
-                    } catch (error) {
-                      if (sheetContext.mounted) {
-                        ScaffoldMessenger.of(sheetContext).showSnackBar(
-                          SnackBar(
-                            content: Text('Modification impossible : $error'),
-                          ),
-                        );
+                      if (image != null) {
+                        setSheetState(() => photo = File(image.path));
                       }
-                    }
-                  },
-                  child: const Text('Enregistrer'),
-                ),
+                    },
+                    borderRadius: BorderRadius.circular(42),
+                    child: CircleAvatar(
+                      radius: 40,
+                      backgroundColor: WapiColors.blueSoft,
+                      backgroundImage: photo != null
+                          ? FileImage(photo!)
+                          : existingPhotoUrl.isNotEmpty
+                          ? NetworkImage(existingPhotoUrl)
+                          : null,
+                      child: photo == null && existingPhotoUrl.isEmpty
+                          ? const Icon(
+                              Icons.add_a_photo_outlined,
+                              color: WapiColors.blue,
+                            )
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: title,
+                    maxLength: 80,
+                    decoration: const InputDecoration(
+                      labelText: 'Nom du groupe',
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${members.length} membre${members.length > 1 ? 's' : ''}',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      if (owner)
+                        TextButton.icon(
+                          onPressed: () async {
+                            final selected = await _selectGroupMembers(
+                              members
+                                  .map((member) => member['uid'].toString())
+                                  .toSet(),
+                            );
+                            if (selected.isEmpty) return;
+                            try {
+                              await widget.repository.manageGroupMembers(
+                                conversationId: widget.conversation.id,
+                                action: 'add',
+                                memberIds: selected
+                                    .map((member) => member['uid']!)
+                                    .toList(),
+                              );
+                              if (sheetContext.mounted) {
+                                setSheetState(() => members.addAll(selected));
+                              }
+                            } catch (error) {
+                              if (sheetContext.mounted) {
+                                ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Ajout impossible : $error'),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.person_add_alt_1_outlined),
+                          label: const Text('Ajouter'),
+                        ),
+                    ],
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: members.length,
+                      itemBuilder: (context, index) {
+                        final member = members[index];
+                        final uid = member['uid']?.toString() ?? '';
+                        final name =
+                            member['displayName']?.toString() ?? 'Membre WAPI';
+                        final photoUrl = member['photoUrl']?.toString() ?? '';
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: WapiColors.blueSoft,
+                            backgroundImage: photoUrl.isEmpty
+                                ? null
+                                : NetworkImage(photoUrl),
+                            child: photoUrl.isEmpty
+                                ? Text(name.substring(0, 1).toUpperCase())
+                                : null,
+                          ),
+                          title: Text(name),
+                          subtitle: Text(
+                            uid == group['ownerId'] ? 'Propriétaire' : 'Membre',
+                          ),
+                          trailing: owner && uid != widget.user.uid
+                              ? IconButton(
+                                  onPressed: () async {
+                                    try {
+                                      await widget.repository
+                                          .manageGroupMembers(
+                                            conversationId:
+                                                widget.conversation.id,
+                                            action: 'remove',
+                                            memberIds: [uid],
+                                          );
+                                      if (sheetContext.mounted) {
+                                        setSheetState(
+                                          () => members.removeAt(index),
+                                        );
+                                      }
+                                    } catch (error) {
+                                      if (sheetContext.mounted) {
+                                        ScaffoldMessenger.of(
+                                          sheetContext,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Retrait impossible : $error',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(
+                                    Icons.person_remove_outlined,
+                                  ),
+                                  tooltip: 'Retirer du groupe',
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: () async {
+                        try {
+                          await widget.repository.updateGroupDetails(
+                            user: widget.user,
+                            conversationId: widget.conversation.id,
+                            title: title.text,
+                            photo: photo,
+                          );
+                          if (sheetContext.mounted) Navigator.pop(sheetContext);
+                        } catch (error) {
+                          if (sheetContext.mounted) {
+                            ScaffoldMessenger.of(sheetContext).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Modification impossible : $error',
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      child: const Text('Enregistrer'),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
     title.dispose();
+  }
+
+  Future<List<Map<String, String>>> _selectGroupMembers(
+    Set<String> existingIds,
+  ) async {
+    final selected = <String>{};
+    final result = await showModalBottomSheet<List<Map<String, String>>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * .72,
+          child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: widget.repository.profile(widget.user.uid),
+            builder: (context, snapshot) {
+              final contacts =
+                  _savedContacts(snapshot.data?.data()?['contacts'] as Map?)
+                      .where((contact) => !existingIds.contains(contact['uid']))
+                      .toList();
+              return StatefulBuilder(
+                builder: (context, setSheetState) => Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+                      child: Text(
+                        'Ajouter des membres',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: !snapshot.hasData
+                          ? const Center(child: CircularProgressIndicator())
+                          : contacts.isEmpty
+                          ? const _StateMessage(
+                              icon: Icons.people_outline,
+                              title: 'Aucun nouveau contact',
+                              body: 'Ajoutez d’abord des contacts WAPI.',
+                            )
+                          : ListView.builder(
+                              itemCount: contacts.length,
+                              itemBuilder: (context, index) {
+                                final contact = contacts[index];
+                                final name =
+                                    contact['displayName'] ??
+                                    contact['phoneNumber'] ??
+                                    'Membre WAPI';
+                                return CheckboxListTile(
+                                  value: selected.contains(contact['uid']),
+                                  onChanged: (checked) => setSheetState(() {
+                                    checked == true
+                                        ? selected.add(contact['uid']!)
+                                        : selected.remove(contact['uid']);
+                                  }),
+                                  title: Text(name),
+                                );
+                              },
+                            ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: selected.isEmpty
+                              ? null
+                              : () => Navigator.of(sheetContext).pop(
+                                  contacts
+                                      .where(
+                                        (contact) =>
+                                            selected.contains(contact['uid']),
+                                      )
+                                      .map(
+                                        (contact) =>
+                                            Map<String, String>.from(contact),
+                                      )
+                                      .toList(),
+                                ),
+                          child: const Text('Ajouter au groupe'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    return result ?? const <Map<String, String>>[];
   }
 
   String _formatLastSeen(DateTime date) {
@@ -3500,10 +3705,21 @@ class _LivePage extends StatelessWidget {
   );
 }
 
-class _ProfilePage extends StatelessWidget {
+class _ProfilePage extends StatefulWidget {
   const _ProfilePage({required this.user, required this.repository});
   final User user;
   final WapiRepository repository;
+  @override
+  State<_ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<_ProfilePage> {
+  User get user => widget.user;
+  WapiRepository get repository => widget.repository;
+  File? _pendingPhoto;
+  String? _uploadedPhotoUrl;
+  bool _uploadingPhoto = false;
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: const _WapiAppBar(title: 'Profil', subtitle: 'Compte et réglages'),
@@ -3518,7 +3734,12 @@ class _ProfilePage extends StatelessWidget {
                   : 'Mon compte WAPI');
         final phone =
             (data['phoneNumber'] as String?) ?? user.phoneNumber ?? '';
-        final photoUrl = (data['photoUrl'] as String?) ?? user.photoURL ?? '';
+        final photoUrl =
+            _uploadedPhotoUrl ??
+            (data['photoUrl'] as String?) ??
+            user.photoURL ??
+            '';
+        final hasPhoto = _pendingPhoto != null || photoUrl.isNotEmpty;
         final isFounder =
             phone.replaceAll(RegExp(r'[^0-9+]'), '') == '+242065465808';
         return ListView(
@@ -3534,19 +3755,28 @@ class _ProfilePage extends StatelessWidget {
                     radius: 28,
                     backgroundColor: WapiColors.blueSoft,
                     foregroundColor: WapiColors.blue,
-                    backgroundImage: photoUrl.isEmpty
+                    backgroundImage: _pendingPhoto != null
+                        ? FileImage(_pendingPhoto!)
+                        : photoUrl.isEmpty
                         ? null
                         : NetworkImage(photoUrl),
-                    child: photoUrl.isEmpty
+                    child: !hasPhoto
                         ? Text(
                             name.substring(0, 1).toUpperCase(),
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           )
-                        : const Align(
+                        : Align(
                             alignment: Alignment.bottomRight,
                             child: CircleAvatar(
                               radius: 10,
-                              child: Icon(Icons.camera_alt, size: 12),
+                              child: _uploadingPhoto
+                                  ? const SizedBox.square(
+                                      dimension: 11,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.camera_alt, size: 12),
                             ),
                           ),
                   ),
@@ -3625,18 +3855,32 @@ class _ProfilePage extends StatelessWidget {
       imageQuality: 92,
     );
     if (image == null) return;
+    final selected = File(image.path);
+    setState(() {
+      _pendingPhoto = selected;
+      _uploadingPhoto = true;
+    });
     try {
-      await repository.uploadProfilePhoto(
+      final url = await repository.uploadProfilePhoto(
         user: user,
-        file: File(image.path),
+        file: selected,
         contentType: 'image/jpeg',
       );
+      if (mounted) {
+        setState(() {
+          _uploadedPhotoUrl = url;
+          _pendingPhoto = null;
+        });
+      }
     } catch (error) {
       if (context.mounted) {
+        setState(() => _pendingPhoto = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Photo non enregistrée : $error')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
     }
   }
 
@@ -3774,6 +4018,25 @@ class _ProfilePage extends StatelessWidget {
       ),
     );
   }
+}
+
+List<Map<String, String>> _savedContacts(Map? rawContacts) {
+  final source = Map<String, dynamic>.from(rawContacts ?? const {});
+  final contacts = <Map<String, String>>[];
+  for (final entry in source.entries) {
+    if (entry.value is! Map) continue;
+    final data = Map<String, dynamic>.from(entry.value as Map);
+    contacts.add({
+      'uid': entry.key,
+      'displayName': (data['displayName'] as String?) ?? 'Membre WAPI',
+      'phoneNumber': (data['phoneNumber'] as String?) ?? '',
+      'photoUrl': (data['photoUrl'] as String?) ?? '',
+    });
+  }
+  contacts.sort(
+    (left, right) => left['displayName']!.compareTo(right['displayName']!),
+  );
+  return contacts;
 }
 
 class _ProfileSection extends StatelessWidget {

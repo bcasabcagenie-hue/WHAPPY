@@ -17,6 +17,7 @@ class WapiConversation {
     required this.avatarUrl,
     required this.memberNames,
     required this.memberPhotoUrls,
+    required this.ownerId,
   });
 
   final String id;
@@ -29,6 +30,7 @@ class WapiConversation {
   final String avatarUrl;
   final Map<String, String> memberNames;
   final Map<String, String> memberPhotoUrls;
+  final String ownerId;
 
   factory WapiConversation.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -80,6 +82,7 @@ class WapiConversation {
           if ((member['uid'] as String?)?.isNotEmpty == true)
             member['uid'] as String: (member['photoUrl'] as String?) ?? '',
       },
+      ownerId: (data['ownerId'] as String?) ?? '',
     );
   }
 }
@@ -544,6 +547,23 @@ class WapiRepository {
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
+  }
+
+  Future<void> manageGroupMembers({
+    required String conversationId,
+    required String action,
+    required List<String> memberIds,
+  }) async {
+    if (!{'add', 'remove'}.contains(action) || memberIds.isEmpty) {
+      throw ArgumentError('Action de groupe invalide.');
+    }
+    await FirebaseFunctions.instanceFor(
+      region: 'europe-west1',
+    ).httpsCallable('manageGroupMembers').call<Map<String, dynamic>>({
+      'conversationId': conversationId,
+      'action': action,
+      'memberIds': memberIds,
+    });
   }
 
   Future<void> sendMessage({

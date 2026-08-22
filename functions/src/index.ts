@@ -221,3 +221,90 @@ export const listVisibleStories = onCall(async (request) => {
   stories.sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
   return { stories };
 });
+
+export const manageGroupMembers = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  }
+  const actorId = request.auth.uid;
+  const conversationId = String(request.data?.conversationId || "").trim();
+  const action = String(request.data?.action || "").trim();
+  const requestedIds: string[] = Array.isArray(request.data?.memberIds)
+    ? [...new Set<string>((request.data.memberIds as unknown[]).map((value) => String(value).trim()).filter(Boolean))]
+    : [];
+  if (!conversationId || !["add", "remove"].includes(action)) {
+    throw new HttpsError("invalid-argument", "Action de groupe invalide.");
+  }
+  if (!requestedIds.length || requestedIds.length > 20) {
+    throw new HttpsError("invalid-argument", "Sélectionnez entre 1 et 20 membres.");
+  }
+
+  const conversation = db.collection("conversations").doc(conversationId);
+  const initial = await conversation.get();
+  const initialData = initial.data();
+  if (!initial.exists || initialData?.conversationType !== "group") {
+    throw new HttpsError("not-found", "Ce groupe n’existe plus.");
+  }
+  if (initialData.ownerId !== actorId) {
+    throw new HttpsError("permission-denied", "Seul le propriétaire peut modifier les membres.");
+  }
+  if (action === "remove" && requestedIds.includes(actorId)) {
+    throw new HttpsError("failed-precondition", "Le propriétaire ne peut pas se retirer du groupe.");
+  }
+
+  const profiles = action === "add"
+    ? await db.getAll(...requestedIds.map((uid) => db.collection("users").doc(uid)))
+    : [];
+  if (action === "add" && profiles.some((profile) => !profile.exists)) {
+    throw new HttpsError("not-found", "Un des comptes WAPI sélectionnés n’existe pas.");
+  }
+  const profilesById = new Map(profiles.map((profile) => [profile.id, profile.data() || {}]));
+  const notice = action === "add" ? "Nouveaux membres ajoutés" : "Membres retirés";
+  const systemMessage = conversation.collection("messages").doc();
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(conversation);
+    const value = snapshot.data();
+    if (!snapshot.exists || value?.ownerId !== actorId || value?.conversationType !== "group") {
+      throw new HttpsError("permission-denied", "Le groupe a été modifié. Réessayez.");
+    }
+    const existingMembers = Array.isArray(value.members) ? value.members : [];
+    const byId = new Map<string, Record<string, unknown>>();
+    existingMembers.forEach((member: Record<string, unknown>) => {
+      const uid = String(member.uid || "");
+      if (uid) byId.set(uid, member);
+    });
+    if (action === "add") {
+      requestedIds.forEach((uid) => {
+        const profile = profilesById.get(uid) || {};
+        byId.set(uid, {
+          uid,
+          displayName: String(profile.displayName || profile.phoneNumber || "Membre WAPI"),
+          phoneNumber: String(profile.phoneNumber || ""),
+          photoUrl: String(profile.photoUrl || ""),
+        });
+      });
+    } else {
+      requestedIds.forEach((uid) => byId.delete(uid));
+    }
+    if (!byId.has(actorId) || byId.size < 2 || byId.size > 64) {
+      throw new HttpsError("failed-precondition", "Un groupe doit contenir entre 2 et 64 membres.");
+    }
+    const members = [...byId.values()];
+    transaction.update(conversation, {
+      memberIds: [...byId.keys()],
+      members,
+      lastMessage: notice,
+      lastSenderId: actorId,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(systemMessage, {
+      text: notice,
+      senderId: actorId,
+      kind: "system",
+      clientMessageId: systemMessage.id,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true };
+});
