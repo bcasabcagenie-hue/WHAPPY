@@ -1,6 +1,7 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getMessaging, type MulticastMessage } from "firebase-admin/messaging";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 
@@ -121,6 +122,38 @@ export const notifyNewMessage = onDocumentCreated("conversations/{conversationId
   }));
 });
 
+export const notifyNewGroupMessage = onDocumentCreated("groups/{groupId}/messages/{messageId}", async (event) => {
+  const message = event.data?.data();
+  if (!message) return;
+  const group = await db.collection("groups").doc(event.params.groupId).get();
+  if (!group.exists) return;
+  const senderId = String(message.senderId || "");
+  const recipients = (group.get("memberIds") as string[] | undefined)?.filter((id) => id && id !== senderId) ?? [];
+  if (!recipients.length) return;
+  const sender = await db.collection("users").doc(senderId).get();
+  const senderName = String(message.senderName || sender.get("displayName") || "Membre WAPI");
+  const text = String(message.text || "").trim();
+  await Promise.all(recipients.map(async (recipientId) => {
+    const [devices, unread] = await Promise.all([
+      pushDevices([recipientId]),
+      incrementUnreadMessages(recipientId, event.params.groupId),
+    ]);
+    if (!devices.length) return;
+    await sendInBatches(devices, {
+      data: {
+        type: "message",
+        title: String(group.get("name") || "Groupe WAPI"),
+        body: text.slice(0, 240) || "Nouveau message de groupe",
+        senderName,
+        conversationId: event.params.groupId,
+        messageId: event.params.messageId,
+        badgeCount: String(Math.min(unread, 99)),
+      },
+      android: { priority: "high", ttl: 86_400_000, directBootOk: true },
+    });
+  }));
+});
+
 export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (event) => {
   const call = event.data?.data();
   if (!call || call.status !== "ringing") return;
@@ -140,4 +173,18 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
     },
     android: { priority: "high", ttl: 120_000, collapseKey: `call-${event.params.callId}` },
   });
+});
+
+export const getWebRtcIceServers = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  // The production TURN relay is intentionally not fabricated here. Clients
+  // receive a valid STUN fallback until coturn is provisioned and its secrets
+  // are added to Firebase. This keeps calls usable on compatible networks.
+  return {
+    iceServers: [
+      { urls: ["stun:stun.l.google.com:19302"] },
+      { urls: ["stun:stun1.l.google.com:19302"] },
+    ],
+    turnConfigured: false,
+  };
 });

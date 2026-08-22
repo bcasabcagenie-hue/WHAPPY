@@ -65,6 +65,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -407,7 +408,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         }.onFailure { failCall("Impossible d’accepter cet appel.") }
     }
 
-    private fun preparePeer(video: Boolean, localCandidateCollection: String) {
+    private suspend fun preparePeer(video: Boolean, localCandidateCollection: String) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         if (Build.VERSION.SDK_INT >= 31) {
             if (video) audioManager.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let(audioManager::setCommunicationDevice)
@@ -432,10 +433,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 localRenderer?.let(track::addSink)
             }
         }
-        val servers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-        )
+        val servers = loadIceServers()
         peerConnection = factory.createPeerConnection(servers, peerObserver(localCandidateCollection)) ?: error("peer")
         peerConnection!!.addTrack(localAudioTrack, listOf("whappy-stream"))
         localVideoTrack?.let { peerConnection!!.addTrack(it, listOf("whappy-stream")) }
@@ -461,7 +459,15 @@ class WhappyCallController(private val activity: ComponentActivity) {
             }
         }
         override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
-        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) = Unit
+        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+            when (state) {
+                PeerConnection.IceConnectionState.CHECKING -> activity.runOnUiThread { this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Recherche du réseau…") }
+                PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> activity.runOnUiThread { this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Connecté", error = null) }
+                PeerConnection.IceConnectionState.DISCONNECTED -> activity.runOnUiThread { this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Reconnexion…") }
+                PeerConnection.IceConnectionState.FAILED -> activity.runOnUiThread { this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Réseau d’appel indisponible", error = "Le relais d’appel n’est pas accessible sur ce réseau. Réessayez en Wi‑Fi ou avec un relais TURN configuré.") }
+                else -> Unit
+            }
+        }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
         override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
@@ -469,6 +475,38 @@ class WhappyCallController(private val activity: ComponentActivity) {
         override fun onRemoveStream(stream: MediaStream) = Unit
         override fun onDataChannel(channel: DataChannel) = Unit
         override fun onRenegotiationNeeded() = Unit
+    }
+
+    private suspend fun loadIceServers(): List<PeerConnection.IceServer> {
+        val fallback = listOf(
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+        )
+        return runCatching {
+            val result = FirebaseFunctions.getInstance("europe-west1")
+                .getHttpsCallable("getWebRtcIceServers")
+                .call()
+                .await()
+            val payload = result.data as? Map<*, *> ?: return@runCatching fallback
+            val rawServers = payload["iceServers"] as? List<*> ?: return@runCatching fallback
+            val servers = rawServers.mapNotNull { raw ->
+                val data = raw as? Map<*, *> ?: return@mapNotNull null
+                val urls = when (val value = data["urls"]) {
+                    is String -> listOf(value)
+                    is List<*> -> value.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }
+                    else -> emptyList()
+                }
+                if (urls.isEmpty()) return@mapNotNull null
+                val builder = PeerConnection.IceServer.builder(urls)
+                data["username"]?.toString()?.takeIf(String::isNotBlank)?.let { username ->
+                    data["credential"]?.toString()?.takeIf(String::isNotBlank)?.let { credential ->
+                        builder.setUsername(username).setPassword(credential)
+                    }
+                }
+                builder.createIceServer()
+            }
+            (servers + fallback).distinctBy { it.urls.joinToString(",") }
+        }.getOrElse { fallback }
     }
 
     private fun watchCallDocument(id: String) {

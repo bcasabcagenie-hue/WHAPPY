@@ -19,8 +19,8 @@ android {
         applicationId "com.whappy.chat"
         minSdk 26
         targetSdk 35
-        versionCode 57
-        versionName "1.9.4-native"
+        versionCode 58
+        versionName "1.9.5-native"
     }
 
     signingConfigs {
@@ -77,6 +77,7 @@ dependencies {
     implementation "com.google.firebase:firebase-firestore"
     implementation "com.google.firebase:firebase-storage"
     implementation "com.google.firebase:firebase-messaging"
+    implementation "com.google.firebase:firebase-functions"
     implementation platform("androidx.compose:compose-bom:2025.04.01")
     implementation "androidx.activity:activity-compose:1.10.1"
     implementation "androidx.fragment:fragment-ktx:1.8.6"

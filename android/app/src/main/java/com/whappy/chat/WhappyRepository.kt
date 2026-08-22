@@ -1253,7 +1253,23 @@ class WhappyRepository(
             .flatMap { document -> (document.get("memberIds") as? List<*>)?.filterIsInstance<String>().orEmpty() }
             .filter { it.isNotBlank() }
             .toSet()
-        val audienceIds = (directContacts + userId).take(500)
+        @Suppress("UNCHECKED_CAST")
+        val savedContactIds = (db.collection("users").document(userId).get().await().get("contacts") as? Map<*, *>)
+            ?.keys
+            ?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }
+            ?.toSet()
+            .orEmpty()
+        val groupMemberIds = db.collection("groups")
+            .whereArrayContains("memberIds", userId)
+            .get()
+            .await()
+            .documents
+            .flatMap { document ->
+                (document.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+            }
+            .filter(String::isNotBlank)
+            .toSet()
+        val audienceIds = (directContacts + savedContactIds + groupMemberIds + userId).distinct().take(500)
         val story = db.collection("stories").document()
         story.set(
             mapOf(
