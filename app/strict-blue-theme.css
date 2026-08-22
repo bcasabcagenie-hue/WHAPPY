@@ -1,32 +1,32 @@
-/* Palette finale Whappy : un seul bleu (#9600ff), extrait du logo officiel, blanc et neutres. */
+/* Identité WAPI : bleu signature, cyan lumineux et bleu profond du monogramme. */
 :root,
 .whappy-blue {
-  --neon: #9600ff;
-  --neon2: #9600ff;
+  --neon: #0094F0;
+  --neon2: #00A2E6;
   --night: #FFFFFF;
   --deep: #FFFFFF;
   --panel: #FFFFFF;
   --card: #FFFFFF;
   --text: #111111;
   --muted: #667085;
-  --warm: #9600ff;
-  --ready: #9600ff;
-  --line: rgba(150, 0, 255, .17);
-  --whappy-blue: #9600ff;
-  --whappy-blue-2: #9600ff;
-  --whappy-blue-3: #9600ff;
-  --whappy-coral: #9600ff;
-  --whappy-gold: #9600ff;
-  --whappy-indigo: #9600ff;
-  --whappy-indigo-light: #FFFFFF;
-  --whappy-indigo-soft: #FFFFFF;
+  --warm: #0094F0;
+  --ready: #0094F0;
+  --line: rgba(0, 148, 240, .17);
+  --whappy-blue: #0094F0;
+  --whappy-blue-2: #00A2E6;
+  --whappy-blue-3: #0066CF;
+  --whappy-coral: #0094F0;
+  --whappy-gold: #0094F0;
+  --whappy-indigo: #0066CF;
+  --whappy-indigo-light: #E8F7FF;
+  --whappy-indigo-soft: #F2FAFF;
   --whappy-ink: #111111;
   --whappy-ink-2: #111111;
   --whappy-muted: #667085;
   --whappy-paper: #FFFFFF;
   --whappy-cream: #FFFFFF;
-  --whappy-line: rgba(150, 0, 255, .16);
-  --whappy-glow: rgba(150, 0, 255, .18);
+  --whappy-line: rgba(0, 148, 240, .16);
+  --whappy-glow: rgba(0, 162, 230, .22);
 }
 
 html,
@@ -46,7 +46,7 @@ body,
   color: #111111 !important;
 }
 
-.access-brand { background: #9600ff !important; }
+.access-brand { background: #0094F0 !important; }
 .access-promise h1 em { color: #FFFFFF !important; }
 .access-panel,
 .access-card,
@@ -70,10 +70,10 @@ body,
   .room-card,.direct-account-card,.group-room,.contact-book,.contact-tools,
   .business-metrics>article,.service-requests,.quick-publish,.realtime-panel
 ) {
-  border-color: rgba(150, 0, 255,.17) !important;
+  border-color: rgba(0, 148, 240,.17) !important;
   background-color: #FFFFFF !important;
   color: #111111 !important;
-  box-shadow: 0 14px 38px rgba(150, 0, 255,.09) !important;
+  box-shadow: 0 14px 38px rgba(0, 148, 240,.09) !important;
 }
 
 .whappy-blue :is(
@@ -82,7 +82,7 @@ body,
   .artist-avatar,.room-avatar,.world-cup-badge,.world-game-mark,.team-mark,
   .founder-mark,.direct-live-avatar,.realtime-panel>aside>button>span
 ) {
-  background-color: #9600ff !important;
+  background-color: #0094F0 !important;
   background-image: none !important;
   color: #FFFFFF !important;
 }
@@ -93,8 +93,8 @@ body,
   .live-pill,.signal,.sync-badge,.room-verified,.founder-grey-badge,
   .wepi-contact-badge,.conversation-founder-role,.status-badge
 ) {
-  border-color: rgba(150, 0, 255,.22) !important;
-  color: #9600ff !important;
+  border-color: rgba(0, 148, 240,.22) !important;
+  color: #0094F0 !important;
 }
 
 .whappy-blue :is(
@@ -111,44 +111,44 @@ body,
   button,.access-primary,.access-apk,.modal-submit,.group-send,.send-action,
   .sell,.match,.quick-start,.create-tournament
 ):focus-visible {
-  outline: 3px solid rgba(150, 0, 255,.28) !important;
+  outline: 3px solid rgba(0, 148, 240,.28) !important;
   outline-offset: 2px;
 }
 
 .whappy-blue input,
 .whappy-blue textarea,
 .whappy-blue select {
-  border-color: rgba(150, 0, 255,.18) !important;
+  border-color: rgba(0, 148, 240,.18) !important;
   background-color: #FFFFFF !important;
   color: #111111 !important;
-  accent-color: #9600ff;
+  accent-color: #0094F0;
 }
 
 .whappy-blue :is(.realtime-panel>aside,.inbox-list,.groups-list,.nova-topbar) {
-  border-color: rgba(150, 0, 255,.14) !important;
+  border-color: rgba(0, 148, 240,.14) !important;
   background-color: #FFFFFF !important;
 }
 
 .whappy-blue .nova-rail {
-  border-color: #9600ff !important;
-  background: #9600ff !important;
+  border-color: #0094F0 !important;
+  background: #0094F0 !important;
   color: #FFFFFF !important;
 }
 .whappy-blue .nova-rail :is(button,small,strong,span) { color: #FFFFFF !important; }
 .whappy-blue .nova-rail :is(button.active,.rail-tools>button.active) {
   border: 1px solid #FFFFFF !important;
-  background: #9600ff !important;
+  background: #0094F0 !important;
   color: #FFFFFF !important;
   box-shadow: none !important;
 }
 
 .whappy-blue :is(.realtime-panel>aside>button.active,.inbox-list>button.active,.groups-list>button.active) {
   background-color: #FFFFFF !important;
-  box-shadow: inset 4px 0 0 #9600ff !important;
+  box-shadow: inset 4px 0 0 #0094F0 !important;
 }
 
 .whappy-blue :is(.realtime-messages article.mine,.deal-messages>div.mine) {
-  background-color: #9600ff !important;
+  background-color: #0094F0 !important;
   color: #FFFFFF !important;
 }
 
@@ -158,20 +158,126 @@ body,
 }
 
 .whappy-blue :is(.error,.access-error,.danger,.urgent,.missed) {
-  border-color: rgba(150, 0, 255,.22) !important;
+  border-color: rgba(0, 148, 240,.22) !important;
   background-color: #FFFFFF !important;
-  color: #9600ff !important;
+  color: #0094F0 !important;
 }
 
 .whappy-blue :is(.top-actions button,.direct-tabs button,.direct-composer button,.realtime-panel main>header button) {
-  border-color: rgba(150, 0, 255,.24) !important;
+  border-color: rgba(0, 148, 240,.24) !important;
   background: #FFFFFF !important;
-  color: #9600ff !important;
+  color: #0094F0 !important;
 }
 .whappy-blue :is(.top-actions button.sell,.direct-composer .send-action,.realtime-panel aside header button) {
-  border-color: #9600ff !important;
-  background: #9600ff !important;
+  border-color: #0094F0 !important;
+  background: #0094F0 !important;
   color: #FFFFFF !important;
 }
 
-::selection { background: #9600ff; color: #FFFFFF; }
+::selection { background: #0094F0; color: #FFFFFF; }
+
+/* WAPI design system: surfaces calmes, bleu propriétaire et interactions natives. */
+.mobile-primary-nav { display: none !important; }
+
+.updates-space { flex: 1; overflow-y: auto; padding: 0 clamp(18px,4vw,54px) 70px; background: #F5F7F9; }
+.updates-space>header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 0 calc(clamp(18px,4vw,54px) * -1); padding: 38px clamp(18px,4vw,54px) 28px; background: #fff; }
+.updates-space>header small { color: #0077C5; font-size: 8px; font-weight: 950; letter-spacing: 1.4px; }
+.updates-space>header h2 { margin: 8px 0; color: #111827; font-size: clamp(34px,4.5vw,58px); line-height: .96; letter-spacing: -2px; }
+.updates-space>header h2 em { color: #0094F0; font-style: normal; }
+.updates-space>header p { max-width: 620px; margin: 0; color: #667085; font-size: 11px; line-height: 1.55; }
+.updates-space>header>span { display: grid; flex: 0 0 auto; place-items: center; width: 76px; height: 76px; border-radius: 24px; background: #0094F0; color: #fff; font-size: 13px; font-weight: 950; box-shadow: 0 18px 36px rgba(0,148,240,.22); }
+.updates-stories { margin-top: 18px; overflow: hidden; border: 1px solid rgba(0,148,240,.14); border-radius: 24px; background: #fff; box-shadow: 0 14px 35px rgba(0,70,115,.07); }
+.updates-stories .story-studio { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+.updates-section { margin-top: 22px; }
+.updates-section>header h3 { margin: 0; color: #111827; font-size: 21px; }
+.updates-section>header p { margin: 4px 0 12px; color: #667085; font-size: 9px; }
+.updates-section>div { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px; }
+.updates-section>div>button { display: flex; align-items: center; gap: 12px; min-height: 92px; padding: 15px; border: 1px solid rgba(0,148,240,.12); border-radius: 20px; background: #fff; color: #111827; text-align: left; cursor: pointer; box-shadow: 0 9px 24px rgba(0,70,115,.05); }
+.updates-section>div>button>span { display: grid; flex: 0 0 auto; place-items: center; width: 44px; height: 44px; border-radius: 15px; background: #E7F5FF; color: #0077C5; font-size: 18px; }
+.updates-section>div>button>div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.updates-section>div>button strong { font-size: 11px; }
+.updates-section>div>button small { color: #667085; font-size: 8px; }
+.updates-section>div>button b { color: #0094F0; }
+
+.whappy-blue .profile-account-card {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(0,148,240,.16);
+  border-radius: 18px;
+  background: #F4F9FD;
+}
+.whappy-blue .profile-account-card>div { min-width: 0; }
+.whappy-blue .profile-account-card small { display: block; color: #667085 !important; font-size: 7px; font-weight: 900; letter-spacing: .8px; }
+.whappy-blue .profile-account-card strong { display: block; overflow: hidden; margin-top: 5px; color: #111827; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.whappy-blue .profile-account-card p { grid-column: 1/-1; margin: 4px 0 0; color: #667085; font-size: 8px; line-height: 1.45; }
+
+.whappy-blue .twin-governance {
+  margin: 0 clamp(16px,3vw,38px) 18px;
+  padding: 18px;
+  border: 1px solid rgba(0,148,240,.18);
+  border-radius: 24px;
+  background: linear-gradient(145deg,#FFFFFF,#F2F9FD);
+  box-shadow: 0 18px 48px rgba(0,78,132,.09);
+}
+.whappy-blue .twin-governance>header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.whappy-blue .twin-governance>header>div { display: flex; align-items: center; gap: 10px; }
+.whappy-blue .twin-governance>header>div>span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; background: #0094F0; color: #fff; }
+.whappy-blue .twin-governance h3 { margin: 3px 0 0; color: #111827; font-size: 16px; }
+.whappy-blue .twin-governance small { color: #667085; font-size: 7px; font-weight: 800; letter-spacing: .65px; }
+.whappy-blue .twin-governance>header button { padding: 10px 13px; border: 1px solid #0094F0; border-radius: 12px; background: #0094F0; color: #fff; font-size: 8px; font-weight: 900; cursor: pointer; }
+.whappy-blue .twin-governance>header button.authorized { background: #fff; color: #0068AA; }
+.twin-governance-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin-top: 15px; }
+.twin-governance-grid article { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 11px; border: 1px solid #E5EAF0; border-radius: 15px; background: #fff; }
+.twin-governance-grid article>span { display: grid; flex: 0 0 auto; place-items: center; width: 27px; height: 27px; border-radius: 9px; background: #EEF2F6; color: #667085; font-weight: 900; }
+.twin-governance-grid article.ready>span { background: #E2F4FF; color: #0077C5; }
+.twin-governance-grid article div { min-width: 0; }
+.twin-governance-grid article strong { display: block; color: #111827; font-size: 9px; }
+.twin-governance-grid article small { display: block; overflow: hidden; margin-top: 3px; text-overflow: ellipsis; white-space: nowrap; }
+.twin-governance>footer { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.twin-governance>footer span { padding: 6px 8px; border-radius: 999px; background: #EAF7FF; color: #0068AA; font-size: 7px; font-weight: 800; }
+
+/* Stories : progression séquentielle et identité WAPI bleue. */
+.story-progress i.complete { background: #fff !important; }
+.story-progress i.active { position: relative; overflow: hidden; background: rgba(255,255,255,.24) !important; }
+.story-progress i.active::after { position: absolute; inset: 0; content: ""; background: #0094F0; transform-origin: left; animation: wapi-story-progress var(--story-duration,6s) linear forwards; }
+.story-viewer header section>span { background: #0094F0 !important; }
+.story-create-choice { grid-template-columns: repeat(3,minmax(0,1fr)) !important; }
+.story-create-choice label { border-color: rgba(0,148,240,.18) !important; color: #0077C5 !important; }
+.story-create-choice label:focus-within,.story-create-choice label:hover { border-color: #0094F0 !important; background: #F3FAFF !important; }
+.story-drop audio { position: relative; z-index: 1; width: min(420px,100%); }
+.story-audio-visual { display: flex; width: min(430px,calc(100% - 40px)); padding: 32px; align-items: center; flex-direction: column; gap: 16px; border: 1px solid rgba(255,255,255,.16); border-radius: 30px; background: linear-gradient(145deg,#0066CF,#0094F0); box-shadow: 0 28px 90px rgba(0,0,0,.3); }
+.story-audio-visual>span { display: grid; place-items: center; width: 82px; height: 82px; border-radius: 28px; background: rgba(255,255,255,.16); font-size: 34px; }
+.story-audio-visual>strong { font-size: 15px; }
+.story-audio-visual audio { width: 100%; }
+.story-text-visual { display: flex; align-items: center; flex-direction: column; }
+.story-text-visual>span { width: 110px; height: 110px; display: grid; place-items: center; border: 2px solid rgba(255,255,255,.48); border-radius: 36px; background: linear-gradient(145deg,#00A2E6,#0066CF); box-shadow: 0 24px 70px rgba(0,148,240,.28); font-size: 26px; font-weight: 950; }
+.story-text-visual>strong { margin-top: 14px; color: rgba(255,255,255,.74); font-size: 8px; letter-spacing: 2px; }
+@keyframes wapi-story-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+@media (max-width: 760px) {
+  .updates-space { padding: 0 10px 88px; }
+  .updates-space>header { margin-inline: -10px; padding: 22px 16px 18px; }
+  .updates-space>header h2 { font-size: 34px; }
+  .updates-space>header>span { width: 58px; height: 58px; border-radius: 18px; font-size: 10px; }
+  .updates-section>div { grid-template-columns: 1fr; }
+  .whappy-blue .nova-rail>nav:not(.mobile-primary-nav),
+  .whappy-blue .nova-rail>.nova-logo,
+  .whappy-blue .nova-rail>.rail-tools { display: none !important; }
+  .whappy-blue .nova-rail { height: calc(68px + env(safe-area-inset-bottom)); padding: 5px 4px env(safe-area-inset-bottom); background: rgba(255,255,255,.98) !important; border-top: 1px solid rgba(0,148,240,.12) !important; }
+  .whappy-blue .nova-rail .mobile-primary-nav { display: grid !important; grid-template-columns: repeat(6,minmax(0,1fr)); width: 100%; height: 62px; padding: 0; gap: 0; }
+  .whappy-blue .mobile-primary-nav button { width: 100%; height: 58px; gap: 3px; border-radius: 14px; color: #667085 !important; }
+  .whappy-blue .mobile-primary-nav button span,
+  .whappy-blue .mobile-primary-nav button small { color: inherit !important; }
+  .whappy-blue .mobile-primary-nav button.active { border: 0 !important; background: #E7F5FF !important; color: #0077C5 !important; }
+  .whappy-blue .mobile-primary-nav button.active:before { display: none; }
+  .whappy-blue .mobile-primary-nav button b { right: 8px; top: 2px; background: #0094F0; color: #fff !important; }
+  .twin-governance-grid { grid-template-columns: 1fr 1fr; }
+  .whappy-blue .twin-governance { margin-inline: 10px; padding: 14px; border-radius: 20px; }
+  .whappy-blue .twin-governance>header { align-items: stretch; flex-direction: column; }
+  .whappy-blue .profile-account-card { grid-template-columns: 1fr 1fr; }
+  .whappy-blue .profile-account-card>div:nth-child(3) { grid-column: 1/-1; }
+  .story-create-choice { grid-template-columns: 1fr !important; }
+}

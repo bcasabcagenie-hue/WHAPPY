@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Mic
@@ -33,8 +35,6 @@ import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VideocamOff
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -96,7 +96,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
-private const val BRAND_BLUE = 0xFF1C1C74
+private const val BRAND_BLUE = 0xFF0066CF
 
 data class WhappyCallUiState(
     val visible: Boolean = false,
@@ -205,7 +205,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 val notificationRings = WhappyNotifications.showIncomingCall(
                     context = activity,
                     callId = recent.id,
-                    callerName = recent.getString("callerName") ?: "Contact WHAPPY",
+                    callerName = recent.getString("callerName") ?: "Contact WAPI",
                     video = recent.getBoolean("video") == true,
                 )
                 if (!notificationRings) startRinging()
@@ -680,7 +680,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                     Text(call.peerName.split(" ").mapNotNull { it.firstOrNull()?.toString() }.joinToString("").take(2).uppercase().ifBlank { "W" }, color = Color(BRAND_BLUE), fontSize = 34.sp)
                 }
             }
-            Text(call.peerName.ifBlank { "WHAPPY CALL" }, Modifier.padding(top = 22.dp), color = Color.White, fontSize = 25.sp)
+            Text(call.peerName.ifBlank { "WAPI CALL" }, Modifier.padding(top = 22.dp), color = Color.White, fontSize = 25.sp)
             if (call.incoming) Text(if (call.video) "Appel vidéo entrant" else "Appel audio entrant", Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .72f), fontSize = 13.sp)
             Text(if (connectedSeconds > 0) "%02d:%02d · Appel chiffré".format(connectedSeconds / 60, connectedSeconds % 60) else call.status, Modifier.padding(top = 8.dp), color = Color.White.copy(alpha = .8f))
             call.error?.let { Text(it, Modifier.padding(24.dp), color = Color.White, fontSize = 14.sp) }
@@ -701,7 +701,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     WapiCallControl(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (call.muted) "Réactiver" else "Micro", call.muted, controller::toggleMicrophone)
-                    WapiCallControl(if (call.speakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
+                    WapiCallControl(if (call.speakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
                     if (call.video) WapiCallControl(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", !call.cameraEnabled, controller::toggleCamera)
                     if (call.video) WapiCallControl(Icons.Rounded.Cameraswitch, "Retourner", false, controller::switchCamera)
                     WapiCallControl(Icons.Rounded.CallEnd, "Raccrocher", true, controller::hangUp, destructive = true)

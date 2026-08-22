@@ -29,6 +29,8 @@ export type RadioSession = {
 
 type Props = {
   active: boolean;
+  tab: "live" | "podcasts";
+  onTabChange: (tab: "live" | "podcasts") => void;
   hostName: string;
   notify: (message: string) => void;
   onSessionChange: (session: RadioSession) => void;
@@ -51,11 +53,6 @@ type GiftPack = {
   priceLabel: string;
   tone: "soft" | "plus";
 };
-
-const initialEpisodes: Episode[] = [
-  { id: "ep-1", title: "Brazzaville crée demain", description: "Chronique hebdomadaire sur les initiatives locales.", category: "Actualités", duration: "24 min", status: "Publié" },
-  { id: "ep-2", title: "Business local, impact réel", description: "Conseils pour lancer une activité rentable dans votre quartier.", category: "Business", duration: "18 min", status: "Brouillon" },
-];
 
 const maxQueueSize = 10;
 
@@ -104,33 +101,24 @@ function isLineupItemActive(item: LineupItem, list: LineupItem[], currentSeconds
   return current?.id === item.id;
 }
 
-export function RadioStudio({ active, hostName, notify, onSessionChange, onOpenInbox }: Props) {
+export function RadioStudio({ active, tab, onTabChange, hostName, notify, onSessionChange, onOpenInbox }: Props) {
   const streamRef = useRef<MediaStream | null>(null);
   const [status, setStatus] = useState<RadioSession["status"]>("offline");
-  const [title, setTitle] = useState("Whappy FM · La session du soir");
+  const [title, setTitle] = useState("WAPI Radio · Nouvelle émission");
   const [elapsed, setElapsed] = useState(0);
   const [listeners, setListeners] = useState(0);
   const [micOn, setMicOn] = useState(true);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"live" | "podcasts">("live");
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<RadioMessage[]>([
-    { id: "m-1", name: "Amina", text: "Très belle énergie ce soir !", hearts: 4 },
-    { id: "m-2", name: "Junior", text: "On peut écouter le replay demain ?", hearts: 1 },
-    { id: "m-3", name: "Maya", text: "Sujet important, merci pour cette émission.", hearts: 2 },
-  ]);
-  const [queuedCallers, setQueuedCallers] = useState<Caller[]>([
-    { id: "c-1", name: "Diane", motif: "Dédicace pour sa sœur", isVip: true, hearts: 8 },
-    { id: "c-2", name: "Samir", motif: "Question sur votre interview de 18h", hearts: 3 },
-    { id: "c-3", name: "Kemi", motif: "Partage musique locale", isVip: true, hearts: 5 },
-  ]);
+  const [messages, setMessages] = useState<RadioMessage[]>([]);
+  const [queuedCallers, setQueuedCallers] = useState<Caller[]>([]);
   const [onAirCaller, setOnAirCaller] = useState<Caller | null>(null);
   const [guestMuted, setGuestMuted] = useState(false);
   const [manualCallerName, setManualCallerName] = useState("");
   const [manualCallerMotif, setManualCallerMotif] = useState("");
   const [manualCallerVip, setManualCallerVip] = useState(false);
   const [episodeTitle, setEpisodeTitle] = useState("");
-  const [episodes, setEpisodes] = useState(initialEpisodes);
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [lineup, setLineup] = useState<LineupItem[]>(initialLineup);
   const [lineupTime, setLineupTime] = useState("00:00");
   const [lineupTitle, setLineupTitle] = useState("");
@@ -157,7 +145,6 @@ export function RadioStudio({ active, hostName, notify, onSessionChange, onOpenI
     if (status !== "live") return;
     const timer = window.setInterval(() => {
       setElapsed((value) => value + 1);
-      setListeners((value) => Math.max(1, value + (Math.random() > 0.7 ? 1 : 0)));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [status]);
@@ -202,7 +189,7 @@ export function RadioStudio({ active, hostName, notify, onSessionChange, onOpenI
     if (!title.trim()) { setError("Donnez un titre à votre émission."); return; }
     if (!streamRef.current && !(await prepareMicrophone())) return;
     setStatus("live");
-    setListeners((value) => Math.max(1, value || 12));
+    setListeners(0);
     notify("Votre radio est en direct. Vous pouvez continuer à utiliser Whappy.");
   }
 
@@ -491,10 +478,10 @@ export function RadioStudio({ active, hostName, notify, onSessionChange, onOpenI
       </header>
 
       <div className="radio-tabs">
-        <button className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>
+        <button className={tab === "live" ? "active" : ""} onClick={() => onTabChange("live")}>
           Régie direct
         </button>
-        <button className={tab === "podcasts" ? "active" : ""} onClick={() => setTab("podcasts")}>
+        <button className={tab === "podcasts" ? "active" : ""} onClick={() => onTabChange("podcasts")}>
           Mes podcasts <span>{episodes.length}</span>
         </button>
       </div>
@@ -768,7 +755,7 @@ export function RadioStudio({ active, hostName, notify, onSessionChange, onOpenI
                 <small>BIBLIOTHÈQUE</small>
                 <h3>Épisodes</h3>
               </div>
-              <button onClick={() => setTab("live")}>Aller à la radio</button>
+              <button onClick={() => onTabChange("live")}>Aller à la radio</button>
             </header>
             {episodes.map((episode) => (
               <article key={episode.id}>

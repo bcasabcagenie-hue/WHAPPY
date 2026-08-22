@@ -48,10 +48,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val phoneAuth = PhoneAuthController(this)
         callController = WhappyCallController(this)
-        // Phone Auth relies on Play Integrity and is intentionally unavailable on
-        // most local AVDs. Emulators open the interactive preview immediately;
-        // physical phones keep the full Firebase authentication flow.
-        val preview = isRunningOnAndroidEmulator()
+        // The production APK must never expose local preview data. A QA preview
+        // remains available only in a debug build, on an emulator, and after an
+        // explicit launch flag (`--ez wapi_qa_preview true`).
+        val preview = BuildConfig.DEBUG &&
+            isRunningOnAndroidEmulator() &&
+            intent?.getBooleanExtra("wapi_qa_preview", false) == true
         incomingLink = intent?.dataString
         pendingCallAction = intent?.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
         setContent {

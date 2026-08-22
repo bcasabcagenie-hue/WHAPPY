@@ -4,14 +4,16 @@ import com.google.firebase.auth.FirebaseUser
 
 enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
-    STORIES("Stories"),
+    STORIES("Actus"),
     MESSAGES("Messages"),
     WEPI("WEPI"),
     CONTACTS("Contacts"),
+    CHANNELS("Chaînes"),
     CALLS("Appels"),
     MARKET("Marché"),
     LIVE("Live"),
     RADIO("Radio"),
+    PODCASTS("Podcasts"),
     GAMES("Jeux"),
     SERVICES("Services"),
     BUSINESS("Business"),

@@ -42,7 +42,7 @@ object WhappyCryptoVault {
 
     fun decrypt(envelope: String): String {
         val bytes = Base64.decode(envelope, Base64.NO_WRAP)
-        require(bytes.size > IV_BYTES) { "Enveloppe chiffrée WHAPPY invalide" }
+        require(bytes.size > IV_BYTES) { "Enveloppe chiffrée WAPI invalide" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
             Cipher.DECRYPT_MODE,

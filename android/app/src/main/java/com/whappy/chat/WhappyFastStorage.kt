@@ -30,7 +30,7 @@ object WhappyFastStorage {
             MMKV.mmkvWithID(name, MMKV.SINGLE_PROCESS_MODE, cryptKey)
         } else {
             MMKV.mmkvWithID(name).also { legacy ->
-                check(legacy.reKey(cryptKey)) { "Le stockage WHAPPY n'a pas pu être chiffré" }
+                check(legacy.reKey(cryptKey)) { "Le stockage WAPI n'a pas pu être chiffré" }
                 security.edit().putBoolean(securityMarker, true).commit()
             }
         }

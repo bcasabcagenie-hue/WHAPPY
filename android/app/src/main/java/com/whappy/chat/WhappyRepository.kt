@@ -308,7 +308,7 @@ class WhappyRepository(
                     description = document.getString("description").orEmpty(),
                     category = document.getString("category") ?: "Communauté",
                     ownerId = ownerId,
-                    ownerName = document.getString("ownerName") ?: "Créateur WHAPPY",
+                    ownerName = document.getString("ownerName") ?: "Créateur WAPI",
                     memberIds = (document.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty(),
                     memberCount = document.getLong("memberCount")?.toInt() ?: 1,
                     postCount = document.getLong("postCount")?.toInt() ?: 0,
@@ -336,7 +336,7 @@ class WhappyRepository(
                     id = document.id,
                     text = document.getString("text").orEmpty(),
                     authorId = document.getString("authorId").orEmpty(),
-                    authorName = document.getString("authorName") ?: "WHAPPY",
+                    authorName = document.getString("authorName") ?: "WAPI",
                     createdAt = document.timestampMillis("createdAt"),
                     reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
                     pinned = document.getBoolean("pinned") == true,
@@ -356,10 +356,10 @@ class WhappyRepository(
         onChange(snapshot?.documents.orEmpty().map { document ->
             WhappyListing(
                 id = document.id,
-                title = document.getString("title") ?: "Annonce WHAPPY",
+                title = document.getString("title") ?: "Annonce WAPI",
                 price = document.getString("price") ?: "Prix à discuter",
                 place = document.getString("place") ?: "Brazzaville",
-                seller = document.getString("seller") ?: "Vendeur WHAPPY",
+                seller = document.getString("seller") ?: "Vendeur WAPI",
                 ownerId = document.getString("ownerId").orEmpty(),
                 mode = document.getString("mode") ?: "vente",
             )
@@ -395,9 +395,9 @@ class WhappyRepository(
                 WhappyCampaign(
                     id = document.id,
                     pageId = document.getString("pageId").orEmpty(),
-                    pageName = document.getString("pageName") ?: "Page WHAPPY",
+                    pageName = document.getString("pageName") ?: "Page WAPI",
                     objective = document.getString("objective") ?: "reach",
-                    title = document.getString("title") ?: "Campagne WHAPPY",
+                    title = document.getString("title") ?: "Campagne WAPI",
                     dailyBudget = document.getLong("dailyBudget") ?: 0L,
                     days = document.getLong("days")?.toInt() ?: 1,
                     status = document.getString("status") ?: "active",
@@ -429,8 +429,8 @@ class WhappyRepository(
                 WhappyLive(
                     id = document.id,
                     hostId = document.getString("hostId").orEmpty(),
-                    hostName = document.getString("hostName") ?: "Créateur WHAPPY",
-                    title = document.getString("title") ?: "Direct WHAPPY",
+                    hostName = document.getString("hostName") ?: "Créateur WAPI",
+                    title = document.getString("title") ?: "Direct WAPI",
                     category = document.getString("category") ?: "Communauté",
                     productTitle = document.getString("productTitle").orEmpty(),
                     status = document.getString("status") ?: "scheduled",
@@ -447,7 +447,11 @@ class WhappyRepository(
     fun observeStatuses(
         onChange: (List<WhappyStatus>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("stories")
+    ): ListenerRegistration {
+        val viewerId = auth.currentUser?.uid.orEmpty()
+        if (viewerId.isBlank()) return db.collection("stories").limit(1).addSnapshotListener { _, _ -> onChange(emptyList()) }
+        return db.collection("stories")
+        .whereArrayContains("audienceIds", viewerId)
         .whereGreaterThan("expiresAt", com.google.firebase.Timestamp.now())
         .limit(80)
         .addSnapshotListener { snapshot, error ->
@@ -472,6 +476,7 @@ class WhappyRepository(
                 )
             }.sortedByDescending { it.createdAt })
         }
+    }
 
     fun observeDeals(
         ownerId: String,
@@ -488,9 +493,9 @@ class WhappyRepository(
                 WhappyDeal(
                     id = document.id,
                     pageId = document.getString("pageId").orEmpty(),
-                    pageName = document.getString("pageName") ?: "Page WHAPPY",
+                    pageName = document.getString("pageName") ?: "Page WAPI",
                     ownerId = document.getString("ownerId").orEmpty(),
-                    title = document.getString("title") ?: "Deal WHAPPY",
+                    title = document.getString("title") ?: "Deal WAPI",
                     description = document.getString("description").orEmpty(),
                     originalPrice = document.getLong("originalPrice") ?: 0L,
                     dealPrice = document.getLong("dealPrice") ?: 0L,
@@ -518,10 +523,10 @@ class WhappyRepository(
                     id = document.id,
                     pageId = document.getString("pageId").orEmpty(),
                     dealId = document.getString("dealId").orEmpty(),
-                    buyerName = document.getString("buyerName") ?: "Client WHAPPY",
+                    buyerName = document.getString("buyerName") ?: "Client WAPI",
                     amount = document.getLong("amount") ?: 0L,
                     currency = document.getString("currency") ?: "XAF",
-                    provider = document.getString("provider") ?: "Paiement WHAPPY",
+                    provider = document.getString("provider") ?: "Paiement WAPI",
                     status = document.getString("status") ?: "pending",
                     createdAt = document.timestampMillis("createdAt"),
                     read = document.getBoolean("read") ?: false,
@@ -678,7 +683,7 @@ class WhappyRepository(
             onChange(snapshot?.documents.orEmpty().map { document ->
                 WhappyTwinAutomation(
                     id = document.id,
-                    name = document.getString("name") ?: "Mission WHAPPY",
+                    name = document.getString("name") ?: "Mission WAPI",
                     trigger = document.getString("trigger").orEmpty(),
                     channel = document.getString("channel").orEmpty(),
                     action = document.getString("action").orEmpty(),
@@ -701,7 +706,7 @@ class WhappyRepository(
             onChange(snapshot?.documents.orEmpty().map { document ->
                 WhappyTwinRender(
                     id = document.id,
-                    title = document.getString("title") ?: "Production WHAPPY",
+                    title = document.getString("title") ?: "Production WAPI",
                     script = document.getString("script").orEmpty(),
                     language = document.getString("language") ?: "fr-FR",
                     status = document.getString("status") ?: "prepared",
@@ -709,7 +714,7 @@ class WhappyRepository(
             })
         }
 
-    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "", source: String = "conversations", senderName: String = "Membre WHAPPY"): WhappyDeliveryResult {
+    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "", source: String = "conversations", senderName: String = "Membre WAPI"): WhappyDeliveryResult {
         val value = text.trim()
         require(value.isNotEmpty() && value.length <= 4_000)
         require(auth.currentUser?.uid == userId)
@@ -720,7 +725,7 @@ class WhappyRepository(
                     buildMap<String, Any> {
                         put("text", value)
                         put("senderId", userId)
-                        put("senderName", senderName.trim().take(80).ifBlank { "Membre WHAPPY" })
+                        put("senderName", senderName.trim().take(80).ifBlank { "Membre WAPI" })
                         put("createdAt", FieldValue.serverTimestamp())
                         if (replyToId.isNotBlank()) {
                             put("replyToId", replyToId)
@@ -895,7 +900,7 @@ class WhappyRepository(
             reference.set(
                 mapOf(
                     "name" to cleanName,
-                    "description" to "Groupe WHAPPY créé depuis l’application mobile",
+                    "description" to "Groupe WAPI créé depuis l’application mobile",
                     "mark" to cleanName.split(Regex("\\s+")).mapNotNull { it.firstOrNull()?.uppercaseChar() }.take(2).joinToString("").ifBlank { "WG" },
                     "ownerId" to current.uid,
                     "memberIds" to listOf(current.uid),
@@ -1037,7 +1042,7 @@ class WhappyRepository(
         mediaName: String,
         durationSeconds: Int = 0,
         source: String = "conversations",
-        senderName: String = "Membre WHAPPY",
+        senderName: String = "Membre WAPI",
     ): WhappyDeliveryResult {
         require(kind in setOf("image", "audio", "video"))
         require(if (kind == "image") contentType.startsWith("image/") else if (kind == "video") contentType.startsWith("video/") else contentType.startsWith("audio/"))
@@ -1072,7 +1077,7 @@ class WhappyRepository(
             mediaName = safeName,
             durationSeconds = durationSeconds.coerceIn(0, 600),
             source = source,
-            senderName = senderName.trim().take(80).ifBlank { "Membre WHAPPY" },
+            senderName = senderName.trim().take(80).ifBlank { "Membre WAPI" },
         )
         messageOutbox.enqueue(pending)
         return runCatching {
@@ -1235,6 +1240,19 @@ class WhappyRepository(
             mediaRef.downloadUrl.await().toString()
         }
         val createdAt = System.currentTimeMillis()
+        val directContacts = db.collection("conversations")
+            .whereArrayContains("memberIds", userId)
+            .get()
+            .await()
+            .documents
+            .filter { document ->
+                val members = (document.get("memberIds") as? List<*>)?.filterIsInstance<String>().orEmpty()
+                document.getString("conversationType") == "direct" || members.size == 2
+            }
+            .flatMap { document -> (document.get("memberIds") as? List<*>)?.filterIsInstance<String>().orEmpty() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        val audienceIds = (directContacts + userId).take(500)
         val story = db.collection("stories").document()
         story.set(
             mapOf(
@@ -1244,6 +1262,7 @@ class WhappyRepository(
                 "mediaUrl" to mediaUrl,
                 "mediaType" to mediaKind,
                 "storagePath" to storagePath,
+                "audienceIds" to audienceIds,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "expiresAt" to com.google.firebase.Timestamp(Date(System.currentTimeMillis() + 24L * 60L * 60L * 1000L)),
             ),
@@ -1407,13 +1426,13 @@ class WhappyRepository(
         db.collection("users").document(userId).collection("twinRenders").add(
             mapOf(
                 "userId" to userId,
-                "title" to title.trim().ifBlank { "Séquence WHAPPY" },
+                "title" to title.trim().ifBlank { "Séquence WAPI" },
                 "script" to value,
                 "language" to language,
                 "voiceMode" to "owner-voice-sample",
                 "sequence" to sequence,
                 "status" to "prepared",
-                "disclosure" to "Créé avec le Double IA de son propriétaire",
+                "disclosure" to "Créé avec le Jumeau numérique IA de son propriétaire",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
@@ -1562,7 +1581,7 @@ class WhappyRepository(
         val peer = if (isGroup) {
             WhappyMember(
                 uid = id,
-                displayName = getString("title")?.trim()?.ifBlank { "Groupe WHAPPY" } ?: "Groupe WHAPPY",
+                displayName = getString("title")?.trim()?.ifBlank { "Groupe WAPI" } ?: "Groupe WAPI",
                 photoUrl = rawMembers?.firstNotNullOfOrNull { it["groupPhotoUrl"]?.toString()?.takeIf(String::isNotBlank) }.orEmpty(),
             )
         } else if (peerMap != null) {
@@ -1576,7 +1595,7 @@ class WhappyRepository(
         } else {
             WhappyMember(
                 uid = getString("contactId").orEmpty(),
-                displayName = getString("contactName")?.ifBlank { "Contact WHAPPY" } ?: "Contact WHAPPY",
+                displayName = getString("contactName")?.ifBlank { "Contact WAPI" } ?: "Contact WAPI",
             )
         }
         val readBy = get("readBy") as? Map<String, Any?>
@@ -1633,7 +1652,7 @@ class WhappyRepository(
 
     private fun DocumentSnapshot.toBusinessPage(): WhappyBusinessPage = WhappyBusinessPage(
         id = id,
-        name = getString("name") ?: "Page WHAPPY",
+        name = getString("name") ?: "Page WAPI",
         handle = getString("handle").orEmpty(),
         category = getString("category").orEmpty(),
         bio = getString("bio").orEmpty(),

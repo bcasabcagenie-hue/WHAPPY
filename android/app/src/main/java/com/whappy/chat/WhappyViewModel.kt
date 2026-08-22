@@ -414,11 +414,11 @@ class WhappyViewModel(
             }.onFailure { failure ->
                 if (request != contactSearchRequest) return@onFailure
                 val message = when (failure.message) {
-                    "not-found" -> "Aucun compte WHAPPY trouvé. Vérifiez le numéro ou demandez à la personne d’ouvrir WHAPPY une première fois."
-                    "self" -> "C’est votre propre numéro WHAPPY"
+                    "not-found" -> "Aucun compte WAPI trouvé. Vérifiez le numéro ou demandez à la personne d’ouvrir WAPI une première fois."
+                    "self" -> "C’est votre propre numéro WAPI"
                     else -> when ((failure as? FirebaseFirestoreException)?.code) {
                         FirebaseFirestoreException.Code.UNAVAILABLE -> "Connexion indisponible. Vérifiez Internet puis relancez la recherche."
-                        FirebaseFirestoreException.Code.PERMISSION_DENIED -> "La recherche est bloquée par les règles de sécurité. Mettez WHAPPY à jour puis réessayez."
+                        FirebaseFirestoreException.Code.PERMISSION_DENIED -> "La recherche est bloquée par les règles de sécurité. Mettez WAPI à jour puis réessayez."
                         else -> "La recherche n’a pas abouti. Vérifiez le numéro au format international puis réessayez."
                     }
                 }
@@ -455,7 +455,7 @@ class WhappyViewModel(
                 selectTab(WhappyTab.MESSAGES)
                 _uiState.update { it.copy(discoveryQuery = link.query) }
             }
-            null -> _uiState.update { it.copy(error = "Ce lien WHAPPY n’est pas valide ou a expiré") }
+            null -> _uiState.update { it.copy(error = "Ce lien WAPI n’est pas valide ou a expiré") }
         }
     }
 
@@ -572,7 +572,7 @@ class WhappyViewModel(
                 openConversation(conversation)
             }.onFailure { failure ->
                 val message = when (failure.message) {
-                    "not-found" -> "Ce Business n’est pas encore joignable sur WHAPPY"
+                    "not-found" -> "Ce Business n’est pas encore joignable sur WAPI"
                     "self" -> "Cette page Business vous appartient"
                     else -> "La conversation Business n’a pas pu être ouverte"
                 }
@@ -720,6 +720,7 @@ class WhappyViewModel(
         }
     }
 
+    @Suppress("DEPRECATION")
     fun registerPushNotifications() {
         val user = _uiState.value.user ?: return
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
@@ -738,30 +739,30 @@ class WhappyViewModel(
         }
     }
 
-    fun saveTwinConsent(consent: Boolean) = runTwinAction("Les autorisations du WHAPPY n’ont pas été synchronisées") { user ->
+    fun saveTwinConsent(consent: Boolean) = runTwinAction("Les autorisations du Jumeau numérique n’ont pas été synchronisées") { user ->
         repository.saveTwinConsent(user.uid, accountName(), consent)
     }
 
-    fun uploadTwinAsset(uri: Uri, kind: String, contentType: String) = runTwinAction("La capture du WHAPPY n’a pas été synchronisée") { user ->
+    fun uploadTwinAsset(uri: Uri, kind: String, contentType: String) = runTwinAction("La capture du Jumeau numérique n’a pas été synchronisée") { user ->
         val profile = _uiState.value.twinProfile
         require(profile?.identityConsent == true && profile.voiceConsent && profile.movementConsent)
         repository.uploadTwinAsset(user.uid, uri, kind, contentType)
     }
 
-    fun createTwinAutomation(name: String, trigger: String, channel: String, action: String, script: String) = runTwinAction("La mission du WHAPPY n’a pas été créée") { user ->
+    fun createTwinAutomation(name: String, trigger: String, channel: String, action: String, script: String) = runTwinAction("La mission du Jumeau numérique n’a pas été créée") { user ->
         require(_uiState.value.twinProfile?.identityConsent == true)
         repository.createTwinAutomation(user.uid, name, trigger, channel, action, script)
     }
 
-    fun toggleTwinAutomation(automationId: String, enabled: Boolean) = runTwinAction("La mission du WHAPPY n’a pas été modifiée") { user ->
+    fun toggleTwinAutomation(automationId: String, enabled: Boolean) = runTwinAction("La mission du Jumeau numérique n’a pas été modifiée") { user ->
         repository.toggleTwinAutomation(user.uid, automationId, enabled)
     }
 
-    fun deleteTwinAutomation(automationId: String) = runTwinAction("La mission du WHAPPY n’a pas été supprimée") { user ->
+    fun deleteTwinAutomation(automationId: String) = runTwinAction("La mission du Jumeau numérique n’a pas été supprimée") { user ->
         repository.deleteTwinAutomation(user.uid, automationId)
     }
 
-    fun createTwinRender(title: String, script: String, language: String, gestures: List<String>) = runTwinAction("La production du WHAPPY n’a pas été préparée") { user ->
+    fun createTwinRender(title: String, script: String, language: String, gestures: List<String>) = runTwinAction("La production du Jumeau numérique n’a pas été préparée") { user ->
         val profile = _uiState.value.twinProfile
         require(profile?.identityConsent == true && profile.voiceConsent && profile.movementConsent)
         repository.createTwinRender(user.uid, title, script, language, gestures)

@@ -10,11 +10,11 @@ Whappy est un réseau d'opportunités autonome : on peut vendre, troquer, cherch
 - **Troc** : moteur de correspondance et concept de troc en chaîne ;
 - **Chercher** : publication de besoins, services et situations urgentes ;
 - **Messages** : négociation contextualisée autour d'une transaction ;
-- **Mon Double** : parcours de création d'un présentateur vidéo numérique pour ses propres produits.
+- **Mon Jumeau numérique** : parcours de création d'un présentateur vidéo numérique pour ses propres produits.
 - **Connexion téléphone** : inscription sans mot de passe, code SMS et règle « un numéro = un compte » avec Firebase Phone Auth.
 - **Services locaux utilisables** : portefeuille de démonstration persistant, paiements fictifs, QR de réception, coupons et demandes de transport, livraison ou santé sans écran mort.
 
-Le Double vidéo exige un consentement explicite, reste révocable, affiche son caractère artificiel et ne doit utiliser que l'image ou la voix dont la personne contrôle les droits.
+Le Jumeau numérique vidéo exige un consentement explicite, reste révocable, affiche son caractère artificiel et ne doit utiliser que l'image ou la voix dont la personne contrôle les droits.
 
 ## Ouvrir dans Visual Studio Code
 
@@ -82,4 +82,4 @@ Les clés Firebase Web identifient l'application ; les autorisations réelles re
 
 ## Portée de cette version
 
-L'interface et ses interactions constituent un prototype produit complet. Les parcours qui exigent un partenaire externe disposent d’un bac à sable local clairement signalé afin de rester testables de bout en bout. Le streaming vidéo public, la synthèse finale du Double, les débits monétaires réels, la modération et la mise en relation en production demanderont ensuite des services backend dédiés et des contrôles de sécurité supplémentaires.
+L'interface et ses interactions constituent un prototype produit complet. Les parcours qui exigent un partenaire externe disposent d’un bac à sable local clairement signalé afin de rester testables de bout en bout. Le streaming vidéo public, la synthèse finale du Jumeau numérique, les débits monétaires réels, la modération et la mise en relation en production demanderont ensuite des services backend dédiés et des contrôles de sécurité supplémentaires.

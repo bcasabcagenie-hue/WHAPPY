@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="whappy_blue">#1C1C74</color>
-    <color name="whappy_blue_dark">#1C1C74</color>
+    <color name="whappy_blue">#0094F0</color>
+    <color name="whappy_blue_dark">#0066CF</color>
     <color name="whappy_white">#FFFFFF</color>
 </resources>

@@ -94,7 +94,7 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
 
   async function startLive() {
     if (mode === "twin" && !twinAuthorized) {
-      setError("Créez et autorisez votre Double avant de lui passer le direct.");
+      setError("Créez et autorisez votre Jumeau numérique avant de lui passer le direct.");
       return;
     }
     if (mode === "human" && !streamRef.current && !(await openCamera())) return;
@@ -151,10 +151,10 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
       <div className="broadcast-grid">
         <div className={`broadcast-stage ${mode} ${cameraOn ? "" : "camera-off"}`}>
           <video ref={videoRef} muted playsInline />
-          {mode === "twin" && <div className="twin-standin"><span>CB</span><strong>DOUBLE IA</strong><small>Contenu artificiel signalé</small></div>}
+          {mode === "twin" && <div className="twin-standin"><span>CB</span><strong>JUMEAU IA</strong><small>Contenu artificiel signalé</small></div>}
           {mode === "human" && !hasStream && <div className="camera-empty"><span>▣</span><strong>Votre caméra est fermée</strong><button onClick={openCamera}>Ouvrir la caméra</button></div>}
           {mode === "human" && hasStream && !cameraOn && <div className="camera-empty"><span>CB</span><strong>Caméra coupée</strong></div>}
-          <div className="stage-pills"><span>{mode === "human" ? "CAMÉRA RÉELLE" : "DOUBLE · IA"}</span><span>{micOn ? "Micro actif" : "Micro coupé"}</span></div>
+          <div className="stage-pills"><span>{mode === "human" ? "CAMÉRA RÉELLE" : "JUMEAU · IA"}</span><span>{micOn ? "Micro actif" : "Micro coupé"}</span></div>
           {productVisible && <div className="pinned-product"><span>◇</span><div><small>PRODUIT ÉPINGLÉ</small><strong>{config.product}</strong></div><button onClick={() => setProductVisible(false)}>Masquer</button></div>}
           {!productVisible && <button className="restore-product" onClick={() => setProductVisible(true)}>◇ Réafficher le produit</button>}
         </div>
@@ -173,12 +173,12 @@ export function BroadcastStudio({ config, twinAuthorized, onClose, onOpenTwin, n
           <button onClick={shareLive}>↗ <span>Inviter</span></button>
           <button onClick={() => {
             if (mode === "human") {
-              if (!twinAuthorized) { setError("Votre Double doit être créé et autorisé avant le passage de relais."); return; }
+              if (!twinAuthorized) { setError("Votre Jumeau numérique doit être créé et autorisé avant le passage de relais."); return; }
               setMode("twin");
             } else setMode("human");
-          }}>⇄ <span>{mode === "human" ? "Passer au Double" : "Reprendre"}</span></button>
+          }}>⇄ <span>{mode === "human" ? "Passer au Jumeau" : "Reprendre"}</span></button>
         </div>
-        {mode === "twin" && !twinAuthorized ? <button className="go-live" onClick={onOpenTwin}>Créer mon Double</button> : status === "live" ? <button className="go-live live" onClick={endLive}>■ Terminer</button> : <button className="go-live" onClick={startLive}>● Démarrer le direct</button>}
+        {mode === "twin" && !twinAuthorized ? <button className="go-live" onClick={onOpenTwin}>Créer mon Jumeau numérique</button> : status === "live" ? <button className="go-live live" onClick={endLive}>■ Terminer</button> : <button className="go-live" onClick={startLive}>● Démarrer le direct</button>}
       </footer>}
       <small className={publicStreamingConnected ? "broadcast-note connected" : "broadcast-note demo"}>{publicStreamingConnected ? "La diffusion publique est active." : "Caméra et micro réels. Aucun spectateur ni message public n’est simulé : connectez le transport média WAPI pour diffuser."}</small>
     </section>

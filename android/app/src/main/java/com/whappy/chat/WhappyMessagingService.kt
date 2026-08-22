@@ -24,6 +24,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 class WhappyMessagingService : FirebaseMessagingService() {
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onNewToken(token: String) {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         val deviceId = token.takeLast(32).replace(Regex("[^A-Za-z0-9_-]"), "_")
@@ -36,7 +37,7 @@ class WhappyMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        val title = message.notification?.title ?: data["title"] ?: "WHAPPY"
+        val title = message.notification?.title ?: data["title"] ?: "WAPI"
         val body = message.notification?.body ?: data["body"] ?: "Vous avez une nouvelle activité."
         when (data["type"]?.lowercase()) {
             "call", "incoming_call" -> WhappyNotifications.showIncomingCall(
@@ -63,7 +64,7 @@ object WhappyNotifications {
     const val ACTION_ACCEPT_CALL = "com.whappy.chat.ACCEPT_CALL"
     const val ACTION_DECLINE_CALL = "com.whappy.chat.DECLINE_CALL"
 
-    private const val BRAND_COLOR = 0xFF1C1C74.toInt()
+    private const val BRAND_COLOR = 0xFF0094F0.toInt()
     private const val CHANNEL_MESSAGES = "whappy_messages_v3"
     private const val CHANNEL_CALLS = "whappy_calls_v3"
     private const val CHANNEL_ACTIVITY = "whappy_activity_v2"
@@ -79,13 +80,13 @@ object WhappyNotifications {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
         val messageAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
         manager.createNotificationChannels(
             listOf(
                 NotificationChannel(CHANNEL_MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Nouveaux messages et réponses WHAPPY"
+                    description = "Nouveaux messages et réponses WAPI"
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 120, 80, 120)
                     setSound(messageSound, messageAttributes)
@@ -95,14 +96,14 @@ object WhappyNotifications {
                     lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE
                 },
                 NotificationChannel(CHANNEL_CALLS, "Appels entrants", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Appels audio et vidéo WHAPPY"
+                    description = "Appels audio et vidéo WAPI"
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 700, 350, 700, 350, 700)
                     setSound(ringtone, ringtoneAttributes)
                     setShowBadge(true)
                     lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
                 },
-                NotificationChannel(CHANNEL_ACTIVITY, "Activité WHAPPY", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                NotificationChannel(CHANNEL_ACTIVITY, "Activité WAPI", NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "Commandes, paiements, chaînes et activité du compte"
                     enableVibration(true)
                     setShowBadge(true)
@@ -156,7 +157,7 @@ object WhappyNotifications {
             .setAction(ACTION_DECLINE_CALL)
             .putExtra(EXTRA_CALL_ID, safeCallId)
         val decline = PendingIntent.getBroadcast(context, requestCode + 1, declineIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val caller = Person.Builder().setName(callerName.ifBlank { "Contact WHAPPY" }).setImportant(true).build()
+        val caller = Person.Builder().setName(callerName.ifBlank { "Contact WAPI" }).setImportant(true).build()
         val notification = NotificationCompat.Builder(context, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.wapi_icon)
             .setColor(BRAND_COLOR)

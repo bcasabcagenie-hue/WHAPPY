@@ -3,11 +3,11 @@
 type SocialSpace = "orbit" | "live" | "inbox" | "business" | "twin";
 
 const destinations: Array<{ id: SocialSpace; icon: string; label: string; detail: string }> = [
-  { id: "orbit", icon: "▦", label: "Fil vidéo", detail: "Pour vous" },
+  { id: "orbit", icon: "▦", label: "Actus", detail: "Stories et médias" },
   { id: "inbox", icon: "◫", label: "Messages", detail: "Conversations" },
   { id: "live", icon: "●", label: "Live", detail: "En direct" },
   { id: "business", icon: "▥", label: "Business", detail: "Votre activité" },
-  { id: "twin", icon: "◎", label: "Double IA", detail: "Votre présence" },
+  { id: "twin", icon: "◎", label: "Jumeau IA", detail: "Votre présence" },
 ];
 
 export function SocialControlDeck({ current, onNavigate, onCreate }: { current: SocialSpace; onNavigate: (space: SocialSpace) => void; onCreate: () => void }) {

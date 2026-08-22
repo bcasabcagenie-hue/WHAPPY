@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export type ExperienceSpace = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "rooms" | "radio" | "services" | "twin" | "business" | "games";
+export type ExperienceSpace = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "channels" | "rooms" | "radio" | "podcasts" | "services" | "twin" | "business" | "games";
 type Panel = "shortcuts" | "faq" | null;
 
 const shortcuts: Array<{ key: string; icon: string; label: string; space: ExperienceSpace }> = [
@@ -22,7 +22,7 @@ const faqItems = [
   { category: "MARKETPLACE", question: "Comment vendre ou troquer un produit ?", answer: "Dans Marketplace, choisissez Vendre, ajoutez un titre, un prix ou l’échange souhaité, un lieu et un média. Vous pourrez ensuite suivre l’annonce dans votre boutique." },
   { category: "PAIEMENTS", question: "Les paiements sont-ils déjà activés ?", answer: "L’interface de commande est prête, mais un moyen de paiement doit être connecté et validé avant tout encaissement réel. Ne partagez jamais votre code secret dans une conversation." },
   { category: "LIVE", question: "Puis-je vendre pendant un direct ?", answer: "Oui. Préparez le titre, le produit et le mode de diffusion, puis présentez l’article pendant le direct. Les spectateurs peuvent discuter et ajouter le produit à leur panier." },
-  { category: "MON DOUBLE", question: "Comment utiliser Mon Double en sécurité ?", answer: "Utilisez uniquement votre propre image et votre propre voix, ou un contenu pour lequel vous avez une autorisation claire. Whappy demande votre consentement avant la création et l’automatisation." },
+  { category: "JUMEAU NUMÉRIQUE", question: "Comment utiliser mon Jumeau numérique en sécurité ?", answer: "Utilisez uniquement votre propre image et votre propre voix, ou un contenu pour lequel vous avez une autorisation claire. WAPI demande votre consentement avant la création et l’automatisation." },
   { category: "SÉCURITÉ", question: "Comment protéger mon compte et mes échanges ?", answer: "Ne communiquez jamais un code SMS, vérifiez l’identité du contact et gardez les échanges dans Whappy. Utilisez les options de conversation pour bloquer ou signaler un comportement suspect." },
 ];
 
@@ -80,7 +80,7 @@ export function WhappyExperience({ current, onNavigate, onPulse }: { current: Ex
         <footer><span>Besoin d’aide ?</span><p>Consultez les réponses aux questions fréquentes.</p><button onClick={() => setPanel("faq")}>Ouvrir la FAQ →</button></footer>
       </section> : <section className="experience-panel faq-panel">
         <header><div><small>CENTRE D’AIDE WHAPPY</small><h2>Comment pouvons-nous vous aider ?</h2><p>Des réponses simples pour utiliser Whappy en toute confiance.</p></div><button onClick={() => setPanel(null)} aria-label="Fermer">×</button></header>
-        <label className="faq-search"><span>⌕</span><input value={faqQuery} onChange={(event) => setFaqQuery(event.target.value)} placeholder="Rechercher : SMS, groupe, paiement, Double…" />{faqQuery && <button onClick={() => setFaqQuery("")} aria-label="Effacer">×</button>}</label>
+        <label className="faq-search"><span>⌕</span><input value={faqQuery} onChange={(event) => { setFaqQuery(event.target.value); }} placeholder="Rechercher : SMS, groupe, paiement, Jumeau…" />{faqQuery && <button onClick={() => setFaqQuery("")} aria-label="Effacer">×</button>}</label>
         <div className="faq-results" aria-live="polite">
           {filteredFaq.map((item, index) => <details key={item.question} open={!faqQuery && index === 0}><summary><span>{item.category}</span><strong>{item.question}</strong><i>＋</i></summary><p>{item.answer}</p></details>)}
           {!filteredFaq.length && <div className="faq-empty"><span>⌕</span><strong>Aucune réponse trouvée</strong><p>Essayez un mot plus simple comme « SMS », « appel » ou « vendre ».</p></div>}

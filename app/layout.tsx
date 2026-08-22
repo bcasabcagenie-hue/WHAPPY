@@ -17,6 +17,10 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://whappy-chat.docile-mesa-9203.chatgpt.site"),
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/favicon.svg",
+    apple: "/whappy-app-icon.png",
+  },
   title: "Wapi — Tout peut devenir une opportunité",
   description: "Wapi réunit messages privés, communautés, vidéos personnalisées, Business et doubles IA avec contrôle humain.",
   openGraph: {
@@ -24,6 +28,7 @@ export const metadata: Metadata = {
     description: "Messages, communautés, vidéos et Business dans une même expérience Wapi.",
     locale: "fr_FR",
     type: "website",
+    images: ["/whappy-social-card.svg"],
   },
   twitter: {
     card: "summary",
@@ -33,7 +38,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#111827",
+  themeColor: "#0094F0",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

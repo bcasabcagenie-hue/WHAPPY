@@ -45,7 +45,7 @@ export function WhappyNow({ unread, listingCount, orderCount, cloud, onNavigate 
     },
     {
       icon: "◎",
-      eyebrow: "MON DOUBLE",
+      eyebrow: "MON JUMEAU",
       title: "Votre prochain vendeur peut travailler sans pause",
       detail: "Préparez une présentation vidéo et automatisez vos réponses",
       action: "Créer",
