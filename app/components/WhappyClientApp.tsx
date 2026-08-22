@@ -58,7 +58,7 @@ type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "ima
 
 const ANDROID_APP = {
   url: "/downloads/WAPI-Android-1.9.4-native.apk",
-  version: "1.9.1 native",
+  version: "1.9.4 native",
   size: "Universel",
   minimum: "Android 8.0+",
 } as const;
