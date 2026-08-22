@@ -193,10 +193,18 @@ class WapiRepository {
       .collection('stories')
       .where('audienceIds', arrayContains: userId)
       .where('expiresAt', isGreaterThan: Timestamp.now())
-      .orderBy('createdAt', descending: true)
-      .limit(50)
       .snapshots()
-      .map((snapshot) => snapshot.docs.map(WapiStory.fromDoc).toList());
+      .map((snapshot) {
+        final stories = snapshot.docs.map(WapiStory.fromDoc).toList();
+        stories.sort(
+          (left, right) =>
+              (right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                  .compareTo(
+                    left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                  ),
+        );
+        return stories;
+      });
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> profile(String userId) =>
       _db.collection('users').doc(userId).snapshots();
@@ -664,7 +672,7 @@ class WapiRepository {
     }, SetOptions(merge: true));
   }
 
-  Future<void> publishMediaStory({
+  Future<WapiStory> publishMediaStory({
     required User user,
     required File file,
     required String mediaType,
@@ -672,35 +680,35 @@ class WapiRepository {
     required String fileName,
     String caption = '',
   }) async {
-    final audience = <String>{user.uid};
-    final conversations = await _db
-        .collection('conversations')
-        .where('memberIds', arrayContains: user.uid)
-        .get();
-    for (final doc in conversations.docs) {
-      audience.addAll(
-        List<String>.from(doc.data()['memberIds'] as List? ?? const []),
-      );
-    }
+    final audience = await _storyAudience(user.uid);
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final storagePath =
         'stories/${user.uid}/${DateTime.now().millisecondsSinceEpoch}-$safeName';
     final ref = _storage.ref(storagePath);
     await ref.putFile(file, SettableMetadata(contentType: contentType));
     final url = await ref.getDownloadURL();
-    await _db.collection('stories').add({
+    final authorName = user.displayName ?? user.phoneNumber ?? 'Membre WAPI';
+    final document = await _db.collection('stories').add({
       'authorId': user.uid,
-      'authorName': user.displayName ?? user.phoneNumber ?? 'Membre WAPI',
+      'authorName': authorName,
       'mediaUrl': url,
       'mediaType': mediaType,
       'caption': caption.trim().take(600),
       'storagePath': storagePath,
-      'audienceIds': audience.take(500).toList(),
+      'audienceIds': audience,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': Timestamp.fromDate(
         DateTime.now().add(const Duration(hours: 24)),
       ),
     });
+    return WapiStory(
+      id: document.id,
+      authorName: authorName,
+      text: caption.trim().take(600),
+      createdAt: DateTime.now(),
+      mediaUrl: url,
+      mediaType: mediaType,
+    );
   }
 
   Future<String> ensureDirectConversation({
@@ -765,25 +773,53 @@ class WapiRepository {
     return id;
   }
 
-  Future<void> publishTextStory({
+  Future<WapiStory> publishTextStory({
     required User user,
     required String text,
   }) async {
     final value = text.trim();
-    if (value.isEmpty) return;
-    await _db.collection('stories').add({
+    if (value.isEmpty) {
+      throw ArgumentError('Le texte de la Story ne peut pas être vide.');
+    }
+    final audience = await _storyAudience(user.uid);
+    final authorName = user.displayName ?? user.phoneNumber ?? 'Membre WAPI';
+    final document = await _db.collection('stories').add({
       'authorId': user.uid,
-      'authorName': user.displayName ?? user.phoneNumber ?? 'Membre WAPI',
+      'authorName': authorName,
       'mediaUrl': '',
       'mediaType': 'text',
       'caption': value,
       'storagePath': '',
-      'audienceIds': [user.uid],
+      'audienceIds': audience,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': Timestamp.fromDate(
         DateTime.now().add(const Duration(hours: 24)),
       ),
     });
+    return WapiStory(
+      id: document.id,
+      authorName: authorName,
+      text: value,
+      createdAt: DateTime.now(),
+      mediaUrl: '',
+      mediaType: 'text',
+    );
+  }
+
+  Future<List<String>> _storyAudience(String userId) async {
+    final audience = <String>{userId};
+    final conversations = await _db
+        .collection('conversations')
+        .where('memberIds', arrayContains: userId)
+        .get();
+    for (final conversation in conversations.docs) {
+      audience.addAll(
+        List<String>.from(
+          conversation.data()['memberIds'] as List? ?? const <String>[],
+        ),
+      );
+    }
+    return audience.take(500).toList(growable: false);
   }
 }
 

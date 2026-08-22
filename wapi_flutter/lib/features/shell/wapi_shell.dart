@@ -1612,12 +1612,15 @@ class _ChatPageState extends State<_ChatPage> {
   final _picker = ImagePicker();
   final _recorder = AudioRecorder();
   final _player = AudioPlayer();
+  final _messageScrollController = ScrollController();
   StreamSubscription<List<WapiMessage>>? _messagesSubscription;
   bool _sending = false;
   bool _recording = false;
   bool _markingRead = false;
   bool _markReadQueued = false;
   String? _latestIncomingMessageId;
+  String? _lastRenderedMessageId;
+  bool _positionedInitialMessages = false;
   WapiMessage? _replyingTo;
   @override
   void initState() {
@@ -1642,6 +1645,28 @@ class _ChatPageState extends State<_ChatPage> {
     }
     _latestIncomingMessageId = latestIncoming.id;
     unawaited(_markConversationRead());
+  }
+
+  void _keepLatestMessageVisible(List<WapiMessage> messages) {
+    final latestId = messages.isEmpty ? null : messages.last.id;
+    if (latestId == null || latestId == _lastRenderedMessageId) return;
+    final isNearBottom =
+        !_messageScrollController.hasClients ||
+        _messageScrollController.position.maxScrollExtent -
+                _messageScrollController.offset <
+            96;
+    final shouldScroll = !_positionedInitialMessages || isNearBottom;
+    _positionedInitialMessages = true;
+    _lastRenderedMessageId = latestId;
+    if (!shouldScroll) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messageScrollController.hasClients) return;
+      _messageScrollController.animateTo(
+        _messageScrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   Future<void> _markConversationRead() async {
@@ -1673,6 +1698,7 @@ class _ChatPageState extends State<_ChatPage> {
   @override
   void dispose() {
     _messagesSubscription?.cancel();
+    _messageScrollController.dispose();
     _composer.dispose();
     _recorder.dispose();
     _player.dispose();
@@ -2052,6 +2078,7 @@ class _ChatPageState extends State<_ChatPage> {
                 return const Center(child: CircularProgressIndicator());
               }
               final messages = snapshot.data!;
+              _keepLatestMessageVisible(messages);
               if (messages.isEmpty) {
                 return const _StateMessage(
                   icon: Icons.waving_hand_outlined,
@@ -2060,11 +2087,12 @@ class _ChatPageState extends State<_ChatPage> {
                 );
               }
               return ListView.builder(
-                reverse: true,
-                padding: const EdgeInsets.all(16),
+                controller: _messageScrollController,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
                 itemCount: messages.length,
                 itemBuilder: (context, index) {
-                  final message = messages[messages.length - 1 - index];
+                  final message = messages[index];
                   final mine = message.senderId == widget.user.uid;
                   return Align(
                     alignment: mine
@@ -2449,6 +2477,16 @@ class _ChatPageState extends State<_ChatPage> {
   }
 
   void _startCall({required bool video}) {
+    if (widget.conversation.peerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ce contact doit avoir un compte WAPI actif pour recevoir un appel.',
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => WapiCallPage.outgoing(
@@ -2705,12 +2743,19 @@ class _UpdatesPage extends StatelessWidget {
               child: FilledButton.icon(
                 onPressed: () async {
                   try {
-                    await repository.publishTextStory(
+                    final story = await repository.publishTextStory(
                       user: user,
                       text: controller.text,
                     );
                     if (sheetContext.mounted) {
                       Navigator.pop(sheetContext);
+                    }
+                    if (context.mounted) {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => _StoryViewer(story: story),
+                        ),
+                      );
                     }
                   } catch (error) {
                     if (sheetContext.mounted) {
@@ -2743,7 +2788,7 @@ class _UpdatesPage extends StatelessWidget {
         : await picker.pickImage(source: ImageSource.gallery, imageQuality: 92);
     if (media == null) return;
     try {
-      await repository.publishMediaStory(
+      final story = await repository.publishMediaStory(
         user: user,
         file: File(media.path),
         mediaType: video ? 'video' : 'image',
@@ -2751,6 +2796,11 @@ class _UpdatesPage extends StatelessWidget {
         fileName: media.name,
         caption: caption,
       );
+      if (context.mounted) {
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => _StoryViewer(story: story)));
+      }
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(

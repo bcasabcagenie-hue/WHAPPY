@@ -44,6 +44,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
   final _remoteRenderer = RTCVideoRenderer();
   final _candidateIds = <String>{};
   final _pendingCandidates = <Map<String, dynamic>>[];
+  final _pendingRemoteCandidates = <Map<String, dynamic>>[];
   final _subscriptions = <StreamSubscription<dynamic>>[];
   List<Map<String, dynamic>> _iceServers = const [];
 
@@ -53,6 +54,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
   bool _muted = false;
   bool _speaker = true;
   bool _ended = false;
+  bool _hasRemoteDescription = false;
   String _status = 'Connexion sécurisée…';
 
   bool get _incoming => widget.incomingCallId != null;
@@ -101,6 +103,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     final peer = await createPeerConnection({
       'sdpSemantics': 'unified-plan',
       'iceTransportPolicy': 'all',
+      'iceCandidatePoolSize': 8,
       'iceServers': _iceServers,
     });
     _peer = peer;
@@ -208,7 +211,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     }
     final peer = _peer;
     if (peer == null) throw StateError('Moteur WebRTC indisponible.');
-    await peer.setRemoteDescription(
+    await _setRemoteDescription(
       RTCSessionDescription(
         offer['sdp'] as String,
         offer['type'] as String? ?? 'offer',
@@ -246,8 +249,12 @@ class _WapiCallPageState extends State<WapiCallPage> {
           final answer = Map<String, dynamic>.from(data['answer'] as Map);
           if (answer['sdp'] is! String) return;
           final current = await _peer?.getRemoteDescription();
-          if (current != null) return;
-          await _peer?.setRemoteDescription(
+          if (current != null) {
+            _hasRemoteDescription = true;
+            await _flushPendingRemoteCandidates();
+            return;
+          }
+          await _setRemoteDescription(
             RTCSessionDescription(
               answer['sdp'] as String,
               answer['type'] as String? ?? 'answer',
@@ -276,16 +283,48 @@ class _WapiCallPageState extends State<WapiCallPage> {
           if (candidate == null) {
             continue;
           }
-          _peer?.addCandidate(
-            RTCIceCandidate(
-              candidate,
-              data?['sdpMid'] as String?,
-              (data?['sdpMLineIndex'] as num?)?.toInt(),
-            ),
-          );
+          _receiveRemoteCandidate(Map<String, dynamic>.from(data ?? const {}));
         }
       }),
     );
+  }
+
+  Future<void> _setRemoteDescription(RTCSessionDescription description) async {
+    await _peer?.setRemoteDescription(description);
+    _hasRemoteDescription = true;
+    await _flushPendingRemoteCandidates();
+  }
+
+  void _receiveRemoteCandidate(Map<String, dynamic> candidate) {
+    if (!_hasRemoteDescription) {
+      _pendingRemoteCandidates.add(candidate);
+      return;
+    }
+    unawaited(_addRemoteCandidate(candidate));
+  }
+
+  Future<void> _flushPendingRemoteCandidates() async {
+    final pending = List<Map<String, dynamic>>.from(_pendingRemoteCandidates);
+    _pendingRemoteCandidates.clear();
+    for (final candidate in pending) {
+      await _addRemoteCandidate(candidate);
+    }
+  }
+
+  Future<void> _addRemoteCandidate(Map<String, dynamic> data) async {
+    final candidate = data['candidate'] as String?;
+    if (candidate == null || candidate.isEmpty) return;
+    try {
+      await _peer?.addCandidate(
+        RTCIceCandidate(
+          candidate,
+          data['sdpMid'] as String?,
+          (data['sdpMLineIndex'] as num?)?.toInt(),
+        ),
+      );
+    } catch (_) {
+      // A transient ICE candidate failure is retried by the peer connection.
+    }
   }
 
   void _writeCandidate(Map<String, dynamic> candidate) {
