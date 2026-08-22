@@ -39,6 +39,7 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   const [caption, setCaption] = useState("");
   const [activeAuthorId, setActiveAuthorId] = useState<string | null>(null);
   const [activeItem, setActiveItem] = useState(0);
+  const [viewedIds, setViewedIds] = useState<Set<string>>(() => new Set());
   const [muted, setMuted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -47,6 +48,26 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   const notifyRef = useRef(notify);
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
+  useEffect(() => {
+    if (cloud) return;
+    try {
+      const cached = JSON.parse(localStorage.getItem("whappy-demo-stories") || "null") as StoryItem[] | null;
+      if (Array.isArray(cached) && cached.length) setStories(cached.filter((story) => timestampMillis(story.expiresAt) > Date.now()));
+    } catch { /* L’aperçu reste utilisable sans stockage local. */ }
+  }, [cloud]);
+  useEffect(() => {
+    if (cloud) return;
+    try { localStorage.setItem("whappy-demo-stories", JSON.stringify(stories)); } catch { /* Stockage privé indisponible. */ }
+  }, [cloud, stories]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`whappy-story-views-${userId}`) || "[]") as string[];
+      if (Array.isArray(saved)) setViewedIds(new Set(saved));
+    } catch { /* Les indicateurs de lecture restent optionnels. */ }
+  }, [userId]);
+  useEffect(() => {
+    try { localStorage.setItem(`whappy-story-views-${userId}`, JSON.stringify(Array.from(viewedIds))); } catch { /* Stockage privé indisponible. */ }
+  }, [userId, viewedIds]);
   useEffect(() => {
     const timer = window.setTimeout(() => setRailTarget(document.querySelector<HTMLElement>(".moments-feed > .story-line")), 0);
     return () => window.clearTimeout(timer);
@@ -186,6 +207,7 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   function openStory(group: StoryGroup) {
     setActiveAuthorId(group.authorId);
     setActiveItem(0);
+    setViewedIds((current) => new Set([...current, ...group.stories.map((story) => story.id)]));
   }
 
   const rail = <section className="story-studio" aria-label="Stories Whappy">
@@ -193,8 +215,8 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
       <div className="story-line real-stories">
         <button className="add-story" onClick={() => setCreatorOpen(true)}><span>＋</span><strong>Votre Story</strong><small>Photo ou vidéo</small></button>
         {loading && [1, 2, 3].map((item) => <div className="story-loading-card" key={item}><span/><strong/><small/></div>)}
-        {storyGroups.map((group) => { const story = group.stories[group.stories.length - 1]; return <button key={group.authorId} onClick={() => openStory(group)}>
-          <span className="story-cover" style={story.mediaType === "image" && story.mediaUrl ? { backgroundImage: `url(${story.mediaUrl})` } : undefined}><i>{initials(group.authorName)}</i>{story.mediaType === "video" && <b>▶</b>}{story.mediaType === "audio" && <b>◖</b>}</span>
+        {storyGroups.map((group) => { const story = group.stories[group.stories.length - 1]; return <button key={group.authorId} onClick={() => openStory(group)} aria-label={`Voir les Stories de ${group.authorName}`}>
+          <span className={`story-cover ${group.stories.every((item) => viewedIds.has(item.id)) ? "seen" : ""}`} style={story.mediaType === "image" && story.mediaUrl ? { backgroundImage: `url(${story.mediaUrl})` } : undefined}><i>{initials(group.authorName)}</i>{story.mediaType === "video" && <b>▶</b>}{story.mediaType === "audio" && <b>◖</b>}</span>
           <strong>{group.authorId === userId ? "Votre Story" : group.authorName.split(" ")[0]}</strong><small>{group.stories.length > 1 ? `${group.stories.length} Stories` : group.authorId === userId ? "Publiée" : "Nouveau"}</small>
         </button>; })}
         {!loading && !storyGroups.length && <button className="stories-empty" onClick={() => setCreatorOpen(true)}><span>✦</span><strong>Aucune Story active</strong><small>Partagez la première →</small></button>}
