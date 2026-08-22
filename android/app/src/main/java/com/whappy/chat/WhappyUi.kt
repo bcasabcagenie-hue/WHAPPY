@@ -1458,7 +1458,11 @@ private fun StoriesScreen(
     }
 }
 
-private data class WepiChatMessage(val text: String, val fromUser: Boolean)
+private data class WepiChatMessage(
+    val text: String,
+    val fromUser: Boolean,
+    val actions: List<WapiPilotisAction> = emptyList(),
+)
 
 @Composable
 private fun WepiScreen(
@@ -1473,6 +1477,7 @@ private fun WepiScreen(
     val context = LocalContext.current
     var prompt by rememberSaveable { mutableStateOf("") }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var lastIntentName by rememberSaveable { mutableStateOf(WapiPilotisIntent.OTHER.name) }
     val activeSettings = settings ?: WapiWepiSettings(ownerId = userId)
     var messages by remember {
         mutableStateOf(listOf(WepiChatMessage("Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis ${activeSettings.assistantName}, le moteur WEPI Pilotis intégré à WAPI.", false)))
@@ -1481,8 +1486,10 @@ private fun WepiScreen(
     fun submit(value: String) {
         val clean = value.trim()
         if (clean.isBlank()) return
-        val pilotisResponse = WapiPilotis.response(clean, activeSettings, userName)
-        messages = messages + WepiChatMessage(clean, true) + WepiChatMessage(pilotisResponse.text, false)
+        val previousIntent = runCatching { WapiPilotisIntent.valueOf(lastIntentName) }.getOrNull()
+        val pilotisResponse = WapiPilotis.response(clean, activeSettings, userName, previousIntent)
+        lastIntentName = pilotisResponse.intent.name
+        messages = messages + WepiChatMessage(clean, true) + WepiChatMessage(pilotisResponse.text, false, pilotisResponse.actions)
         prompt = ""
     }
     LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
@@ -1511,8 +1518,19 @@ private fun WepiScreen(
             itemsIndexed(messages) { _, message ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start) {
                     if (!message.fromUser) Box(Modifier.padding(end = 7.dp).size(30.dp).clip(RoundedCornerShape(10.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Text("W", color = Color.White, fontWeight = FontWeight.Black) }
-                    Surface(color = if (message.fromUser) WapiBubbleOutgoing else Color.White, shape = RoundedCornerShape(16.dp), shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth(.78f)) {
-                        Text(message.text, Modifier.padding(13.dp), color = WhappyInk, lineHeight = 19.sp)
+                    Column(Modifier.fillMaxWidth(.78f)) {
+                        Surface(color = if (message.fromUser) WapiBubbleOutgoing else Color.White, shape = RoundedCornerShape(16.dp), shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+                            Text(message.text, Modifier.padding(13.dp), color = WhappyInk, lineHeight = 19.sp)
+                        }
+                        if (!message.fromUser && message.actions.isNotEmpty()) {
+                            Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                message.actions.forEach { action ->
+                                    TextButton(onClick = { when (action) { WapiPilotisAction.OPEN_MESSAGES -> onOpenMessages(); WapiPilotisAction.OPEN_BUSINESS -> onOpenBusiness() } }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp)) {
+                                        Text(if (action == WapiPilotisAction.OPEN_MESSAGES) "Ouvrir Messages" else "Ouvrir Business", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

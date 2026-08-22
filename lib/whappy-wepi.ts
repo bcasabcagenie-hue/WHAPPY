@@ -42,6 +42,8 @@ export type WepiIntent =
   | "help"
   | "other";
 
+export type WepiAction = "open_messages" | "open_business";
+
 export const defaultWepiSettings = (ownerId: string, businessName = "") : WepiSettings => ({
   ownerId,
   enabled: false,
@@ -99,8 +101,22 @@ export function classifyWepiMessage(message: Pick<CloudMessage, "text">): WepiIn
   return "other";
 }
 
-export function buildWepiResponse(message: Pick<CloudMessage, "text">, settings: WepiSettings, customerName = "") {
-  const intent = classifyWepiMessage(message);
+function isWepiFollowUp(text: string) {
+  const lower = normalizePilotisText(text);
+  return lower.length <= 48 && (
+    ["oui", "ok", "daccord", "merci", "comment", "et apres", "et pour ca", "et pour cela"].includes(lower)
+    || lower.startsWith("et pour ")
+    || lower.startsWith("et si ")
+    || lower.startsWith("donc ")
+    || lower.startsWith("je veux ")
+    || lower.startsWith("fais ")
+    || lower.startsWith("ouvre ")
+  );
+}
+
+export function buildWepiResponse(message: Pick<CloudMessage, "text">, settings: WepiSettings, customerName = "", previousIntent?: WepiIntent) {
+  const classified = classifyWepiMessage(message);
+  const intent = classified === "other" && previousIntent && isWepiFollowUp(message.text) ? previousIntent : classified;
   const name = customerName.trim() ? ` ${customerName.trim().split(/\s+/)[0]}` : "";
   const business = settings.businessName.trim() || "notre activité";
   const greeting = settings.welcomeMessage.trim() || "Bonjour et merci pour votre message.";
@@ -126,11 +142,12 @@ export function buildWepiResponse(message: Pick<CloudMessage, "text">, settings:
       default: return `${greeting}${name} J’ai reçu votre demande pour ${business}. ${configuredInstructions} Pour une réponse précise, indiquez l’action WAPI, le contact ou le service concerné. ${tone}`;
     }
   })();
-  return { text, intent };
+  const actions: WepiAction[] = intent === "messages" ? ["open_messages"] : intent === "business" ? ["open_business"] : [];
+  return { text, intent, actions };
 }
 
-export function buildWepiReply(message: Pick<CloudMessage, "text">, settings: WepiSettings, customerName = "") {
-  return buildWepiResponse(message, settings, customerName).text;
+export function buildWepiReply(message: Pick<CloudMessage, "text">, settings: WepiSettings, customerName = "", previousIntent?: WepiIntent) {
+  return buildWepiResponse(message, settings, customerName, previousIntent).text;
 }
 
 export const defaultWepiRoomPilot = (roomId: string, ownerId: string): WepiRoomPilotSettings => ({

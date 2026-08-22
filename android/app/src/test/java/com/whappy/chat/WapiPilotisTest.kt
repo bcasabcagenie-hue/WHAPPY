@@ -34,4 +34,11 @@ class WapiPilotisTest {
         assertTrue(response.text.contains("profil"))
         assertTrue(response.text.contains("publiez"))
     }
+
+    @Test
+    fun keepsShortFollowUpsInConversationContext() {
+        val response = WapiPilotis.response("Et pour ça ?", settings, previousIntent = WapiPilotisIntent.BUSINESS)
+        assertTrue(response.intent == WapiPilotisIntent.BUSINESS)
+        assertTrue(response.actions.contains(WapiPilotisAction.OPEN_BUSINESS))
+    }
 }

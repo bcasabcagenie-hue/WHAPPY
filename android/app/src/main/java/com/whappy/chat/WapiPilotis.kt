@@ -16,9 +16,14 @@ enum class WapiPilotisIntent {
     GROUPS, GAMES, CALLS, RADIO, PRIVACY, HELP, OTHER,
 }
 
+enum class WapiPilotisAction {
+    OPEN_MESSAGES, OPEN_BUSINESS,
+}
+
 data class WapiPilotisResponse(
     val text: String,
     val intent: WapiPilotisIntent,
+    val actions: List<WapiPilotisAction> = emptyList(),
 )
 
 /** Android implementation kept in parity with lib/whappy-wepi.ts (the WAPI Pilotis chatbot). */
@@ -48,8 +53,23 @@ object WapiPilotis {
         }
     }
 
-    fun response(message: String, settings: WapiWepiSettings, customerName: String = ""): WapiPilotisResponse {
-        val intent = classify(message)
+    private fun isFollowUp(message: String): Boolean {
+        val lower = SearchNormalizer.normalize(message)
+        return lower.length <= 48 && (
+            lower in setOf("oui", "ok", "daccord", "merci", "comment", "et apres", "et pour ca", "et pour cela") ||
+                lower.startsWith("et pour ") || lower.startsWith("et si ") || lower.startsWith("donc ") ||
+                lower.startsWith("je veux ") || lower.startsWith("fais ") || lower.startsWith("ouvre ")
+            )
+    }
+
+    fun response(
+        message: String,
+        settings: WapiWepiSettings,
+        customerName: String = "",
+        previousIntent: WapiPilotisIntent? = null,
+    ): WapiPilotisResponse {
+        val classified = classify(message)
+        val intent = if (classified == WapiPilotisIntent.OTHER && previousIntent != null && isFollowUp(message)) previousIntent else classified
         val firstName = customerName.trim().substringBefore(' ').takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
         val business = settings.businessName.trim().ifBlank { "notre activité" }
         val greeting = settings.welcomeMessage.trim().ifBlank { "Bonjour et merci pour votre message." }
@@ -76,8 +96,13 @@ object WapiPilotis {
             WapiPilotisIntent.HELP -> "Je suis Pilotis dans WAPI. Essayez : « comment publier une Story ? », « créer une campagne régionale », « ouvrir un jeu en ligne », « lancer un direct radio » ou « gérer mon groupe »."
             WapiPilotisIntent.OTHER -> "$greeting$firstName J’ai reçu votre demande pour $business. $instructions Pour une réponse précise, indiquez l’action WAPI, le contact ou le service concerné. $tone"
         }
-        return WapiPilotisResponse(text, intent)
+        val actions = when (intent) {
+            WapiPilotisIntent.MESSAGES -> listOf(WapiPilotisAction.OPEN_MESSAGES)
+            WapiPilotisIntent.BUSINESS -> listOf(WapiPilotisAction.OPEN_BUSINESS)
+            else -> emptyList()
+        }
+        return WapiPilotisResponse(text, intent, actions)
     }
 
-    fun reply(message: String, settings: WapiWepiSettings, customerName: String = ""): String = response(message, settings, customerName).text
+    fun reply(message: String, settings: WapiWepiSettings, customerName: String = "", previousIntent: WapiPilotisIntent? = null): String = response(message, settings, customerName, previousIntent).text
 }
