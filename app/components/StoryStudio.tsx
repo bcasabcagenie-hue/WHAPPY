@@ -29,7 +29,10 @@ function timestampMillis(value: WhappyStory["expiresAt"]) {
 }
 
 export function StoryStudio({ userId, userName, cloud, notify }: { userId: string; userName: string; cloud: boolean; notify: (text: string) => void }) {
-  const [stories, setStories] = useState<StoryItem[]>([]);
+  const [stories, setStories] = useState<StoryItem[]>(() => cloud ? [] : [
+    { id: "demo-amina", authorId: "demo-amina", authorName: "Amina M.", mediaUrl: "", mediaType: "text", caption: "Une belle journée commence par une bonne idée ✨", createdAt: { seconds: Math.floor(Date.now() / 1000) - 900 }, expiresAt: { seconds: Math.floor(Date.now() / 1000) + 23 * 3600 } },
+    { id: "demo-junior", authorId: "demo-junior", authorName: "Junior K.", mediaUrl: "", mediaType: "text", caption: "Disponible pour vos projets aujourd’hui.", createdAt: { seconds: Math.floor(Date.now() / 1000) - 3600 }, expiresAt: { seconds: Math.floor(Date.now() / 1000) + 21 * 3600 } },
+  ]);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
@@ -137,7 +140,13 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
     event.preventDefault();
     if ((!file && !caption.trim()) || busy) return;
     if (!cloud) {
-      notify("Connectez-vous pour publier une Story et synchroniser vos images.");
+      const now = Math.floor(Date.now() / 1000);
+      const localStory: StoryItem = { id: `local-${Date.now()}`, authorId: userId, authorName: userName, mediaUrl: preview, mediaType: file ? previewKind : "text", caption: caption.trim(), createdAt: { seconds: now }, expiresAt: { seconds: now + 24 * 3600 } };
+      setStories((current) => [localStory, ...current]);
+      setActiveItem(0);
+      setActiveAuthorId(userId);
+      notify("Votre Story est publiée dans cet aperçu pendant 24 heures.");
+      resetCreator();
       return;
     }
     setBusy(true);

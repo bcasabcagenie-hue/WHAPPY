@@ -56,7 +56,7 @@ export const notifyNewMessage = onDocumentCreated("conversations/{conversationId
   if (!recipients.length) return;
   const [sender, devices] = await Promise.all([db.collection("users").doc(senderId).get(), pushDevices(recipients)]);
   if (!devices.length) return;
-  const senderName = String(sender.get("displayName") || conversation.get("contactName") || "Contact WHAPPY");
+  const senderName = String(sender.get("displayName") || conversation.get("contactName") || "Contact WAPI");
   const kind = String(message.kind || "text");
   const text = String(message.text || "").trim();
   const body = kind === "image" ? "📷 Photo" : kind === "audio" ? "🎙️ Note vocale" : kind === "video" ? "🎥 Vidéo" : text.slice(0, 240);
@@ -83,7 +83,7 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
   const calleeId = String(call.calleeId || "");
   const devices = await pushDevices([calleeId]);
   if (!devices.length) return;
-  const callerName = String(call.callerName || "Contact WHAPPY");
+  const callerName = String(call.callerName || "Contact WAPI");
   const video = call.video === true;
   await sendInBatches(devices, {
     data: {

@@ -39,7 +39,7 @@ test("affiche la connexion téléphonique Wapi côté serveur", async () => {
   assert.match(html, /Télécharger l&#x27;application/);
   assert.match(html, /Android 8\.0\+/);
   assert.match(html, /Le téléchargement ne démarre pas/);
-  assert.match(html, /WAPI-Android-1\.9\.1-native\.apk/);
+  assert.match(html, /WAPI-Android-1\.9\.4-native\.apk/);
   assert.doesNotMatch(html, /Fusioniox|site-creator-vinext-starter/i);
 });
 
@@ -73,7 +73,8 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(ui, /WAPI Live/);
   assert.match(ui, /BusinessSection/);
   assert.match(ui, /Notifications de paiement/);
-  assert.match(ui, /Créer un Deal/);
+  assert.match(ui, /Créer une offre/);
+  assert.match(ui, /ModalBottomSheet/);
   assert.match(ui, /Centre d’activité/);
   assert.match(ui, /CallsScreen/);
   assert.match(ui, /WhappyTab\.CALLS/);
@@ -103,8 +104,10 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(ui, /Tout WAPI/);
   assert.match(repository, /profiles\/\$userId\/avatar-/);
   assert.match(ui, /Changer la photo/);
-  assert.match(ui, /Démarrer maintenant/);
-  assert.match(ui, /Tout le monde peut passer en direct/);
+  assert.match(ui, /Ouvrir le studio/);
+  assert.match(ui, /Caméra, micro et diffusion sous votre contrôle/);
+  assert.match(ui, /LivePreflightDialog/);
+  assert.match(ui, /VoiceNoteMessage/);
   assert.match(ui, /deal-creator/);
   assert.match(ui, /Catalogue/);
   assert.match(ui, /Centre de commandes/);
@@ -154,7 +157,7 @@ test("garde l’accueil et le studio WHAPPY natifs utilisables", async () => {
   assert.match(androidBuild, /emoji2:1\.5\.0/);
   assert.match(androidBuild, /com\.tencent:mmkv:2\.4\.1/);
   assert.match(androidBuild, /work-runtime-ktx:2\.10\.1/);
-  assert.match(androidBuild, /versionName "1\.9\.1-native"/);
+  assert.match(androidBuild, /versionName "1\.9\.4-native"/);
   assert.match(fastStorage, /MMKV\.SINGLE_PROCESS_MODE, cryptKey/);
   assert.match(outbox, /WhappyCryptoVault\.encrypt/);
   assert.match(messageSync, /NetworkType\.CONNECTED/);

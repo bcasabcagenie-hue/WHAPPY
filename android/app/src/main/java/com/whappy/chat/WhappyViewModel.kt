@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.storage.StorageException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -745,12 +746,13 @@ class WhappyViewModel(
 
     fun uploadTwinAsset(uri: Uri, kind: String, contentType: String) = runTwinAction("La capture du Jumeau numérique n’a pas été synchronisée") { user ->
         val profile = _uiState.value.twinProfile
-        require(profile?.identityConsent == true && profile.voiceConsent && profile.movementConsent)
+        require(profile?.identityConsent == true && profile.voiceConsent && profile.movementConsent) { "twin-consent-required" }
         repository.uploadTwinAsset(user.uid, uri, kind, contentType)
     }
 
     fun createTwinAutomation(name: String, trigger: String, channel: String, action: String, script: String) = runTwinAction("La mission du Jumeau numérique n’a pas été créée") { user ->
-        require(_uiState.value.twinProfile?.identityConsent == true)
+        val profile = _uiState.value.twinProfile
+        require(profile?.identityConsent == true && profile.voiceConsent && profile.movementConsent) { "twin-consent-required" }
         repository.createTwinAutomation(user.uid, name, trigger, channel, action, script)
     }
 
@@ -764,7 +766,7 @@ class WhappyViewModel(
 
     fun createTwinRender(title: String, script: String, language: String, gestures: List<String>) = runTwinAction("La production du Jumeau numérique n’a pas été préparée") { user ->
         val profile = _uiState.value.twinProfile
-        require(profile?.identityConsent == true && profile.voiceConsent && profile.movementConsent)
+        require(profile?.isRenderReady == true) { "twin-captures-required" }
         repository.createTwinRender(user.uid, title, script, language, gestures)
     }
 
@@ -775,7 +777,17 @@ class WhappyViewModel(
         viewModelScope.launch {
             runCatching { action(user) }
                 .onSuccess { _uiState.update { it.copy(twinBusy = false, online = true) } }
-                .onFailure { _uiState.update { it.copy(twinBusy = false, error = errorMessage) } }
+                .onFailure { failure ->
+                    val message = when {
+                        failure.message == "twin-consent-required" -> "Activez d’abord les trois autorisations du Jumeau numérique, puis relancez la capture."
+                        failure.message == "twin-captures-required" -> "Le Jumeau numérique a besoin du portrait, de la voix et des mouvements avant de préparer une vidéo."
+                        failure is StorageException -> "Le fichier n’a pas été transféré. Vérifiez votre connexion et réessayez la capture."
+                        failure is FirebaseFirestoreException && failure.code == FirebaseFirestoreException.Code.PERMISSION_DENIED -> "Cette action a été bloquée par la sécurité. Vérifiez votre session et les autorisations du Jumeau numérique."
+                        failure is FirebaseFirestoreException && failure.code == FirebaseFirestoreException.Code.UNAVAILABLE -> "Connexion indisponible. Votre capture reste sur cet appareil : réessayez lorsque le réseau revient."
+                        else -> errorMessage
+                    }
+                    _uiState.update { it.copy(twinBusy = false, error = message, online = failure !is FirebaseFirestoreException || failure.code != FirebaseFirestoreException.Code.UNAVAILABLE) }
+                }
         }
     }
 

@@ -25,6 +25,11 @@ object WhappySounds {
     fun mediaAdded() = tone(ToneGenerator.TONE_PROP_ACK, 120, 42)
     fun offerSent() = tone(ToneGenerator.TONE_PROP_PROMPT, 220, 52)
     fun sent() = tone(ToneGenerator.TONE_PROP_ACK, 85, 28)
+    /** Confirme que le microphone est réellement ouvert. */
+    fun voiceRecordingStarted() = tone(ToneGenerator.TONE_PROP_PROMPT, 96, 46)
+    /** Différent du son de départ : l'enregistrement est arrêté, pas encore envoyé. */
+    fun voiceRecordingStopped() = tone(ToneGenerator.TONE_PROP_ACK, 118, 48)
+    fun voiceRecordingCancelled() = tone(ToneGenerator.TONE_PROP_NACK, 74, 30)
     fun dice() = tone(ToneGenerator.TONE_DTMF_6, 90, 34)
     fun move() = tone(ToneGenerator.TONE_PROP_BEEP, 55, 24)
     fun cardFlip() = tone(ToneGenerator.TONE_DTMF_2, 70, 30)

@@ -1201,13 +1201,14 @@ class WhappyRepository(
                 "title" to title.trim(),
                 "category" to category.trim().take(60),
                 "productTitle" to productTitle.trim().take(120),
-                "status" to if (startNow) "live" else "scheduled",
+                // A Live is only public after a media provider has issued a real room/token.
+                // Creating a studio therefore never fabricates a public audience or a fake live state.
+                "status" to "scheduled",
                 "viewerCount" to 0,
                 "streamProvider" to "unconfigured",
                 "hostMode" to hostMode,
                 "visibility" to visibility,
                 "createdAt" to FieldValue.serverTimestamp(),
-                "startedAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
@@ -1422,6 +1423,13 @@ class WhappyRepository(
     suspend fun createTwinRender(userId: String, title: String, script: String, language: String, gestures: List<String>) {
         val value = script.trim()
         require(value.isNotBlank() && value.length <= 4_000)
+        val profile = db.collection("users").document(userId).collection("twinProfiles").document("main").get().await()
+        require(profile.getBoolean("identityConsent") == true && profile.getBoolean("voiceConsent") == true && profile.getBoolean("movementConsent") == true) { "twin-consent-required" }
+        require(
+            profile.getString("videoUrl").orEmpty().isNotBlank()
+                && profile.getString("voiceUrl").orEmpty().isNotBlank()
+                && profile.getString("movementUrl").orEmpty().isNotBlank(),
+        ) { "twin-captures-required" }
         val sequence = gestures.take(40).map { gesture -> mapOf("gesture" to gesture, "duration" to 3, "label" to gesture) }
         db.collection("users").document(userId).collection("twinRenders").add(
             mapOf(

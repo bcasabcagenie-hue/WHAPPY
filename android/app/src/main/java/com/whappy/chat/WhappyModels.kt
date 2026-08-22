@@ -6,7 +6,7 @@ enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
     STORIES("Actus"),
     MESSAGES("Messages"),
-    WEPI("WEPI"),
+    WEPI("Assistant"),
     CONTACTS("Contacts"),
     CHANNELS("Chaînes"),
     CALLS("Appels"),
@@ -233,6 +233,19 @@ data class WhappyTwinProfile(
 ) {
     val readiness: Int
         get() = listOf(identityConsent, videoUrl.isNotBlank(), voiceUrl.isNotBlank(), movementUrl.isNotBlank()).count { it } * 20
+
+    val isRenderReady: Boolean
+        get() = identityConsent && voiceConsent && movementConsent
+            && videoUrl.isNotBlank() && voiceUrl.isNotBlank() && movementUrl.isNotBlank()
+
+    val nextRequiredCapture: String
+        get() = when {
+            !identityConsent || !voiceConsent || !movementConsent -> "Confirmez l’autorisation de votre identité, de votre voix et de vos mouvements."
+            videoUrl.isBlank() -> "Ajoutez le portrait vidéo de votre visage."
+            voiceUrl.isBlank() -> "Enregistrez l’empreinte vocale du propriétaire."
+            movementUrl.isBlank() -> "Ajoutez une séquence de mouvements."
+            else -> "Toutes les captures sont prêtes."
+        }
 }
 
 data class WhappyTwinAutomation(
