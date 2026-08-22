@@ -2,7 +2,7 @@ import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, 
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 
-type CloudTimestamp = { toDate?: () => Date } | null;
+type CloudTimestamp = { toDate?: () => Date; seconds?: number; nanoseconds?: number } | null;
 
 export type WhappyStory = {
   id: string;
@@ -37,8 +37,10 @@ export async function publishStory(userId: string, authorName: string, file: Fil
   const contentType = file.type || (mediaType === "image" ? "image/jpeg" : "video/mp4");
   await uploadBytes(mediaRef, file, { contentType });
   const mediaUrl = await getDownloadURL(mediaRef);
+  const now = Date.now();
+  const expiresAt = Timestamp.fromMillis(now + STORY_LIFETIME);
   try {
-    return await addDoc(collection(db, "stories"), {
+    const story = await addDoc(collection(db, "stories"), {
       authorId: userId,
       authorName: authorName.trim().slice(0, 80),
       mediaUrl,
@@ -46,8 +48,19 @@ export async function publishStory(userId: string, authorName: string, file: Fil
       caption: caption.trim().slice(0, 180),
       storagePath,
       createdAt: serverTimestamp(),
-      expiresAt: Timestamp.fromMillis(Date.now() + STORY_LIFETIME),
+      expiresAt,
     });
+    return {
+      id: story.id,
+      authorId: userId,
+      authorName: authorName.trim().slice(0, 80),
+      mediaUrl,
+      mediaType,
+      caption: caption.trim().slice(0, 180),
+      storagePath,
+      createdAt: Timestamp.fromMillis(now),
+      expiresAt,
+    } satisfies WhappyStory;
   } catch (error) {
     await deleteObject(mediaRef).catch(() => undefined);
     throw error;

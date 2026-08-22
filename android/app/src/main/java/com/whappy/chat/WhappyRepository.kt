@@ -464,7 +464,7 @@ class WhappyRepository(
                     authorId = authorId,
                     authorName = document.getString("authorName") ?: WhappyIdentity.fallbackAccountName,
                     text = caption,
-                    tone = "community",
+                    tone = "personal",
                     createdAt = document.timestampMillis("createdAt"),
                     mediaUrl = mediaUrl,
                     mediaKind = document.getString("mediaType").orEmpty(),
@@ -1165,7 +1165,9 @@ class WhappyRepository(
         val value = text.trim()
         require(value.length <= 600)
         require(value.isNotBlank() || mediaUri != null)
-        require(tone in setOf("hope", "action", "community", "warning"))
+        // Stories are personal by design. Keep legacy values accepted for old callers,
+        // but never expose them as a community/category in the Story UI.
+        require(tone == "personal" || tone in setOf("hope", "action", "community", "warning"))
         val mediaKind = when {
             mediaUri == null -> "text"
             mediaContentType.startsWith("image/") -> "image"
@@ -1203,7 +1205,7 @@ class WhappyRepository(
             authorId = userId,
             authorName = authorName.trim().take(80),
             text = value,
-            tone = tone,
+            tone = "personal",
             createdAt = createdAt,
             mediaUrl = mediaUrl,
             mediaKind = mediaKind,

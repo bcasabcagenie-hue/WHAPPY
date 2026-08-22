@@ -627,7 +627,7 @@ class WhappyViewModel(
             authorId = user.uid,
             authorName = accountName(),
             text = text.trim(),
-            tone = tone,
+            tone = "personal",
             createdAt = System.currentTimeMillis(),
             mediaUrl = mediaUri?.toString().orEmpty(),
             mediaKind = mediaKind,
@@ -635,7 +635,7 @@ class WhappyViewModel(
         )
         _uiState.update { it.copy(statuses = mergeStories(it.statuses), actionBusy = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.publishStatus(user.uid, accountName(), text, tone, mediaUri, mediaContentType) }
+            runCatching { repository.publishStatus(user.uid, accountName(), text, "personal", mediaUri, mediaContentType) }
                 .onSuccess { story ->
                     pendingStories.remove(localId)
                     confirmedStories[story.id] = story

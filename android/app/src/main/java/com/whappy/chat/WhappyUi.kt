@@ -1326,7 +1326,6 @@ private fun StoriesScreen(
     onDelete: (String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
-    var tone by rememberSaveable { mutableStateOf("community") }
     var mediaUri by remember { mutableStateOf<Uri?>(null) }
     var mediaType by remember { mutableStateOf("") }
     var mediaName by remember { mutableStateOf("") }
@@ -1354,13 +1353,6 @@ private fun StoriesScreen(
         }
     }
     val visibleStatuses = if (preview) previewStatuses else statuses
-    val toneOptions = listOf(
-        "community" to t("Communauté", "Community", "Lisanga"),
-        "hope" to t("Positif", "Positive", "Elikya"),
-        "action" to t("Action", "Action", "Mosala"),
-        "warning" to t("Important", "Important", "Ntina"),
-    )
-
     LazyColumn(
         Modifier.fillMaxSize().background(WhappySurface),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
@@ -1389,6 +1381,15 @@ private fun StoriesScreen(
                         placeholder = { Text(t("Que voulez-vous partager ?", "What would you like to share?", "Olingi kokabola nini?")) },
                         minLines = 4,
                         shape = RoundedCornerShape(17.dp),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = WhappyDark,
+                            unfocusedTextColor = WhappyDark,
+                            cursorColor = WhappyBlue,
+                            focusedBorderColor = WhappyBlue,
+                            unfocusedBorderColor = WhappyLine,
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White,
+                        ),
                     )
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp).clickable(enabled = !busy) { mediaPicker.launch(arrayOf("image/*", "video/*", "audio/*")) },
@@ -1406,21 +1407,16 @@ private fun StoriesScreen(
                             else Icon(Icons.Rounded.Add, null, tint = WhappyBlue)
                         }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        toneOptions.forEach { option ->
-                            OutlinedButton(
-                                onClick = { tone = option.first },
-                                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (tone == option.first) WhappyBlue else Color.White, contentColor = if (tone == option.first) Color.White else WhappyBlue),
-                                shape = RoundedCornerShape(13.dp),
-                            ) { Text(option.second, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                        }
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, null, tint = WhappyBlue, modifier = Modifier.size(15.dp))
+                        Text(t(" Visible par vos contacts · 24 h · supprimable à tout moment", " Visible to your contacts · 24 h · removable anytime", " Emonanaka na ba contacts na yo · 24 h"), color = WhappyMuted, fontSize = 10.sp)
                     }
                     Button(
                         enabled = (draft.trim().isNotEmpty() || mediaUri != null) && !busy,
                         onClick = {
                             val value = draft.trim()
-                            if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, tone, System.currentTimeMillis(), mediaUri?.toString().orEmpty(), if (mediaType.startsWith("audio/")) "audio" else if (mediaType.startsWith("video/")) "video" else if (mediaUri != null) "image" else "text", mediaName)) + previewStatuses
-                            else onPublish(value, tone, mediaUri, mediaType)
+                            if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, "personal", System.currentTimeMillis(), mediaUri?.toString().orEmpty(), if (mediaType.startsWith("audio/")) "audio" else if (mediaType.startsWith("video/")) "video" else if (mediaUri != null) "image" else "text", mediaName)) + previewStatuses
+                            else onPublish(value, "personal", mediaUri, mediaType)
                             draft = ""
                             mediaUri = null
                             mediaType = ""
@@ -1451,7 +1447,7 @@ private fun StoriesScreen(
                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.mediaUrl))) }
                         }
                     }
-                    Text(toneOptions.firstOrNull { it.first == status.tone }?.second.orEmpty().uppercase(), Modifier.padding(top = 12.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text(t("Story personnelle · visible 24 h", "Personal Story · visible 24 h", "Story personnelle · 24 h"), Modifier.padding(top = 12.dp), color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1579,12 +1575,6 @@ private fun WepiPilotisSettingsDialog(settings: WapiWepiSettings, busy: Boolean,
 
 @Composable
 private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpenWhappies: () -> Unit) {
-    val context = LocalContext.current
-    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_consumer") }
-    var composing by rememberSaveable { mutableStateOf(false) }
-    var momentTitle by rememberSaveable { mutableStateOf("") }
-    var momentBody by rememberSaveable { mutableStateOf("") }
-    var personalMoments by remember { mutableStateOf(prefs.getStringSet("moments", emptySet()).orEmpty().toList().sortedDescending()) }
     LazyColumn(Modifier.fillMaxSize().background(WhappySurface), contentPadding = PaddingValues(16.dp, 14.dp, 16.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(WhappyAurora).padding(22.dp)) {
@@ -1596,6 +1586,20 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
                         Button(onClick = { onTab(WhappyTab.MESSAGES) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.ChatBubble, null, modifier = Modifier.size(17.dp)); Text(" Messages", fontWeight = FontWeight.Bold) }
                         OutlinedButton(onClick = { onTab(WhappyTab.WEPI) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .65f)), shape = RoundedCornerShape(14.dp)) { Text("WEPI IA", fontWeight = FontWeight.Bold) }
                     }
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth().clickable { onTab(WhappyTab.STORIES) }, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder(), elevation = CardDefaults.cardElevation(0.dp)) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(56.dp).clip(CircleShape).background(WhappyAurora).padding(3.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Ajouter une Story", tint = WhappyBlue, modifier = Modifier.size(25.dp)) }
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text("Votre Story", color = WhappyDark, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        Text("Photo, vidéo ou texte · visible par vos contacts pendant 24 h", color = WhappyMuted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 3.dp))
+                    }
+                    Text("AJOUTER ›", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -1642,20 +1646,7 @@ private fun MomentsScreen(twinReadiness: Int, onTab: (WhappyTab) -> Unit, onOpen
                 }
             }
         }
-        item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Moments personnels", Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = WhappyDark); TextButton(onClick = { composing = true }) { Icon(Icons.Rounded.Add, null); Text("Publier") } } }
-        items(personalMoments, key = { it }) { raw ->
-            val parts = raw.split("|", limit = 3)
-            MomentCard("Vous", "MON MOMENT", parts.getOrElse(1) { "Nouveau moment" }, parts.getOrElse(2) { "" })
-        }
-        if (personalMoments.isEmpty()) item { EmptyState("Aucun moment publié", "Vos publications personnelles apparaîtront ici.") }
     }
-    if (composing) AlertDialog(
-        onDismissRequest = { composing = false },
-        title = { Text("Créer un Moment", fontWeight = FontWeight.Black) },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { OutlinedTextField(momentTitle, { momentTitle = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Titre") }, singleLine = true); OutlinedTextField(momentBody, { momentBody = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Votre moment") }, minLines = 4); Text("Votre publication restera disponible dans l’accueil de cette application.", color = WhappyMuted, fontSize = 11.sp) } },
-        confirmButton = { Button(enabled = momentTitle.trim().length >= 2 && momentBody.trim().length >= 3, onClick = { val entry = "${System.currentTimeMillis()}|${momentTitle.trim().replace("|", " ")}|${momentBody.trim().replace("|", " ")}"; personalMoments = (listOf(entry) + personalMoments).take(20); prefs.edit().putStringSet("moments", personalMoments.toSet()).apply(); momentTitle = ""; momentBody = ""; composing = false }) { Text("Publier") } },
-        dismissButton = { TextButton(onClick = { composing = false }) { Text("Annuler") } },
-    )
 }
 
 @Composable

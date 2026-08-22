@@ -5,11 +5,18 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { publishStory, removeStory, watchStories, type WhappyStory } from "@/lib/whappy-stories";
+import { readWhappyCache, writeWhappyCache } from "@/lib/whappy-local-cache";
 
-type StoryItem = WhappyStory & { tone?: string };
+type StoryItem = WhappyStory;
 
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "WH";
+}
+
+function timestampMillis(value: WhappyStory["expiresAt"]) {
+  if (value?.toDate) return value.toDate().getTime();
+  if (typeof value?.seconds === "number") return value.seconds * 1000 + Math.floor((value.nanoseconds || 0) / 1_000_000);
+  return Date.now() + 1;
 }
 
 export function StoryStudio({ userId, userName, cloud, notify }: { userId: string; userName: string; cloud: boolean; notify: (text: string) => void }) {
@@ -35,15 +42,28 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
   }, []);
   useEffect(() => {
     if (!cloud) return;
-    return watchStories((next) => { setStories(next); setLoading(false); setOffline(false); }, () => {
-      setStories([]);
+    let active = true;
+    const cached = readWhappyCache<StoryItem[]>("stories", userId);
+    if (cached?.length) {
+      queueMicrotask(() => {
+        if (!active) return;
+        setStories(cached.filter((story) => timestampMillis(story.expiresAt) > Date.now()));
+        setLoading(false);
+      });
+    }
+    const unsubscribe = watchStories((next) => { setStories(next); setLoading(false); setOffline(false); }, () => {
       setLoading(false);
       setOffline(true);
-      notifyRef.current("Les Stories sont momentanément indisponibles. Vérifiez votre connexion et réessayez.");
+      // Keep the last confirmed Stories visible. The rail already shows HORS LIGNE.
     });
-  }, [cloud]);
+    return () => { active = false; unsubscribe(); };
+  }, [cloud, userId]);
 
-  const activeStories = useMemo(() => stories.filter((story) => (story.expiresAt?.toDate?.()?.getTime() || Date.now() + 1) > Date.now()), [stories]);
+  useEffect(() => {
+    if (cloud && stories.length) writeWhappyCache("stories", userId, stories);
+  }, [cloud, stories, userId]);
+
+  const activeStories = useMemo(() => stories.filter((story) => timestampMillis(story.expiresAt) > Date.now()), [stories]);
   const orderedStories = useMemo(() => [...activeStories].sort((a, b) => Number(b.authorId === userId) - Number(a.authorId === userId)), [activeStories, userId]);
   const current = active === null ? null : orderedStories[active] || null;
 
@@ -92,7 +112,8 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
     }
     setBusy(true);
     try {
-      await publishStory(userId, userName, file, caption);
+      const created = await publishStory(userId, userName, file, caption);
+      setStories((current) => [created, ...current.filter((story) => story.id !== created.id)]);
       notify("Votre Story est publiée pendant 24 heures.");
       resetCreator();
     } catch (error) {
@@ -108,6 +129,7 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
     setBusy(true);
     try {
       await removeStory(current, userId);
+      setStories((items) => items.filter((story) => story.id !== current.id));
       setActive(null);
       notify("Votre Story a été supprimée.");
     } catch {
@@ -141,7 +163,7 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
         <button className="add-story" onClick={() => setCreatorOpen(true)}><span>＋</span><strong>Votre Story</strong><small>Photo ou vidéo</small></button>
         {loading && [1, 2, 3].map((item) => <div className="story-loading-card" key={item}><span/><strong/><small/></div>)}
         {orderedStories.map((story) => <button key={story.id} onClick={() => openStory(story)}>
-          <span className={`story-cover ${story.tone || ""}`} style={story.mediaUrl ? { backgroundImage: `url(${story.mediaUrl})` } : undefined}><i>{initials(story.authorName)}</i>{story.mediaType === "video" && <b>▶</b>}</span>
+          <span className="story-cover" style={story.mediaUrl ? { backgroundImage: `url(${story.mediaUrl})` } : undefined}><i>{initials(story.authorName)}</i>{story.mediaType === "video" && <b>▶</b>}</span>
           <strong>{story.authorId === userId ? "Votre Story" : story.authorName.split(" ")[0]}</strong><small>{story.authorId === userId ? "Publiée" : "Nouveau"}</small>
         </button>)}
         {!loading && !orderedStories.length && <button className="stories-empty" onClick={() => setCreatorOpen(true)}><span>✦</span><strong>Aucune Story active</strong><small>Partagez la première →</small></button>}
@@ -171,7 +193,7 @@ export function StoryStudio({ userId, userName, cloud, notify }: { userId: strin
 
     {current && <div className="story-viewer" role="dialog" aria-modal="true" aria-label={`Story de ${current.authorName}`}>
       <header><div className="story-progress">{orderedStories.map((story, index) => <i className={index <= (active || 0) ? "seen" : ""} key={story.id}/>)}</div><section><span>{initials(current.authorName)}</span><div><strong>{current.authorName}</strong><small>Story · visible 24 h</small></div>{current.authorId === userId && <button onClick={() => void deleteCurrent()} disabled={busy}>Supprimer</button>}<button onClick={() => setActive(null)} aria-label="Fermer">×</button></section></header>
-      <main className={current.tone || ""}>{current.mediaUrl ? current.mediaType === "video" ? <video src={current.mediaUrl} controls autoPlay muted={muted} playsInline><track kind="captions" /></video> : <img src={current.mediaUrl} alt={`Story de ${current.authorName}`}/> : <div className="story-demo-visual"><span>{initials(current.authorName)}</span><strong>WHAPPY STORY</strong></div>}{current.caption && <p>{current.caption}</p>}</main>
+      <main>{current.mediaUrl ? current.mediaType === "video" ? <video src={current.mediaUrl} controls autoPlay muted={muted} playsInline><track kind="captions" /></video> : <img src={current.mediaUrl} alt={`Story de ${current.authorName}`}/> : <div className="story-demo-visual"><span>{initials(current.authorName)}</span><strong>WAPI STORY</strong></div>}{current.caption && <p>{current.caption}</p>}</main>
       <div className="story-actions"><button type="button" onClick={() => setMuted((value) => !value)}>{muted ? "🔇" : "🔊"}</button>{["❤️", "🔥", "👏"].map((value) => <button type="button" className={reaction === value ? "active" : ""} key={value} onClick={() => reactToStory(value)}>{value}</button>)}</div>
       <form className="story-reply" onSubmit={replyToStory}><input value={storyReply} onChange={(event) => setStoryReply(event.target.value)} maxLength={280} placeholder={`Répondre à ${current.authorName}…`} /><button type="submit" disabled={!storyReply.trim()}>➤</button></form>
       <button className="story-previous" onClick={() => setActive((value) => value === null ? null : Math.max(0, value - 1))} disabled={active === 0} aria-label="Story précédente">‹</button>
