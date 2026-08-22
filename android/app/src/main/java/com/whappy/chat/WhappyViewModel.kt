@@ -852,7 +852,10 @@ class WhappyViewModel(
         )
         statusesListener = repository.observeStatuses(
             onChange = { items -> _uiState.update { it.copy(statuses = mergeStories(items), online = true) } },
-            onError = { _uiState.update { it.copy(online = false, error = "Les Stories sont momentanément indisponibles") } },
+            // A feed listener must never block the whole app with a modal. Keep
+            // the last stories on screen and let the Stories screen retry when
+            // connectivity or Firestore catches up.
+            onError = { _uiState.update { it.copy(online = false) } },
         )
         dealsListener = repository.observeDeals(
             user.uid,

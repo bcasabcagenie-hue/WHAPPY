@@ -1968,6 +1968,7 @@ private fun GamesScreen(onBack: () -> Unit) {
         Triple("Échecs", "Duel stratégique · plateau interactif", "♚"),
         Triple("Jeu de dames", "Captures diagonales et couronnement", "⛀"),
         Triple("Cartes WAPI", "Bataille rapide · manches et score", "🂡"),
+        Triple("Poker WAPI", "Texas Hold’em · IA locale · sans argent réel", "♠"),
         Triple("Défi du jour", "Quiz rapide · gagnez de l’XP", "⚡"),
         Triple("Duel WAPI", "Défi local entre joueurs", "♟"),
         Triple("Mots & idées", "Trouvez la solution ensemble", "✦"),
@@ -2103,6 +2104,8 @@ private fun GamesScreen(onBack: () -> Unit) {
             item { StrategyBoardGame(checkers = true, onXp = { xp += it }, onWin = { wins += 1 }) }
         } else if (selected == "Cartes WAPI") {
             item { WapiCardDuel(onXp = { xp += it }, onWin = { wins += 1 }) }
+        } else if (selected == "Poker WAPI") {
+            item { WapiPokerTable(onXp = { xp += it }, onWin = { wins += 1 }) }
         } else {
             item {
                 ArcadeChallengeCard(
@@ -2150,6 +2153,7 @@ private fun GamesScreen(onBack: () -> Unit) {
                             "Échecs" -> item { StrategyBoardGame(checkers = false, onXp = { xp += it }, onWin = { wins += 1 }) }
                             "Jeu de dames" -> item { StrategyBoardGame(checkers = true, onXp = { xp += it }, onWin = { wins += 1 }) }
                             "Cartes WAPI" -> item { WapiCardDuel(onXp = { xp += it }, onWin = { wins += 1 }) }
+                            "Poker WAPI" -> item { WapiPokerTable(onXp = { xp += it }, onWin = { wins += 1 }) }
                             else -> item { ArcadeChallengeCard(selected, round, answer, onAnswer = { option -> answer = option; if (option == "Le Live") xp += 25 }, onNext = { round += 1; answer = null }) }
                         }
                     }
@@ -2382,8 +2386,11 @@ private fun StrategyBoardGame(checkers: Boolean, onXp: (Int) -> Unit, onWin: () 
     var board by rememberSaveable(checkers) { mutableStateOf(initialStrategyBoard(checkers)) }
     var selected by rememberSaveable(checkers) { mutableStateOf(-1) }
     var whiteTurn by rememberSaveable(checkers) { mutableStateOf(true) }
-    var message by rememberSaveable(checkers) { mutableStateOf(if (checkers) "Les blancs commencent. Capturez en diagonale." else "Les blancs commencent. Sélectionnez une pièce puis une case.") }
+    var versusAi by rememberSaveable(checkers) { mutableStateOf(true) }
+    var aiThinking by rememberSaveable(checkers) { mutableStateOf(false) }
+    var message by rememberSaveable(checkers) { mutableStateOf(if (checkers) "Vous jouez les blancs contre l’IA. Capturez en diagonale." else "Vous jouez les blancs contre l’IA. Sélectionnez une pièce puis une case.") }
     fun choose(index: Int) {
+        if (!whiteTurn || aiThinking) return
         val piece = board[index]
         if (selected < 0) {
             if ((whiteTurn && whitePiece(piece)) || (!whiteTurn && blackPiece(piece))) { selected = index; WhappySounds.haptic(context) }
@@ -2397,11 +2404,32 @@ private fun StrategyBoardGame(checkers: Boolean, onXp: (Int) -> Unit, onWin: () 
         onXp(if (result.captured) 12 else 3); WhappySounds.move(); message = when { result.promoted -> "Dame couronnée · +12 XP"; result.captured -> "Capture réussie · +12 XP"; else -> "À ${if (whiteTurn) "Blanc" else "Noir"} de jouer" }
         if (result.board.none(::blackPiece) || result.board.none(::whitePiece)) { onWin(); onXp(120); WhappySounds.reward(); message = "VICTOIRE · plateau maîtrisé" }
     }
+    LaunchedEffect(board, whiteTurn, versusAi) {
+        if (versusAi && !whiteTurn && !aiThinking) {
+            aiThinking = true
+            message = "L’IA analyse le plateau…"
+            delay(420L)
+            val move = WapiGameRules.bestMove(board, whiteTurn = false, checkers = checkers)
+            if (move != null) {
+                val result = if (checkers) WapiGameRules.checkersMove(board, move.first, move.second, false) else WapiGameRules.chessMove(board, move.first, move.second, false)
+                if (result != null) {
+                    board = result.board
+                    whiteTurn = true
+                    WhappySounds.move()
+                    message = if (result.captured) "L’IA capture. À vous de jouer." else "À vous de jouer."
+                }
+            }
+            aiThinking = false
+        }
+    }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = WhappyNavy)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row { Column(Modifier.weight(1f)) { Text(if (checkers) "WAPI DAMES" else "WAPI CHESS", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (checkers) "Jeu de dames" else "Échecs stratégiques", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text(if (whiteTurn) "BLANC" else "NOIR", color = Color.White, fontWeight = FontWeight.Black) }
+        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(if (checkers) "WAPI DAMES" else "WAPI CHESS", color = WhappySky, fontSize = 10.sp, fontWeight = FontWeight.Black); Text(if (checkers) "Jeu de dames" else "Échecs stratégiques", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) }; Text(if (aiThinking) "IA…" else if (whiteTurn) "À VOUS" else "IA", color = Color.White, fontWeight = FontWeight.Black) }
         BoxWithConstraints(Modifier.fillMaxWidth().graphicsLayer { rotationX = 6f; rotationY = -2f; cameraDistance = 24f; shadowElevation = 24f }.clip(RoundedCornerShape(16.dp))) { val cell = maxWidth / 8; Column { repeat(8) { row -> Row { repeat(8) { col -> val index = row * 8 + col; val piece = board[index]; Box(Modifier.size(cell).background(if (selected == index) WhappySky else if ((row + col) % 2 == 0) Color(0xFFEAF4FB) else Color(0xFF2875A7)).clickable { choose(index) }, contentAlignment = Alignment.Center) { if (piece.isNotBlank()) Text(if (piece == "w") "⛀" else if (piece == "b") "⛂" else if (piece == "W") "⛁" else if (piece == "B") "⛃" else piece, fontSize = (cell.value * .62f).sp, color = if (whitePiece(piece)) Color.White else Color(0xFF091D2E), modifier = Modifier.graphicsLayer { rotationX = -8f; rotationY = 12f; shadowElevation = 12f }) } } } } } }
         Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp)
-        OutlinedButton(onClick = { board = initialStrategyBoard(checkers); selected = -1; whiteTurn = true; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("NOUVELLE PARTIE") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { versusAi = !versusAi; board = initialStrategyBoard(checkers); selected = -1; whiteTurn = true; aiThinking = false; message = if (!versusAi) "Deux joueurs sur cet appareil. Les blancs commencent." else "Vous jouez les blancs contre l’IA." }, Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text(if (versusAi) "2 JOUEURS" else "CONTRE IA", fontSize = 10.sp) }
+            OutlinedButton(onClick = { board = initialStrategyBoard(checkers); selected = -1; whiteTurn = true; aiThinking = false; message = if (versusAi) "Nouvelle partie contre l’IA." else "Nouvelle partie locale." }, Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER", fontSize = 10.sp) }
+        }
     } }
 }
 
@@ -2412,6 +2440,133 @@ private fun WapiCardDuel(onXp: (Int) -> Unit, onWin: () -> Unit) {
     val names = listOf("2","3","4","5","6","7","8","9","10","V","D","R","A")
     fun draw() { round += 1; player = ((System.currentTimeMillis() / 31L) % 13L).toInt() + 2; rival = ((System.currentTimeMillis() / 47L + round) % 13L).toInt() + 2; when { player > rival -> { playerScore++; onXp(10); WhappySounds.reward(); message = "Manche gagnée · +10 XP" }; rival > player -> { rivalScore++; WhappySounds.impact(); message = "L’adversaire gagne cette manche." }; else -> message = "Égalité parfaite." }; WhappySounds.haptic(context); if (playerScore == 5) { onWin(); onXp(100); message = "VICTOIRE DU DUEL · +100 XP" } }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF121A47))) { Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("WAPI CARDS", color = WhappySky, fontWeight = FontWeight.Black, fontSize = 10.sp); Text("$playerScore  —  $rivalScore", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black); Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) { listOf(player to "VOUS", rival to "RIVAL").forEachIndexed { index, card -> Card(Modifier.size(112.dp, 164.dp).graphicsLayer { rotationY = if (round == 0) 180f else if (index == 0) -8f else 8f; rotationX = 4f; shadowElevation = 28f; cameraDistance = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(card.second, color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(if (card.first == 0) "W" else names[(card.first - 2).coerceIn(0, 12)], color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 38.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterHorizontally)); Text(if (index == 0) "◆" else "♥", color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 22.sp) } } } }; Text(message, color = Color.White.copy(alpha = .84f), fontSize = 12.sp); Button(onClick = ::draw, enabled = playerScore < 5, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("TIRER LES CARTES", fontWeight = FontWeight.Black) }; OutlinedButton(onClick = { round = 0; player = 0; rival = 0; playerScore = 0; rivalScore = 0; message = "Nouvelle partie." }, Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") } } }
+}
+
+private data class WapiPokerCard(val rank: Int, val suit: String) {
+    val label: String get() = when (rank) { 14 -> "A"; 13 -> "R"; 12 -> "D"; 11 -> "V"; else -> rank.toString() }
+}
+
+private fun wapiPokerDeck(): List<WapiPokerCard> = listOf("♠", "♥", "♦", "♣").flatMap { suit -> (2..14).map { rank -> WapiPokerCard(rank, suit) } }
+
+private fun wapiPokerScore(cards: List<WapiPokerCard>): List<Int> {
+    val counts = cards.groupingBy { it.rank }.eachCount()
+    val groups = counts.entries.sortedWith(compareByDescending<Map.Entry<Int, Int>> { it.value }.thenByDescending { it.key })
+    val unique = counts.keys.sortedDescending()
+    val straightHigh = when {
+        14 in unique && 2 in unique && 3 in unique && 4 in unique && 5 in unique -> 5
+        else -> unique.windowed(5).firstOrNull { window -> window.zipWithNext().all { (a, b) -> a - b == 1 } }?.firstOrNull() ?: 0
+    }
+    val flush = cards.groupingBy { it.suit }.eachCount().values.any { it >= 5 }
+    return when {
+        flush && straightHigh > 0 -> listOf(8, straightHigh)
+        groups.firstOrNull()?.value == 4 -> listOf(7, groups.first().key, groups.getOrNull(1)?.key ?: 0)
+        groups.getOrNull(0)?.value == 3 && groups.getOrNull(1)?.value == 2 -> listOf(6, groups[0].key, groups[1].key)
+        flush -> listOf(5) + cards.filter { it.suit == cards.groupingBy { card -> card.suit }.eachCount().maxBy { it.value }.key }.map { it.rank }.sortedDescending().take(5)
+        straightHigh > 0 -> listOf(4, straightHigh)
+        groups.firstOrNull()?.value == 3 -> listOf(3, groups[0].key) + groups.drop(1).map { it.key }.sortedDescending().take(2)
+        groups.getOrNull(0)?.value == 2 && groups.getOrNull(1)?.value == 2 -> listOf(2, groups[0].key, groups[1].key, groups.getOrNull(2)?.key ?: 0)
+        groups.firstOrNull()?.value == 2 -> listOf(1, groups[0].key) + groups.drop(1).map { it.key }.sortedDescending().take(3)
+        else -> listOf(0) + unique.take(5)
+    }
+}
+
+private fun wapiPokerHandName(score: List<Int>): String = when (score.firstOrNull()) {
+    8 -> "Quinte flush"
+    7 -> "Carré"
+    6 -> "Full"
+    5 -> "Couleur"
+    4 -> "Quinte"
+    3 -> "Brelan"
+    2 -> "Double paire"
+    1 -> "Paire"
+    else -> "Carte haute"
+}
+
+private fun compareWapiPokerScores(left: List<Int>, right: List<Int>): Int {
+    for (index in 0 until maxOf(left.size, right.size)) {
+        val difference = (left.getOrElse(index) { 0 } - right.getOrElse(index) { 0 })
+        if (difference != 0) return difference
+    }
+    return 0
+}
+
+@Composable
+private fun WapiPokerTable(onXp: (Int) -> Unit, onWin: () -> Unit) {
+    val context = LocalContext.current
+    var player by remember { mutableStateOf(emptyList<WapiPokerCard>()) }
+    var rival by remember { mutableStateOf(emptyList<WapiPokerCard>()) }
+    var board by remember { mutableStateOf(emptyList<WapiPokerCard>()) }
+    var stage by remember { mutableStateOf(0) }
+    var pot by remember { mutableStateOf(0) }
+    var finished by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("Distribuez une main pour commencer.") }
+
+    fun deal() {
+        val deck = wapiPokerDeck().shuffled()
+        player = deck.take(2)
+        rival = deck.drop(2).take(2)
+        board = deck.drop(4).take(5)
+        stage = 0
+        pot = 100
+        finished = false
+        message = "Pré-flop · choisissez votre action."
+        WhappySounds.cardFlip()
+        WhappySounds.haptic(context)
+    }
+
+    fun act(action: String) {
+        if (finished) return
+        WhappySounds.pokerAction()
+        WhappySounds.haptic(context)
+        if (action == "fold") {
+            finished = true
+            message = "Vous vous couchez · l’IA remporte le pot."
+            return
+        }
+        pot += if (action == "raise") 100 else 50
+        stage += 1
+        if (stage >= 4) {
+            val playerScore = wapiPokerScore(player + board)
+            val rivalScore = wapiPokerScore(rival + board)
+            val result = playerScore.zip(rivalScore).firstOrNull { it.first != it.second }
+            finished = true
+            when {
+                result == null -> message = "Égalité · ${wapiPokerHandName(playerScore)}. Pot partagé."
+                compareWapiPokerScores(playerScore, rivalScore) > 0 -> { message = "VICTOIRE · ${wapiPokerHandName(playerScore)} · +150 XP"; onXp(150); onWin(); WhappySounds.reward() }
+                else -> { message = "L’IA gagne avec ${wapiPokerHandName(rivalScore)}."; WhappySounds.impact() }
+            }
+        } else {
+            message = when (stage) { 1 -> "Flop révélé · l’IA suit."; 2 -> "Turn révélé · l’IA suit."; else -> "River révélée · choisissez votre action." }
+        }
+    }
+
+    LaunchedEffect(Unit) { deal() }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF092E2A))) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text("WAPI POKER", color = Color(0xFF68F0C1), fontSize = 10.sp, fontWeight = FontWeight.Black); Text("Texas Hold’em", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black); Text("Contre l’IA · jetons virtuels uniquement", color = Color.White.copy(alpha = .68f), fontSize = 10.sp) }
+                Text("POT $pot", color = Color(0xFFFFD166), fontWeight = FontWeight.Black)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { player.forEach { card -> PokerCardView(card, false, Modifier.weight(1f)) }; if (player.isEmpty()) Text("Votre main sera distribuée…", color = Color.White.copy(alpha = .7f), modifier = Modifier.padding(10.dp)) }
+            val revealed = when (stage) { 0 -> 0; 1 -> 3; 2 -> 4; else -> 5 }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) { board.forEachIndexed { index, card -> PokerCardView(card, index >= revealed, Modifier.weight(1f)) } }
+            Text(message, color = Color.White.copy(alpha = .88f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                OutlinedButton(onClick = { act("fold") }, enabled = !finished && player.isNotEmpty(), modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("COUCHER", fontSize = 10.sp) }
+                Button(onClick = { act("call") }, enabled = !finished && player.isNotEmpty(), modifier = Modifier.weight(1f)) { Text(if (stage == 0) "SUIVRE" else "CHECK", fontSize = 10.sp) }
+                Button(onClick = { act("raise") }, enabled = !finished && player.isNotEmpty(), modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB703))) { Text("RELANCER", fontSize = 10.sp, color = WhappyDark) }
+            }
+            if (finished) OutlinedButton(onClick = ::deal, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("NOUVELLE MAIN") }
+        }
+    }
+}
+
+@Composable
+private fun PokerCardView(card: WapiPokerCard, hidden: Boolean, modifier: Modifier = Modifier) {
+    val red = card.suit == "♥" || card.suit == "♦"
+    Card(modifier.height(78.dp), shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = if (hidden) Color(0xFF183B64) else Color.White)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (hidden) "W" else "${card.label}${card.suit}", color = if (hidden) Color.White else if (red) Color(0xFFD7263D) else WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.Black) }
+    }
 }
 
 @Composable

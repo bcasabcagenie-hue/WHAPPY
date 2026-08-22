@@ -102,6 +102,23 @@ object WapiGameRules {
         }
     }
 
+    /** Small deterministic opponent used by the native game boards. */
+    fun bestMove(board: List<String>, whiteTurn: Boolean, checkers: Boolean): Pair<Int, Int>? {
+        val moves = buildList {
+            board.indices.filter { index ->
+                board[index].isNotBlank() && isWhite(board[index]) == whiteTurn
+            }.forEach { from ->
+                board.indices.forEach { to ->
+                    val result = if (checkers) checkersMove(board, from, to, whiteTurn) else chessMove(board, from, to, whiteTurn)
+                    if (result != null) add(from to to to result)
+                }
+            }
+        }
+        return moves.maxWithOrNull(compareBy<Pair<Pair<Int, Int>, WapiMoveResult>> { it.second.captured }
+            .thenBy { it.second.promoted }
+            .thenBy { it.first.second })?.first
+    }
+
     private fun checkersMoveIgnoringMandatory(board: List<String>, from: Int, to: Int, whiteTurn: Boolean): Boolean {
         val piece = board[from]; val fr = from / 8; val fc = from % 8; val tr = to / 8; val tc = to % 8
         if (board[to].isNotBlank()) return false

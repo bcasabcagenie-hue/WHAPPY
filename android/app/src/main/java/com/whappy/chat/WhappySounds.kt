@@ -26,6 +26,8 @@ object WhappySounds {
     fun sent() = tone(ToneGenerator.TONE_PROP_ACK, 85, 28)
     fun dice() = tone(ToneGenerator.TONE_DTMF_6, 90, 34)
     fun move() = tone(ToneGenerator.TONE_PROP_BEEP, 55, 24)
+    fun cardFlip() = tone(ToneGenerator.TONE_DTMF_2, 70, 30)
+    fun pokerAction() = tone(ToneGenerator.TONE_PROP_PROMPT, 100, 34)
     fun reward() = tone(ToneGenerator.TONE_PROP_ACK, 180, 48)
     fun impact() = tone(ToneGenerator.TONE_PROP_NACK, 160, 38)
 
