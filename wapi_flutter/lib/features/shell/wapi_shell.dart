@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1611,16 +1612,44 @@ class _ChatPageState extends State<_ChatPage> {
   final _picker = ImagePicker();
   final _recorder = AudioRecorder();
   final _player = AudioPlayer();
+  StreamSubscription<List<WapiMessage>>? _messagesSubscription;
   bool _sending = false;
   bool _recording = false;
+  bool _markingRead = false;
+  bool _markReadQueued = false;
+  String? _latestIncomingMessageId;
   WapiMessage? _replyingTo;
   @override
   void initState() {
     super.initState();
     _markConversationRead();
+    _messagesSubscription = widget.repository
+        .messages(widget.conversation.id)
+        .listen(_markVisibleMessagesRead);
+  }
+
+  void _markVisibleMessagesRead(List<WapiMessage> messages) {
+    WapiMessage? latestIncoming;
+    for (final message in messages.reversed) {
+      if (message.senderId != widget.user.uid) {
+        latestIncoming = message;
+        break;
+      }
+    }
+    if (latestIncoming == null ||
+        latestIncoming.id == _latestIncomingMessageId) {
+      return;
+    }
+    _latestIncomingMessageId = latestIncoming.id;
+    unawaited(_markConversationRead());
   }
 
   Future<void> _markConversationRead() async {
+    if (_markingRead) {
+      _markReadQueued = true;
+      return;
+    }
+    _markingRead = true;
     try {
       await widget.repository.markConversationRead(
         conversationId: widget.conversation.id,
@@ -1632,11 +1661,18 @@ class _ChatPageState extends State<_ChatPage> {
       );
     } catch (_) {
       // La conversation doit rester lisible même si le réseau est indisponible.
+    } finally {
+      _markingRead = false;
+      if (_markReadQueued) {
+        _markReadQueued = false;
+        unawaited(_markConversationRead());
+      }
     }
   }
 
   @override
   void dispose() {
+    _messagesSubscription?.cancel();
     _composer.dispose();
     _recorder.dispose();
     _player.dispose();

@@ -9,9 +9,9 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_wapi" />
-        <meta-data
-            android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="wapi_messages" />
+      <meta-data
+          android:name="com.google.firebase.messaging.default_notification_channel_id"
+          android:value="wapi_messages_v2" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

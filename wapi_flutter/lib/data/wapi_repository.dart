@@ -204,9 +204,40 @@ class WapiRepository {
   Future<void> markConversationRead({
     required String conversationId,
     required String userId,
-  }) => _db.collection('conversations').doc(conversationId).update({
-    'readBy.$userId': FieldValue.serverTimestamp(),
-  });
+  }) async {
+    final conversation = _db.collection('conversations').doc(conversationId);
+    final inbox = _db
+        .collection('users')
+        .doc(userId)
+        .collection('notificationState')
+        .doc('inbox');
+    final counter = inbox.collection('conversations').doc(conversationId);
+
+    await _db.runTransaction((transaction) async {
+      final counterSnapshot = await transaction.get(counter);
+      final inboxSnapshot = await transaction.get(inbox);
+      final unreadInConversation =
+          (counterSnapshot.data()?['unreadMessages'] as num?)?.toInt() ?? 0;
+      final unreadTotal =
+          (inboxSnapshot.data()?['unreadMessages'] as num?)?.toInt() ?? 0;
+
+      transaction.update(conversation, {
+        'readBy.$userId': FieldValue.serverTimestamp(),
+      });
+      if (counterSnapshot.exists || inboxSnapshot.exists) {
+        transaction.set(inbox, {
+          'unreadMessages': (unreadTotal - unreadInConversation)
+              .clamp(0, 9999)
+              .toInt(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        transaction.set(counter, {
+          'unreadMessages': 0,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    });
+  }
 
   Future<void> updatePresence({required User user, required bool isOnline}) =>
       _db.collection('users').doc(user.uid).set({

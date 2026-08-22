@@ -1,12 +1,15 @@
 import 'dart:ui';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-const _channelId = 'wapi_messages';
+// A versioned channel ensures devices that already had an older WAPI build
+// receive the current sound, vibration and badge configuration. Android keeps
+// channel settings immutable after their first creation.
+const _channelId = 'wapi_messages_v2';
 const _groupKey = 'wapi_message_group';
 const _summaryId = 2;
 
@@ -39,7 +42,7 @@ class WapiNotifications {
 
   static Future<void> _ensureInitialized({WapiNotificationTap? onTap}) async {
     if (_initialized) return;
-    const android = AndroidInitializationSettings('@drawable/ic_stat_wapi');
+    const android = AndroidInitializationSettings('ic_stat_wapi');
     await _notifications.initialize(
       const InitializationSettings(android: android),
       onDidReceiveNotificationResponse: (response) {
@@ -112,7 +115,7 @@ class WapiNotifications {
           channelDescription: 'Messages, appels et activités WAPI',
           importance: Importance.max,
           priority: Priority.high,
-          icon: '@drawable/ic_stat_wapi',
+          icon: 'ic_stat_wapi',
           color: const Color(0xFF0094F0),
           number: badgeCount.clamp(0, 99),
           groupKey: isMessage ? _groupKey : null,
@@ -123,8 +126,8 @@ class WapiNotifications {
             [body],
             contentTitle: title,
             summaryText: badgeCount > 1
-                ? '$badgeCount conversations non lues'
-                : '1 conversation non lue',
+                ? '$badgeCount messages non lus'
+                : '1 message non lu',
           ),
         ),
       ),
@@ -138,25 +141,13 @@ class WapiNotifications {
 
   static Future<void> syncUnreadBadge(String userId) async {
     await _ensureInitialized();
-    final conversations = await FirebaseFirestore.instance
-        .collection('conversations')
-        .where('memberIds', arrayContains: userId)
+    final inbox = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('notificationState')
+        .doc('inbox')
         .get();
-    var unread = 0;
-    for (final document in conversations.docs) {
-      final data = document.data();
-      final updatedAt = data['updatedAt'];
-      final lastSenderId = data['lastSenderId'];
-      final readBy = Map<String, dynamic>.from(
-        data['readBy'] as Map? ?? const {},
-      );
-      final readAt = readBy[userId];
-      if (updatedAt is Timestamp &&
-          lastSenderId != userId &&
-          (readAt is! Timestamp || updatedAt.compareTo(readAt) > 0)) {
-        unread++;
-      }
-    }
+    final unread = (inbox.data()?['unreadMessages'] as num?)?.toInt() ?? 0;
     await _showMessageSummary(unread);
   }
 
@@ -184,7 +175,7 @@ class WapiNotifications {
           channelDescription: 'Messages, appels et activités WAPI',
           importance: Importance.max,
           priority: Priority.high,
-          icon: '@drawable/ic_stat_wapi',
+          icon: 'ic_stat_wapi',
           color: const Color(0xFF0094F0),
           number: count.clamp(0, 99),
           groupKey: _groupKey,
@@ -194,7 +185,7 @@ class WapiNotifications {
           styleInformation: InboxStyleInformation(
             const [],
             contentTitle: 'Messages WAPI',
-            summaryText: '$count conversations non lues',
+            summaryText: '$count messages non lus',
           ),
         ),
       ),

@@ -1,5 +1,5 @@
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore, type DocumentData } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getMessaging, type MulticastMessage } from "firebase-admin/messaging";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
@@ -46,24 +46,37 @@ async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessa
   }
 }
 
-function conversationIsUnread(data: DocumentData, userId: string) {
-  const updatedAt = data.updatedAt;
-  const readBy = data.readBy || {};
-  const readAt = readBy[userId];
-  return data.lastSenderId !== userId
-    && typeof updatedAt?.toMillis === "function"
-    && (typeof readAt?.toMillis !== "function" || updatedAt.toMillis() > readAt.toMillis());
+function unreadCount(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0;
 }
 
-async function unreadConversationCount(userId: string) {
-  const conversations = await db
-    .collection("conversations")
-    .where("memberIds", "array-contains", userId)
-    .get();
-  return conversations.docs.reduce(
-    (count, document) => count + (conversationIsUnread(document.data(), userId) ? 1 : 0),
-    0,
-  );
+/**
+ * The source of truth for the launcher badge is stored per user, not per
+ * device. That keeps the counter coherent when the same WAPI account is used
+ * on more than one phone and avoids querying every conversation on each push.
+ */
+async function incrementUnreadMessages(userId: string, conversationId: string) {
+  const inbox = db.doc(`users/${userId}/notificationState/inbox`);
+  const conversation = inbox.collection("conversations").doc(conversationId);
+  return db.runTransaction(async (transaction) => {
+    const [inboxSnapshot, conversationSnapshot] = await Promise.all([
+      transaction.get(inbox),
+      transaction.get(conversation),
+    ]);
+    const total = Math.min(9999, unreadCount(inboxSnapshot.get("unreadMessages")) + 1);
+    const inConversation = Math.min(9999, unreadCount(conversationSnapshot.get("unreadMessages")) + 1);
+    transaction.set(inbox, {
+      unreadMessages: total,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.set(conversation, {
+      unreadMessages: inConversation,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return total;
+  });
 }
 
 export const notifyNewMessage = onDocumentCreated("conversations/{conversationId}/messages/{messageId}", async (event) => {
@@ -83,7 +96,7 @@ export const notifyNewMessage = onDocumentCreated("conversations/{conversationId
   await Promise.all(recipients.map(async (recipientId) => {
     const [devices, unread] = await Promise.all([
       pushDevices([recipientId]),
-      unreadConversationCount(recipientId),
+      incrementUnreadMessages(recipientId, event.params.conversationId),
     ]);
     if (!devices.length) return;
     await sendInBatches(devices, {

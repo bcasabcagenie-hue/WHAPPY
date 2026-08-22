@@ -31,6 +31,32 @@ service cloud.firestore {
           && request.resource.data.enabled is bool;
       }
 
+      // This state belongs only to its owner. Cloud Functions increments the
+      // counter when a message arrives; the owner can reset a conversation
+      // counter after reading it. It never grants access to message content.
+      match /notificationState/{stateId} {
+        allow read: if ownsProfile(userId) && stateId == "inbox";
+        allow create, update: if ownsProfile(userId)
+          && stateId == "inbox"
+          && request.resource.data.keys().hasOnly(["unreadMessages", "updatedAt"])
+          && request.resource.data.unreadMessages is int
+          && request.resource.data.unreadMessages >= 0
+          && request.resource.data.unreadMessages <= 9999
+          && request.resource.data.updatedAt is timestamp;
+        allow delete: if ownsProfile(userId) && stateId == "inbox";
+
+        match /conversations/{conversationId} {
+          allow read: if ownsProfile(userId);
+          allow create, update: if ownsProfile(userId)
+            && request.resource.data.keys().hasOnly(["unreadMessages", "updatedAt"])
+            && request.resource.data.unreadMessages is int
+            && request.resource.data.unreadMessages >= 0
+            && request.resource.data.unreadMessages <= 9999
+            && request.resource.data.updatedAt is timestamp;
+          allow delete: if ownsProfile(userId);
+        }
+      }
+
       match /twinProfiles/{profileId} {
         allow read, delete: if ownsProfile(userId) && profileId == "main";
         allow create, update: if ownsProfile(userId)
