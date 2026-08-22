@@ -48,8 +48,10 @@ const WhappyNow = dynamic(() => import("@/app/components/WhappyNow").then((m) =>
 const WhappyExperience = dynamic(() => import("@/app/components/WhappyExperience").then((m) => m.WhappyExperience), { ssr: false });
 const WhappyMotion = dynamic(() => import("@/app/components/WhappyMotion").then((m) => m.WhappyMotion), { ssr: false });
 const StoryStudio = dynamic(() => import("@/app/components/StoryStudio").then((m) => m.StoryStudio), { ssr: false });
+const WapiMobileHome = dynamic(() => import("@/app/components/WapiMobileHome").then((m) => m.WapiMobileHome), { ssr: false });
+const WapiAssistantSpace = dynamic(() => import("@/app/components/WapiAssistantSpace").then((m) => m.WapiAssistantSpace), { ssr: false });
 
-type Space = "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "channels" | "rooms" | "radio" | "podcasts" | "services" | "twin" | "business" | "games";
+type Space = "home" | "orbit" | "live" | "market" | "barter" | "seek" | "inbox" | "calls" | "contacts" | "channels" | "rooms" | "radio" | "podcasts" | "services" | "twin" | "business" | "games" | "assistant";
 type Listing = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente" | "troc"; trust: number; mediaUrl?: string; ownerId?: string; sellerPhone?: string; status?: "active" | "reserved" | "sold"; };
 type RequestItem = { id: string | number; title: string; details: string; place: string; reward: string; urgent: boolean; category: "Produits" | "Services" | "Situations"; };
 type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "image" | "video"; mediaName?: string };
@@ -173,7 +175,7 @@ export default function Home() {
   const toastTimerRef = useRef<number | null>(null);
   const recordedAdsRef = useRef(new Set<string>());
   const handledGroupInviteRef = useRef(false);
-  const [space, setSpace] = useState<Space>("inbox");
+  const [space, setSpace] = useState<Space>("home");
   const [accountMode, setAccountMode] = useState<"personal" | "business">("personal");
   const [search, setSearch] = useState("");
   const [marketFilter, setMarketFilter] = useState("Tout");
@@ -782,6 +784,7 @@ export default function Home() {
   }
 
   const titles: Record<Space, [string, string]> = {
+    home: ["Accueil WAPI", "Retrouvez l’expérience de l’application sur le web"],
     orbit: ["Actus", "Stories, chaînes, radios, podcasts et jeux"],
     live: ["Wapi Live", "Regardez, échangez et achetez en temps réel"],
     market: ["Wapi Marketplace", "Tout le monde peut vendre, acheter ou négocier"],
@@ -796,8 +799,10 @@ export default function Home() {
     twin: ["Jumeau numérique", "Votre présence numérique, créée avec votre accord"],
     business: ["Business Suite", "Pages professionnelles, publicité et croissance"],
     games: ["Jeux & Tournois", "Jouez sérieusement, progressez avec un coach et gagnez"],
+    assistant: ["Assistant WAPI", "Un guide privé pour retrouver les fonctions de l’APK"],
   };
   const searchPlaceholders: Record<Space,string> = {
+    home: "Rechercher dans WAPI…",
     inbox: "Rechercher une conversation…",
     calls: "Rechercher un appel ou un contact…",
     contacts: "Rechercher une personne, un groupe ou un professionnel…",
@@ -814,6 +819,7 @@ export default function Home() {
     twin: "Rechercher dans le studio du Jumeau numérique…",
     business: "Rechercher une page ou une campagne…",
     games: "Rechercher un joueur, un tournoi ou une leçon…",
+    assistant: "Rechercher une action WAPI…",
   };
 
   if (!authReady) return <ReconnectScreen />;
@@ -821,8 +827,9 @@ export default function Home() {
 
   return <main className="nova-shell whappy-blue">
     <aside className="nova-rail">
-      <button className="nova-logo" onClick={() => go("inbox")} aria-label="Accueil Wapi"><Image src="/wapi-logo.svg" alt="Logo Wapi" width={42} height={42} priority /><span>WAPI</span></button>
+      <button className="nova-logo" onClick={() => go("home")} aria-label="Accueil Wapi"><Image src="/wapi-logo.svg" alt="Logo Wapi" width={42} height={42} priority /><span>WAPI</span></button>
       <nav aria-label="Espaces Wapi App">
+        <Rail active={space === "home"} icon="⌂" label="Accueil" onClick={() => go("home")} />
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
         <Rail active={space === "calls"} icon="☎" label="Appels" onClick={() => go("calls")} />
         <Rail active={space === "contacts"} icon="◎" label="Contacts" onClick={() => go("contacts")} />
@@ -832,6 +839,7 @@ export default function Home() {
         <Rail active={space === "radio" || space === "podcasts"} icon="◉" label="Radio" live={radioSession.status === "live"} onClick={() => go("radio")} />
         <Rail active={space === "services"} icon="⌗" label="Services" onClick={() => go("services")} />
         <Rail active={space === "business"} icon="▥" label="Business" onClick={() => go("business")} />
+        <Rail active={space === "assistant"} icon="✦" label="Assistant" onClick={() => go("assistant")} />
       </nav>
       <div className="rail-tools">
         <button className="pulse-rail" onClick={() => setPulseOpen(true)}><span>✦</span><small>Pulse</small><b>{messages.reduce((sum,item)=>sum+item.unread,0)}</b></button>
@@ -839,11 +847,11 @@ export default function Home() {
         <button className={`me ${profilePhotoUrl ? "has-photo" : ""}`} onClick={() => setProfileOpen(true)} aria-label="Ouvrir mon profil"><span style={profilePhotoUrl ? { backgroundImage: `url(${profilePhotoUrl})` } : undefined}>{profilePhotoUrl ? "" : accountName.split(/\s+/).map((part)=>part[0]).join("").slice(0,2).toUpperCase()}</span><i /></button>
       </div>
       <nav className="mobile-primary-nav" aria-label="Navigation principale mobile">
+        <Rail active={space === "home"} icon="⌂" label="Accueil" onClick={() => go("home")} />
         <Rail active={space === "inbox"} icon="◫" label="Messages" count={3} onClick={() => go("inbox")} />
         <Rail active={space === "calls"} icon="☎" label="Appels" onClick={() => go("calls")} />
         <Rail active={space === "orbit"} icon="▦" label="Actus" onClick={() => go("orbit")} />
-        <Rail active={space === "twin"} icon="◎" label="Jumeau" onClick={() => go("twin")} />
-        <Rail active={space === "business"} icon="▥" label="Business" onClick={() => go("business")} />
+        <Rail active={space === "assistant"} icon="✦" label="Assistant" onClick={() => go("assistant")} />
         <Rail active={profileOpen} icon="●" label="Moi" onClick={() => setProfileOpen(true)} />
       </nav>
     </aside>
@@ -878,6 +886,8 @@ export default function Home() {
         else setModal(space === "inbox" ? "message" : space === "orbit" ? "live" : "live");
       }} />}
 
+      {space === "home" && <WapiMobileHome userName={accountName} onNavigate={go} />}
+      {space === "assistant" && <WapiAssistantSpace onNavigate={go} />}
       {space === "orbit" && <UpdatesSpace go={go} story={<StoryStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} cloud={Boolean(userId)} notify={notify}/>} />}
       {space === "live" && <LiveSpace setModal={setModal} setLiveIndex={setLiveIndex} />}
       {space === "market" && <MarketSpace search={search} filter={marketFilter} setFilter={setMarketFilter} items={filtered} shopCount={shopListings.length} saved={saved} setSaved={setSaved} notify={notify} setModal={setModal} onOpenShop={() => setShopOpen(true)} onOpen={setSelectedProduct} />}
