@@ -4352,6 +4352,10 @@ private fun ChatScreen(
                 maxLines = 4,
                 shape = RoundedCornerShape(14.dp),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = WhappyDark,
+                    unfocusedTextColor = WhappyDark,
+                    disabledTextColor = WhappyMuted,
+                    cursorColor = WapiChatAccent,
                     focusedBorderColor = WapiChatAccent.copy(alpha = .45f),
                     unfocusedBorderColor = WhappyLine,
                     focusedContainerColor = Color.White,
