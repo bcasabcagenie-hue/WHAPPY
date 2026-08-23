@@ -18,6 +18,15 @@ service cloud.firestore {
       return signedIn() && request.auth.uid in resource.data.memberIds;
     }
 
+    function mayReadLive(liveId) {
+      let session = get(/databases/$(database)/documents/liveSessions/$(liveId));
+      return signedIn()
+        && session.data.moderationStatus != "blocked"
+        && (session.data.visibility == "public"
+          || session.data.hostId == request.auth.uid
+          || exists(/databases/$(database)/documents/liveSessions/$(liveId)/viewers/$(request.auth.uid)));
+    }
+
     match /users/{userId} {
       allow read: if signedIn();
       allow create, update, delete: if ownsProfile(userId);
@@ -697,34 +706,52 @@ service cloud.firestore {
     }
 
     match /liveSessions/{liveId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
-        && request.resource.data.hostId == request.auth.uid
-        && request.resource.data.title is string
-        && request.resource.data.title.size() >= 3
-        && request.resource.data.title.size() <= 120
-        && request.resource.data.category is string
-        && request.resource.data.category.size() <= 60
-        && request.resource.data.productTitle is string
-        && request.resource.data.productTitle.size() <= 120
-        && request.resource.data.hostMode in ["personal", "creator", "business"]
-        && request.resource.data.visibility in ["public", "contacts", "private"]
-        && request.resource.data.status == "scheduled"
-        && request.resource.data.viewerCount == 0
-        && request.resource.data.streamProvider == "unconfigured";
-      allow update: if signedIn()
-        && resource.data.hostId == request.auth.uid
-        && request.resource.data.hostId == resource.data.hostId
-        && request.resource.data.status in ["scheduled", "live", "ended"]
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "startedAt", "endedAt", "updatedAt"])
-        // A client cannot call an unprovisioned room "live".  A trusted media
-        // service may provision streamProvider/streamRoomId separately.
-        && (!(resource.data.status != "live" && request.resource.data.status == "live")
-          || (resource.data.streamProvider != "unconfigured"
-            && resource.data.keys().hasAll(["streamRoomId"])
-            && resource.data.streamRoomId is string
-            && resource.data.streamRoomId.size() > 0));
-      allow delete: if false;
+      allow read: if signedIn()
+        && resource.data.moderationStatus != "blocked"
+        && (resource.data.visibility == "public"
+          || resource.data.hostId == request.auth.uid
+          || exists(/databases/$(database)/documents/liveSessions/$(liveId)/viewers/$(request.auth.uid)));
+      // Creation, state transitions and counters are server-authoritative.
+      allow create, update, delete: if false;
+
+      match /comments/{commentId} {
+        allow read: if mayReadLive(liveId);
+        allow create: if mayReadLive(liveId)
+          && get(/databases/$(database)/documents/liveSessions/$(liveId)).data.status == "live"
+          && get(/databases/$(database)/documents/liveSessions/$(liveId)).data.allowComments == true
+          && request.resource.data.keys().hasOnly(["authorId", "authorName", "text", "createdAt"])
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.authorName is string
+          && request.resource.data.authorName.size() >= 1
+          && request.resource.data.authorName.size() <= 80
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 280
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if signedIn()
+          && (resource.data.authorId == request.auth.uid
+            || get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid);
+      }
+
+      match /viewers/{viewerId} {
+        allow read: if signedIn()
+          && (request.auth.uid == viewerId
+            || get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
+      match /blockedViewers/{viewerId} {
+        allow read: if signedIn()
+          && (request.auth.uid == viewerId
+            || get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /liveReports/{reportId} {
+      allow read: if whappyFounder();
+      allow create, update, delete: if false;
     }
 
     match /businessDeals/{dealId} {

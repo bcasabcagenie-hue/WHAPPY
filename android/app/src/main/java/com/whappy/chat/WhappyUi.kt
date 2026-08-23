@@ -232,21 +232,6 @@ import java.net.URL
 import java.nio.ByteBuffer
 import kotlin.math.max
 
-private val WhappyBlue = Color(0xFF0094F0)
-private val WhappyDark = Color(0xFF191919)
-private val WhappyInk = Color(0xFF202020)
-private val WhappyMuted = Color(0xFF7A7A7A)
-private val WhappyBackground = Color(0xFFF5F5F5)
-private val WhappySurface = Color(0xFFF7F7F7)
-private val WhappyNavy = Color(0xFF0066CF)
-private val WhappyLine = Color(0xFFE5E5E5)
-private val WhappyDeepBlue = Color(0xFF0066CF)
-private val WhappySky = Color(0xFF00A2E6)
-private val WapiVerifiedGray = Color(0xFF858D96)
-private val WapiChatAccent = Color(0xFF0094F0)
-// Les messages sortants portent la couleur exacte du logo WAPI.
-private val WapiBubbleOutgoing = WhappyBlue
-
 private fun chatWallpaperBrush(style: String): Brush = when (style) {
     "azure" -> Brush.linearGradient(listOf(Color(0xFFF3FAFF), Color(0xFFE8F5FD), Color(0xFFF8FCFF)))
     "night" -> Brush.linearGradient(listOf(Color(0xFFEFF3FA), Color(0xFFE4EAF4), Color(0xFFF6F8FC)))
@@ -262,20 +247,6 @@ private val chatWallpaperNames = linkedMapOf(
     "warm" to "Sable",
     "mint" to "Menthe",
 )
-private val WapiChatBackground = Color(0xFFF4F9FC)
-private val WapiToolbar = Color(0xFFFFFFFF)
-private val WapiActionPanel = Color(0xFF0A3557)
-private val WhappyAurora = Brush.linearGradient(listOf(WhappyBlue, WhappySky, WhappyDeepBlue))
-private val WhappyAuroraSoft = Brush.linearGradient(listOf(Color(0xFFE4F7FF), Color(0xFFF6FCFF), Color(0xFFEAF5FF)))
-
-/** Mobile-first tokens: restrained radii and spacing keep WAPI app-like on phones and foldables. */
-private object WapiMobile {
-    val screen = 16.dp
-    val row = 14.dp
-    val compactRadius = 14.dp
-    val panelRadius = 18.dp
-}
-
 private data class VoiceNoteDraft(
     val file: File,
     val durationSeconds: Int,
@@ -333,32 +304,6 @@ private data class MessageAction(
     val start: Int,
     val end: Int,
 )
-
-@Composable
-fun WhappyTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = lightColorScheme(
-            primary = WhappyBlue,
-            secondary = WhappyDeepBlue,
-            tertiary = WhappySky,
-            onPrimary = Color.White,
-            background = WhappyBackground,
-            onBackground = WhappyInk,
-            surface = Color.White,
-            surfaceVariant = WhappySurface,
-            onSurface = WhappyInk,
-            outline = WhappyLine,
-        ),
-        shapes = Shapes(
-            extraSmall = RoundedCornerShape(8.dp),
-            small = RoundedCornerShape(12.dp),
-            medium = RoundedCornerShape(16.dp),
-            large = RoundedCornerShape(20.dp),
-            extraLarge = RoundedCornerShape(28.dp),
-        ),
-        content = content,
-    )
-}
 
 @Composable
 fun WhappyRoot(
@@ -5738,7 +5683,7 @@ private fun LiveScreen(
         item { Text("En direct et programmés", fontSize = 22.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
         if (visibleLives.isEmpty()) item { EmptyState("Aucun Live en cours", "Préparez le premier direct de votre communauté.") }
         items(visibleLives, key = { it.id }) { live ->
-            val liveReady = live.streamProvider != "unconfigured" && live.streamRoomId.isNotBlank()
+            val liveReady = live.streamProvider == "livekit-self-hosted"
             Card(Modifier.fillMaxWidth().clickable { if (live.hostId == currentUserId && !liveReady) startWithPermissions { selectedLive = live } else selectedLive = live }, shape = RoundedCornerShape(23.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column {
                     Box(Modifier.fillMaxWidth().height(128.dp).background(if (live.status == "live") WhappyDark else Color.White), contentAlignment = Alignment.Center) {
@@ -5754,7 +5699,7 @@ private fun LiveScreen(
                         }
                         if (live.productTitle.isNotBlank()) Text("Deal présenté : ${live.productTitle}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp)
                         if (live.hostId == currentUserId && live.status == "scheduled" && liveReady) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { startWithPermissions { pendingStudioTitle = live.title; if (preview) previewStatuses = previewStatuses + (live.id to "live") else onUpdateLiveStatus(live.id, "live") } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
+                            Button(onClick = { startWithPermissions { selectedLive = live } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
                             OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Annuler") }
                         }
                         else if (live.hostId == currentUserId && !liveReady) {
@@ -5765,7 +5710,8 @@ private fun LiveScreen(
                             Text("Caméra et micro sont disponibles en studio privé. La diffusion publique attend le transport média sécurisé.", Modifier.padding(top = 8.dp), color = WhappyMuted, fontSize = 10.sp, lineHeight = 14.sp)
                         }
                         else if (live.hostId == currentUserId) OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onUpdateLiveStatus(live.id, "ended") }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Text("Terminer le direct") }
-                        else if (liveReady) Button(onClick = { selectedLive = live }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text(if (live.status == "live") "Rejoindre le Live" else "Voir le programme", Modifier.padding(start = 6.dp)) }
+                        else if (liveReady && live.status == "live") Button(onClick = { selectedLive = live }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("Rejoindre le Live", Modifier.padding(start = 6.dp)) }
+                        else if (liveReady) Text("Ce direct est programmé. Il deviendra rejoignable lorsque l’animateur démarrera sa caméra.", Modifier.padding(top = 10.dp), color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                         else Text("Ce salon sera visible ici dès que son flux audio/vidéo réel sera disponible.", Modifier.padding(top = 10.dp), color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
                     }
                 }
@@ -5785,15 +5731,10 @@ private fun LiveScreen(
         creating = false
     }
     selectedLive?.let { live ->
-        LiveRoomDialog(
+        WapiNativeLiveRoomDialog(
             live = live,
-            isOwner = live.hostId == currentUserId,
-            busy = busy,
+            expectedHost = live.hostId == currentUserId,
             onDismiss = { selectedLive = null },
-            onEnd = {
-                if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onUpdateLiveStatus(live.id, "ended")
-                selectedLive = null
-            },
         )
     }
 }

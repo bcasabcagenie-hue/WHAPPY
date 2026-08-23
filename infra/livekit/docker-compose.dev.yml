@@ -1,0 +1,12 @@
+services:
+  livekit:
+    image: livekit/livekit-server:v1.12.0
+    command: --config /etc/livekit/livekit.dev.yaml
+    restart: unless-stopped
+    volumes:
+      - ./livekit.dev.yaml:/etc/livekit/livekit.dev.yaml:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+      - "3478:3478/udp"

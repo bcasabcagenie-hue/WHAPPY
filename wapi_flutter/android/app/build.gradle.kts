@@ -48,8 +48,11 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // Flutter release builds are intended to run through R8. Keeping
+            // it disabled retained unused Firebase/Android bytecode in every
+            // APK and made WAPI considerably heavier than necessary.
+            isMinifyEnabled = true
+            isShrinkResources = true
         }
     }
 }

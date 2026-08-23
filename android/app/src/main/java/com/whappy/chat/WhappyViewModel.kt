@@ -628,6 +628,7 @@ class WhappyViewModel(
 
     fun createLive(title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
         repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
+        refreshVisibleLives()
     }
 
     fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") {
@@ -699,10 +700,17 @@ class WhappyViewModel(
 
     fun endLive(liveId: String) = runBusinessAction("Le direct n’a pas pu être terminé") { user ->
         repository.endLive(user.uid, liveId)
+        refreshVisibleLives()
     }
 
     fun updateLiveStatus(liveId: String, status: String) = runBusinessAction("Le statut du Live n’a pas été mis à jour") { user ->
         repository.updateLiveStatus(user.uid, liveId, status)
+        refreshVisibleLives()
+    }
+
+    private suspend fun refreshVisibleLives() {
+        val lives = repository.loadVisibleLives()
+        _uiState.update { it.copy(lives = lives, online = true) }
     }
 
     fun createDeal(page: WhappyBusinessPage, title: String, description: String, originalPrice: Long, dealPrice: Long, stock: Int, durationDays: Int) = runBusinessAction("Le Deal n’a pas été publié") { user ->

@@ -18,6 +18,7 @@ import '../../app/wapi_theme.dart';
 import '../../data/wapi_repository.dart';
 import '../../services/wapi_notifications.dart';
 import '../calls/wapi_call_page.dart';
+import '../live/wapi_live_page.dart';
 
 class WapiShell extends StatefulWidget {
   const WapiShell({super.key, required this.user, this.initialConversationId});
@@ -194,118 +195,166 @@ class _HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: const _WapiAppBar(
+    appBar: _WapiAppBar(
       title: 'WAPI',
-      subtitle: 'Vos échanges, simplement',
+      subtitle: 'Votre espace',
+      actions: [
+        IconButton(
+          tooltip: 'Mon profil',
+          onPressed: () =>
+              _push(context, _ProfilePage(user: user, repository: repository)),
+          icon: const Icon(Icons.account_circle_outlined),
+        ),
+        const SizedBox(width: 6),
+      ],
     ),
-    body: ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: WapiColors.blue,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Votre univers WAPI',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 23,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(height: 7),
-              Text(
-                'Discuter, publier, créer et développer votre activité depuis une seule application.',
-                style: TextStyle(color: Colors.white70, height: 1.35),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 22),
-        Text(
-          'Accès rapide',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 10),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.35,
+    body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: repository.profile(user.uid),
+      builder: (context, snapshot) {
+        final profile = snapshot.data?.data() ?? const <String, dynamic>{};
+        final name =
+            (profile['displayName'] as String?)?.trim().isNotEmpty == true
+            ? profile['displayName'] as String
+            : user.displayName?.trim().isNotEmpty == true
+            ? user.displayName!
+            : 'Mon compte WAPI';
+        final phone =
+            (profile['phoneNumber'] as String?) ?? user.phoneNumber ?? '';
+        final photo = (profile['photoUrl'] as String?) ?? user.photoURL ?? '';
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 30),
           children: [
-            _HomeShortcut(
-              icon: Icons.person_add_alt_1_outlined,
-              title: 'Contacts',
-              detail: 'Trouver et écrire',
-              onTap: () => _push(
-                context,
-                _ContactsPage(user: user, repository: repository),
-              ),
-            ),
-            _HomeShortcut(
-              icon: Icons.business_center_outlined,
-              title: 'Business',
-              detail: 'Pages et offres',
-              onTap: () => _push(context, _BusinessPage(user: user)),
-            ),
-            _HomeShortcut(
-              icon: Icons.live_tv_outlined,
-              title: 'En direct',
-              detail: 'Lives disponibles',
-              onTap: () => _push(context, const _LivePage()),
-            ),
-            _HomeShortcut(
-              icon: Icons.storefront_outlined,
-              title: 'Marché',
-              detail: 'Annonces réelles',
-              onTap: () => _push(
-                context,
-                const _FeedPage(
-                  title: 'Marché',
-                  collection: 'listings',
-                  icon: Icons.storefront_outlined,
-                ),
-              ),
-            ),
-            _HomeShortcut(
-              icon: Icons.notifications_outlined,
-              title: 'Chaînes',
-              detail: 'Médias et créateurs',
-              onTap: () => _push(context, _ChannelsPage(user: user)),
-            ),
-            _HomeShortcut(
-              icon: Icons.radio_outlined,
-              title: 'Radio',
-              detail: 'Émissions publiées',
-              onTap: () => _push(context, _RadioPage(user: user)),
-            ),
-            _HomeShortcut(
-              icon: Icons.auto_awesome_outlined,
-              title: 'Jumeau numérique',
-              detail: 'Consentements et studio',
-              onTap: () => _push(context, _TwinPage(user: user)),
-            ),
-            _HomeShortcut(
-              icon: Icons.person_outline,
-              title: 'Profil',
-              detail: 'Compte et réglages',
+            _HomeIdentity(
+              name: name,
+              phone: phone,
+              photoUrl: photo,
               onTap: () => _push(
                 context,
                 _ProfilePage(user: user, repository: repository),
               ),
             ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _HomeAction(
+                      icon: Icons.person_add_alt_1_rounded,
+                      label: 'Ajouter',
+                      onTap: () => _push(
+                        context,
+                        _ContactsPage(user: user, repository: repository),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _HomeAction(
+                      icon: Icons.videocam_rounded,
+                      label: 'Live',
+                      onTap: () => _push(context, WapiLivePage(user: user)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _HomeAction(
+                      icon: Icons.qr_code_scanner_rounded,
+                      label: 'Mon QR',
+                      onTap: () => _push(
+                        context,
+                        _ProfilePage(user: user, repository: repository),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const _HomeSectionTitle('Communiquer'),
+            _HomeSection(
+              children: [
+                _HomeRow(
+                  icon: Icons.contacts_rounded,
+                  title: 'Contacts',
+                  detail: 'Ajouter, scanner et retrouver vos proches',
+                  onTap: () => _push(
+                    context,
+                    _ContactsPage(user: user, repository: repository),
+                  ),
+                ),
+                _HomeRow(
+                  icon: Icons.live_tv_rounded,
+                  title: 'En direct',
+                  detail: 'Regarder ou lancer une diffusion',
+                  accent: const Color(0xFFF0445A),
+                  onTap: () => _push(context, WapiLivePage(user: user)),
+                ),
+                _HomeRow(
+                  icon: Icons.campaign_rounded,
+                  title: 'Chaînes',
+                  detail: 'Créateurs, médias et publications',
+                  onTap: () => _push(context, _ChannelsPage(user: user)),
+                ),
+              ],
+            ),
+            const _HomeSectionTitle('Découvrir'),
+            _HomeSection(
+              children: [
+                _HomeRow(
+                  icon: Icons.radio_rounded,
+                  title: 'Radio et podcasts',
+                  detail: 'Émissions audio et épisodes publiés',
+                  accent: const Color(0xFF7D5CF5),
+                  onTap: () => _push(context, _RadioPage(user: user)),
+                ),
+                _HomeRow(
+                  icon: Icons.storefront_rounded,
+                  title: 'Marché',
+                  detail: 'Produits et annonces WAPI',
+                  accent: const Color(0xFF00A77A),
+                  onTap: () => _push(
+                    context,
+                    const _FeedPage(
+                      title: 'Marché',
+                      collection: 'listings',
+                      icon: Icons.storefront_outlined,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const _HomeSectionTitle('Créer et gérer'),
+            _HomeSection(
+              children: [
+                _HomeRow(
+                  icon: Icons.business_center_rounded,
+                  title: 'WAPI Business',
+                  detail: 'Pages, catalogue, offres et publicité',
+                  accent: const Color(0xFFF29B22),
+                  onTap: () => _push(context, _BusinessPage(user: user)),
+                ),
+                _HomeRow(
+                  icon: Icons.auto_awesome_rounded,
+                  title: 'Jumeau numérique',
+                  detail: 'Identité, consentements et studio IA',
+                  accent: const Color(0xFF4355D6),
+                  onTap: () => _push(context, _TwinPage(user: user)),
+                ),
+                _HomeRow(
+                  icon: Icons.settings_rounded,
+                  title: 'Compte et réglages',
+                  detail: 'Profil, confidentialité et stockage',
+                  accent: WapiColors.muted,
+                  onTap: () => _push(
+                    context,
+                    _ProfilePage(user: user, repository: repository),
+                  ),
+                ),
+              ],
+            ),
           ],
-        ),
-      ],
+        );
+      },
     ),
   );
 
@@ -313,38 +362,232 @@ class _HomePage extends StatelessWidget {
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
 }
 
-class _HomeShortcut extends StatelessWidget {
-  const _HomeShortcut({
+class _HomeIdentity extends StatelessWidget {
+  const _HomeIdentity({
+    required this.name,
+    required this.phone,
+    required this.photoUrl,
+    required this.onTap,
+  });
+
+  final String name;
+  final String phone;
+  final String photoUrl;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 17, 14, 17),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 31,
+              backgroundColor: WapiColors.blueSoft,
+              foregroundColor: WapiColors.blue,
+              backgroundImage: photoUrl.isEmpty ? null : NetworkImage(photoUrl),
+              child: photoUrl.isEmpty
+                  ? Text(
+                      name.characters.first.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    phone.isEmpty ? 'Compte WAPI' : phone,
+                    style: const TextStyle(
+                      color: WapiColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+              decoration: BoxDecoration(
+                color: WapiColors.blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                children: [
+                  CircleAvatar(radius: 4, backgroundColor: Color(0xFF00A77A)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Connecté',
+                    style: TextStyle(
+                      color: WapiColors.blueDark,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: WapiColors.muted),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _HomeAction extends StatelessWidget {
+  const _HomeAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(15),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(15),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: WapiColors.blue, size: 21),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _HomeSectionTitle extends StatelessWidget {
+  const _HomeSectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 22, 18, 8),
+    child: Text(
+      title.toUpperCase(),
+      style: const TextStyle(
+        color: WapiColors.muted,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        letterSpacing: .7,
+      ),
+    ),
+  );
+}
+
+class _HomeSection extends StatelessWidget {
+  const _HomeSection({required this.children});
+
+  final List<_HomeRow> children;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    child: Column(
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          children[index],
+          if (index < children.length - 1)
+            const Divider(height: 1, indent: 70, endIndent: 14),
+        ],
+      ],
+    ),
+  );
+}
+
+class _HomeRow extends StatelessWidget {
+  const _HomeRow({
     required this.icon,
     required this.title,
     required this.detail,
     required this.onTap,
+    this.accent = WapiColors.blue,
   });
+
   final IconData icon;
   final String title;
   final String detail;
   final VoidCallback onTap;
+  final Color accent;
+
   @override
-  Widget build(BuildContext context) => Card(
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.all(13),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: WapiColors.blue),
-            const Spacer(),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 2),
-            Text(
-              detail,
-              style: const TextStyle(color: WapiColors.muted, fontSize: 11),
-              overflow: TextOverflow.ellipsis,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: .11),
+              borderRadius: BorderRadius.circular(12),
             ),
-          ],
-        ),
+            child: Icon(icon, color: accent, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: WapiColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: WapiColors.muted),
+        ],
       ),
     ),
   );
@@ -3635,74 +3878,6 @@ class _BusinessPage extends StatelessWidget {
       city.dispose();
     });
   }
-}
-
-class _LivePage extends StatelessWidget {
-  const _LivePage();
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: const _WapiAppBar(
-      title: 'En direct',
-      subtitle: 'Lives réellement disponibles',
-    ),
-    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('liveSessions')
-          .where('status', whereIn: const ['scheduled', 'live'])
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _StateMessage(
-            icon: Icons.cloud_off_outlined,
-            title: 'Lives indisponibles',
-            body: 'WAPI ne peut pas charger les directs pour le moment.',
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final lives = snapshot.data!.docs;
-        if (lives.isEmpty) {
-          return const _StateMessage(
-            icon: Icons.live_tv_outlined,
-            title: 'Aucun direct disponible',
-            body:
-                'Un live apparaîtra ici seulement lorsqu’un flux vidéo sécurisé aura été réellement provisionné.',
-          );
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: lives.length,
-          itemBuilder: (context, index) {
-            final live = lives[index].data();
-            final provisioned =
-                live['streamProvider'] != 'unconfigured' &&
-                (live['streamRoomId'] as String? ?? '').isNotEmpty;
-            return Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: provisioned
-                      ? Colors.red.shade50
-                      : WapiColors.blueSoft,
-                  foregroundColor: provisioned ? Colors.red : WapiColors.blue,
-                  child: Icon(provisioned ? Icons.live_tv : Icons.schedule),
-                ),
-                title: Text(
-                  (live['title'] as String?) ?? 'Live WAPI',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: Text(
-                  provisioned
-                      ? 'Disponible maintenant'
-                      : 'Programmation en cours',
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
 }
 
 class _ProfilePage extends StatefulWidget {

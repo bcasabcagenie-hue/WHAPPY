@@ -131,7 +131,7 @@ object WhappyNotifications {
             .setConversationTitle(title)
             .addMessage(body, System.currentTimeMillis(), sender)
         val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-            .setSmallIcon(R.drawable.wapi_identity)
+            .setSmallIcon(R.drawable.ic_stat_wapi)
             .setColor(BRAND_COLOR)
             .setContentTitle(title)
             .setContentText(body)
@@ -189,7 +189,7 @@ object WhappyNotifications {
         val decline = PendingIntent.getBroadcast(context, requestCode + 1, declineIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val caller = Person.Builder().setName(callerName.ifBlank { "Contact WAPI" }).setImportant(true).build()
         val notification = NotificationCompat.Builder(context, CHANNEL_CALLS)
-            .setSmallIcon(R.drawable.wapi_identity)
+            .setSmallIcon(R.drawable.ic_stat_wapi)
             .setColor(BRAND_COLOR)
             .setContentTitle(caller.name)
             .setContentText(if (video) "Appel vidéo entrant" else "Appel audio entrant")
@@ -211,7 +211,7 @@ object WhappyNotifications {
         if (!canNotify(context)) return
         ensureChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_ACTIVITY)
-            .setSmallIcon(R.drawable.wapi_identity)
+            .setSmallIcon(R.drawable.ic_stat_wapi)
             .setColor(BRAND_COLOR)
             .setContentTitle(title)
             .setContentText(body)
@@ -243,7 +243,7 @@ object WhappyNotifications {
     }
 
     private fun messageSummary(context: Context, count: Int) = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-        .setSmallIcon(R.drawable.wapi_identity)
+        .setSmallIcon(R.drawable.ic_stat_wapi)
         .setColor(BRAND_COLOR)
         .setContentTitle("WAPI")
         .setContentText("$count message${if (count > 1) "s" else ""} non lu${if (count > 1) "s" else ""}")

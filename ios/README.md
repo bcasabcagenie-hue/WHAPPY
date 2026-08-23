@@ -1,26 +1,34 @@
-# WHAPPY pour iOS
+# WAPI pour iOS
 
-Application native SwiftUI ciblant iOS 17 et versions suivantes, connectée au
-même projet Firebase que WHAPPY Web et Android.
+Application native SwiftUI ciblant iOS 17 et connectée au même backend Firebase
+que le client Android Kotlin.
 
-Depuis une conversation, les boutons téléphone et vidéo lancent respectivement
-l’appel audio dans l’app Téléphone et l’appel vidéo dans FaceTime. Cette fonction
-nécessite un iPhone configuré (elle n’est pas disponible dans le simulateur).
+Le Live utilise LiveKit Swift via Swift Package Manager, le SFU WebRTC WAPI
+auto-hébergé et des jetons temporaires délivrés par Firebase Functions. Les
+salons de démonstration locaux ne sont plus présentés comme des directs réels.
 
 ## Compiler pour le simulateur
 
 ```bash
-cd ios
 ruby generate_project.rb
 pod install
-xcodebuild -workspace Whappy.xcworkspace -scheme Whappy -sdk iphonesimulator \
+xcodebuild -workspace Whappy.xcworkspace -scheme Whappy \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-## Installer sur un iPhone ou publier avec TestFlight
+Pour limiter l’espace disque pendant une vérification locale :
 
-1. Ouvrir `Whappy.xcodeproj` dans Xcode.
-2. Dans **Signing & Capabilities**, sélectionner l’équipe Apple Developer du propriétaire de WHAPPY.
-3. Brancher un iPhone et choisir **Run**, ou utiliser **Product > Archive** puis **Distribute App**.
+```bash
+xcodebuild -workspace Whappy.xcworkspace -scheme Whappy \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
+  CODE_SIGNING_ALLOWED=NO build
+```
 
-Le bundle identifier de la version 1.3.1 est `com.whappy.chat`.
+## Publier
+
+1. Ouvrir `Whappy.xcworkspace` dans Xcode.
+2. Sélectionner l’équipe Apple Developer du propriétaire WAPI.
+3. Utiliser **Product > Archive** puis **Distribute App**.
+
+Bundle identifier : `com.whappy.chat`.

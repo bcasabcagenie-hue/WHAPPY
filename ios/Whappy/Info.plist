@@ -36,9 +36,9 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.social-networking</string>
 	<key>NSCameraUsageDescription</key>
-	<string>WHAPPY utilise la caméra pour scanner vos codes de contact et de chaîne, ainsi que pour les médias que vous choisissez.</string>
+	<string>WAPI utilise la caméra pour scanner vos codes de contact et de chaîne, ainsi que pour les médias que vous choisissez.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>WHAPPY utilise le microphone pour les messages vocaux, appels et directs.</string>
+	<string>WAPI utilise le microphone pour les messages vocaux, appels et directs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>WHAPPY accède uniquement aux médias que vous choisissez de publier ou d’envoyer.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

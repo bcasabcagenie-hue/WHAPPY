@@ -10,4 +10,5 @@ target 'Whappy' do
   pod 'FirebaseFirestore', '12.17.0'
   pod 'FirebaseMessaging', '12.17.0'
   pod 'FirebaseStorage', '12.17.0'
+  pod 'FirebaseFunctions', '12.17.0'
 end

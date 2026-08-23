@@ -34,10 +34,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlin.random.Random
 
-private val WhappyBlue = Color(0xFF0066CF)
-private val WhappyDark = Color(0xFF111827)
-private val WhappyMuted = Color(0xFF667085)
-
 private data class WapiRoomPlayer(val id: String, val name: String)
 
 @Composable

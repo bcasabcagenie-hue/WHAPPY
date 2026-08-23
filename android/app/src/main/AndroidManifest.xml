@@ -14,10 +14,10 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/wapi_identity"
+        android:icon="@mipmap/ic_launcher"
         android:label="WAPI"
         android:networkSecurityConfig="@xml/network_security_config"
-        android:roundIcon="@drawable/wapi_identity"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Whappy"
         android:usesCleartextTraffic="false">

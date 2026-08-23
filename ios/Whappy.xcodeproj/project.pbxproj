@@ -7,100 +7,108 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		12DC7D0414E6D3EF91EF0D96 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1BB7E29202C72728C8E1AB42 /* GoogleService-Info.plist */; };
-		464C8A307964B92EEF473F77 /* WhappyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8452DFE14F2D4721C287358 /* WhappyStore.swift */; };
-		592EF97F26AF4F71509CAE8B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FC86C605E73A5F0CF82EFEBE /* Assets.xcassets */; };
-		5DCF3B18B9388B6997C5DD6A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = C355877A1D931B562D03D310 /* Models.swift */; };
-		A59F6A47676249EF68D5C111 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE1BE3F3E956F7D38E633E5 /* ContentView.swift */; };
-		ADAD374FF1EDA9160276233A /* WhappyFirebaseMessaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4652C41D975F9BAFA4809F04 /* WhappyFirebaseMessaging.swift */; };
-		B06615B77A3F6A4413A7DD89 /* Pods_Whappy.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CF588EE3AB6725686ADA84D1 /* Pods_Whappy.framework */; };
-		BC93E905AC6CDC131128AC39 /* WhappyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1B509F9B3484FB7F32B129 /* WhappyApp.swift */; };
-		D5ACB67D50F203EB75B89269 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 904BAB8593FBBA10D7AEB462 /* Foundation.framework */; };
+		1091B39926A8B06DF9F8D212 /* WapiDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4433857A527E5BBB906B5BD /* WapiDesignSystem.swift */; };
+		11B0207AA705018209FC591F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CF36E3C51D48B17D589C03 /* Models.swift */; };
+		22B016002A95269368A8048B /* WhappyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 549B293C13503B81B6F4E529 /* WhappyApp.swift */; };
+		356D23B34B46DC3F7861A4A7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A90C325ED3DA9C2494FEDD /* ContentView.swift */; };
+		42E7879B72ABD4AC8A53CD8B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 10F55801F4AF129DDD92974C /* LiveKit */; };
+		66CBF388013B39D5151995AD /* WhappyFirebaseMessaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC27F2ACD71FD215C5BBD95 /* WhappyFirebaseMessaging.swift */; };
+		B282100088C6263F3B14854C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF5C886AFD6F9D4FA97FFC87 /* Foundation.framework */; };
+		B346F1258F6CAB923A3CDF21 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1AFF8CF2C802656DA17B2A84 /* GoogleService-Info.plist */; };
+		DB7A45C3B2E22313635DC31D /* Pods_Whappy.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2050F776AB96AFFD56F5EB5 /* Pods_Whappy.framework */; };
+		E60DE19429C187722C16D5A9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 80C72DB54674AC9A7EEC6A1E /* Assets.xcassets */; };
+		EE1E0EDE0F98EAC9A095C7C2 /* WhappyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C58A6CB9B10738EE997BF3 /* WhappyStore.swift */; };
+		FA187FCEAA07A10E70A6F99D /* WapiNativeLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADA6F6434F1547AA9237126 /* WapiNativeLive.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1BB7E29202C72728C8E1AB42 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
-		4652C41D975F9BAFA4809F04 /* WhappyFirebaseMessaging.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyFirebaseMessaging.swift; sourceTree = "<group>"; };
-		4C58303150FD3311FBE03955 /* Pods-Whappy.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Whappy.debug.xcconfig"; path = "Target Support Files/Pods-Whappy/Pods-Whappy.debug.xcconfig"; sourceTree = "<group>"; };
-		66310F2DCDCBEC08D41048AC /* Pods-Whappy.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Whappy.release.xcconfig"; path = "Target Support Files/Pods-Whappy/Pods-Whappy.release.xcconfig"; sourceTree = "<group>"; };
-		70146CF509F70679A7CD6A00 /* Whappy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Whappy.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		904BAB8593FBBA10D7AEB462 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
-		C355877A1D931B562D03D310 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		CF588EE3AB6725686ADA84D1 /* Pods_Whappy.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Whappy.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		D8452DFE14F2D4721C287358 /* WhappyStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyStore.swift; sourceTree = "<group>"; };
-		EA1B509F9B3484FB7F32B129 /* WhappyApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyApp.swift; sourceTree = "<group>"; };
-		FBE1BE3F3E956F7D38E633E5 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		FC86C605E73A5F0CF82EFEBE /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		1AFF8CF2C802656DA17B2A84 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		22674B263ABC512285FBCEF1 /* Whappy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Whappy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2AC27F2ACD71FD215C5BBD95 /* WhappyFirebaseMessaging.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyFirebaseMessaging.swift; sourceTree = "<group>"; };
+		44A90C325ED3DA9C2494FEDD /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		549B293C13503B81B6F4E529 /* WhappyApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyApp.swift; sourceTree = "<group>"; };
+		68CF36E3C51D48B17D589C03 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		80C72DB54674AC9A7EEC6A1E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8DF01E3B9B3EB1F437045FC6 /* Pods-Whappy.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Whappy.debug.xcconfig"; path = "Target Support Files/Pods-Whappy/Pods-Whappy.debug.xcconfig"; sourceTree = "<group>"; };
+		9BDF6D9582D819B72636E14D /* Pods-Whappy.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Whappy.release.xcconfig"; path = "Target Support Files/Pods-Whappy/Pods-Whappy.release.xcconfig"; sourceTree = "<group>"; };
+		BADA6F6434F1547AA9237126 /* WapiNativeLive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WapiNativeLive.swift; sourceTree = "<group>"; };
+		BF5C886AFD6F9D4FA97FFC87 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		E2050F776AB96AFFD56F5EB5 /* Pods_Whappy.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Whappy.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		E4433857A527E5BBB906B5BD /* WapiDesignSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WapiDesignSystem.swift; sourceTree = "<group>"; };
+		F7C58A6CB9B10738EE997BF3 /* WhappyStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		0470889BE291B18BC56CB286 /* Frameworks */ = {
+		19132C857DF4BD03B2DEF0C7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D5ACB67D50F203EB75B89269 /* Foundation.framework in Frameworks */,
-				B06615B77A3F6A4413A7DD89 /* Pods_Whappy.framework in Frameworks */,
+				B282100088C6263F3B14854C /* Foundation.framework in Frameworks */,
+				42E7879B72ABD4AC8A53CD8B /* LiveKit in Frameworks */,
+				DB7A45C3B2E22313635DC31D /* Pods_Whappy.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		371DC12FBE029E0CF3814FB9 /* iOS */ = {
+		3928946A74C87F65CE6045AC /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				904BAB8593FBBA10D7AEB462 /* Foundation.framework */,
-			);
-			name = iOS;
-			sourceTree = "<group>";
-		};
-		60617BCCB69CA9086AA6EFA2 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				70146CF509F70679A7CD6A00 /* Whappy.app */,
+				22674B263ABC512285FBCEF1 /* Whappy.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		6EBC44D74F424923CF9CBF15 /* Whappy */ = {
+		46DBB708AEE775E927A6E40A /* Whappy */ = {
 			isa = PBXGroup;
 			children = (
-				EA1B509F9B3484FB7F32B129 /* WhappyApp.swift */,
-				C355877A1D931B562D03D310 /* Models.swift */,
-				D8452DFE14F2D4721C287358 /* WhappyStore.swift */,
-				4652C41D975F9BAFA4809F04 /* WhappyFirebaseMessaging.swift */,
-				FBE1BE3F3E956F7D38E633E5 /* ContentView.swift */,
-				FC86C605E73A5F0CF82EFEBE /* Assets.xcassets */,
-				1BB7E29202C72728C8E1AB42 /* GoogleService-Info.plist */,
+				E4433857A527E5BBB906B5BD /* WapiDesignSystem.swift */,
+				BADA6F6434F1547AA9237126 /* WapiNativeLive.swift */,
+				549B293C13503B81B6F4E529 /* WhappyApp.swift */,
+				68CF36E3C51D48B17D589C03 /* Models.swift */,
+				F7C58A6CB9B10738EE997BF3 /* WhappyStore.swift */,
+				2AC27F2ACD71FD215C5BBD95 /* WhappyFirebaseMessaging.swift */,
+				44A90C325ED3DA9C2494FEDD /* ContentView.swift */,
+				80C72DB54674AC9A7EEC6A1E /* Assets.xcassets */,
+				1AFF8CF2C802656DA17B2A84 /* GoogleService-Info.plist */,
 			);
 			name = Whappy;
 			path = Whappy;
 			sourceTree = "<group>";
 		};
-		84C1CAC3762B770F92684365 /* Frameworks */ = {
+		4ED09300F0EF39D372C4E2E1 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				371DC12FBE029E0CF3814FB9 /* iOS */,
-				CF588EE3AB6725686ADA84D1 /* Pods_Whappy.framework */,
+				5D6389DEFA13193F2AB6642D /* iOS */,
+				E2050F776AB96AFFD56F5EB5 /* Pods_Whappy.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		8E31AFEAD354D13A0D7B0ED6 = {
+		5BFC558BFB15BA2937D57A84 = {
 			isa = PBXGroup;
 			children = (
-				60617BCCB69CA9086AA6EFA2 /* Products */,
-				84C1CAC3762B770F92684365 /* Frameworks */,
-				6EBC44D74F424923CF9CBF15 /* Whappy */,
-				E61BAEEE748F4F75794C9A1C /* Pods */,
+				3928946A74C87F65CE6045AC /* Products */,
+				4ED09300F0EF39D372C4E2E1 /* Frameworks */,
+				46DBB708AEE775E927A6E40A /* Whappy */,
+				9F7D652855888EB791176D4A /* Pods */,
 			);
 			sourceTree = "<group>";
 		};
-		E61BAEEE748F4F75794C9A1C /* Pods */ = {
+		5D6389DEFA13193F2AB6642D /* iOS */ = {
 			isa = PBXGroup;
 			children = (
-				66310F2DCDCBEC08D41048AC /* Pods-Whappy.release.xcconfig */,
-				4C58303150FD3311FBE03955 /* Pods-Whappy.debug.xcconfig */,
+				BF5C886AFD6F9D4FA97FFC87 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		9F7D652855888EB791176D4A /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				9BDF6D9582D819B72636E14D /* Pods-Whappy.release.xcconfig */,
+				8DF01E3B9B3EB1F437045FC6 /* Pods-Whappy.debug.xcconfig */,
 			);
 			name = Pods;
 			path = Pods;
@@ -109,35 +117,38 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		781EEE272F88EEAED1A6F97D /* Whappy */ = {
+		0377423AA1F9EE434AA0D76D /* Whappy */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 7FFE8F43F4807D10AFF60EA7 /* Build configuration list for PBXNativeTarget "Whappy" */;
+			buildConfigurationList = 1A8986A749BD5BC2114B4462 /* Build configuration list for PBXNativeTarget "Whappy" */;
 			buildPhases = (
-				87399D5034F5A4BE8E51502F /* [CP] Check Pods Manifest.lock */,
-				12A698E13BBF79695D02C97E /* Sources */,
-				0470889BE291B18BC56CB286 /* Frameworks */,
-				B3E6E035A23BAD3B43B98695 /* Resources */,
-				8A1836F28B737E07BBF1D166 /* [CP] Copy Pods Resources */,
+				AFC46534BCCEA719337AACE0 /* [CP] Check Pods Manifest.lock */,
+				EE60D9206BA8DF5E9E3AB450 /* Sources */,
+				19132C857DF4BD03B2DEF0C7 /* Frameworks */,
+				FEEB265452EE9E1A999C9826 /* Resources */,
+				C8676EA0FA4110D4F5CB09BE /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = Whappy;
+			packageProductDependencies = (
+				10F55801F4AF129DDD92974C /* LiveKit */,
+			);
 			productName = Whappy;
-			productReference = 70146CF509F70679A7CD6A00 /* Whappy.app */;
+			productReference = 22674B263ABC512285FBCEF1 /* Whappy.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		15536E4C32FCD642C22D4236 /* Project object */ = {
+		5339433740005B1F452C3803 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 			};
-			buildConfigurationList = 8EADA42342ADCC796C594D02 /* Build configuration list for PBXProject "Whappy" */;
+			buildConfigurationList = C1D9C3BD2A10F12F083BF446 /* Build configuration list for PBXProject "Whappy" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -145,32 +156,35 @@
 				en,
 				Base,
 			);
-			mainGroup = 8E31AFEAD354D13A0D7B0ED6;
+			mainGroup = 5BFC558BFB15BA2937D57A84;
 			minimizedProjectReferenceProxies = 0;
+			packageReferences = (
+				4BCF0168EAA4B2F5BB30CBCD /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+			);
 			preferredProjectObjectVersion = 100;
-			productRefGroup = 60617BCCB69CA9086AA6EFA2 /* Products */;
+			productRefGroup = 3928946A74C87F65CE6045AC /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				781EEE272F88EEAED1A6F97D /* Whappy */,
+				0377423AA1F9EE434AA0D76D /* Whappy */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B3E6E035A23BAD3B43B98695 /* Resources */ = {
+		FEEB265452EE9E1A999C9826 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				592EF97F26AF4F71509CAE8B /* Assets.xcassets in Resources */,
-				12DC7D0414E6D3EF91EF0D96 /* GoogleService-Info.plist in Resources */,
+				E60DE19429C187722C16D5A9 /* Assets.xcassets in Resources */,
+				B346F1258F6CAB923A3CDF21 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		87399D5034F5A4BE8E51502F /* [CP] Check Pods Manifest.lock */ = {
+		AFC46534BCCEA719337AACE0 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -192,7 +206,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		8A1836F28B737E07BBF1D166 /* [CP] Copy Pods Resources */ = {
+		C8676EA0FA4110D4F5CB09BE /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -249,59 +263,24 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		12A698E13BBF79695D02C97E /* Sources */ = {
+		EE60D9206BA8DF5E9E3AB450 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BC93E905AC6CDC131128AC39 /* WhappyApp.swift in Sources */,
-				5DCF3B18B9388B6997C5DD6A /* Models.swift in Sources */,
-				464C8A307964B92EEF473F77 /* WhappyStore.swift in Sources */,
-				ADAD374FF1EDA9160276233A /* WhappyFirebaseMessaging.swift in Sources */,
-				A59F6A47676249EF68D5C111 /* ContentView.swift in Sources */,
+				1091B39926A8B06DF9F8D212 /* WapiDesignSystem.swift in Sources */,
+				FA187FCEAA07A10E70A6F99D /* WapiNativeLive.swift in Sources */,
+				22B016002A95269368A8048B /* WhappyApp.swift in Sources */,
+				11B0207AA705018209FC591F /* Models.swift in Sources */,
+				EE1E0EDE0F98EAC9A095C7C2 /* WhappyStore.swift in Sources */,
+				66CBF388013B39D5151995AD /* WhappyFirebaseMessaging.swift in Sources */,
+				356D23B34B46DC3F7861A4A7 /* ContentView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		11660C5FF9D38573DEF4441F /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 66310F2DCDCBEC08D41048AC /* Pods-Whappy.release.xcconfig */;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ENABLE_OBJC_WEAK = NO;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = WHAPPY;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
-				INFOPLIST_KEY_NSCameraUsageDescription = "WHAPPY utilise la caméra pour les photos, vidéos et directs que vous choisissez de partager.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "WHAPPY utilise le microphone pour les messages vocaux, appels et directs.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "WHAPPY accède aux médias que vous choisissez de publier ou d’envoyer.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.0.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.whappy.chat;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		4B5D6FFD06E9E7D0E3C497FC /* Debug */ = {
+		64EC5B973A9B9FE9EC5AE306 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -362,29 +341,29 @@
 			};
 			name = Debug;
 		};
-		683E57D688EAB33871163D62 /* Debug */ = {
+		6E1C901DD35E782A9FED8751 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 4C58303150FD3311FBE03955 /* Pods-Whappy.debug.xcconfig */;
+			baseConfigurationReference = 8DF01E3B9B3EB1F437045FC6 /* Pods-Whappy.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = WHAPPY;
+				INFOPLIST_KEY_CFBundleDisplayName = WAPI;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
-				INFOPLIST_KEY_NSCameraUsageDescription = "WHAPPY utilise la caméra pour les photos, vidéos et directs que vous choisissez de partager.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "WHAPPY utilise le microphone pour les messages vocaux, appels et directs.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "WHAPPY accède aux médias que vous choisissez de publier ou d’envoyer.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "WAPI utilise la caméra pour les photos, vidéos et directs que vous choisissez de partager.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "WAPI utilise le microphone pour les messages vocaux, appels et directs.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "WAPI accède aux médias que vous choisissez de publier ou d’envoyer.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 2.1.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -398,7 +377,44 @@
 			};
 			name = Debug;
 		};
-		7D9B7AB40948F492C8D15922 /* Release */ = {
+		D4EE20D33E53CCED396C8293 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9BDF6D9582D819B72636E14D /* Pods-Whappy.release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = WAPI;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSCameraUsageDescription = "WAPI utilise la caméra pour les photos, vidéos et directs que vous choisissez de partager.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "WAPI utilise le microphone pour les messages vocaux, appels et directs.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "WAPI accède aux médias que vous choisissez de publier ou d’envoyer.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 2.1.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.whappy.chat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		FBC275D7BF1E02C5EA271764 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -455,25 +471,44 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		7FFE8F43F4807D10AFF60EA7 /* Build configuration list for PBXNativeTarget "Whappy" */ = {
+		1A8986A749BD5BC2114B4462 /* Build configuration list for PBXNativeTarget "Whappy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				11660C5FF9D38573DEF4441F /* Release */,
-				683E57D688EAB33871163D62 /* Debug */,
+				D4EE20D33E53CCED396C8293 /* Release */,
+				6E1C901DD35E782A9FED8751 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		8EADA42342ADCC796C594D02 /* Build configuration list for PBXProject "Whappy" */ = {
+		C1D9C3BD2A10F12F083BF446 /* Build configuration list for PBXProject "Whappy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				4B5D6FFD06E9E7D0E3C497FC /* Debug */,
-				7D9B7AB40948F492C8D15922 /* Release */,
+				64EC5B973A9B9FE9EC5AE306 /* Debug */,
+				FBC275D7BF1E02C5EA271764 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4BCF0168EAA4B2F5BB30CBCD /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.16.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		10F55801F4AF129DDD92974C /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4BCF0168EAA4B2F5BB30CBCD /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = 15536E4C32FCD642C22D4236 /* Project object */;
+	rootObject = 5339433740005B1F452C3803 /* Project object */;
 }

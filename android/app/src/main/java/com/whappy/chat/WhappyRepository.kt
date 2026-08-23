@@ -13,6 +13,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
@@ -25,6 +26,7 @@ class WhappyRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("europe-west1"),
     private val appContext: Context = FirebaseApp.getInstance().applicationContext,
 ) {
     private val messageOutbox = WhappyMessageOutbox(appContext)
@@ -418,31 +420,43 @@ class WhappyRepository(
     fun observeLives(
         onChange: (List<WhappyLive>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("liveSessions")
-        .whereIn("status", listOf("scheduled", "live"))
-        .addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                onError(error)
-                return@addSnapshotListener
-            }
-            onChange(snapshot?.documents.orEmpty().map { document ->
-                WhappyLive(
-                    id = document.id,
-                    hostId = document.getString("hostId").orEmpty(),
-                    hostName = document.getString("hostName") ?: "Créateur WAPI",
-                    title = document.getString("title") ?: "Direct WAPI",
-                    category = document.getString("category") ?: "Communauté",
-                    productTitle = document.getString("productTitle").orEmpty(),
-                    status = document.getString("status") ?: "scheduled",
-                    viewerCount = document.getLong("viewerCount")?.toInt() ?: 0,
-                    startedAt = document.timestampMillis("startedAt"),
-                    hostMode = document.getString("hostMode") ?: "personal",
-                    visibility = document.getString("visibility") ?: "public",
-                    streamProvider = document.getString("streamProvider") ?: "unconfigured",
-                    streamRoomId = document.getString("streamRoomId").orEmpty(),
-                )
-            }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt }))
-        }
+    ): ListenerRegistration {
+        // Firestore rules are not filters: a broad client query would fail as
+        // soon as one private room is present. The callable returns only rooms
+        // the authenticated account may discover.
+        functions.getHttpsCallable("listVisibleLiveSessions").call()
+            .addOnSuccessListener { result -> onChange(parseVisibleLives(result.data)) }
+            .addOnFailureListener(onError)
+        return ListenerRegistration { }
+    }
+
+    suspend fun loadVisibleLives(): List<WhappyLive> =
+        parseVisibleLives(functions.getHttpsCallable("listVisibleLiveSessions").call().await().data)
+
+    private fun parseVisibleLives(raw: Any?): List<WhappyLive> {
+        val root = raw as? Map<*, *> ?: return emptyList()
+        val lives = root["lives"] as? List<*> ?: return emptyList()
+        return lives.mapNotNull { item ->
+            val value = item as? Map<*, *> ?: return@mapNotNull null
+            val id = value["id"]?.toString().orEmpty()
+            if (id.isBlank()) return@mapNotNull null
+            WhappyLive(
+                id = id,
+                hostId = value["hostId"]?.toString().orEmpty(),
+                hostName = value["hostName"]?.toString()?.takeIf(String::isNotBlank) ?: "Créateur WAPI",
+                title = value["title"]?.toString()?.takeIf(String::isNotBlank) ?: "Direct WAPI",
+                category = value["category"]?.toString()?.takeIf(String::isNotBlank) ?: "Discussion",
+                productTitle = value["productTitle"]?.toString().orEmpty(),
+                status = value["status"]?.toString() ?: "scheduled",
+                viewerCount = (value["viewerCount"] as? Number)?.toInt() ?: 0,
+                startedAt = (value["startedAtMillis"] as? Number)?.toLong() ?: 0L,
+                hostMode = value["hostMode"]?.toString() ?: "personal",
+                visibility = value["visibility"]?.toString() ?: "public",
+                streamProvider = value["streamProvider"]?.toString() ?: "unconfigured",
+                streamRoomId = value["streamRoomId"]?.toString().orEmpty(),
+            )
+        }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt })
+    }
 
     fun observeStatuses(
         onChange: (List<WhappyStatus>) -> Unit,
@@ -1191,25 +1205,18 @@ class WhappyRepository(
     }
 
     suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) {
-        require(title.trim().length in 2..120)
+        require(auth.currentUser?.uid == userId)
+        require(title.trim().length in 3..120)
         require(hostMode in setOf("personal", "creator", "business"))
         require(visibility in setOf("public", "contacts", "private"))
-        db.collection("liveSessions").add(
+        // La salle, le jeton court et les droits de publication sont créés côté
+        // serveur. Aucun secret LiveKit n'entre dans l'APK.
+        functions.getHttpsCallable("createLiveSession").call(
             mapOf(
-                "hostId" to userId,
-                "hostName" to hostName.trim().take(80),
                 "title" to title.trim(),
-                "category" to category.trim().take(60),
-                "productTitle" to productTitle.trim().take(120),
-                // A Live is only public after a media provider has issued a real room/token.
-                // Creating a studio therefore never fabricates a public audience or a fake live state.
-                "status" to "scheduled",
-                "viewerCount" to 0,
-                "streamProvider" to "unconfigured",
+                "category" to category.trim().ifBlank { "Discussion" }.take(60),
                 "hostMode" to hostMode,
                 "visibility" to visibility,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
     }
@@ -1308,21 +1315,18 @@ class WhappyRepository(
     }
 
     suspend fun endLive(userId: String, liveId: String) {
-        val reference = db.collection("liveSessions").document(liveId)
-        val document = reference.get().await()
-        require(document.getString("hostId") == userId)
-        reference.update(mapOf("status" to "ended", "updatedAt" to FieldValue.serverTimestamp())).await()
+        require(auth.currentUser?.uid == userId)
+        functions.getHttpsCallable("setLiveSessionState")
+            .call(mapOf("liveId" to liveId, "action" to "end"))
+            .await()
     }
 
     suspend fun updateLiveStatus(userId: String, liveId: String, status: String) {
         require(status in setOf("live", "ended"))
-        val reference = db.collection("liveSessions").document(liveId)
-        val document = reference.get().await()
-        require(document.getString("hostId") == userId)
-        val values = mutableMapOf<String, Any>("status" to status, "updatedAt" to FieldValue.serverTimestamp())
-        if (status == "live") values["startedAt"] = FieldValue.serverTimestamp()
-        else values["endedAt"] = FieldValue.serverTimestamp()
-        reference.update(values).await()
+        require(auth.currentUser?.uid == userId)
+        functions.getHttpsCallable("setLiveSessionState")
+            .call(mapOf("liveId" to liveId, "action" to if (status == "live") "start" else "end"))
+            .await()
     }
 
     suspend fun createDeal(userId: String, page: WhappyBusinessPage, title: String, description: String, originalPrice: Long, dealPrice: Long, stock: Int, durationDays: Int) {

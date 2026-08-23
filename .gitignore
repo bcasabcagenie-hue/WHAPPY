@@ -45,6 +45,7 @@ yarn-error.log*
 /android/app/build/
 /android/keystore.properties
 /android/*.jks
+**/xcuserdata/
 /releases/*.apk
 /releases/*.aab
 /releases/*.apk.idsig
@@ -52,6 +53,8 @@ yarn-error.log*
 /public/downloads/*.apk
 !/public-hosting/WAPI-Android-1.9.1-native.apk
 !/public/downloads/WAPI-Android-1.9.1-native.apk
+!/public-hosting/WAPI-Android-2.1.1-native.apk
+!/public/downloads/WAPI-Android-2.1.1-native.apk
 !/public-hosting/WAPI-Android-1.9.0-native.apk
 !/public/downloads/WAPI-Android-1.9.0-native.apk
 !/public-hosting/WAPI-Android-1.8.9-native.apk

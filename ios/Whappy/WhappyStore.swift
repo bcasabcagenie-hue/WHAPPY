@@ -58,10 +58,7 @@ final class WhappyStore: ObservableObject {
             Listing(id: UUID(), title: "Canapé modulable en velours", price: "Échange accepté", place: "Bacongo", seller: "Maison Noki", icon: "sofa.fill", acceptsTrade: true),
             Listing(id: UUID(), title: "Sneakers édition limitée", price: "85 000 FCFA", place: "Centre-ville", seller: "Mokabi Store", icon: "shoe.fill", acceptsTrade: false)
         ]
-        liveRooms = [
-            LiveRoom(id: UUID(), host: "Mokabi Studio", title: "Nouvelle collection N’Tela", category: "Mode", viewers: 1_284, icon: "tshirt.fill"),
-            LiveRoom(id: UUID(), host: "Junior Tech", title: "Les bonnes affaires smartphones", category: "Tech", viewers: 438, icon: "iphone.gen3")
-        ]
+        liveRooms = []
         calls = [
             CallRecord(id: UUID(), name: "Amina M.", phoneNumber: "+242065550101", mode: .audio, date: now.addingTimeInterval(-3_600), outgoing: false, missed: false),
             CallRecord(id: UUID(), name: "Junior K.", phoneNumber: "+242058842160", mode: .video, date: now.addingTimeInterval(-90_000), outgoing: true, missed: false)
@@ -279,11 +276,10 @@ final class WhappyStore: ObservableObject {
     }
 
     func createLive(title: String, category: String) -> LiveRoom? {
-        let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.count >= 3 else { return nil }
-        let room = LiveRoom(id: UUID(), host: whappyFounderName, title: value, category: category, viewers: 1, icon: "video.fill")
-        liveRooms.insert(room, at: 0)
-        return room
+        // Le Live natif utilise désormais WapiLiveDirectory et le callable
+        // createLiveSession. Cette ancienne API locale reste neutre pour la
+        // compatibilité de restauration, sans produire de faux direct.
+        nil
     }
 
     func endLive(_ room: LiveRoom) {

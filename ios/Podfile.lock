@@ -1233,6 +1233,14 @@ PODS:
     - gRPC-Core (~> 1.69.0)
     - leveldb-library (~> 1.22)
     - nanopb (~> 3.30910.0)
+  - FirebaseFunctions (12.17.0):
+    - FirebaseAppCheckInterop (~> 12.17.0)
+    - FirebaseAuthInterop (~> 12.17.0)
+    - FirebaseCore (~> 12.17.0)
+    - FirebaseCoreExtension (~> 12.17.0)
+    - FirebaseMessagingInterop (~> 12.17.0)
+    - FirebaseSharedSwift (~> 12.17.0)
+    - GTMSessionFetcher/Core (< 6.0, >= 3.4)
   - FirebaseInstallations (12.17.0):
     - FirebaseCore (~> 12.17.0)
     - GoogleUtilities/Environment (~> 8.1)
@@ -1247,6 +1255,7 @@ PODS:
     - GoogleUtilities/Reachability (~> 8.1)
     - GoogleUtilities/UserDefaults (~> 8.1)
     - nanopb (~> 3.30910.0)
+  - FirebaseMessagingInterop (12.17.0)
   - FirebaseSharedSwift (12.17.0)
   - FirebaseStorage (12.17.0):
     - FirebaseAppCheckInterop (~> 12.17.0)
@@ -1388,6 +1397,7 @@ DEPENDENCIES:
   - FirebaseAuth (= 12.17.0)
   - FirebaseCore (= 12.17.0)
   - FirebaseFirestore (= 12.17.0)
+  - FirebaseFunctions (= 12.17.0)
   - FirebaseMessaging (= 12.17.0)
   - FirebaseStorage (= 12.17.0)
 
@@ -1403,8 +1413,10 @@ SPEC REPOS:
     - FirebaseCoreInternal
     - FirebaseFirestore
     - FirebaseFirestoreInternal
+    - FirebaseFunctions
     - FirebaseInstallations
     - FirebaseMessaging
+    - FirebaseMessagingInterop
     - FirebaseSharedSwift
     - FirebaseStorage
     - GoogleDataTransport
@@ -1428,8 +1440,10 @@ SPEC CHECKSUMS:
   FirebaseCoreInternal: 3b310521b34a51ce3a6c605e4618b9aef8f6c112
   FirebaseFirestore: dfebd53ce603c93a8514102c9a0b688d2be2bfc2
   FirebaseFirestoreInternal: 99cccc955349efee1652cbe132cf206915e6923d
+  FirebaseFunctions: e2eb75689fe581f80f4a834cb9658b94e97d24a0
   FirebaseInstallations: bd8e80f51d4c8bdc6c872011dede0b800c5b49ea
   FirebaseMessaging: 313d69fe6529c8846813d1660b65d7d38bc16954
+  FirebaseMessagingInterop: d4e6a61aae51b00e5964bd1361cc1848c7bdad05
   FirebaseSharedSwift: 983820e9aa55d2acd6af77f9a1f252ba0afb3150
   FirebaseStorage: 27f85a11050be78601509cb450a12823dc9f5764
   GoogleDataTransport: a24e58982ab3ba2f64d79613e027fe7f57e88539
@@ -1442,6 +1456,6 @@ SPEC CHECKSUMS:
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
 
-PODFILE CHECKSUM: f78519a7e942b9a7228ab61bd9dde7304a95ec8a
+PODFILE CHECKSUM: 7f8e1d743e6e76a6dbeb6042143eb3c6c0f59e01
 
 COCOAPODS: 1.17.0

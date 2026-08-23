@@ -1,12 +1,6 @@
 import Foundation
 import SwiftUI
 
-extension Color {
-    static let whappyBlue = Color(red: 0.110, green: 0.110, blue: 0.345)
-    static let whappyInk = Color.black
-    static let whappyBackground = Color.white
-}
-
 let whappyFounderPhone = "+242065465808"
 let whappyFounderName = "Happy"
 let whappyFounderBusinessName = "Whappy by BCA"

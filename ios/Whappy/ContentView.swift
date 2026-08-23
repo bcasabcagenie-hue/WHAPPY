@@ -929,7 +929,7 @@ private struct CartView: View {
     }
 }
 
-struct LiveView: View {
+private struct LegacyLiveView: View {
     @EnvironmentObject private var store: WhappyStore
     @State private var showingStudio = false
     var body: some View {
