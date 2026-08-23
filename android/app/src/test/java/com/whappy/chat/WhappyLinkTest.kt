@@ -19,6 +19,8 @@ class WhappyLinkTest {
 
     @Test fun parsesChannelAndRejectsUnknownLinks() {
         assertEquals(WhappyLink.Channel("abc_123"), WhappyLink.parse("whappy://channel/abc_123"))
+        assertEquals(WhappyLink.Live("live_abc-123"), WhappyLink.parse("whappy://live/live_abc-123"))
+        assertEquals(WhappyLink.GroupCall("call_abc-123"), WhappyLink.parse("whappy://group-call/call_abc-123"))
         assertNull(WhappyLink.parse("https://example.com/anything"))
     }
 }

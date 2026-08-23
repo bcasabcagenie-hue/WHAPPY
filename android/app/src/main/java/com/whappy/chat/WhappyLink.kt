@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets
 sealed interface WhappyLink {
     data class Contact(val phone: String) : WhappyLink
     data class Channel(val id: String) : WhappyLink
+    data class Live(val id: String) : WhappyLink
+    data class GroupCall(val id: String) : WhappyLink
     data class Search(val query: String) : WhappyLink
 
     companion object {
@@ -43,6 +45,8 @@ sealed interface WhappyLink {
                 when (action) {
                     "contact" -> payload?.let(::decode)?.let(PhoneNumberFormatter::normalizeAny)?.let(::Contact)
                     "channel", "chaine" -> payload?.let(::decode)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{2,160}")) }?.let(::Channel)
+                    "live", "direct" -> payload?.let(::decode)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{2,160}")) }?.let(::Live)
+                    "group-call", "appel-groupe" -> payload?.let(::decode)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{2,160}")) }?.let(::GroupCall)
                     "search", "recherche" -> run {
                         val query = queryParameter(uri.rawQuery, "q")
                             ?: queryParameter(uri.rawQuery, "query")

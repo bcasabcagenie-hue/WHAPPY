@@ -86,8 +86,8 @@ class WhappyViewModel(
                 _uiState.update { it.copy(messages = messages, loading = false, online = true) }
                 if (conversation.source != "groups") {
                     refreshPendingMessages(conversation.id, user.uid)
-                    viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid) } }
                 }
+                viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid, conversation.source) } }
             },
             onError = {
                 _uiState.update {
@@ -192,11 +192,78 @@ class WhappyViewModel(
         }
     }
 
+    fun setGroupAdministrator(groupId: String, memberId: String, administrator: Boolean) {
+        val user = _uiState.value.user ?: return
+        val group = _uiState.value.selectedConversation?.takeIf { it.id == groupId && it.isGroup } ?: return
+        if (group.groupOwnerId != user.uid || memberId == user.uid || memberId !in group.groupMembers.map { it.uid }) return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.setGroupAdministrator(groupId, memberId, administrator) }
+                .onSuccess {
+                    val nextAdmins = if (administrator) (group.groupAdminIds + memberId).distinct() else group.groupAdminIds - memberId
+                    _uiState.update { current ->
+                        val updated = group.copy(groupAdminIds = nextAdmins)
+                        current.copy(
+                            actionBusy = false,
+                            selectedConversation = updated,
+                            conversations = current.conversations.map { if (it.id == groupId) updated else it },
+                            online = true,
+                        )
+                    }
+                }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "Le rôle d’administrateur n’a pas pu être modifié") } }
+        }
+    }
+
+    fun markStoryViewed(storyId: String) {
+        val userId = _uiState.value.user?.uid ?: return
+        val story = _uiState.value.statuses.firstOrNull { it.id == storyId } ?: return
+        if (story.authorId == userId || story.id.startsWith("pending-story-")) return
+        viewModelScope.launch {
+            runCatching { repository.markStoryViewed(storyId) }
+                .onSuccess { count ->
+                    _uiState.update { current ->
+                        current.copy(statuses = current.statuses.map { if (it.id == storyId) it.copy(viewCount = count) else it })
+                    }
+                }
+        }
+    }
+
+    fun loadStoryViewers(storyId: String) {
+        val userId = _uiState.value.user?.uid ?: return
+        val story = _uiState.value.statuses.firstOrNull { it.id == storyId } ?: return
+        if (story.authorId != userId || story.id.startsWith("pending-story-") || storyId in _uiState.value.storyViewersLoading) return
+        _uiState.update { it.copy(storyViewersLoading = it.storyViewersLoading + storyId) }
+        viewModelScope.launch {
+            runCatching { repository.listStoryViewers(storyId) }
+                .onSuccess { viewers ->
+                    _uiState.update { current ->
+                        current.copy(
+                            storyViewers = current.storyViewers + (storyId to viewers),
+                            storyViewersLoading = current.storyViewersLoading - storyId,
+                            statuses = current.statuses.map { if (it.id == storyId) it.copy(viewCount = viewers.size) else it },
+                        )
+                    }
+                }
+                .onFailure { _uiState.update { it.copy(storyViewersLoading = it.storyViewersLoading - storyId, error = "Les vues de cette Story sont momentanément indisponibles") } }
+        }
+    }
+
     fun setChannelSubscription(channelId: String, subscribed: Boolean) {
         val user = _uiState.value.user ?: return
         viewModelScope.launch {
             runCatching { repository.setChannelSubscription(channelId, user.uid, subscribed) }
                 .onFailure { _uiState.update { it.copy(error = "L’abonnement n’a pas pu être mis à jour") } }
+        }
+    }
+
+    fun setLiveSubscription(targetUserId: String, subscribed: Boolean) {
+        val current = _uiState.value.user ?: return
+        if (targetUserId.isBlank() || targetUserId == current.uid) return
+        viewModelScope.launch {
+            runCatching { repository.setLiveSubscription(targetUserId, subscribed) }
+                .onFailure { _uiState.update { it.copy(error = "L’alerte Live n’a pas pu être mise à jour") } }
         }
     }
 
@@ -237,7 +304,7 @@ class WhappyViewModel(
         if (text.isBlank()) return
         _uiState.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText, conversation.source, accountName()) }
+            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText, conversation.source, accountName(), state.accountPhotoUrl) }
                 .onSuccess { delivery ->
                     _uiState.update { current ->
                         current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT)
@@ -336,6 +403,7 @@ class WhappyViewModel(
                     durationSeconds = durationSeconds,
                     source = conversation.source,
                     senderName = accountName(),
+                    senderPhotoUrl = state.accountPhotoUrl,
                 )
             }.onSuccess { delivery ->
                 _uiState.update { current -> current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT) }
@@ -452,12 +520,39 @@ class WhappyViewModel(
                 val channel = _uiState.value.channels.firstOrNull { it.id == link.id }
                 if (channel != null) openChannel(channel) else pendingChannelId = link.id
             }
+            is WhappyLink.Live -> {
+                selectTab(WhappyTab.LIVE)
+                _uiState.update { it.copy(requestedLiveId = link.id) }
+            }
+            is WhappyLink.GroupCall -> {
+                viewModelScope.launch {
+                    runCatching { repository.getGroupCallSession(link.id) }
+                        .onSuccess { invitation ->
+                            val group = _uiState.value.conversations.firstOrNull { it.id == invitation.groupId && it.source == "groups" }
+                            if (group == null) {
+                                _uiState.update { it.copy(error = "Ce groupe n’est pas encore synchronisé sur cet appareil") }
+                            } else {
+                                openConversation(group)
+                                _uiState.update { it.copy(requestedGroupCall = invitation) }
+                            }
+                        }
+                        .onFailure { _uiState.update { it.copy(error = "Cet appel de groupe est terminé ou inaccessible") } }
+                }
+            }
             is WhappyLink.Search -> {
                 selectTab(WhappyTab.MESSAGES)
                 _uiState.update { it.copy(discoveryQuery = link.query) }
             }
             null -> _uiState.update { it.copy(error = "Ce lien WAPI n’est pas valide ou a expiré") }
         }
+    }
+
+    fun consumeLiveLink() {
+        _uiState.update { it.copy(requestedLiveId = "") }
+    }
+
+    fun consumeGroupCallLink() {
+        _uiState.update { it.copy(requestedGroupCall = null) }
     }
 
     fun addSearchedContact() {
@@ -685,6 +780,22 @@ class WhappyViewModel(
 
     fun publishRadioEpisode(stationName: String, title: String, uri: Uri, durationSeconds: Long) = runBusinessAction("Le podcast n’a pas été publié") { user ->
         repository.publishRadioEpisode(user.uid, accountName(), stationName, title, uri, durationSeconds)
+    }
+
+    fun createRadioLive(stationName: String, title: String) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        val cleanStation = stationName.trim().take(60).ifBlank { "Radio de ${accountName()}" }
+        val cleanTitle = title.trim().take(120).ifBlank { "En direct sur $cleanStation" }
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.createLive(user.uid, accountName(), cleanTitle, "Radio", "", true, "creator", "public", audioOnly = true) }
+                .onSuccess {
+                    refreshVisibleLives()
+                    _uiState.update { it.copy(actionBusy = false, tab = WhappyTab.LIVE, online = true) }
+                }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La radio en direct n’a pas démarré : le serveur WebRTC WAPI doit être disponible") } }
+        }
     }
 
     fun updateProfilePhoto(uri: Uri, contentType: String) {

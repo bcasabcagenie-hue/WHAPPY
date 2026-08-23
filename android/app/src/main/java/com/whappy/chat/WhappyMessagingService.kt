@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -44,7 +45,22 @@ class WhappyMessagingService : FirebaseMessagingService() {
                 context = this,
                 callId = data["callId"].orEmpty(),
                 callerName = data["callerName"] ?: title,
+                callerPhotoUrl = data["callerPhotoUrl"].orEmpty(),
                 video = data["video"].toBoolean(),
+            )
+            "group_call" -> WhappyNotifications.showGroupCall(
+                context = this,
+                callId = data["callId"].orEmpty(),
+                groupName = title,
+                callerName = data["callerName"] ?: "Membre WAPI",
+                video = data["video"].toBoolean(),
+                deepLink = data["deepLink"] ?: "whappy://group-call/${data["callId"].orEmpty()}",
+            )
+            "live" -> WhappyNotifications.showLiveStarted(
+                context = this,
+                title = title,
+                body = body,
+                deepLink = data["deepLink"] ?: "whappy://live/${data["liveId"].orEmpty()}",
             )
             "message", "chat" -> WhappyNotifications.showMessage(
                 context = this,
@@ -64,7 +80,7 @@ object WhappyNotifications {
     const val ACTION_ACCEPT_CALL = "com.whappy.chat.ACCEPT_CALL"
     const val ACTION_DECLINE_CALL = "com.whappy.chat.DECLINE_CALL"
 
-    private const val BRAND_COLOR = 0xFF0094F0.toInt()
+    private const val BRAND_COLOR = 0xFF0A92F7.toInt()
     // Android keeps a channel's sound policy after its first creation.  A new
     // id deliberately upgrades devices that installed an older silent build.
     private const val CHANNEL_MESSAGES = "wapi_messages_v5"
@@ -169,7 +185,7 @@ object WhappyNotifications {
     }
 
     @SuppressLint("MissingPermission")
-    fun showIncomingCall(context: Context, callId: String, callerName: String, video: Boolean): Boolean {
+    fun showIncomingCall(context: Context, callId: String, callerName: String, callerPhotoUrl: String = "", video: Boolean): Boolean {
         if (!preferences(context).getBoolean("notify_calls", true) || !canNotify(context)) return false
         ensureChannel(context)
         val safeCallId = callId.ifBlank { "incoming-${System.currentTimeMillis()}" }
@@ -187,6 +203,9 @@ object WhappyNotifications {
             .setAction(ACTION_DECLINE_CALL)
             .putExtra(EXTRA_CALL_ID, safeCallId)
         val decline = PendingIntent.getBroadcast(context, requestCode + 1, declineIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // The complete photo is displayed in the native incoming-call screen.
+        // Android's status notification remains monochrome/reliable and never
+        // downloads a remote image while the app is sleeping.
         val caller = Person.Builder().setName(callerName.ifBlank { "Contact WAPI" }).setImportant(true).build()
         val notification = NotificationCompat.Builder(context, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_stat_wapi)
@@ -204,6 +223,60 @@ object WhappyNotifications {
             .build()
         NotificationManagerCompat.from(context).notify(callNotificationId(safeCallId), notification)
         return true
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showGroupCall(context: Context, callId: String, groupName: String, callerName: String, video: Boolean, deepLink: String): Boolean {
+        if (!preferences(context).getBoolean("notify_calls", true) || !canNotify(context)) return false
+        ensureChannel(context)
+        val safeCallId = callId.ifBlank { "group-${System.currentTimeMillis()}" }
+        val requestCode = callNotificationId(safeCallId)
+        val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(deepLink), context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val open = PendingIntent.getActivity(context, requestCode, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, CHANNEL_CALLS)
+            .setSmallIcon(R.drawable.ic_stat_wapi)
+            .setColor(BRAND_COLOR)
+            .setContentTitle(groupName.ifBlank { "Appel de groupe WAPI" })
+            .setContentText("$callerName a lancé un appel ${if (video) "vidéo" else "audio"}")
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(open)
+            .setFullScreenIntent(open, true)
+            .addAction(R.drawable.ic_stat_wapi, "Rejoindre", open)
+            .setAutoCancel(true)
+            .setTimeoutAfter(180_000L)
+            .build()
+        NotificationManagerCompat.from(context).notify(requestCode, notification)
+        return true
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showLiveStarted(context: Context, title: String, body: String, deepLink: String) {
+        if (!preferences(context).getBoolean("notify_messages", true) || !canNotify(context)) return
+        ensureChannel(context)
+        val requestCode = notificationId(deepLink)
+        val open = PendingIntent.getActivity(
+            context,
+            requestCode,
+            Intent(Intent.ACTION_VIEW, Uri.parse(deepLink), context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ACTIVITY)
+            .setSmallIcon(R.drawable.ic_stat_wapi)
+            .setColor(BRAND_COLOR)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .addAction(R.drawable.ic_stat_wapi, "Rejoindre", open)
+            .build()
+        NotificationManagerCompat.from(context).notify(requestCode, notification)
     }
 
     @SuppressLint("MissingPermission")

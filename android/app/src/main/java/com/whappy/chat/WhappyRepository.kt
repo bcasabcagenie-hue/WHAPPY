@@ -52,6 +52,8 @@ class WhappyRepository(
                     mediaName = pending.mediaName,
                     durationSeconds = pending.durationSeconds,
                     deliveryState = if (pending.attempts > 1) "retrying" else "queued",
+                    senderName = pending.senderName,
+                    senderPhotoUrl = pending.senderPhotoUrl,
                 )
             }
             .toList()
@@ -284,6 +286,7 @@ class WhappyRepository(
                     edited = document.getBoolean("edited") == true,
                     deliveryState = "sent",
                     senderName = document.getString("senderName").orEmpty(),
+                    senderPhotoUrl = document.getString("senderPhotoUrl").orEmpty(),
                 )
             }
             messageCache.write(conversationId, source, messages)
@@ -454,6 +457,9 @@ class WhappyRepository(
                 visibility = value["visibility"]?.toString() ?: "public",
                 streamProvider = value["streamProvider"]?.toString() ?: "unconfigured",
                 streamRoomId = value["streamRoomId"]?.toString().orEmpty(),
+                audioOnly = value["audioOnly"] == true,
+                allowGiftWearables = value["allowGiftWearables"] == true,
+                giftCount = (value["giftCount"] as? Number)?.toInt() ?: 0,
             )
         }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt })
     }
@@ -487,6 +493,8 @@ class WhappyRepository(
                     mediaUrl = mediaUrl,
                     mediaKind = document.getString("mediaType").orEmpty(),
                     mediaName = when (document.getString("mediaType")) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; else -> "Image WAPI" },
+                    expiresAt = document.timestampMillis("expiresAt"),
+                    viewCount = (document.getLong("viewCount") ?: 0L).toInt(),
                 )
             }.sortedByDescending { it.createdAt })
         }
@@ -728,7 +736,7 @@ class WhappyRepository(
             })
         }
 
-    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "", source: String = "conversations", senderName: String = "Membre WAPI"): WhappyDeliveryResult {
+    suspend fun sendMessage(conversationId: String, userId: String, text: String, replyToId: String = "", replyText: String = "", source: String = "conversations", senderName: String = "Membre WAPI", senderPhotoUrl: String = ""): WhappyDeliveryResult {
         val value = text.trim()
         require(value.isNotEmpty() && value.length <= 4_000)
         require(auth.currentUser?.uid == userId)
@@ -740,6 +748,7 @@ class WhappyRepository(
                         put("text", value)
                         put("senderId", userId)
                         put("senderName", senderName.trim().take(80).ifBlank { "Membre WAPI" })
+                        if (senderPhotoUrl.startsWith("https://")) put("senderPhotoUrl", senderPhotoUrl.take(2_000))
                         put("createdAt", FieldValue.serverTimestamp())
                         if (replyToId.isNotBlank()) {
                             put("replyToId", replyToId)
@@ -748,7 +757,7 @@ class WhappyRepository(
                         }
                     }
                 ).await()
-                group.update(mapOf("lastMessage" to value, "updatedAt" to FieldValue.serverTimestamp())).await()
+                group.update(mapOf("lastMessage" to value, "lastSenderId" to userId, "updatedAt" to FieldValue.serverTimestamp())).await()
             }
             return WhappyDeliveryResult.SENT
         }
@@ -809,6 +818,7 @@ class WhappyRepository(
                 put("text", message.text)
                 put("senderId", message.senderId)
                 if (message.source == "groups") put("senderName", message.senderName)
+                if (message.source == "groups" && message.senderPhotoUrl.startsWith("https://")) put("senderPhotoUrl", message.senderPhotoUrl.take(2_000))
                 put("createdAt", Timestamp(Date(message.createdAt)))
                 put("clientMessageId", message.id)
                 if (message.kind != "text") {
@@ -825,9 +835,9 @@ class WhappyRepository(
         ).await()
         conversation.update(buildMap<String, Any> {
             put("lastMessage", message.text)
+            put("lastSenderId", message.senderId)
             put("updatedAt", FieldValue.serverTimestamp())
             if (message.source != "groups") {
-                put("lastSenderId", message.senderId)
                 put("typingBy.${message.senderId}", false)
             }
         }).await()
@@ -919,6 +929,9 @@ class WhappyRepository(
                     "ownerId" to current.uid,
                     "memberIds" to listOf(current.uid),
                     "memberNames" to selectedMembers.map { it.displayName.take(80) }.distinct(),
+                    "members" to listOf(mapOf("uid" to current.uid, "displayName" to current.displayName.take(80), "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl)),
+                    "adminIds" to listOf(current.uid),
+                    "readBy" to emptyMap<String, Any>(),
                     "kind" to "community",
                     "inviteToken" to UUID.randomUUID().toString().replace("-", ""),
                     "lastMessage" to "Groupe créé",
@@ -942,6 +955,7 @@ class WhappyRepository(
                 buildMap<String, Any> {
                     put("memberIds", members.map { it.uid })
                     put("memberNames", members.map { it.displayName.take(80) })
+                    put("members", members.map { mapOf("uid" to it.uid, "displayName" to it.displayName.take(80), "phoneNumber" to it.phoneNumber.take(40), "photoUrl" to it.photoUrl.take(2_000)) })
                     put("updatedAt", FieldValue.serverTimestamp())
                     if (groupPhotoUrl.isNotBlank()) put("photoUrl", groupPhotoUrl)
                 },
@@ -960,6 +974,8 @@ class WhappyRepository(
             memberCount = members.size,
             source = "groups",
             groupOwnerId = current.uid,
+            groupAdminIds = listOf(current.uid),
+            groupMembers = members,
         )
     }
 
@@ -976,7 +992,8 @@ class WhappyRepository(
         val snapshot = group.get().await()
         val ownerId = snapshot.getString("ownerId").orEmpty()
         val memberIds = (snapshot.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
-        require(ownerId == userId && userId in memberIds)
+        val adminIds = (snapshot.get("adminIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+        require(userId in memberIds && (userId == ownerId || userId in adminIds))
         val cleanName = name.trim()
         require(cleanName.length in 2..80)
         val oldName = snapshot.getString("name").orEmpty()
@@ -1007,7 +1024,34 @@ class WhappyRepository(
         batch.update(group, mapOf("name" to cleanName, "photoUrl" to photoUrl, "lastMessage" to eventText, "updatedAt" to FieldValue.serverTimestamp()))
         batch.set(message, mapOf("text" to eventText, "senderId" to userId, "senderName" to actorName.trim().take(80).ifBlank { "Administrateur" }, "kind" to "system", "createdAt" to FieldValue.serverTimestamp(), "deleted" to false))
         batch.commit().await()
-        return WhappyConversation(groupId, WhappyMember(groupId, cleanName, photoUrl = photoUrl), eventText, System.currentTimeMillis(), false, isGroup = true, memberCount = memberIds.size, source = "groups", groupOwnerId = ownerId)
+        val memberNames = (snapshot.get("memberNames") as? List<*>)?.map { it?.toString().orEmpty() }.orEmpty()
+        val members = memberIds.mapIndexed { index, id -> WhappyMember(id, memberNames.getOrNull(index)?.ifBlank { "Membre WAPI" } ?: "Membre WAPI") }
+        return WhappyConversation(groupId, WhappyMember(groupId, cleanName, photoUrl = photoUrl), eventText, System.currentTimeMillis(), false, isGroup = true, memberCount = memberIds.size, source = "groups", groupOwnerId = ownerId, groupAdminIds = (adminIds + ownerId).distinct(), groupMembers = members)
+    }
+
+    suspend fun setGroupAdministrator(groupId: String, memberId: String, administrator: Boolean) {
+        require(groupId.isNotBlank() && memberId.isNotBlank())
+        functions.getHttpsCallable("manageGroupAdministration").call(
+            mapOf(
+                "groupId" to groupId,
+                "memberId" to memberId,
+                "administrator" to administrator,
+            ),
+        ).await()
+    }
+
+    suspend fun getGroupCallSession(callId: String): WapiGroupCallInvitation {
+        val result = functions.getHttpsCallable("getGroupCallSession")
+            .call(mapOf("callId" to callId))
+            .await()
+            .data as? Map<*, *> ?: error("invalid-group-call")
+        return WapiGroupCallInvitation(
+            callId = result["callId"]?.toString().orEmpty(),
+            groupId = result["groupId"]?.toString().orEmpty(),
+            groupName = result["groupName"]?.toString()?.takeIf(String::isNotBlank) ?: "Groupe WAPI",
+            video = result["video"] == true,
+            participantCount = (result["participantCount"] as? Number)?.toInt() ?: 0,
+        ).also { require(it.callId.isNotBlank() && it.groupId.isNotBlank()) }
     }
 
     suspend fun setChannelSubscription(channelId: String, userId: String, subscribed: Boolean) {
@@ -1021,6 +1065,13 @@ class WhappyRepository(
             if (next != members) transaction.update(reference, mapOf("memberIds" to next, "memberCount" to next.size, "updatedAt" to FieldValue.serverTimestamp()))
             null
         }.await()
+    }
+
+    suspend fun setLiveSubscription(targetUserId: String, subscribed: Boolean) {
+        require(targetUserId.isNotBlank())
+        functions.getHttpsCallable("setLiveSubscription")
+            .call(mapOf("targetUserId" to targetUserId, "subscribed" to subscribed))
+            .await()
     }
 
     suspend fun publishChannelPost(channelId: String, userId: String, authorName: String, text: String) {
@@ -1057,6 +1108,7 @@ class WhappyRepository(
         durationSeconds: Int = 0,
         source: String = "conversations",
         senderName: String = "Membre WAPI",
+        senderPhotoUrl: String = "",
     ): WhappyDeliveryResult {
         require(kind in setOf("image", "audio", "video"))
         require(if (kind == "image") contentType.startsWith("image/") else if (kind == "video") contentType.startsWith("video/") else contentType.startsWith("audio/"))
@@ -1092,6 +1144,7 @@ class WhappyRepository(
             durationSeconds = durationSeconds.coerceIn(0, 600),
             source = source,
             senderName = senderName.trim().take(80).ifBlank { "Membre WAPI" },
+            senderPhotoUrl = senderPhotoUrl.takeIf { it.startsWith("https://") }?.take(2_000).orEmpty(),
         )
         messageOutbox.enqueue(pending)
         return runCatching {
@@ -1204,7 +1257,7 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) {
+    suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String, audioOnly: Boolean = false) {
         require(auth.currentUser?.uid == userId)
         require(title.trim().length in 3..120)
         require(hostMode in setOf("personal", "creator", "business"))
@@ -1217,6 +1270,7 @@ class WhappyRepository(
                 "category" to category.trim().ifBlank { "Discussion" }.take(60),
                 "hostMode" to hostMode,
                 "visibility" to visibility,
+                "audioOnly" to audioOnly,
             ),
         ).await()
     }
@@ -1301,17 +1355,48 @@ class WhappyRepository(
             mediaUrl = mediaUrl,
             mediaKind = mediaKind,
             mediaName = when (mediaKind) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; "image" -> "Image WAPI"; else -> "" },
+            expiresAt = createdAt + 24L * 60L * 60L * 1000L,
         )
+    }
+
+    suspend fun markStoryViewed(storyId: String): Int {
+        require(storyId.isNotBlank())
+        val result = functions.getHttpsCallable("recordStoryView")
+            .call(mapOf("storyId" to storyId))
+            .await()
+            .data as? Map<*, *>
+        return (result?.get("viewCount") as? Number)?.toInt() ?: 0
+    }
+
+    suspend fun listStoryViewers(storyId: String): List<WapiStoryViewer> {
+        require(storyId.isNotBlank())
+        val result = functions.getHttpsCallable("listStoryViewers")
+            .call(mapOf("storyId" to storyId))
+            .await()
+            .data as? Map<*, *>
+        val viewers = result?.get("viewers") as? List<*> ?: return emptyList()
+        return viewers.mapNotNull { raw ->
+            val value = raw as? Map<*, *> ?: return@mapNotNull null
+            val userId = value["userId"]?.toString().orEmpty()
+            if (userId.isBlank()) return@mapNotNull null
+            WapiStoryViewer(
+                userId = userId,
+                displayName = value["displayName"]?.toString()?.takeIf(String::isNotBlank) ?: "Contact WAPI",
+                photoUrl = value["photoUrl"]?.toString().orEmpty(),
+                viewedAt = (value["viewedAtMillis"] as? Number)?.toLong() ?: 0L,
+            )
+        }
     }
 
     suspend fun deleteStatus(userId: String, statusId: String) {
         val reference = db.collection("stories").document(statusId)
         val document = reference.get().await()
         require(document.getString("authorId") == userId)
-        document.getString("storagePath").orEmpty().takeIf { it.isNotBlank() }?.let { path ->
+        val storagePath = document.getString("storagePath").orEmpty()
+        functions.getHttpsCallable("deleteStory").call(mapOf("storyId" to statusId)).await()
+        storagePath.takeIf { it.isNotBlank() }?.let { path ->
             runCatching { storage.reference.child(path).delete().await() }
         }
-        reference.delete().await()
     }
 
     suspend fun endLive(userId: String, liveId: String) {
@@ -1467,8 +1552,8 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun markRead(conversationId: String, userId: String) {
-        db.collection("conversations").document(conversationId)
+    suspend fun markRead(conversationId: String, userId: String, source: String = "conversations") {
+        db.collection(if (source == "groups") "groups" else "conversations").document(conversationId)
             .update("readBy.$userId", FieldValue.serverTimestamp())
             .await()
     }
@@ -1652,16 +1737,40 @@ class WhappyRepository(
         val name = getString("name")?.trim().orEmpty()
         if (name.isBlank()) return null
         val updatedAt = timestampMillis("updatedAt").takeIf { it > 0L } ?: timestampMillis("createdAt")
+        val names = (get("memberNames") as? List<*>)?.map { it?.toString().orEmpty() }.orEmpty()
+        val rawMembers = get("members") as? List<*>
+        val membersById = rawMembers.orEmpty().mapNotNull { raw ->
+            val value = raw as? Map<*, *> ?: return@mapNotNull null
+            val id = value["uid"]?.toString().orEmpty()
+            if (id.isBlank()) null else id to WhappyMember(
+                uid = id,
+                displayName = value["displayName"]?.toString()?.takeIf(String::isNotBlank) ?: "Membre WAPI",
+                phoneNumber = value["phoneNumber"]?.toString().orEmpty(),
+                photoUrl = value["photoUrl"]?.toString().orEmpty(),
+            )
+        }.toMap()
+        val members = ids.mapIndexed { index, id -> membersById[id] ?: WhappyMember(id, names.getOrNull(index)?.ifBlank { "Membre WAPI" } ?: "Membre WAPI") }
+        val readBy = (get("readBy") as? Map<*, *>)?.mapNotNull { (id, value) ->
+            val memberId = id?.toString().orEmpty()
+            val readAt = (value as? Timestamp)?.toDate()?.time ?: return@mapNotNull null
+            memberId to readAt
+        }?.toMap().orEmpty()
+        val ownReadAt = readBy[userId] ?: 0L
+        val ownerId = getString("ownerId").orEmpty()
+        val adminIds = ((get("adminIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty() + ownerId).filter(String::isNotBlank).distinct()
         return WhappyConversation(
             id = id,
             peer = WhappyMember(id, name, photoUrl = getString("photoUrl").orEmpty()),
             lastMessage = getString("lastMessage") ?: "Groupe créé",
             updatedAt = updatedAt,
-            unread = false,
+            unread = updatedAt > ownReadAt && getString("lastSenderId") != userId,
             isGroup = true,
             memberCount = ids.size,
             source = "groups",
-            groupOwnerId = getString("ownerId").orEmpty(),
+            groupOwnerId = ownerId,
+            groupAdminIds = adminIds,
+            groupMembers = members,
+            groupReadAt = readBy,
         )
     }
 

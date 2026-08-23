@@ -356,11 +356,15 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.memberIds == [request.auth.uid]
+        && request.resource.data.adminIds == [request.auth.uid]
+        && request.resource.data.readBy is map
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 2
         && request.resource.data.name.size() <= 80
         && request.resource.data.memberNames is list
         && request.resource.data.memberNames.size() <= 999
+        && request.resource.data.members is list
+        && request.resource.data.members.size() == 1
         && (!request.resource.data.keys().hasAny(["inviteToken"])
           || (request.resource.data.inviteToken is string
             && request.resource.data.inviteToken.size() == 32));
@@ -369,9 +373,17 @@ service cloud.firestore {
           (request.auth.uid in resource.data.memberIds
             && request.resource.data.ownerId == resource.data.ownerId
             && request.resource.data.memberIds == resource.data.memberIds
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastMessage", "updatedAt"]))
-          || (request.auth.uid == resource.data.ownerId
+            && request.resource.data.get("adminIds", [resource.data.ownerId]) == resource.data.get("adminIds", [resource.data.ownerId])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastMessage", "lastSenderId", "readBy", "updatedAt"])
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["lastSenderId"])
+              || request.resource.data.lastSenderId == request.auth.uid)
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["readBy"])
+              || (request.resource.data.readBy is map
+                && request.resource.data.readBy.diff(resource.data.get("readBy", {})).affectedKeys().hasOnly([request.auth.uid]))))
+          || ((request.auth.uid == resource.data.ownerId
+              || request.auth.uid in resource.data.get("adminIds", [resource.data.ownerId]))
             && request.resource.data.ownerId == resource.data.ownerId
+            && request.resource.data.get("adminIds", [resource.data.ownerId]) == resource.data.get("adminIds", [resource.data.ownerId])
             && request.resource.data.memberIds.size() <= 999
             && request.resource.data.memberIds.hasAll(resource.data.memberIds)
             && request.resource.data.memberNames.size() <= 999
@@ -379,10 +391,15 @@ service cloud.firestore {
               || (request.resource.data.inviteToken is string && request.resource.data.inviteToken.size() == 32))
             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["photoUrl"])
               || request.resource.data.photoUrl is string)
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["memberIds", "memberNames", "members", "inviteToken"])
+              || request.auth.uid == resource.data.ownerId)
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["members"])
+              || (request.resource.data.members is list
+                && request.resource.data.members.size() == request.resource.data.memberIds.size()))
             && request.resource.data.name is string
             && request.resource.data.name.size() >= 2
             && request.resource.data.name.size() <= 80
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "memberIds", "memberNames", "lastMessage", "inviteToken", "photoUrl", "updatedAt"])));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "memberIds", "memberNames", "members", "lastMessage", "lastSenderId", "inviteToken", "photoUrl", "readBy", "updatedAt"])));
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /messages/{messageId} {
@@ -525,6 +542,12 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(["authorId", "authorName", "mediaUrl", "mediaType", "caption", "storagePath", "audienceIds", "createdAt", "expiresAt"]);
       allow update: if false;
       allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+
+      // Story views are written and listed only through callable Functions so
+      // a viewer cannot forge identities, timestamps or counters.
+      match /views/{viewerId} {
+        allow read, write: if false;
+      }
     }
 
     match /gameRooms/{roomId} {
@@ -577,11 +600,13 @@ service cloud.firestore {
         && request.resource.data.calleeId is string
         && request.resource.data.calleeId != request.auth.uid
         && request.resource.data.callerName is string
+        && request.resource.data.callerPhotoUrl is string
+        && request.resource.data.callerPhotoUrl.size() <= 2000
         && request.resource.data.calleeName is string
         && request.resource.data.video is bool
         && request.resource.data.offer is map
         && request.resource.data.status == "ringing"
-        && request.resource.data.keys().hasOnly(["callerId", "calleeId", "callerName", "calleeName", "video", "status", "offer", "createdAt", "updatedAt"]);
+        && request.resource.data.keys().hasOnly(["callerId", "calleeId", "callerName", "callerPhotoUrl", "calleeName", "video", "status", "offer", "createdAt", "updatedAt"]);
       allow read: if signedIn()
         && (resource.data.callerId == request.auth.uid || resource.data.calleeId == request.auth.uid);
       allow update: if signedIn()
@@ -610,6 +635,19 @@ service cloud.firestore {
             || (candidateCollection == "calleeCandidates"
                 && get(/databases/$(database)/documents/calls/$(callId)).data.calleeId == request.auth.uid));
         allow update, delete: if false;
+      }
+    }
+
+    // Multi-party calls are provisioned by trusted Cloud Functions. Clients
+    // may observe only rooms belonging to one of their groups.
+    match /groupCallSessions/{callId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow create, update, delete: if false;
+
+      match /participants/{participantId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds;
+        allow write: if false;
       }
     }
 
@@ -745,6 +783,11 @@ service cloud.firestore {
         allow read: if signedIn()
           && (request.auth.uid == viewerId
             || get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
+      match /gifts/{giftId} {
+        allow read: if mayReadLive(liveId);
         allow create, update, delete: if false;
       }
     }

@@ -171,6 +171,7 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
   const devices = await pushDevices([calleeId]);
   if (!devices.length) return;
   const callerName = String(call.callerName || "Contact WAPI");
+  const callerPhotoUrl = String(call.callerPhotoUrl || "").trim().slice(0, 2_000);
   const video = call.video === true;
   await sendInBatches(devices, {
     data: {
@@ -178,6 +179,7 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
       title: callerName,
       body: video ? "Appel vidéo entrant" : "Appel audio entrant",
       callerName,
+      callerPhotoUrl,
       callId: event.params.callId,
       video: String(video),
     },
@@ -199,10 +201,16 @@ export const getWebRtcIceServers = onCall(async (request) => {
   };
 });
 
-type LiveRole = "host" | "viewer";
+type LiveRole = "host" | "viewer" | "speaker";
 type LiveReaction = "heart" | "applause" | "fire" | "wow";
 
 const liveReactions = new Set<LiveReaction>(["heart", "applause", "fire", "wow"]);
+const liveGiftCatalog = {
+  crown: { label: "Couronne", symbol: "👑", wearable: true },
+  glasses: { label: "Lunettes", symbol: "😎", wearable: true },
+  halo: { label: "Halo", symbol: "✨", wearable: true },
+  trophy: { label: "Trophée", symbol: "🏆", wearable: false },
+} as const;
 
 function requiredLiveText(value: unknown, label: string, min: number, max: number) {
   const text = String(value || "").trim();
@@ -245,25 +253,27 @@ async function liveAccessToken(options: {
   userId: string;
   displayName: string;
   role: LiveRole;
+  product?: "wapi-live" | "wapi-group-call";
 }) {
   const configuration = livekitConfig();
-  const isHost = options.role === "host";
+  const canPublish = options.role !== "viewer";
+  const product = options.product || "wapi-live";
   const token = new AccessToken(configuration.apiKey, configuration.apiSecret, {
     identity: options.userId,
     name: options.displayName,
-    metadata: JSON.stringify({ role: options.role, product: "wapi-live" }),
+    metadata: JSON.stringify({ role: options.role, product }),
     // Short tokens make revoked access effective quickly on a self-hosted SFU.
     ttl: "10m",
   });
   token.addGrant({
     roomJoin: true,
     room: options.roomName,
-    canPublish: isHost,
+    canPublish,
     // Reactions pass through a rate-limited callable instead of giving every
     // spectator an unrestricted data channel to the whole room.
-    canPublishData: isHost,
+    canPublishData: canPublish,
     canSubscribe: true,
-    canUpdateOwnMetadata: isHost,
+    canUpdateOwnMetadata: canPublish,
   });
   return {
     serverUrl: configuration.serverUrl,
@@ -314,6 +324,32 @@ async function liveAudienceIds(hostId: string) {
   });
   return [...audience].slice(0, 500);
 }
+
+/** A deliberate opt-in for alerts when a particular WAPI account starts a live. */
+export const setLiveSubscription = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const targetUserId = String(request.data?.targetUserId || "").trim();
+  const subscribed = request.data?.subscribed === true;
+  if (!targetUserId || targetUserId === request.auth.uid) {
+    throw new HttpsError("invalid-argument", "Choisissez un autre compte WAPI.");
+  }
+  const target = await db.collection("users").doc(targetUserId).get();
+  if (!target.exists) throw new HttpsError("not-found", "Ce compte WAPI est introuvable.");
+  const subscriber = await liveDisplayName(request.auth.uid);
+  const reference = db.doc(`users/${targetUserId}/liveFollowers/${request.auth.uid}`);
+  if (subscribed) {
+    await reference.set({
+      userId: request.auth.uid,
+      displayName: subscriber.displayName,
+      photoUrl: subscriber.photoUrl,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  } else {
+    await reference.delete();
+  }
+  return { subscribed };
+});
 
 async function liveDocument(liveId: string) {
   const snapshot = await db.collection("liveSessions").doc(liveId).get();
@@ -389,6 +425,7 @@ export const createLiveSession = onCall({ secrets: [livekitApiSecret] }, async (
   const category = requiredLiveText(request.data?.category || "Discussion", "La catégorie", 2, 60);
   const visibility = String(request.data?.visibility || "public");
   const hostMode = String(request.data?.hostMode || "personal");
+  const audioOnly = request.data?.audioOnly === true;
   if (!["public", "contacts", "private"].includes(visibility)) {
     throw new HttpsError("invalid-argument", "Visibilité du direct invalide.");
   }
@@ -440,10 +477,13 @@ export const createLiveSession = onCall({ secrets: [livekitApiSecret] }, async (
       reactionTotals: { heart: 0, applause: 0, fire: 0, wow: 0 },
       allowComments: true,
       allowReactions: true,
+      allowGiftWearables: false,
+      giftCount: 0,
       aiGenerated: false,
       moderationStatus: "clear",
       streamProvider: "livekit-self-hosted",
       streamRoomId: roomName,
+      audioOnly,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -489,6 +529,9 @@ export const listVisibleLiveSessions = onCall(async (request) => {
       viewerCount: Number(value.viewerCount || 0),
       reactionCount: Number(value.reactionCount || 0),
       aiGenerated: value.aiGenerated === true,
+      audioOnly: value.audioOnly === true,
+      allowGiftWearables: value.allowGiftWearables === true,
+      giftCount: Number(value.giftCount || 0),
       startedAtMillis: value.startedAt?.toMillis?.() || 0,
       createdAtMillis: value.createdAt?.toMillis?.() || 0,
     }];
@@ -608,6 +651,59 @@ export const sendLiveReaction = onCall({ secrets: [livekitApiSecret] }, async (r
   return { ok: true, total };
 });
 
+/** Sends a real persisted digital gift. Wearable effects require host opt-in. */
+export const sendLiveGift = onCall({ secrets: [livekitApiSecret] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const liveId = String(request.data?.liveId || "").trim();
+  const giftId = String(request.data?.giftId || "").trim() as keyof typeof liveGiftCatalog;
+  const gift = liveGiftCatalog[giftId];
+  if (!liveId || !gift) throw new HttpsError("invalid-argument", "Cadeau Live invalide.");
+  const access = await assertLiveAccess(liveId, request.auth.uid);
+  if (access.isHost) throw new HttpsError("invalid-argument", "L’animateur ne peut pas s’envoyer un cadeau.");
+  const viewer = access.reference.collection("viewers").doc(request.auth.uid);
+  const sender = await liveDisplayName(request.auth.uid);
+  const event = access.reference.collection("gifts").doc();
+  let total = 0;
+  let equipped = false;
+  await db.runTransaction(async (transaction) => {
+    const [liveSnapshot, viewerSnapshot] = await Promise.all([transaction.get(access.reference), transaction.get(viewer)]);
+    if (!viewerSnapshot.exists) throw new HttpsError("failed-precondition", "Rejoignez le direct avant d’envoyer un cadeau.");
+    const previous = viewerSnapshot.get("lastGiftAt") as { toMillis?: () => number } | undefined;
+    if (previous?.toMillis && Date.now() - previous.toMillis() < 3_000) throw new HttpsError("resource-exhausted", "Attendez quelques secondes avant un autre cadeau.");
+    equipped = gift.wearable && liveSnapshot.get("allowGiftWearables") === true;
+    total = Math.max(0, Number(liveSnapshot.get("giftCount") || 0)) + 1;
+    transaction.set(event, {
+      giftId,
+      label: gift.label,
+      symbol: gift.symbol,
+      wearable: gift.wearable,
+      equipped,
+      senderId: request.auth!.uid,
+      senderName: sender.displayName,
+      recipientId: String(liveSnapshot.get("hostId") || ""),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(viewer, { lastGiftAt: FieldValue.serverTimestamp() }, { merge: true });
+    transaction.update(access.reference, { giftCount: total, updatedAt: FieldValue.serverTimestamp() });
+  });
+  const payload = Buffer.from(JSON.stringify({ type: "gift", giftId, ...gift, equipped, senderName: sender.displayName, total }));
+  await livekitRoomService().sendData(String(access.value.streamRoomId || ""), payload, DataPacket_Kind.RELIABLE, { topic: "wapi.gift" });
+  return { ok: true, equipped, total };
+});
+
+export const setLiveGiftWearables = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const liveId = String(request.data?.liveId || "").trim();
+  const enabled = request.data?.enabled === true;
+  const live = db.collection("liveSessions").doc(liveId);
+  const snapshot = await live.get();
+  if (!snapshot.exists || snapshot.get("hostId") !== request.auth.uid || snapshot.get("status") === "ended") {
+    throw new HttpsError("permission-denied", "Seul l’animateur peut régler les cadeaux portables.");
+  }
+  await live.update({ allowGiftWearables: enabled, updatedAt: FieldValue.serverTimestamp() });
+  return { ok: true, enabled };
+});
+
 export const moderateLiveParticipant = onCall({ secrets: [livekitApiSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const liveId = String(request.data?.liveId || "").trim();
@@ -685,6 +781,7 @@ export const setLiveSessionState = onCall({ secrets: [livekitApiSecret] }, async
       );
     }
   }
+  let startedNow = false;
   await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(live);
     const value = snapshot.data();
@@ -693,6 +790,7 @@ export const setLiveSessionState = onCall({ secrets: [livekitApiSecret] }, async
     }
     if (action === "start") {
       if (value.status === "ended") throw new HttpsError("failed-precondition", "Ce direct est terminé.");
+      startedNow = value.status !== "live";
       transaction.update(live, {
         status: "live",
         startedAt: value.startedAt || FieldValue.serverTimestamp(),
@@ -720,7 +818,203 @@ export const setLiveSessionState = onCall({ secrets: [livekitApiSecret] }, async
         .catch((error) => logger.warn("Salle Live déjà fermée", { liveId, error }));
     }
   }
+  if (action === "start" && startedNow) {
+    const [started, followers] = await Promise.all([
+      live.get(),
+      db.collection("users").doc(hostId).collection("liveFollowers").limit(500).get(),
+    ]);
+    const followerIds = followers.docs.map((document) => document.id).filter((id) => id && id !== hostId);
+    const visibility = String(started.get("visibility") || "public");
+    const audienceIds = Array.isArray(started.get("audienceIds")) ? (started.get("audienceIds") as unknown[]).map(String) : [];
+    // A subscription does not bypass the host's audience choice: private
+    // rooms stay silent, and contacts-only rooms alert contacts only.
+    const recipients = visibility === "public"
+      ? followerIds
+      : visibility === "contacts"
+        ? followerIds.filter((id) => audienceIds.includes(id))
+        : [];
+    const devices = await pushDevices(recipients);
+    if (devices.length) {
+      const title = String(started.get("title") || "Direct WAPI").trim();
+      const audioOnly = started.get("audioOnly") === true;
+      await sendInBatches(devices, {
+        data: {
+          type: "live",
+          title: `${String(started.get("hostName") || "Un contact WAPI")} est en direct`,
+          body: audioOnly ? `Radio en direct · ${title}` : `Live en direct · ${title}`,
+          liveId,
+          deepLink: `whappy://live/${liveId}`,
+        },
+        android: { priority: "high", ttl: 3_600_000, collapseKey: `live-${liveId}` },
+      });
+    }
+  }
   return { ok: true, status: action === "start" ? "live" : "ended" };
+});
+
+async function groupCallDocument(callId: string, userId: string) {
+  const snapshot = await db.collection("groupCallSessions").doc(callId).get();
+  const value = snapshot.data();
+  if (!snapshot.exists || !value) throw new HttpsError("not-found", "Cet appel de groupe n’existe plus.");
+  const members = Array.isArray(value.memberIds) ? value.memberIds.map(String) : [];
+  if (!members.includes(userId)) throw new HttpsError("permission-denied", "Vous n’êtes pas membre de cet appel.");
+  const expiresAt = value.expiresAt;
+  if (value.status === "ended" || !expiresAt?.toMillis || expiresAt.toMillis() <= Date.now()) {
+    throw new HttpsError("failed-precondition", "Cet appel de groupe est terminé.");
+  }
+  return { reference: snapshot.ref, value, members };
+}
+
+async function setGroupCallParticipantPresence(callId: string, userId: string, active: boolean) {
+  const reference = db.collection("groupCallSessions").doc(callId);
+  const participant = reference.collection("participants").doc(userId);
+  await db.runTransaction(async (transaction) => {
+    const [callSnapshot, participantSnapshot] = await Promise.all([transaction.get(reference), transaction.get(participant)]);
+    if (!callSnapshot.exists || callSnapshot.get("status") === "ended") return;
+    const value = participantSnapshot.data();
+    const wasActive = value?.active === true;
+    if (wasActive === active) return;
+    const current = Math.max(0, Number(callSnapshot.get("participantCount") || 0));
+    transaction.set(participant, { userId, active, lastSeenAt: FieldValue.serverTimestamp() }, { merge: true });
+    transaction.update(reference, { participantCount: Math.max(0, current + (active ? 1 : -1)), updatedAt: FieldValue.serverTimestamp() });
+  });
+}
+
+/** Creates a real multi-party WebRTC room on WAPI's self-hosted SFU. */
+export const createGroupCallSession = onCall({ secrets: [livekitApiSecret] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const groupId = String(request.data?.groupId || "").trim();
+  const video = request.data?.video === true;
+  if (!groupId) throw new HttpsError("invalid-argument", "Groupe invalide.");
+  // Validate media configuration before persisting or notifying anyone.
+  livekitConfig();
+  const group = await db.collection("groups").doc(groupId).get();
+  const groupValue = group.data();
+  if (!group.exists || !groupValue) throw new HttpsError("not-found", "Ce groupe n’existe plus.");
+  const memberIds = Array.isArray(groupValue.memberIds) ? groupValue.memberIds.map(String) : [];
+  if (!memberIds.includes(request.auth.uid)) throw new HttpsError("permission-denied", "Vous n’êtes pas membre de ce groupe.");
+  if (memberIds.length < 2) throw new HttpsError("failed-precondition", "Ajoutez au moins un autre membre au groupe.");
+  const groupName = String(groupValue.name || "Groupe WAPI").trim().slice(0, 80);
+  const creator = await liveDisplayName(request.auth.uid);
+  const call = db.collection("groupCallSessions").doc();
+  const roomName = `wapi-call-${groupId.slice(0, 10)}-${call.id}`;
+  const roomService = livekitRoomService();
+  await roomService.createRoom({
+    name: roomName,
+    emptyTimeout: 180,
+    departureTimeout: 30,
+    maxParticipants: Math.min(32, Math.max(2, memberIds.length)),
+    metadata: JSON.stringify({ callId: call.id, groupId, product: "wapi-group-call" }),
+  });
+  const access = await liveAccessToken({
+    roomName,
+    userId: request.auth.uid,
+    displayName: creator.displayName,
+    role: "speaker",
+    product: "wapi-group-call",
+  });
+  const expiresAt = new Date(Date.now() + 6 * 60 * 60_000);
+  try {
+    await call.set({
+      groupId,
+      groupName,
+      groupPhotoUrl: String(groupValue.photoUrl || ""),
+      creatorId: request.auth.uid,
+      creatorName: creator.displayName,
+      adminIds: [...new Set([String(groupValue.ownerId || ""), ...((groupValue.adminIds as string[] | undefined) || [])])].filter(Boolean),
+      memberIds,
+      video,
+      status: "active",
+      participantCount: 0,
+      streamProvider: "livekit-self-hosted",
+      streamRoomId: roomName,
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    await roomService.deleteRoom(roomName).catch(() => undefined);
+    throw error;
+  }
+  const recipients = memberIds.filter((id: string) => id !== request.auth!.uid);
+  const devices = await pushDevices(recipients);
+  if (devices.length) {
+    await sendInBatches(devices, {
+      data: {
+        type: "group_call",
+        title: groupName,
+        body: `${creator.displayName} a lancé un appel ${video ? "vidéo" : "audio"} de groupe`,
+        callerName: creator.displayName,
+        callId: call.id,
+        groupId,
+        video: String(video),
+        deepLink: `whappy://group-call/${call.id}`,
+      },
+      android: { priority: "high", ttl: 180_000, collapseKey: `group-call-${call.id}` },
+    });
+  }
+  return { callId: call.id, groupId, groupName, video, role: "speaker", ...access };
+});
+
+export const getGroupCallSession = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const callId = String(request.data?.callId || "").trim();
+  if (!callId) throw new HttpsError("invalid-argument", "Appel invalide.");
+  const { value } = await groupCallDocument(callId, request.auth.uid);
+  return {
+    callId,
+    groupId: String(value.groupId || ""),
+    groupName: String(value.groupName || "Groupe WAPI"),
+    video: value.video === true,
+    participantCount: Number(value.participantCount || 0),
+  };
+});
+
+export const joinGroupCallSession = onCall({ secrets: [livekitApiSecret] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const callId = String(request.data?.callId || "").trim();
+  if (!callId) throw new HttpsError("invalid-argument", "Appel invalide.");
+  const { reference, value } = await groupCallDocument(callId, request.auth.uid);
+  const profile = await liveDisplayName(request.auth.uid);
+  const roomName = String(value.streamRoomId || "");
+  if (value.streamProvider !== "livekit-self-hosted" || !roomName) throw new HttpsError("failed-precondition", "Le transport WebRTC de cet appel est indisponible.");
+  await reference.collection("participants").doc(request.auth.uid).set({
+    userId: request.auth.uid,
+    displayName: profile.displayName,
+    photoUrl: profile.photoUrl,
+    active: false,
+    invitedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  const access = await liveAccessToken({
+    roomName,
+    userId: request.auth.uid,
+    displayName: profile.displayName,
+    role: "speaker",
+    product: "wapi-group-call",
+  });
+  return { callId, groupId: String(value.groupId || ""), groupName: String(value.groupName || "Groupe WAPI"), video: value.video === true, role: "speaker", ...access };
+});
+
+export const setGroupCallPresence = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const callId = String(request.data?.callId || "").trim();
+  const active = request.data?.active === true;
+  await groupCallDocument(callId, request.auth.uid);
+  await setGroupCallParticipantPresence(callId, request.auth.uid, active);
+  return { ok: true };
+});
+
+export const endGroupCallSession = onCall({ secrets: [livekitApiSecret] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const callId = String(request.data?.callId || "").trim();
+  const { reference, value } = await groupCallDocument(callId, request.auth.uid);
+  const adminIds = Array.isArray(value.adminIds) ? value.adminIds.map(String) : [];
+  if (value.creatorId !== request.auth.uid && !adminIds.includes(request.auth.uid)) {
+    throw new HttpsError("permission-denied", "Seuls le créateur et les administrateurs peuvent terminer cet appel.");
+  }
+  await reference.update({ status: "ended", participantCount: 0, endedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+  await livekitRoomService().deleteRoom(String(value.streamRoomId || "")).catch(() => undefined);
+  return { ok: true };
 });
 
 export const livekitWebhook = onRequest({ secrets: [livekitApiSecret] }, async (request, response) => {
@@ -745,6 +1039,18 @@ export const livekitWebhook = onRequest({ secrets: [livekitApiSecret] }, async (
       .limit(1)
       .get();
     if (sessions.empty) {
+      const groupCalls = await db.collection("groupCallSessions").where("streamRoomId", "==", roomName).limit(1).get();
+      if (groupCalls.empty) {
+        response.status(204).send();
+        return;
+      }
+      const call = groupCalls.docs[0];
+      const participantId = event.participant?.identity;
+      if (participantId && event.event === "participant_joined") await setGroupCallParticipantPresence(call.id, participantId, true);
+      else if (participantId && ["participant_left", "participant_connection_aborted"].includes(event.event)) await setGroupCallParticipantPresence(call.id, participantId, false);
+      if (event.event === "room_finished") {
+        await call.ref.update({ status: "ended", participantCount: 0, endedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      }
       response.status(204).send();
       return;
     }
@@ -798,6 +1104,7 @@ export const listVisibleStories = onCall(async (request) => {
     const createdAt = value.createdAt;
     return {
       id: document.id,
+      authorId: String(value.authorId || ""),
       authorName: String(value.authorName || "Contact WAPI"),
       caption: String(value.caption || ""),
       mediaUrl: String(value.mediaUrl || ""),
@@ -805,10 +1112,120 @@ export const listVisibleStories = onCall(async (request) => {
       createdAt: createdAt && typeof createdAt.toDate === "function"
         ? createdAt.toDate().toISOString()
         : null,
+      expiresAtMillis: value.expiresAt && typeof value.expiresAt.toMillis === "function"
+        ? value.expiresAt.toMillis()
+        : 0,
+      viewCount: Number(value.viewCount || 0),
     };
   });
   stories.sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
   return { stories };
+});
+
+/** Records one unique viewer per Story. The author is never counted. */
+export const recordStoryView = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const storyId = String(request.data?.storyId || "").trim();
+  if (!storyId || storyId.length > 160) throw new HttpsError("invalid-argument", "Story invalide.");
+  const viewerId = request.auth.uid;
+  const story = db.collection("stories").doc(storyId);
+  const view = story.collection("views").doc(viewerId);
+  const profile = await db.collection("users").doc(viewerId).get();
+  const displayName = String(profile.get("displayName") || profile.get("phoneNumber") || "Contact WAPI").trim().slice(0, 80);
+  const photoUrl = String(profile.get("photoUrl") || "").slice(0, 2000);
+  const count = await db.runTransaction(async (transaction) => {
+    const [storySnapshot, viewSnapshot] = await Promise.all([transaction.get(story), transaction.get(view)]);
+    if (!storySnapshot.exists) throw new HttpsError("not-found", "Cette Story n’existe plus.");
+    const value = storySnapshot.data() || {};
+    const audienceIds = Array.isArray(value.audienceIds) ? value.audienceIds.map(String) : [];
+    const expiresAt = value.expiresAt;
+    if (!audienceIds.includes(viewerId) || !expiresAt?.toMillis || expiresAt.toMillis() <= Date.now()) {
+      throw new HttpsError("permission-denied", "Cette Story n’est plus visible.");
+    }
+    const currentCount = Math.max(0, Number(value.viewCount || 0));
+    if (String(value.authorId || "") === viewerId || viewSnapshot.exists) return currentCount;
+    transaction.set(view, {
+      userId: viewerId,
+      displayName: displayName || "Contact WAPI",
+      photoUrl,
+      viewedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.update(story, { viewCount: FieldValue.increment(1) });
+    return currentCount + 1;
+  });
+  return { ok: true, viewCount: count };
+});
+
+/** Only the Story author can inspect the identities behind the counter. */
+export const listStoryViewers = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const storyId = String(request.data?.storyId || "").trim();
+  if (!storyId || storyId.length > 160) throw new HttpsError("invalid-argument", "Story invalide.");
+  const story = await db.collection("stories").doc(storyId).get();
+  if (!story.exists) throw new HttpsError("not-found", "Cette Story n’existe plus.");
+  if (String(story.get("authorId") || "") !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "Seul l’auteur peut voir cette liste.");
+  }
+  const snapshot = await story.ref.collection("views").orderBy("viewedAt", "desc").limit(500).get();
+  return {
+    viewers: snapshot.docs.map((document) => {
+      const value = document.data();
+      return {
+        userId: document.id,
+        displayName: String(value.displayName || "Contact WAPI"),
+        photoUrl: String(value.photoUrl || ""),
+        viewedAtMillis: value.viewedAt && typeof value.viewedAt.toMillis === "function" ? value.viewedAt.toMillis() : 0,
+      };
+    }),
+  };
+});
+
+export const deleteStory = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const storyId = String(request.data?.storyId || "").trim();
+  if (!storyId) throw new HttpsError("invalid-argument", "Story invalide.");
+  const story = db.collection("stories").doc(storyId);
+  const snapshot = await story.get();
+  if (!snapshot.exists) return { ok: true };
+  if (snapshot.get("authorId") !== request.auth.uid) throw new HttpsError("permission-denied", "Seul l’auteur peut supprimer cette Story.");
+  const views = await story.collection("views").limit(500).get();
+  const batch = db.batch();
+  views.docs.forEach((view) => batch.delete(view.ref));
+  batch.delete(story);
+  await batch.commit();
+  return { ok: true };
+});
+
+/** The creator remains owner; only they can delegate administration. */
+export const manageGroupAdministration = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const groupId = String(request.data?.groupId || "").trim();
+  const memberId = String(request.data?.memberId || "").trim();
+  const administrator = request.data?.administrator === true;
+  if (!groupId || !memberId) throw new HttpsError("invalid-argument", "Groupe ou membre invalide.");
+  const group = db.collection("groups").doc(groupId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(group);
+    if (!snapshot.exists) throw new HttpsError("not-found", "Ce groupe n’existe plus.");
+    const ownerId = String(snapshot.get("ownerId") || "");
+    const memberIds = Array.isArray(snapshot.get("memberIds")) ? (snapshot.get("memberIds") as unknown[]).map(String) : [];
+    const currentAdmins = Array.isArray(snapshot.get("adminIds")) ? (snapshot.get("adminIds") as unknown[]).map(String) : [];
+    if (ownerId !== request.auth!.uid) throw new HttpsError("permission-denied", "Seul le créateur peut gérer les administrateurs.");
+    if (!memberIds.includes(memberId)) throw new HttpsError("failed-precondition", "Ce compte n’est pas membre du groupe.");
+    if (memberId === ownerId && !administrator) throw new HttpsError("failed-precondition", "Le créateur reste administrateur.");
+    const nextAdmins = [...new Set([ownerId, ...currentAdmins.filter((id) => id !== memberId), ...(administrator ? [memberId] : [])])];
+    transaction.update(group, { adminIds: nextAdmins, updatedAt: FieldValue.serverTimestamp() });
+    const event = group.collection("messages").doc();
+    transaction.set(event, {
+      text: administrator ? "Un nouvel administrateur a été nommé" : "Un administrateur a été retiré",
+      senderId: request.auth!.uid,
+      senderName: "Administration du groupe",
+      kind: "system",
+      createdAt: FieldValue.serverTimestamp(),
+      deleted: false,
+    });
+  });
+  return { ok: true };
 });
 
 export const manageGroupMembers = onCall(async (request) => {

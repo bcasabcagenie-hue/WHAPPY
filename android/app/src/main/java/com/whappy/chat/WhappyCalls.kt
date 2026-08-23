@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -105,6 +106,7 @@ data class WhappyCallUiState(
     val video: Boolean = false,
     val peerName: String = "",
     val peerPhone: String = "",
+    val peerPhotoUrl: String = "",
     val status: String = "",
     val muted: Boolean = false,
     val cameraEnabled: Boolean = true,
@@ -201,12 +203,14 @@ class WhappyCallController(private val activity: ComponentActivity) {
                     incoming = true,
                     video = recent.getBoolean("video") == true,
                     peerName = recent.getString("callerName") ?: "Contact Whappy",
+                    peerPhotoUrl = recent.getString("callerPhotoUrl").orEmpty(),
                     status = "Sonnerie…",
                 )
                 val notificationRings = WhappyNotifications.showIncomingCall(
                     context = activity,
                     callId = recent.id,
                     callerName = recent.getString("callerName") ?: "Contact WAPI",
+                    callerPhotoUrl = recent.getString("callerPhotoUrl").orEmpty(),
                     video = recent.getBoolean("video") == true,
                 )
                 if (!notificationRings) startRinging()
@@ -348,7 +352,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
     private suspend fun beginOutgoing(peer: WhappyMember, video: Boolean) {
         val current = auth.currentUser ?: return
         closeConnectionsOnly()
-        state = WhappyCallUiState(visible = true, video = video, peerName = peer.displayName, peerPhone = peer.phoneNumber, status = "Connexion sécurisée…")
+        state = WhappyCallUiState(visible = true, video = video, peerName = peer.displayName, peerPhone = peer.phoneNumber, peerPhotoUrl = peer.photoUrl, status = "Connexion sécurisée…")
         runCatching {
             preparePeer(video, "callerCandidates")
             state = state.copy(mediaReady = true)
@@ -356,11 +360,15 @@ class WhappyCallController(private val activity: ComponentActivity) {
             peerConnection!!.setLocalDescriptionAwait(offer)
             val reference = db.collection("calls").document()
             callId = reference.id
+            val callerPhotoUrl = runCatching {
+                db.collection("users").document(current.uid).get().await().getString("photoUrl").orEmpty()
+            }.getOrDefault(current.photoUrl?.toString().orEmpty())
             reference.set(
                 mapOf(
                     "callerId" to current.uid,
                     "calleeId" to peer.uid,
                     "callerName" to (current.displayName ?: "Contact Whappy"),
+                    "callerPhotoUrl" to callerPhotoUrl.take(2_000),
                     "calleeName" to peer.displayName,
                     "video" to video,
                     "status" to "ringing",
@@ -714,9 +722,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             if (!call.video || !call.mediaReady || call.incoming || call.error != null) {
-                Box(Modifier.size(112.dp).background(Color.White, CircleShape), contentAlignment = Alignment.Center) {
-                    Text(call.peerName.split(" ").mapNotNull { it.firstOrNull()?.toString() }.joinToString("").take(2).uppercase().ifBlank { "W" }, color = Color(BRAND_BLUE), fontSize = 34.sp)
-                }
+                UserAvatar(call.peerPhotoUrl, call.peerName, 112.dp, Modifier.clip(CircleShape))
             }
             Text(call.peerName.ifBlank { "WAPI CALL" }, Modifier.padding(top = 22.dp), color = Color.White, fontSize = 25.sp)
             if (call.incoming) Text(if (call.video) "Appel vidéo entrant" else "Appel audio entrant", Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .72f), fontSize = 13.sp)

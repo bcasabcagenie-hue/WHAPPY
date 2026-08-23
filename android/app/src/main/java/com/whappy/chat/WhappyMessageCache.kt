@@ -53,6 +53,7 @@ class WhappyMessageCache(context: Context) {
         .put("edited", edited)
         .put("deliveryState", deliveryState)
         .put("senderName", senderName)
+        .put("senderPhotoUrl", senderPhotoUrl)
 
     private fun JSONObject.toMessage(): WhappyMessage? {
         val id = optString("id")
@@ -80,6 +81,7 @@ class WhappyMessageCache(context: Context) {
             edited = optBoolean("edited"),
             deliveryState = optString("deliveryState", "sent"),
             senderName = optString("senderName"),
+            senderPhotoUrl = optString("senderPhotoUrl"),
         )
     }
 

@@ -1,6 +1,7 @@
 package com.whappy.chat
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,9 +24,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Videocam
@@ -74,6 +78,7 @@ import io.livekit.android.room.Room
 import io.livekit.android.room.track.LocalVideoTrack
 import io.livekit.android.room.track.VideoTrack
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import livekit.org.webrtc.SurfaceViewRenderer
@@ -88,6 +93,15 @@ private data class WapiLiveComment(
     val id: String,
     val authorName: String,
     val text: String,
+)
+
+private data class WapiLiveGift(
+    val id: String,
+    val giftId: String,
+    val label: String,
+    val symbol: String,
+    val senderName: String,
+    val equipped: Boolean,
 )
 
 private suspend fun joinNativeLive(liveId: String): WapiLiveCredentials {
@@ -133,14 +147,19 @@ internal fun WapiNativeLiveRoomDialog(
     var fatalError by remember { mutableStateOf<String?>(null) }
     var isHost by remember { mutableStateOf(expectedHost) }
     var microphoneEnabled by remember { mutableStateOf(expectedHost) }
-    var cameraEnabled by remember { mutableStateOf(expectedHost) }
+    var cameraEnabled by remember { mutableStateOf(expectedHost && !live.audioOnly) }
     var viewerCount by remember { mutableIntStateOf(live.viewerCount) }
     var reactionCount by remember { mutableIntStateOf(0) }
+    var giftCount by remember { mutableIntStateOf(live.giftCount) }
+    var allowGiftWearables by remember { mutableStateOf(live.allowGiftWearables) }
+    var showGiftPanel by remember { mutableStateOf(false) }
+    var activeGift by remember { mutableStateOf<WapiLiveGift?>(null) }
     var commentDraft by remember { mutableStateOf("") }
     val comments = remember { mutableStateListOf<WapiLiveComment>() }
     var eventJob by remember { mutableStateOf<Job?>(null) }
     var liveListener by remember { mutableStateOf<ListenerRegistration?>(null) }
     var commentListener by remember { mutableStateOf<ListenerRegistration?>(null) }
+    var giftListener by remember { mutableStateOf<ListenerRegistration?>(null) }
 
     fun localVideoTrack(): LocalVideoTrack? = room.localParticipant.videoTrackPublications
         .firstOrNull()
@@ -187,8 +206,8 @@ internal fun WapiNativeLiveRoomDialog(
             room.connect(credentials.serverUrl, credentials.participantToken)
             if (isHost) {
                 microphoneEnabled = room.localParticipant.setMicrophoneEnabled(true)
-                cameraEnabled = room.localParticipant.setCameraEnabled(true)
-                activeVideo = localVideoTrack()
+                cameraEnabled = if (live.audioOnly) false else room.localParticipant.setCameraEnabled(true)
+                activeVideo = if (live.audioOnly) null else localVideoTrack()
                 functions.getHttpsCallable("setLiveSessionState")
                     .call(mapOf("liveId" to live.id, "action" to "start"))
                     .await()
@@ -212,6 +231,8 @@ internal fun WapiNativeLiveRoomDialog(
                 val data = snapshot?.data ?: return@addSnapshotListener
                 viewerCount = (data["viewerCount"] as? Number)?.toInt() ?: 0
                 reactionCount = (data["reactionCount"] as? Number)?.toInt() ?: 0
+                giftCount = (data["giftCount"] as? Number)?.toInt() ?: 0
+                allowGiftWearables = data["allowGiftWearables"] == true
                 if (!isHost && data["status"] == "ended") fatalError = "Ce direct est terminé."
             }
         commentListener = firestore.collection("liveSessions").document(live.id)
@@ -229,9 +250,27 @@ internal fun WapiNativeLiveRoomDialog(
                 comments.clear()
                 comments.addAll(next)
             }
+        giftListener = firestore.collection("liveSessions").document(live.id)
+            .collection("gifts")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(1)
+            .addSnapshotListener { snapshot, _ ->
+                val document = snapshot?.documents?.firstOrNull() ?: return@addSnapshotListener
+                val createdAt = document.getTimestamp("createdAt")?.toDate()?.time ?: return@addSnapshotListener
+                if (System.currentTimeMillis() - createdAt > 12_000L) return@addSnapshotListener
+                activeGift = WapiLiveGift(
+                    id = document.id,
+                    giftId = document.getString("giftId").orEmpty(),
+                    label = document.getString("label") ?: "Cadeau WAPI",
+                    symbol = document.getString("symbol") ?: "🎁",
+                    senderName = document.getString("senderName") ?: "Spectateur WAPI",
+                    equipped = document.getBoolean("equipped") == true,
+                )
+            }
         onDispose {
             liveListener?.remove()
             commentListener?.remove()
+            giftListener?.remove()
             eventJob?.cancel()
             activeVideo?.let { track -> renderer?.let(track::removeRenderer) }
             room.disconnect()
@@ -265,13 +304,28 @@ internal fun WapiNativeLiveRoomDialog(
         }
     }
 
+    fun sendGift(giftId: String) {
+        showGiftPanel = false
+        scope.launch {
+            runCatching {
+                functions.getHttpsCallable("sendLiveGift").call(mapOf("liveId" to live.id, "giftId" to giftId)).await()
+            }.onFailure { connectionLabel = it.localizedMessage ?: "Le cadeau n’a pas été envoyé." }
+        }
+    }
+
+    LaunchedEffect(activeGift?.id) {
+        if (activeGift == null) return@LaunchedEffect
+        delay(4_500)
+        activeGift = null
+    }
+
     Dialog(
         onDismissRequest = { close(endLive = false) },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Surface(Modifier.fillMaxSize(), color = Color.Black) {
             Box(Modifier.fillMaxSize()) {
-                AndroidView(
+                if (!live.audioOnly) AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
                         SurfaceViewRenderer(viewContext).also { view ->
@@ -295,12 +349,31 @@ internal fun WapiNativeLiveRoomDialog(
                         ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Fermer", tint = Color.White) }
                         Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("● LIVE", Modifier.clip(RoundedCornerShape(7.dp)).background(Color(0xFFF0445A)).padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, fontSize = 9.sp)
+                                Text(if (live.audioOnly) "● RADIO" else "● LIVE", Modifier.clip(RoundedCornerShape(7.dp)).background(Color(0xFFF0445A)).padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, fontSize = 9.sp)
                                 Text("  ${live.title}", color = Color.White, maxLines = 1)
                             }
-                            Text("$connectionLabel · $viewerCount spectateur(s) · $reactionCount réaction(s)", color = Color.White.copy(alpha = .72f), fontSize = 10.sp)
+                            Text("$connectionLabel · $viewerCount spectateur(s) · $reactionCount réaction(s) · $giftCount cadeau(x)", color = Color.White.copy(alpha = .72f), fontSize = 10.sp)
                         }
+                        IconButton(
+                            onClick = {
+                                val invite = Intent.createChooser(
+                                    Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, live.title)
+                                        putExtra(Intent.EXTRA_TEXT, "Rejoignez ${live.title} sur WAPI\nwhappy://live/${live.id}")
+                                    },
+                                    "Inviter au Live WAPI",
+                                )
+                                context.startActivity(invite)
+                            },
+                        ) { Icon(Icons.Rounded.Share, "Inviter", tint = Color.White) }
                         if (isHost) Button(onClick = { close(endLive = true) }) { Icon(Icons.Rounded.Stop, null); Text(" Fin") }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (live.audioOnly) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(104.dp).clip(CircleShape).background(WhappyBlue.copy(alpha = .78f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Radio, null, tint = Color.White, modifier = Modifier.size(50.dp)) }
+                        Text(live.hostName, Modifier.padding(top = 12.dp), color = Color.White, fontSize = 18.sp)
+                        Text("Radio en direct · qualité WebRTC", color = Color.White.copy(alpha = .65f), fontSize = 11.sp)
                     }
                     Spacer(Modifier.weight(1f))
                     LazyColumn(
@@ -314,6 +387,16 @@ internal fun WapiNativeLiveRoomDialog(
                                 color = Color.White,
                                 fontSize = 12.sp,
                             )
+                        }
+                    }
+                    if (!isHost && showGiftPanel) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            listOf("crown" to "👑", "glasses" to "😎", "halo" to "✨", "trophy" to "🏆").forEach { gift ->
+                                FilledIconButton(
+                                    onClick = { sendGift(gift.first) },
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = WhappyBlue),
+                                ) { Text(gift.second, fontSize = 23.sp) }
+                            }
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -340,13 +423,20 @@ internal fun WapiNativeLiveRoomDialog(
                             WapiLiveControl(if (microphoneEnabled) Icons.Rounded.Mic else Icons.Rounded.MicOff, "Micro", microphoneEnabled) {
                                 scope.launch { microphoneEnabled = room.localParticipant.setMicrophoneEnabled(!microphoneEnabled) }
                             }
-                            WapiLiveControl(if (cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", cameraEnabled) {
+                            if (!live.audioOnly) WapiLiveControl(if (cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", cameraEnabled) {
                                 scope.launch {
                                     cameraEnabled = room.localParticipant.setCameraEnabled(!cameraEnabled)
                                     activeVideo = if (cameraEnabled) localVideoTrack() else null
                                 }
                             }
-                            WapiLiveControl(Icons.Rounded.Cameraswitch, "Retourner", true) { localVideoTrack()?.switchCamera() }
+                            if (!live.audioOnly) WapiLiveControl(Icons.Rounded.Cameraswitch, "Retourner", true) { localVideoTrack()?.switchCamera() }
+                            WapiLiveControl(Icons.Rounded.AutoAwesome, if (allowGiftWearables) "Cadeaux portés" else "Cadeaux simples", allowGiftWearables) {
+                                scope.launch {
+                                    runCatching {
+                                        functions.getHttpsCallable("setLiveGiftWearables").call(mapOf("liveId" to live.id, "enabled" to !allowGiftWearables)).await()
+                                    }
+                                }
+                            }
                         } else {
                             WapiLiveControl(Icons.Rounded.Favorite, "Réagir", true) {
                                 scope.launch {
@@ -357,7 +447,23 @@ internal fun WapiNativeLiveRoomDialog(
                                     }
                                 }
                             }
+                            WapiLiveControl(Icons.Rounded.AutoAwesome, "Cadeau", showGiftPanel) { showGiftPanel = !showGiftPanel }
                         }
+                    }
+                }
+                activeGift?.let { gift ->
+                    Column(Modifier.align(if (gift.equipped) Alignment.TopCenter else Alignment.Center).padding(top = if (gift.equipped) 86.dp else 0.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(156.dp), contentAlignment = Alignment.Center) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { giftContext -> WapiGift3DView(giftContext).also { it.setGift(gift.giftId) } },
+                                update = { it.setGift(gift.giftId) },
+                                onRelease = { it.onPause() },
+                            )
+                            Text(gift.symbol, fontSize = 42.sp)
+                        }
+                        Text("${gift.senderName} offre ${gift.label}", Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .62f)).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White)
+                        if (gift.equipped) Text("Effet portable autorisé par l’animateur", Modifier.padding(top = 6.dp), color = Color.White.copy(alpha = .75f), fontSize = 10.sp)
                     }
                 }
                 if (connecting) Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {

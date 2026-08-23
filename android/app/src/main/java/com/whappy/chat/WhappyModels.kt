@@ -41,6 +41,9 @@ data class WhappyConversation(
     val memberCount: Int = 2,
     val source: String = "conversations",
     val groupOwnerId: String = "",
+    val groupAdminIds: List<String> = emptyList(),
+    val groupMembers: List<WhappyMember> = emptyList(),
+    val groupReadAt: Map<String, Long> = emptyMap(),
 )
 
 data class WhappyContact(
@@ -64,6 +67,7 @@ data class WhappyMessage(
     val edited: Boolean = false,
     val deliveryState: String = "sent",
     val senderName: String = "",
+    val senderPhotoUrl: String = "",
 )
 
 data class WhappyChannel(
@@ -167,6 +171,9 @@ data class WhappyLive(
     /** A session is joinable only when a real media transport is provisioned. */
     val streamProvider: String = "unconfigured",
     val streamRoomId: String = "",
+    val audioOnly: Boolean = false,
+    val allowGiftWearables: Boolean = false,
+    val giftCount: Int = 0,
 )
 
 data class WhappyStatus(
@@ -179,6 +186,23 @@ data class WhappyStatus(
     val mediaUrl: String = "",
     val mediaKind: String = "",
     val mediaName: String = "",
+    val expiresAt: Long = 0L,
+    val viewCount: Int = 0,
+)
+
+data class WapiStoryViewer(
+    val userId: String,
+    val displayName: String,
+    val photoUrl: String = "",
+    val viewedAt: Long = 0L,
+)
+
+data class WapiGroupCallInvitation(
+    val callId: String,
+    val groupId: String,
+    val groupName: String,
+    val video: Boolean,
+    val participantCount: Int = 0,
 )
 
 data class WapiRadioEpisode(
@@ -280,6 +304,8 @@ data class WhappyUiState(
     val messages: List<WhappyMessage> = emptyList(),
     val channels: List<WhappyChannel> = emptyList(),
     val selectedChannel: WhappyChannel? = null,
+    val requestedLiveId: String = "",
+    val requestedGroupCall: WapiGroupCallInvitation? = null,
     val channelPosts: List<WhappyChannelPost> = emptyList(),
     val discoveryQuery: String = "",
     val listings: List<WhappyListing> = emptyList(),
@@ -287,6 +313,8 @@ data class WhappyUiState(
     val campaigns: List<WhappyCampaign> = emptyList(),
     val lives: List<WhappyLive> = emptyList(),
     val statuses: List<WhappyStatus> = emptyList(),
+    val storyViewers: Map<String, List<WapiStoryViewer>> = emptyMap(),
+    val storyViewersLoading: Set<String> = emptySet(),
     val wepiSettings: WapiWepiSettings? = null,
     val radioEpisodes: List<WapiRadioEpisode> = emptyList(),
     val deals: List<WhappyDeal> = emptyList(),

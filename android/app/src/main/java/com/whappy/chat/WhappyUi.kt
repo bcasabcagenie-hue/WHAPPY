@@ -12,7 +12,10 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.ImageDecoder
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -90,6 +93,8 @@ import androidx.compose.material.icons.rounded.BusinessCenter
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -231,6 +236,7 @@ import kotlinx.coroutines.withContext
 import java.net.URL
 import java.nio.ByteBuffer
 import kotlin.math.max
+import kotlin.math.min
 
 private fun chatWallpaperBrush(style: String): Brush = when (style) {
     "azure" -> Brush.linearGradient(listOf(Color(0xFFF3FAFF), Color(0xFFE8F5FD), Color(0xFFF8FCFF)))
@@ -295,6 +301,15 @@ private val demoDeals = emptyList<WhappyDeal>()
 
 private val demoPaymentNotices = emptyList<WhappyPaymentNotice>()
 
+/** Founder dashboard values always come from the signed-in account's data. */
+private data class WapiAdminMetrics(
+    val paidRevenue: Long = 0L,
+    val subscribers: Int = 0,
+    val radioEpisodes: Int = 0,
+    val activeLives: Int = 0,
+    val downloadsMeasured: Boolean = false,
+)
+
 private enum class MessageActionType { Link, Phone }
 
 private data class MessageAction(
@@ -326,7 +341,9 @@ fun WhappyRoot(
     onCreateChannel: (String, String, String) -> Unit,
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onUpdateGroup: (String, String, Uri?, String, Boolean) -> Unit,
+    onSetGroupAdministrator: (String, String, Boolean) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
+    onSetLiveSubscription: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
     onPinChannelPost: (String, Boolean) -> Unit,
@@ -343,11 +360,16 @@ fun WhappyRoot(
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onPublishStatus: (String, String, Uri?, String) -> Unit,
+    onMarkStoryViewed: (String) -> Unit,
+    onLoadStoryViewers: (String) -> Unit,
     onSaveWepiSettings: (WapiWepiSettings) -> Unit,
     onPublishRadioEpisode: (String, String, Uri, Long) -> Unit,
+    onCreateRadioLive: (String, String) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
+    onConsumeLiveLink: () -> Unit,
+    onConsumeGroupCallLink: () -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
     onUpdateDealStatus: (String, String) -> Unit,
     onMarkPaymentRead: (String) -> Unit,
@@ -396,7 +418,9 @@ fun WhappyRoot(
         onCreateChannel = onCreateChannel,
         onCreateGroup = onCreateGroup,
         onUpdateGroup = onUpdateGroup,
+        onSetGroupAdministrator = onSetGroupAdministrator,
         onSubscribeChannel = onSubscribeChannel,
+        onSetLiveSubscription = onSetLiveSubscription,
         onPublishChannelPost = onPublishChannelPost,
         onReactChannelPost = onReactChannelPost,
         onPinChannelPost = onPinChannelPost,
@@ -413,11 +437,16 @@ fun WhappyRoot(
         onCreateCampaign = onCreateCampaign,
         onCreateLive = onCreateLive,
         onPublishStatus = onPublishStatus,
+        onMarkStoryViewed = onMarkStoryViewed,
+        onLoadStoryViewers = onLoadStoryViewers,
         onSaveWepiSettings = onSaveWepiSettings,
         onPublishRadioEpisode = onPublishRadioEpisode,
+        onCreateRadioLive = onCreateRadioLive,
         onDeleteStatus = onDeleteStatus,
         onEndLive = onEndLive,
         onUpdateLiveStatus = onUpdateLiveStatus,
+        onConsumeLiveLink = onConsumeLiveLink,
+        onConsumeGroupCallLink = onConsumeGroupCallLink,
         onCreateDeal = onCreateDeal,
         onUpdateDealStatus = onUpdateDealStatus,
         onMarkPaymentRead = onMarkPaymentRead,
@@ -827,7 +856,9 @@ private fun WhappyMain(
     onCreateChannel: (String, String, String) -> Unit,
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onUpdateGroup: (String, String, Uri?, String, Boolean) -> Unit,
+    onSetGroupAdministrator: (String, String, Boolean) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
+    onSetLiveSubscription: (String, Boolean) -> Unit,
     onPublishChannelPost: (String) -> Unit,
     onReactChannelPost: (String, String) -> Unit,
     onPinChannelPost: (String, Boolean) -> Unit,
@@ -844,11 +875,16 @@ private fun WhappyMain(
     onCreateCampaign: (WhappyCampaignDraft) -> Unit,
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onPublishStatus: (String, String, Uri?, String) -> Unit,
+    onMarkStoryViewed: (String) -> Unit,
+    onLoadStoryViewers: (String) -> Unit,
     onSaveWepiSettings: (WapiWepiSettings) -> Unit,
     onPublishRadioEpisode: (String, String, Uri, Long) -> Unit,
+    onCreateRadioLive: (String, String) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
+    onConsumeLiveLink: () -> Unit,
+    onConsumeGroupCallLink: () -> Unit,
     onCreateDeal: (WhappyBusinessPage, String, String, Long, Long, Int, Int) -> Unit,
     onUpdateDealStatus: (String, String) -> Unit,
     onMarkPaymentRead: (String) -> Unit,
@@ -878,6 +914,7 @@ private fun WhappyMain(
     val activityLives = if (preview) demoLives else state.lives
     val unreadActivity = activityNotices.count { !it.read && it.id !in locallyReadNotices }
     val accountPhone = state.user?.phoneNumber.orEmpty()
+    val accountUserId = state.user?.uid.orEmpty()
     val isFounderAccount = WhappyIdentity.isFounder(accountPhone)
     val accountDisplayName = if (preview && state.user == null) {
         WhappyIdentity.founderName
@@ -885,9 +922,19 @@ private fun WhappyMain(
         WhappyIdentity.resolveAccountName(state.accountDisplayName, accountPhone)
     }
     val mainContext = LocalContext.current
+    val adminMetrics = WapiAdminMetrics(
+        paidRevenue = state.paymentNotices.filter { it.status == "paid" }.sumOf { it.amount },
+        subscribers = state.channels.filter { it.ownerId == accountUserId }.sumOf { it.memberCount },
+        radioEpisodes = state.radioEpisodes.count { it.ownerId == accountUserId },
+        activeLives = state.lives.count { it.hostId == accountUserId && it.status == "live" },
+    )
     val languagePrefs = remember { WhappyFastStorage.preferences(mainContext, "whappy_language") }
+    val radioController = remember { WapiRadioController() }
     var appLanguage by rememberSaveable {
         mutableStateOf(WhappyLanguage.entries.firstOrNull { it.code == languagePrefs.getString("code", "fr") } ?: WhappyLanguage.FRENCH)
+    }
+    DisposableEffect(radioController) {
+        onDispose { radioController.release() }
     }
     BackHandler(enabled = selected != null || selectedChannel != null || showTwinStudio || showActivityCenter || showAppHub) {
         if (showActivityCenter) showActivityCenter = false
@@ -913,7 +960,10 @@ private fun WhappyMain(
         onOpenTwin = { showAppHub = false; showTwinStudio = true },
         onDismiss = { showAppHub = false },
     )
-    CompositionLocalProvider(LocalWhappyLanguage provides appLanguage) {
+    CompositionLocalProvider(
+        LocalWhappyLanguage provides appLanguage,
+        LocalWapiRadio provides radioController,
+    ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = WhappyBackground,
@@ -968,6 +1018,11 @@ private fun WhappyMain(
                     onTyping = { if (!preview) onTyping(it) },
                     onRetryPending = { if (!preview) onRetryMessages() },
                     onUpdateGroup = { name, uri, contentType, remove -> if (!preview) onUpdateGroup(selected.id, name, uri, contentType, remove) },
+                    onSetGroupAdministrator = { memberId, administrator -> if (!preview) onSetGroupAdministrator(selected.id, memberId, administrator) },
+                    onSetLiveSubscription = { targetUserId, subscribed -> if (!preview) onSetLiveSubscription(targetUserId, subscribed) },
+                    publicRadioEpisodes = state.radioEpisodes,
+                    requestedGroupCall = state.requestedGroupCall,
+                    onConsumeGroupCallLink = onConsumeGroupCallLink,
                 )
             } else if (showTwinStudio) {
                 WhappyStudioScreen(
@@ -1006,6 +1061,10 @@ private fun WhappyMain(
                     onPublish = onPublishStatus,
                     onDelete = onDeleteStatus,
                     onOpenSpace = onTab,
+                    storyViewers = state.storyViewers,
+                    storyViewersLoading = state.storyViewersLoading,
+                    onMarkViewed = { if (!preview) onMarkStoryViewed(it) },
+                    onLoadViewers = { if (!preview) onLoadStoryViewers(it) },
                 )
                 WhappyTab.CONTACTS, WhappyTab.CHANNELS -> MessagesScreen(
                     conversations = if (preview) demoConversations else state.conversations,
@@ -1088,6 +1147,8 @@ private fun WhappyMain(
                             onCreateLive = onCreateLive,
                             onEndLive = onEndLive,
                             onUpdateLiveStatus = onUpdateLiveStatus,
+                            requestedLiveId = state.requestedLiveId,
+                            onConsumeLiveLink = onConsumeLiveLink,
                             onOpenTwin = { showTwinStudio = true },
                         )
                         WhappyTab.RADIO, WhappyTab.PODCASTS -> RadioScreen(
@@ -1097,6 +1158,7 @@ private fun WhappyMain(
                             busy = state.actionBusy,
                             initialSection = if (currentTab == WhappyTab.PODCASTS) 1 else 0,
                             onPublishEpisode = onPublishRadioEpisode,
+                            onCreateRadioLive = onCreateRadioLive,
                         )
                         WhappyTab.GAMES -> GamesScreen(currentUserId = state.user?.uid.orEmpty(), accountName = accountDisplayName, onBack = { onTab(WhappyTab.MOMENTS) })
                         WhappyTab.SERVICES -> ServicesScreen(
@@ -1127,6 +1189,7 @@ private fun WhappyMain(
                             online = state.online,
                             photoUrl = state.accountPhotoUrl,
                             twinReadiness = state.twinProfile?.readiness ?: 0,
+                            adminMetrics = adminMetrics,
                             preview = preview,
                             busy = state.actionBusy,
                             onUpdatePhoto = onUpdateProfilePhoto,
@@ -1328,6 +1391,10 @@ private fun StoriesScreen(
     onPublish: (String, String, Uri?, String) -> Unit,
     onDelete: (String) -> Unit,
     onOpenSpace: (WhappyTab) -> Unit,
+    storyViewers: Map<String, List<WapiStoryViewer>>,
+    storyViewersLoading: Set<String>,
+    onMarkViewed: (String) -> Unit,
+    onLoadViewers: (String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var mediaUri by remember { mutableStateOf<Uri?>(null) }
@@ -1512,6 +1579,10 @@ private fun StoriesScreen(
                 own = authorId == currentUserId,
                 onDelete = { story -> if (preview) previewStatuses = previewStatuses.filterNot { it.id == story.id } else onDelete(story.id); selectedStoryAuthorId = null },
                 onDismiss = { selectedStoryAuthorId = null },
+                viewers = storyViewers,
+                viewersLoading = storyViewersLoading,
+                onMarkViewed = onMarkViewed,
+                onLoadViewers = onLoadViewers,
             )
         }
     }
@@ -1577,12 +1648,17 @@ private fun StoryViewerDialog(
     own: Boolean,
     onDelete: (WhappyStatus) -> Unit,
     onDismiss: () -> Unit,
+    viewers: Map<String, List<WapiStoryViewer>>,
+    viewersLoading: Set<String>,
+    onMarkViewed: (String) -> Unit,
+    onLoadViewers: (String) -> Unit,
 ) {
     if (stories.isEmpty()) return
     val context = LocalContext.current
     val density = LocalDensity.current
     var activeIndex by remember(stories.map { it.id }) { mutableStateOf(0) }
     var dismissDragPixels by remember(stories.map { it.id }) { mutableStateOf(0f) }
+    var showViewersFor by remember(stories.map { it.id }) { mutableStateOf<String?>(null) }
     val story = stories[activeIndex.coerceIn(0, stories.lastIndex)]
     val progress = remember { Animatable(0f) }
 
@@ -1595,6 +1671,9 @@ private fun StoryViewerDialog(
     }
 
     val uploading = own && story.mediaName == "Publication en cours"
+    LaunchedEffect(story.id, own, uploading) {
+        if (!own && !uploading) onMarkViewed(story.id)
+    }
     LaunchedEffect(story.id, uploading) {
         if (uploading) return@LaunchedEffect
         progress.snapTo(0f)
@@ -1673,14 +1752,54 @@ private fun StoryViewerDialog(
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = .34f), contentColor = Color.White),
                 ) { Text("›", color = Color.White, fontSize = 30.sp) }
             }
-            Text(
-                if (uploading) "Publication sécurisée en cours…" else if (own) "Votre Story · visible 24 h" else "Story personnelle · visible 24 h",
+            if (own && !uploading) {
+                TextButton(
+                    onClick = {
+                        showViewersFor = story.id
+                        onLoadViewers(story.id)
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Icon(Icons.Rounded.Visibility, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                    Text("  ${story.viewCount} vue${if (story.viewCount > 1) "s" else ""} · Voir les spectateurs", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            } else Text(
+                if (uploading) "Publication sécurisée en cours…" else "Story personnelle · visible 24 h",
                 Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 color = Color.White.copy(alpha = .58f),
                 fontSize = 10.sp,
                 textAlign = TextAlign.Center,
             )
         }
+    }
+    showViewersFor?.let { storyId ->
+        val currentViewers = viewers[storyId].orEmpty()
+        AlertDialog(
+            onDismissRequest = { showViewersFor = null },
+            icon = { Icon(Icons.Rounded.Visibility, null, tint = WhappyBlue) },
+            title = { Text("Vues de la Story", fontWeight = FontWeight.Black) },
+            text = {
+                when {
+                    storyId in viewersLoading -> Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
+                    currentViewers.isEmpty() -> Text("Personne n’a encore vu cette Story.", color = WhappyMuted)
+                    else -> LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(currentViewers, key = { it.userId }) { viewer ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                UserAvatar(viewer.photoUrl, viewer.displayName, 40.dp)
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(viewer.displayName, color = WhappyDark, fontWeight = FontWeight.Bold)
+                                    Text("Vu à ${formatTime(viewer.viewedAt)}", color = WhappyMuted, fontSize = 10.sp)
+                                }
+                                Icon(Icons.Rounded.DoneAll, null, tint = WhappyBlue, modifier = Modifier.size(19.dp))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showViewersFor = null }) { Text("Fermer") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+        )
     }
 }
 
@@ -1895,6 +2014,7 @@ private fun RadioScreen(
     busy: Boolean,
     initialSection: Int = 0,
     onPublishEpisode: (String, String, Uri, Long) -> Unit,
+    onCreateRadioLive: (String, String) -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { WhappyFastStorage.preferences(context, "whappy_native_radio") }
@@ -1910,11 +2030,12 @@ private fun RadioScreen(
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var lastRecording by remember { mutableStateOf<File?>(null) }
     var lastDuration by rememberSaveable { mutableStateOf(0L) }
-    var activeEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var micProfile by rememberSaveable { mutableStateOf(WapiMicProfile.entries.firstOrNull { it.name == prefs.getString("mic_profile", WapiMicProfile.BROADCAST.name) } ?: WapiMicProfile.BROADCAST) }
     var inputLevel by remember { mutableStateOf(0f) }
     var monitoring by rememberSaveable { mutableStateOf(false) }
-    val playback = remember { WapiRadioPlayback() }
+    val localPlayback = remember { WapiRadioPlayback() }
+    val radio = LocalWapiRadio.current ?: error("Le lecteur radio WAPI doit être fourni par l’application.")
+    val radioState = radio.state.value
     val effectSupport = remember { detectRadioEffectSupport() }
     var feedback by rememberSaveable { mutableStateOf<String?>(null) }
     var showScheduleDialog by rememberSaveable { mutableStateOf(false) }
@@ -1931,7 +2052,7 @@ private fun RadioScreen(
     }
 
     fun startBroadcast() {
-        playback.stop(); monitoring = false; activeEpisodeId = null
+        localPlayback.stop(); radio.stop(); monitoring = false
         runCatching { createRadioRecorder(context, micProfile) }
             .onSuccess { session ->
                 recorder = session.recorder
@@ -1990,7 +2111,7 @@ private fun RadioScreen(
         onDispose {
             runCatching { recorder?.stop() }
             recorder?.release()
-            playback.release()
+            localPlayback.release()
         }
     }
 
@@ -2035,7 +2156,16 @@ private fun RadioScreen(
                     }
                     OutlinedTextField(stationName, { value -> if (value.length > stationName.length) WhappySounds.typing(context); stationName = value.take(60) }, Modifier.fillMaxWidth().padding(top = 20.dp), label = { Text("Nom de la radio") }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = WhappySky, unfocusedBorderColor = Color.White.copy(alpha = .24f), focusedLabelColor = WhappySky, unfocusedLabelColor = Color.White.copy(alpha = .68f)))
                     OutlinedTextField(topic, { value -> if (value.length > topic.length) WhappySounds.typing(context); topic = value.take(100) }, Modifier.fillMaxWidth().padding(top = 10.dp), label = { Text("Sujet de l’émission") }, minLines = 2, shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = WhappySky, unfocusedBorderColor = Color.White.copy(alpha = .24f), focusedLabelColor = WhappySky, unfocusedLabelColor = Color.White.copy(alpha = .68f)))
-                    TextButton(onClick = ::saveIdentity, modifier = Modifier.align(Alignment.End), colors = ButtonDefaults.textButtonColors(contentColor = WhappySky)) { Text("Enregistrer") }
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = ::saveIdentity, colors = ButtonDefaults.textButtonColors(contentColor = WhappySky)) { Text("Enregistrer") }
+                        Button(
+                            onClick = { saveIdentity(); onCreateRadioLive(stationName, topic) },
+                            enabled = !busy && stationName.trim().length >= 2 && topic.trim().length >= 2,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyBlue),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Icon(Icons.Rounded.LiveTv, null, modifier = Modifier.size(17.dp)); Text("  Diffuser en direct", fontWeight = FontWeight.Black) }
+                    }
                 }
             }
         }
@@ -2103,7 +2233,7 @@ private fun RadioScreen(
                     Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(48.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AudioFile, null, tint = Color.White) }
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text("Dernière émission", color = WhappyDark, fontWeight = FontWeight.Black); Text("${file.length() / 1024} Ko · ${formatRadioDuration(lastDuration)} · ${micProfile.label}", color = WhappyMuted, fontSize = 11.sp) }
-                        IconButton(onClick = { if (monitoring) { playback.stop(); monitoring = false } else { monitoring = true; playback.play(file, micProfile) { monitoring = false } } }) { Icon(if (monitoring) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (monitoring) "Arrêter l’écoute" else "Écouter", tint = WhappyBlue) }
+                        IconButton(onClick = { if (monitoring) { localPlayback.stop(); monitoring = false } else { monitoring = true; localPlayback.play(file, micProfile) { monitoring = false } } }) { Icon(if (monitoring) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (monitoring) "Arrêter l’écoute" else "Écouter", tint = WhappyBlue) }
                         IconButton(onClick = { shareRadioRecording(context, file, stationName) }) { Icon(Icons.Rounded.Share, "Partager", tint = WhappyBlue) }
                     }
                     Button(
@@ -2143,11 +2273,11 @@ private fun RadioScreen(
                 Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledIconButton(
                         onClick = {
-                            if (activeEpisodeId == episode.id) { playback.stop(); activeEpisodeId = null }
-                            else { activeEpisodeId = episode.id; monitoring = false; playback.playUrl(episode.audioUrl, micProfile, onFinished = { activeEpisodeId = null }) }
+                            monitoring = false
+                            radio.play(episode, micProfile)
                         },
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue),
-                    ) { Icon(if (activeEpisodeId == episode.id) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, "Écouter ${episode.title}", tint = Color.White) }
+                    ) { Icon(if (radioState.episode?.id == episode.id && (radioState.playing || radioState.preparing)) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Écouter ${episode.title}", tint = Color.White) }
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Text(episode.title, color = WhappyDark, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("${episode.stationName} · ${episode.authorName}", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -3622,6 +3752,22 @@ private fun MessagesScreen(
                     onHandleWhappyLink(trimmed)
                 }
             }
+            is WhappyLink.Live -> {
+                if (preview) {
+                    scanError = "Le lien de direct sera accessible après connexion."
+                } else {
+                    adding = false
+                    onHandleWhappyLink(trimmed)
+                }
+            }
+            is WhappyLink.GroupCall -> {
+                if (preview) {
+                    scanError = "Le lien d’appel sera accessible après connexion."
+                } else {
+                    adding = false
+                    onHandleWhappyLink(trimmed)
+                }
+            }
             null -> {
                 if (trimmed.isNotBlank()) {
                     startContactSearch(trimmed, markBusy = true)
@@ -4317,6 +4463,11 @@ private fun ChatScreen(
     onTyping: (Boolean) -> Unit,
     onRetryPending: () -> Unit,
     onUpdateGroup: (String, Uri?, String, Boolean) -> Unit,
+    onSetGroupAdministrator: (String, Boolean) -> Unit,
+    onSetLiveSubscription: (String, Boolean) -> Unit,
+    publicRadioEpisodes: List<WapiRadioEpisode>,
+    requestedGroupCall: WapiGroupCallInvitation?,
+    onConsumeGroupCallLink: () -> Unit,
 ) {
     val context = LocalContext.current
     val draftPrefs = remember { WhappyFastStorage.preferences(context, "whappy_chat_drafts") }
@@ -4344,9 +4495,16 @@ private fun ChatScreen(
     var offerMedia by remember(conversation.id) { mutableStateOf<Uri?>(null) }
     var offerMediaType by remember(conversation.id) { mutableStateOf("") }
     var offerMediaName by remember(conversation.id) { mutableStateOf("") }
+    var memeSource by remember(conversation.id) { mutableStateOf<Uri?>(null) }
+    var memeTopText by rememberSaveable(conversation.id) { mutableStateOf("") }
+    var memeBottomText by rememberSaveable(conversation.id) { mutableStateOf("") }
+    var memeOpen by rememberSaveable(conversation.id) { mutableStateOf(false) }
+    var memeBusy by rememberSaveable(conversation.id) { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val uriHandler = LocalUriHandler.current
     val calls = LocalWhappyCalls.current
+    val radio = LocalWapiRadio.current
+    val radioState = radio?.state?.value
     val listState = rememberLazyListState()
     val chatScope = rememberCoroutineScope()
     val visibleMessages = remember(messages, searchQuery) {
@@ -4361,7 +4519,14 @@ private fun ChatScreen(
     var observedLatestMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
     var previewImage by remember(conversation.id) { mutableStateOf<String?>(null) }
     var showPeerProfile by remember(conversation.id) { mutableStateOf(false) }
+    var selectedGroupMember by remember(conversation.id) { mutableStateOf<WhappyMember?>(null) }
     var showGroupEditor by remember(conversation.id) { mutableStateOf(false) }
+    var showGroupAdministrators by remember(conversation.id) { mutableStateOf(false) }
+    var groupCallOpen by remember(conversation.id) { mutableStateOf(false) }
+    var groupCallVideo by remember(conversation.id) { mutableStateOf(false) }
+    var groupCallInvitation by remember(conversation.id) { mutableStateOf<WapiGroupCallInvitation?>(null) }
+    var liveAlertEnabled by rememberSaveable(conversation.id) { mutableStateOf(false) }
+    var showRadioPicker by rememberSaveable(conversation.id) { mutableStateOf(false) }
     var groupNameDraft by remember(conversation.id) { mutableStateOf(conversation.peer.displayName) }
     var groupPhotoUri by remember(conversation.id) { mutableStateOf<Uri?>(null) }
     var removeGroupPhoto by remember(conversation.id) { mutableStateOf(false) }
@@ -4372,6 +4537,14 @@ private fun ChatScreen(
 
     LaunchedEffect(conversation.id) {
         WhappyNotifications.markConversationOpened(context, conversation.id)
+    }
+    LaunchedEffect(requestedGroupCall?.callId, conversation.id) {
+        val invitation = requestedGroupCall ?: return@LaunchedEffect
+        if (invitation.groupId != conversation.id) return@LaunchedEffect
+        groupCallInvitation = invitation
+        groupCallVideo = invitation.video
+        groupCallOpen = true
+        onConsumeGroupCallLink()
     }
 
     fun updateDraft(value: String) {
@@ -4478,6 +4651,15 @@ private fun ChatScreen(
             WhappySounds.mediaAdded()
         }
     }
+    val memePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            memeSource = uri
+            memeTopText = ""
+            memeBottomText = ""
+            memeOpen = true
+            WhappySounds.mediaAdded()
+        }
+    }
 
     DisposableEffect(conversation.id) {
         onDispose {
@@ -4557,10 +4739,32 @@ private fun ChatScreen(
                 IconButton(enabled = calls != null, onClick = { calls?.start(conversation.peer, false) }) { Icon(Icons.Rounded.Phone, "Appel audio ${conversation.peer.displayName}") }
                 IconButton(enabled = calls != null, onClick = { calls?.start(conversation.peer, true) }) { Icon(Icons.Rounded.Videocam, "Appel vidéo ${conversation.peer.displayName}") }
             }
+            if (conversation.isGroup) {
+                IconButton(onClick = { groupCallInvitation = null; groupCallVideo = false; groupCallOpen = true }) { Icon(Icons.Rounded.Phone, "Appel audio du groupe") }
+                IconButton(onClick = { groupCallInvitation = null; groupCallVideo = true; groupCallOpen = true }) { Icon(Icons.Rounded.Videocam, "Appel vidéo du groupe") }
+            }
+            IconButton(onClick = { showRadioPicker = true }) { Icon(Icons.Rounded.Radio, "Changer de radio", tint = if (radioState?.playing == true) WapiChatAccent else WhappyDark) }
             IconButton(onClick = { showWallpaperPicker = true }) { Icon(Icons.Rounded.MoreVert, "Apparence de la conversation", tint = WhappyDark) }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(WhappyLine))
         if (searchOpen) OutlinedTextField(searchQuery, { searchQuery = it.take(120) }, Modifier.fillMaxWidth().background(WapiToolbar).padding(horizontal = 12.dp, vertical = 6.dp), placeholder = { Text("Rechercher un message") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(14.dp))
+        radioState?.episode?.let { episode ->
+            Surface(
+                modifier = Modifier.fillMaxWidth().clickable { showRadioPicker = true },
+                color = WhappyBlue.copy(alpha = .07f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .13f)),
+            ) {
+                Row(Modifier.padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Radio, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                    Column(Modifier.weight(1f).padding(start = 9.dp)) {
+                        Text(episode.stationName, color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                        Text(episode.title, color = WhappyDark, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(if (radioState.preparing) "Connexion…" else if (radioState.playing) "EN LECTURE" else "PAUSE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    IconButton(onClick = { if (radioState.playing) radio.pause() else radio.play(episode) }, modifier = Modifier.size(38.dp)) { Icon(if (radioState.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (radioState.playing) "Mettre en pause" else "Reprendre", tint = WhappyBlue) }
+                }
+            }
+        }
         if (conversation.isGroup) {
             Row(Modifier.fillMaxWidth().background(Color.White).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
@@ -4609,7 +4813,15 @@ private fun ChatScreen(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                         if (conversation.isGroup && !mine) {
-                            UserAvatar("", message.senderName.ifBlank { "Membre WAPI" }, 30.dp, Modifier.padding(top = 3.dp))
+                            UserAvatar(
+                                message.senderPhotoUrl,
+                                message.senderName.ifBlank { "Membre WAPI" },
+                                30.dp,
+                                Modifier.padding(top = 3.dp).clickable {
+                                    selectedGroupMember = conversation.groupMembers.firstOrNull { it.uid == message.senderId }
+                                        ?: WhappyMember(message.senderId, message.senderName.ifBlank { "Membre WAPI" }, photoUrl = message.senderPhotoUrl)
+                                },
+                            )
                             Spacer(Modifier.width(7.dp))
                         }
                         Surface(
@@ -4665,19 +4877,21 @@ private fun ChatScreen(
                                     Text(formatTime(message.createdAt), color = messageMetaColor, fontSize = 9.sp)
                                     if (mine) {
                                         val pending = message.deliveryState != "sent"
-                                        val read = !pending && message.createdAt > 0L && conversation.peerReadAt >= message.createdAt
+                                        val groupReadCount = if (conversation.isGroup && message.createdAt > 0L) conversation.groupReadAt.count { (memberId, readAt) -> memberId != currentUserId && readAt >= message.createdAt } else 0
+                                        val read = !pending && message.createdAt > 0L && if (conversation.isGroup) groupReadCount > 0 else conversation.peerReadAt >= message.createdAt
                                         val label = when {
                                             message.deliveryState == "retrying" -> " · Nouvelle tentative…"
                                             pending -> " · En attente…"
+                                            read && conversation.isGroup -> " · Lu par $groupReadCount"
                                             read -> " · Lu"
                                             else -> " · Envoyé"
                                         }
                                         Text(label, color = messageMetaColor, fontSize = 9.sp)
                                         Icon(
-                                            if (pending) Icons.Rounded.Schedule else Icons.Rounded.CheckCircle,
+                                            when { pending -> Icons.Rounded.Schedule; read -> Icons.Rounded.DoneAll; else -> Icons.Rounded.Check },
                                             null,
-                                            tint = if (mine) Color.White.copy(alpha = if (read) 1f else .7f) else WapiChatAccent.copy(alpha = if (read) 1f else .62f),
-                                            modifier = Modifier.padding(start = 3.dp).size(12.dp),
+                                            tint = if (read) Color(0xFFDAF3FF) else Color.White.copy(alpha = .72f),
+                                            modifier = Modifier.padding(start = 3.dp).size(if (read) 14.dp else 12.dp),
                                         )
                                     }
                                 }
@@ -4723,6 +4937,38 @@ private fun ChatScreen(
                     }
                 },
                 confirmButton = { TextButton(onClick = { showWallpaperPicker = false }) { Text("Fermer") } },
+            )
+        }
+        if (showRadioPicker) {
+            AlertDialog(
+                onDismissRequest = { showRadioPicker = false },
+                icon = { Icon(Icons.Rounded.Radio, null, tint = WhappyBlue) },
+                title = { Text("Radios & podcasts", color = WhappyDark, fontWeight = FontWeight.Black) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Changez de chaîne sans quitter cette conversation.", color = WhappyMuted, fontSize = 11.sp)
+                        if (publicRadioEpisodes.isEmpty()) Text("Aucune émission publiée n’est encore disponible.", color = WhappyMuted, fontSize = 12.sp)
+                        else publicRadioEpisodes.sortedByDescending { it.createdAt }.take(12).forEach { episode ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable { radio?.play(episode); showRadioPicker = false },
+                                color = if (radioState?.episode?.id == episode.id) WhappyBlue.copy(alpha = .09f) else Color(0xFFF8FAFC),
+                                shape = RoundedCornerShape(15.dp),
+                            ) {
+                                Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(if (radioState?.episode?.id == episode.id && radioState.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+                                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                        Text(episode.title, color = WhappyDark, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${episode.stationName} · ${formatRadioDuration(episode.durationSeconds)}", color = WhappyMuted, fontSize = 9.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { radio?.stop(); showRadioPicker = false }) { Text("Arrêter") } },
+                dismissButton = { TextButton(onClick = { showRadioPicker = false }) { Text("Fermer") } },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(26.dp),
             )
         }
         if (recording || voiceDraft != null || voiceNoteError != null) {
@@ -4820,6 +5066,10 @@ private fun ChatScreen(
                     Box(Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(WhappySurface), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.LocalOffer, "Faire une offre", tint = WapiChatAccent, modifier = Modifier.size(25.dp)) }
                     Text("Offre", Modifier.padding(top = 6.dp), color = WhappyMuted, fontSize = 11.sp)
                 }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { showMore = false; memePicker.launch(arrayOf("image/*")) }) {
+                    Box(Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(WhappySurface), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.AutoAwesome, "Créer un mème", tint = WapiChatAccent, modifier = Modifier.size(25.dp)) }
+                    Text("Mème", Modifier.padding(top = 6.dp), color = WhappyMuted, fontSize = 11.sp)
+                }
             }
         }
     }
@@ -4915,6 +5165,50 @@ private fun ChatScreen(
             shape = RoundedCornerShape(28.dp),
         )
     }
+    if (memeOpen && memeSource != null) {
+        var memePreview by remember(memeSource) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+        LaunchedEffect(memeSource) {
+            memePreview = withContext(Dispatchers.IO) { runCatching { loadImageBitmap(context, memeSource.toString()) }.getOrNull() }
+        }
+        AlertDialog(
+            onDismissRequest = { if (!memeBusy) memeOpen = false },
+            icon = { Icon(Icons.Rounded.AutoAwesome, null, tint = WhappyBlue) },
+            title = { Text("Atelier de mèmes", color = WhappyDark, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Ajoutez votre texte à l’image. Le mème est créé sur votre téléphone puis envoyé comme une photo dans cette discussion.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                    memePreview?.let { preview -> Image(preview, "Aperçu du mème", Modifier.fillMaxWidth().heightIn(max = 190.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop) }
+                    OutlinedTextField(memeTopText, { memeTopText = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Texte du haut") }, singleLine = true, shape = RoundedCornerShape(15.dp))
+                    OutlinedTextField(memeBottomText, { memeBottomText = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Texte du bas") }, singleLine = true, shape = RoundedCornerShape(15.dp))
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !memeBusy && (memeTopText.isNotBlank() || memeBottomText.isNotBlank()),
+                    onClick = {
+                        val source = memeSource ?: return@Button
+                        memeBusy = true
+                        chatScope.launch {
+                            runCatching { withContext(Dispatchers.IO) { renderWapiMeme(context, source, memeTopText, memeBottomText) } }
+                                .onSuccess { file ->
+                                    onSendMedia(Uri.fromFile(file), "image", "image/jpeg", file.name, 0)
+                                    WhappySounds.sent()
+                                    WhappySounds.haptic(context)
+                                    memeOpen = false
+                                    memeSource = null
+                                }
+                                .onFailure { voiceNoteError = "Le mème n’a pas pu être créé. Choisissez une autre image puis réessayez." }
+                            memeBusy = false
+                        }
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text(if (memeBusy) "Création…" else "Créer et envoyer") }
+            },
+            dismissButton = { TextButton(enabled = !memeBusy, onClick = { memeOpen = false; memeSource = null }) { Text("Annuler") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+        )
+    }
     if (showPeerProfile) {
         AlertDialog(
             onDismissRequest = { showPeerProfile = false },
@@ -4931,10 +5225,57 @@ private fun ChatScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (conversation.peer.phoneNumber.isNotBlank()) Text(conversation.peer.phoneNumber, color = WhappyDark, fontWeight = FontWeight.SemiBold)
                     Text(if (conversation.isGroup) "Ouvrez les informations du groupe, ses membres et ses médias depuis cette fiche." else "Photo, identité et moyens de contact de ce compte.", color = WhappyMuted, lineHeight = 19.sp)
-                    if (conversation.isGroup && conversation.groupOwnerId == currentUserId) {
+                    if (conversation.isGroup && (conversation.groupOwnerId == currentUserId || currentUserId in conversation.groupAdminIds)) {
                         OutlinedButton(onClick = { groupNameDraft = conversation.peer.displayName; groupPhotoUri = null; removeGroupPhoto = false; showGroupEditor = true; showPeerProfile = false }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Rounded.Edit, null)
                             Text("  Modifier le groupe")
+                        }
+                    }
+                    if (conversation.isGroup && conversation.groupOwnerId == currentUserId) {
+                        OutlinedButton(onClick = { showPeerProfile = false; showGroupAdministrators = true }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Groups, null)
+                            Text("  Gérer les administrateurs")
+                        }
+                    }
+                    if (conversation.isGroup) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            OutlinedButton(onClick = { showPeerProfile = false; groupCallInvitation = null; groupCallVideo = false; groupCallOpen = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Phone, null); Text(" Audio") }
+                            OutlinedButton(onClick = { showPeerProfile = false; groupCallInvitation = null; groupCallVideo = true; groupCallOpen = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Videocam, null); Text(" Vidéo") }
+                        }
+                    }
+                    if (!conversation.isGroup) {
+                        Text("Activité publique", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        val peerEpisodes = publicRadioEpisodes.filter { it.ownerId == conversation.peer.uid }
+                        if (peerEpisodes.isEmpty()) Text("Aucune radio ni playlist publique partagée.", color = WhappyMuted, fontSize = 11.sp)
+                        else peerEpisodes.take(4).forEach { episode ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clickable { radio?.play(episode) },
+                                color = WhappyBlue.copy(alpha = .06f),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Radio, null, tint = WhappyBlue)
+                                    Column(Modifier.weight(1f).padding(start = 9.dp)) {
+                                        Text(episode.title, color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                                        Text(episode.stationName, color = WhappyMuted, fontSize = 9.sp, maxLines = 1)
+                                    }
+                                    Icon(Icons.Rounded.PlayArrow, "Écouter", tint = WhappyBlue)
+                                }
+                            }
+                        }
+                    }
+                    if (!conversation.isGroup && conversation.peer.uid.isNotBlank() && conversation.peer.uid != currentUserId) {
+                        OutlinedButton(
+                            onClick = {
+                                val next = !liveAlertEnabled
+                                liveAlertEnabled = next
+                                onSetLiveSubscription(conversation.peer.uid, next)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (liveAlertEnabled) WhappyBlue else WhappyDark),
+                        ) {
+                            Icon(Icons.Rounded.Notifications, null)
+                            Text(if (liveAlertEnabled) "  Alertes Live activées" else "  Me prévenir de ses Lives")
                         }
                     }
                     if (!conversation.isGroup && conversation.peer.phoneNumber.isNotBlank()) {
@@ -4946,6 +5287,37 @@ private fun ChatScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showPeerProfile = false }) { Text("Fermer") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+        )
+    }
+    selectedGroupMember?.let { member ->
+        val memberRadio = publicRadioEpisodes.filter { it.ownerId == member.uid }
+        AlertDialog(
+            onDismissRequest = { selectedGroupMember = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    UserAvatar(member.photoUrl, member.displayName, 58.dp)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(member.displayName, color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                        Text(if (member.uid in conversation.groupAdminIds) "Administrateur du groupe" else "Membre du groupe", color = WhappyMuted, fontSize = 10.sp)
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (member.phoneNumber.isNotBlank()) Text(member.phoneNumber, color = WhappyDark, fontWeight = FontWeight.Bold)
+                    Text("Activité publique", color = WhappyDark, fontWeight = FontWeight.Black)
+                    if (memberRadio.isEmpty()) Text("Aucune radio ni playlist publique partagée.", color = WhappyMuted, fontSize = 11.sp)
+                    else memberRadio.take(3).forEach { episode ->
+                        Surface(Modifier.fillMaxWidth().clickable { radio?.play(episode) }, color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(13.dp)) {
+                            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Radio, null, tint = WhappyBlue); Text(episode.title, Modifier.weight(1f).padding(start = 9.dp), color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp); Icon(Icons.Rounded.PlayArrow, "Écouter", tint = WhappyBlue) }
+                        }
+                    }
+                    if (member.phoneNumber.isNotBlank()) OutlinedButton(onClick = { calls?.start(member, false); selectedGroupMember = null }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Phone, null); Text("  Appeler") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { selectedGroupMember = null }) { Text("Fermer") } },
             containerColor = Color.White,
             shape = RoundedCornerShape(26.dp),
         )
@@ -4975,6 +5347,48 @@ private fun ChatScreen(
             dismissButton = { TextButton(onClick = { showGroupEditor = false }) { Text("Annuler") } },
             containerColor = Color.White,
             shape = RoundedCornerShape(26.dp),
+        )
+    }
+    if (showGroupAdministrators && conversation.isGroup) {
+        AlertDialog(
+            onDismissRequest = { showGroupAdministrators = false },
+            icon = { Icon(Icons.Rounded.Groups, null, tint = WhappyBlue) },
+            title = { Text("Administrateurs du groupe", color = WhappyDark, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Le créateur reste propriétaire. Il peut nommer ou retirer d’autres administrateurs.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                    conversation.groupMembers.forEach { member ->
+                        val owner = member.uid == conversation.groupOwnerId
+                        val administrator = owner || member.uid in conversation.groupAdminIds
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (administrator) WhappyBlue.copy(alpha = .07f) else Color.Transparent).padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            UserAvatar(member.photoUrl, member.displayName, 38.dp)
+                            Column(Modifier.weight(1f).padding(start = 9.dp)) {
+                                Text(member.displayName, color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text(if (owner) "Créateur · administrateur permanent" else if (administrator) "Administrateur" else "Membre", color = if (administrator) WhappyBlue else WhappyMuted, fontSize = 9.sp)
+                            }
+                            if (!owner && member.uid != currentUserId) Checkbox(
+                                checked = administrator,
+                                onCheckedChange = { onSetGroupAdministrator(member.uid, it) },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showGroupAdministrators = false }) { Text("Terminé") } },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+        )
+    }
+    if (groupCallOpen && conversation.isGroup) {
+        WapiGroupCallDialog(
+            group = conversation,
+            invitation = groupCallInvitation,
+            requestedVideo = groupCallVideo,
+            canEnd = conversation.groupOwnerId == currentUserId || currentUserId in conversation.groupAdminIds,
+            onDismiss = { groupCallOpen = false; groupCallInvitation = null },
         )
     }
     selectedMessage?.let { message ->
@@ -5626,6 +6040,8 @@ private fun LiveScreen(
     onCreateLive: (String, String, String, Boolean, String, String) -> Unit,
     onEndLive: (String) -> Unit,
     onUpdateLiveStatus: (String, String) -> Unit,
+    requestedLiveId: String,
+    onConsumeLiveLink: () -> Unit,
     onOpenTwin: () -> Unit,
 ) {
     var creating by remember { mutableStateOf(false) }
@@ -5634,21 +6050,23 @@ private fun LiveScreen(
     var previewStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
     var pendingStudioTitle by remember { mutableStateOf<String?>(null) }
     var pendingLiveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingLiveRequiresCamera by remember { mutableStateOf(true) }
     var permissionError by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val livePermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        val granted = result[Manifest.permission.CAMERA] == true && result[Manifest.permission.RECORD_AUDIO] == true
+        val granted = result[Manifest.permission.RECORD_AUDIO] == true && (!pendingLiveRequiresCamera || result[Manifest.permission.CAMERA] == true)
         if (granted) pendingLiveAction?.invoke() else permissionError = true
         pendingLiveAction = null
     }
-    val startWithPermissions: (() -> Unit) -> Unit = { action ->
-        val alreadyGranted = preview || (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-            && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    val startWithPermissions: (Boolean, () -> Unit) -> Unit = { requireCamera, action ->
+        val alreadyGranted = preview || (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            && (!requireCamera || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED))
         if (alreadyGranted) action()
         else {
             permissionError = false
             pendingLiveAction = action
-            livePermissions.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+            pendingLiveRequiresCamera = requireCamera
+            livePermissions.launch(if (requireCamera) arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO) else arrayOf(Manifest.permission.RECORD_AUDIO))
         }
     }
     val visibleLives = (localLives + lives).map { live -> previewStatuses[live.id]?.let { live.copy(status = it) } ?: live }.filter { it.status != "ended" }
@@ -5659,6 +6077,12 @@ private fun LiveScreen(
             selectedLive = it
             pendingStudioTitle = null
         }
+    }
+    LaunchedEffect(requestedLiveId, visibleLives) {
+        if (requestedLiveId.isBlank()) return@LaunchedEffect
+        val requested = visibleLives.firstOrNull { it.id == requestedLiveId } ?: return@LaunchedEffect
+        if (requested.streamProvider == "livekit-self-hosted" && requested.streamRoomId.isNotBlank()) selectedLive = requested
+        onConsumeLiveLink()
     }
     LazyColumn(Modifier.fillMaxSize().background(Color(0xFFF7F8FA)), contentPadding = PaddingValues(WapiMobile.screen, 10.dp, WapiMobile.screen, 26.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -5684,7 +6108,7 @@ private fun LiveScreen(
         if (visibleLives.isEmpty()) item { EmptyState("Aucun Live en cours", "Préparez le premier direct de votre communauté.") }
         items(visibleLives, key = { it.id }) { live ->
             val liveReady = live.streamProvider == "livekit-self-hosted"
-            Card(Modifier.fillMaxWidth().clickable { if (live.hostId == currentUserId && !liveReady) startWithPermissions { selectedLive = live } else selectedLive = live }, shape = RoundedCornerShape(23.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+            Card(Modifier.fillMaxWidth().clickable { if (live.hostId == currentUserId && !liveReady) startWithPermissions(!live.audioOnly) { selectedLive = live } else selectedLive = live }, shape = RoundedCornerShape(23.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
                 Column {
                     Box(Modifier.fillMaxWidth().height(128.dp).background(if (live.status == "live") WhappyDark else Color.White), contentAlignment = Alignment.Center) {
                         Icon(if (live.status == "live") Icons.Rounded.PlayArrow else Icons.Rounded.Schedule, null, tint = if (live.status == "live") Color.White else WhappyBlue, modifier = Modifier.size(46.dp))
@@ -5699,12 +6123,12 @@ private fun LiveScreen(
                         }
                         if (live.productTitle.isNotBlank()) Text("Deal présenté : ${live.productTitle}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 11.sp)
                         if (live.hostId == currentUserId && live.status == "scheduled" && liveReady) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { startWithPermissions { selectedLive = live } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
+                            Button(onClick = { startWithPermissions(!live.audioOnly) { selectedLive = live } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Démarrer") }
                             OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text("Annuler") }
                         }
                         else if (live.hostId == currentUserId && !liveReady) {
                             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { startWithPermissions { selectedLive = live } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Videocam, null, modifier = Modifier.size(17.dp)); Text("  Ouvrir le studio") }
+                                Button(onClick = { startWithPermissions(!live.audioOnly) { selectedLive = live } }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Icon(if (live.audioOnly) Icons.Rounded.Radio else Icons.Rounded.Videocam, null, modifier = Modifier.size(17.dp)); Text(if (live.audioOnly) "  Ouvrir la radio" else "  Ouvrir le studio") }
                                 OutlinedButton(onClick = { if (preview) previewStatuses = previewStatuses + (live.id to "ended") else onEndLive(live.id) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(if (live.status == "live") "Terminer" else "Annuler") }
                             }
                             Text("Caméra et micro sont disponibles en studio privé. La diffusion publique attend le transport média sécurisé.", Modifier.padding(top = 8.dp), color = WhappyMuted, fontSize = 10.sp, lineHeight = 14.sp)
@@ -5727,15 +6151,19 @@ private fun LiveScreen(
             if (preview) localLives = listOf(WhappyLive("local-${System.currentTimeMillis()}", currentUserId, accountDisplayName, title, category, product, status, 0, System.currentTimeMillis(), hostMode, visibility)) + localLives
             else onCreateLive(title, category, product, false, hostMode, visibility)
         }
-        if (startNow) startWithPermissions(createAction) else createAction()
+        if (startNow) startWithPermissions(true, createAction) else createAction()
         creating = false
     }
     selectedLive?.let { live ->
-        WapiNativeLiveRoomDialog(
-            live = live,
-            expectedHost = live.hostId == currentUserId,
-            onDismiss = { selectedLive = null },
-        )
+        if (live.streamProvider == "livekit-self-hosted" && live.streamRoomId.isNotBlank()) {
+            WapiNativeLiveRoomDialog(
+                live = live,
+                expectedHost = live.hostId == currentUserId,
+                onDismiss = { selectedLive = null },
+            )
+        } else if (live.hostId == currentUserId) {
+            LivePreflightDialog(live = live, onDismiss = { selectedLive = null })
+        }
     }
 }
 
@@ -5847,192 +6275,6 @@ private fun LivePreflightDialog(live: WhappyLive, onDismiss: () -> Unit) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun LiveRoomDialog(live: WhappyLive, isOwner: Boolean, busy: Boolean, onDismiss: () -> Unit, onEnd: () -> Unit) {
-    if (live.streamProvider == "unconfigured" || live.streamRoomId.isBlank()) {
-        if (isOwner) LivePreflightDialog(live = live, onDismiss = onDismiss)
-        else AlertDialog(
-            onDismissRequest = onDismiss,
-            icon = { Icon(Icons.Rounded.Schedule, null, tint = WhappyBlue) },
-            title = { Text("Direct en préparation", fontWeight = FontWeight.Black) },
-            text = { Text("${live.hostName} prépare ce direct dans le studio WAPI. Il sera rejoignable lorsque son transport audio/vidéo sécurisé sera activé.") },
-            confirmButton = { Button(onClick = onDismiss) { Text("Compris") } },
-        )
-        return
-    }
-    val context = LocalContext.current
-    val prefs = remember { WhappyFastStorage.preferences(context, "whappy_live_lab") }
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val tts = remember { TextToSpeech(context) { _ -> } }
-    var reactionCount by remember(live.id) { mutableStateOf(live.viewerCount) }
-    var message by remember(live.id) { mutableStateOf("") }
-    var liveEvents by remember(live.id) { mutableStateOf(prefs.getStringSet("events-${live.id}", emptySet()).orEmpty().toList().sorted()) }
-    var giftPanel by rememberSaveable(live.id) { mutableStateOf(false) }
-    var giftBalance by rememberSaveable(live.id) { mutableStateOf(prefs.getInt("gift-balance", 250)) }
-    var giftSpent by rememberSaveable(live.id) { mutableStateOf(prefs.getInt("gift-spent", 0)) }
-    var pendingGiftIndex by rememberSaveable(live.id) { mutableStateOf(-1) }
-    var animatedGift by rememberSaveable(live.id) { mutableStateOf("") }
-    var soundOn by rememberSaveable(live.id) { mutableStateOf(true) }
-    var micOpen by rememberSaveable(live.id) { mutableStateOf(isOwner && live.status == "live") }
-    var voiceFeedback by rememberSaveable(live.id) { mutableStateOf<String?>(null) }
-    var liveRecorder by remember(live.id) { mutableStateOf<MediaRecorder?>(null) }
-    var liveRecordingFile by remember(live.id) { mutableStateOf<File?>(null) }
-    var frontCamera by rememberSaveable(live.id) { mutableStateOf(true) }
-    val youLabel = t("Vous", "You", "Yo")
-    val giftOptions = listOf(
-        Triple("Rose", "🌹", 5),
-        Triple("Étoile", "⭐", 15),
-        Triple("Feu", "🔥", 25),
-        Triple("Cœur", "💙", 50),
-        Triple("Couronne", "👑", 120),
-        Triple("WAPI Premium", "🎁", 250),
-    )
-
-    fun saveLiveEvents(next: List<String>) {
-        liveEvents = next.sorted().takeLast(80)
-        prefs.edit().putStringSet("events-${live.id}", liveEvents.toSet()).apply()
-    }
-
-    fun appendLiveEvent(type: String, author: String, value: String, label: String = "", points: Int = 0) {
-        val entry = listOf(System.currentTimeMillis().toString(), type, author.replace("|", " "), value.replace("|", " "), label.replace("|", " "), points.toString()).joinToString("|")
-        saveLiveEvents(liveEvents + entry)
-    }
-
-    fun speakLive(text: String) {
-        if (!soundOn) return
-        tts.language = Locale.FRANCE
-        tts.speak(text, TextToSpeech.QUEUE_ADD, null, "whappy-live-${System.currentTimeMillis()}")
-    }
-
-    fun sendGift(index: Int) {
-        val gift = giftOptions.getOrNull(index) ?: return
-        if (isOwner) { voiceFeedback = "Un hôte ne peut pas s’envoyer un cadeau à lui-même."; return }
-        if (giftBalance < gift.third) { voiceFeedback = "Solde W-Coins insuffisant. Rechargez votre portefeuille test."; return }
-        if (giftSpent + gift.third > 1_000) { voiceFeedback = "Plafond de sécurité atteint pour cette session test."; return }
-        giftBalance -= gift.third
-        giftSpent += gift.third
-        prefs.edit().putInt("gift-balance", giftBalance).putInt("gift-spent", giftSpent).apply()
-        appendLiveEvent("gift", youLabel, gift.second, gift.first, gift.third)
-        reactionCount += gift.third
-        animatedGift = gift.second
-        speakLive("$youLabel a envoyé ${gift.first}")
-        WhappySounds.reward(); WhappySounds.haptic(context, strong = true)
-        giftPanel = false; pendingGiftIndex = -1
-    }
-
-    LaunchedEffect(animatedGift) { if (animatedGift.isNotBlank()) { delay(1_500); animatedGift = "" } }
-
-    fun startLiveVoice() {
-        if (!isOwner || live.status != "live") return
-        runCatching { createVoiceRecorder(context) }
-            .onSuccess { (recorder, file) ->
-                liveRecorder = recorder
-                liveRecordingFile = file
-                micOpen = true
-                voiceFeedback = "Micro live activé · sortie audio en haut-parleur."
-            }
-            .onFailure {
-                micOpen = false
-                voiceFeedback = "Le micro n’a pas pu démarrer. Vérifiez l’autorisation audio."
-            }
-    }
-
-    fun stopLiveVoice() {
-        val recorder = liveRecorder
-        val file = liveRecordingFile
-        runCatching { recorder?.stop() }
-        recorder?.release()
-        liveRecorder = null
-        liveRecordingFile = null
-        micOpen = false
-        if (file != null && file.exists() && file.length() > 0L) {
-            voiceFeedback = "Voix live capturée pour ce test gratuit."
-        } else {
-            file?.delete()
-            voiceFeedback = "Micro live coupé."
-        }
-    }
-
-    LaunchedEffect(soundOn, live.id) {
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        routeCommunicationAudio(audioManager, soundOn)
-        if (soundOn) speakLive("Son du live activé. ${live.title}")
-    }
-    DisposableEffect(live.id) {
-        onDispose {
-            runCatching { liveRecorder?.stop() }
-            liveRecorder?.release()
-            liveRecordingFile = null
-            tts.shutdown()
-            routeCommunicationAudio(audioManager, false)
-            audioManager.mode = AudioManager.MODE_NORMAL
-        }
-    }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Surface(Modifier.fillMaxSize(), color = Color.White) {
-            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Retour", "Back", "Zonga"), tint = WhappyDark) }
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clip(RoundedCornerShape(7.dp)).background(WhappyBlue).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(if (live.status == "live") "● LIVE" else t("PROGRAMMÉ", "SCHEDULED", "EBONGISAMI"), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) }; Text(if (isOwner) t("  Vous êtes sur scène", "  You are on stage", "  Ozali na scène") else "  ${live.hostName}", color = WhappyDark, fontWeight = FontWeight.Black) }
-                        Text(live.title, Modifier.padding(top = 3.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (isOwner && live.status == "live") TextButton(onClick = onEnd, enabled = !busy) { Text(t("Terminer", "End", "Sukisa"), color = WhappyBlue, fontWeight = FontWeight.Black) }
-                }
-                Box(Modifier.fillMaxWidth().weight(1f).background(WhappyNavy), contentAlignment = Alignment.Center) {
-                    if (isOwner && live.status == "live") LiveCameraPreview(frontCamera)
-                    else { Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(62.dp)); Text(if (live.status == "live") t("Le direct est en cours", "Live now", "Live ezali kotambola") else t("Direct à venir", "Upcoming live", "Live ekoya"), Modifier.align(Alignment.BottomCenter).padding(24.dp), color = Color.White, fontWeight = FontWeight.Bold) }
-                    Row(Modifier.align(Alignment.TopStart).padding(14.dp).clip(RoundedCornerShape(10.dp)).background(WhappyBlue).padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("● LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("  👀 ${live.viewerCount}", color = Color.White, fontSize = 10.sp) }
-                    Row(Modifier.align(Alignment.TopEnd).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { soundOn = !soundOn }, colors = ButtonDefaults.textButtonColors(containerColor = Color.Black.copy(alpha = .48f), contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text(if (soundOn) "🔊 Son" else "🔇 Muet", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                        if (isOwner && live.status == "live") TextButton(onClick = { if (micOpen) stopLiveVoice() else startLiveVoice() }, colors = ButtonDefaults.textButtonColors(containerColor = Color.Black.copy(alpha = .48f), contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text(if (micOpen) "🎙️ Micro ON" else "🎙️ Micro", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                    }
-                    if (isOwner) Text(t("Caméra de votre téléphone", "Your phone camera", "Caméra ya telefone na yo"), Modifier.align(Alignment.BottomCenter).padding(bottom = 15.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .55f)).padding(horizontal = 12.dp, vertical = 7.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    if (animatedGift.isNotBlank()) Box(Modifier.align(Alignment.Center).size(150.dp).graphicsLayer { rotationX = -12f; rotationY = reactionCount * 13f; shadowElevation = 40f; cameraDistance = 18f }.clip(RoundedCornerShape(42.dp)).background(Brush.radialGradient(listOf(Color.White.copy(alpha = .96f), WhappySky.copy(alpha = .82f), WhappyBlue.copy(alpha = .15f)))), contentAlignment = Alignment.Center) { Text(animatedGift, fontSize = 74.sp) }
-                }
-                voiceFeedback?.let { value -> Text(value, Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 7.dp), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                if (isOwner && live.status == "live") {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
-                        FilledIconButton(onClick = { frontCamera = !frontCamera }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue, contentColor = Color.White)) { Icon(Icons.Rounded.FlipCameraAndroid, t("Retourner la caméra", "Flip camera", "Balola caméra")) }
-                    }
-                }
-                if (live.productTitle.isNotBlank()) Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LocalOffer, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 9.dp)) { Text(t("DEAL DU LIVE · TEST GRATUIT", "FREE LIVE DEAL TEST", "DEAL YA LIVE"), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black); Text(live.productTitle, color = WhappyDark, fontWeight = FontWeight.Bold) }; Text("0 FCFA", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black) } }
-                if (liveEvents.isNotEmpty()) LazyColumn(Modifier.fillMaxWidth().heightIn(max = 116.dp).padding(horizontal = 16.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(liveEvents.takeLast(10), key = { it }) { raw ->
-                        val parts = raw.split("|", limit = 6)
-                        val type = parts.getOrElse(1) { "comment" }
-                        val author = parts.getOrElse(2) { youLabel }
-                        val value = parts.getOrElse(3) { "" }
-                        val label = parts.getOrElse(4) { "" }
-                        val cost = parts.getOrElse(5) { "0" }
-                        Text(if (type == "gift") "$value $author a envoyé $label · $cost W-Coins" else "$author : $value", color = if (type == "gift") WhappyBlue else WhappyMuted, fontSize = 11.sp, fontWeight = if (type == "gift") FontWeight.Bold else FontWeight.Normal)
-                    }
-                }
-                if (giftPanel) Column(Modifier.fillMaxWidth().background(WhappyAuroraSoft).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("CADEAUX 3D", color = WhappyDark, fontWeight = FontWeight.Black); Text("Solde : $giftBalance W-Coins · dépensé : $giftSpent/1000", color = WhappyMuted, fontSize = 10.sp) }; TextButton(enabled = giftBalance < 1_000, onClick = { giftBalance = (giftBalance + 250).coerceAtMost(1_000); prefs.edit().putInt("gift-balance", giftBalance).apply(); voiceFeedback = "+250 W-Coins de démonstration" }) { Text("+ Recharger") } }
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(9.dp)) { giftOptions.forEachIndexed { index, gift -> Card(Modifier.width(112.dp).clickable { pendingGiftIndex = index }.graphicsLayer { rotationX = 5f; rotationY = if (index % 2 == 0) -4f else 4f; shadowElevation = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(gift.second, fontSize = 38.sp); Text(gift.first, color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1); Text("${gift.third} W-Coins", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold) } } } }
-                    Text("Aucun paiement bancaire réel n’est effectué dans cette version.", color = WhappyMuted, fontSize = 9.sp)
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(message, { value -> if (value.length > message.length) WhappySounds.typing(context); message = value.take(180) }, Modifier.weight(1f), placeholder = { Text(t("Écrire dans le Live", "Write in the live", "Koma na Live")) }, singleLine = true, shape = RoundedCornerShape(15.dp)); if (!isOwner) IconButton(onClick = { giftPanel = !giftPanel }) { Text("🎁", fontSize = 22.sp) }; IconButton(onClick = { if (message.isNotBlank()) { val value = message.trim(); appendLiveEvent("comment", youLabel, value); speakLive(value); WhappySounds.sent(); message = "" } }) { Icon(Icons.AutoMirrored.Rounded.Send, t("Envoyer", "Send", "Tinda"), tint = WhappyBlue) }; TextButton(onClick = { reactionCount += 1; WhappySounds.haptic(context) }) { Text("💙 $reactionCount") } }
-            }
-        }
-    }
-    if (pendingGiftIndex >= 0) {
-        val gift = giftOptions[pendingGiftIndex]
-        AlertDialog(
-            onDismissRequest = { pendingGiftIndex = -1 },
-            icon = { Text(gift.second, fontSize = 54.sp, modifier = Modifier.graphicsLayer { rotationX = -8f; rotationY = 12f; shadowElevation = 22f }) },
-            title = { Text("Envoyer ${gift.first} ?", fontWeight = FontWeight.Black) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("Prix : ${gift.third} W-Coins"); Text("Solde après envoi : ${(giftBalance - gift.third).coerceAtLeast(0)} W-Coins", color = WhappyMuted); if (giftBalance < gift.third) Text("Solde insuffisant", color = Color(0xFFE53935), fontWeight = FontWeight.Bold) } },
-            confirmButton = { Button(enabled = giftBalance >= gift.third, onClick = { sendGift(pendingGiftIndex) }) { Text("Confirmer") } },
-            dismissButton = { TextButton(onClick = { pendingGiftIndex = -1 }) { Text("Annuler") } },
-        )
     }
 }
 
@@ -6483,6 +6725,7 @@ private fun ProfileScreen(
     online: Boolean,
     photoUrl: String,
     twinReadiness: Int,
+    adminMetrics: WapiAdminMetrics,
     preview: Boolean,
     busy: Boolean,
     onUpdatePhoto: (Uri, String) -> Unit,
@@ -6507,7 +6750,6 @@ private fun ProfileScreen(
     var protectPreview by rememberSaveable { mutableStateOf(prefs.getBoolean("protect_preview", true)) }
     var typingSounds by rememberSaveable { mutableStateOf(prefs.getBoolean("typing_sounds", true)) }
     var hapticFeedback by rememberSaveable { mutableStateOf(prefs.getBoolean("haptic_feedback", true)) }
-    var experimentalTools by rememberSaveable { mutableStateOf(prefs.getBoolean("experimental_tools", true)) }
     var storageUsage by remember { mutableStateOf(WapiMediaStore.usage(context)) }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -6573,7 +6815,19 @@ private fun ProfileScreen(
                         Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Visibility, null, tint = Color.White) }
                         Column(Modifier.weight(1f).padding(start = 11.dp)) { Text("Tableau de bord administrateur", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp); Text("Compte fondateur · accès réservé", color = Color.White.copy(alpha = .72f), fontSize = 10.sp) }
                     }
-                    Text("Accédez directement aux espaces opérationnels. Les chiffres affichés dans ces espaces proviennent des données connectées, jamais de statistiques inventées.", color = Color.White.copy(alpha = .82f), fontSize = 11.sp, lineHeight = 16.sp)
+                    Text("Données de votre compte connecté — aucune estimation ni statistique de démonstration.", color = Color.White.copy(alpha = .82f), fontSize = 11.sp, lineHeight = 16.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetricCard("Recettes encaissées", formatMoney(adminMetrics.paidRevenue), Modifier.weight(1f))
+                        MetricCard("Abonnés chaînes", formatCompactCount(adminMetrics.subscribers), Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetricCard("Podcasts publiés", adminMetrics.radioEpisodes.toString(), Modifier.weight(1f))
+                        MetricCard("Lives actifs", adminMetrics.activeLives.toString(), Modifier.weight(1f))
+                    }
+                    Text(
+                        if (adminMetrics.downloadsMeasured) "Téléchargements : mesure active." else "Téléchargements : la mesure serveur n’est pas encore activée.",
+                        color = Color.White.copy(alpha = .67f), fontSize = 10.sp,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { onOpenSpace(WhappyTab.BUSINESS) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("Business", fontSize = 11.sp) }
                         OutlinedButton(onClick = { onOpenSpace(WhappyTab.LIVE) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("En direct", fontSize = 11.sp) }
@@ -6622,7 +6876,7 @@ private fun ProfileScreen(
             )
         }
         item { Card(Modifier.fillMaxWidth().clickable { settingDialog = "Langue" }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Language, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(t("Langue de l’application", "App language", "Lokota ya application"), fontWeight = FontWeight.Bold, color = WhappyDark); Text(language.label, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } } }
-        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Live & cadeaux test" to "Audio du direct, W-Coins et modération", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
+        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
             Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
@@ -6664,20 +6918,6 @@ private fun ProfileScreen(
                         }
                         OutlinedButton(onClick = onEnableNotifications, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Notifications, null); Text("  Vérifier l’autorisation Android") }
                         Text("Les appels utilisent une alerte prioritaire ; les messages restent masqués sur l’écran verrouillé.", color = WhappyMuted, fontSize = 11.sp)
-                    }
-                    "Live & cadeaux test" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text("Mode expérimental gratuit", color = WhappyMuted, fontSize = 12.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) { Text("Portefeuille cadeaux test", fontWeight = FontWeight.Bold); Text("Les spectateurs utilisent des W-Coins de démonstration avec confirmation et plafond.", color = WhappyMuted, fontSize = 10.sp) }
-                            Switch(experimentalTools, { enabled -> experimentalTools = enabled; prefs.edit().putBoolean("experimental_tools", enabled).apply() })
-                        }
-                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7FF))) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LiveTv, null, tint = WhappyBlue); Text("  Voix du live active", fontWeight = FontWeight.Bold, color = WhappyDark) }
-                                Text("Le direct doit sortir sur le haut-parleur de l’appareil. Si Android bloque le son, vérifiez le volume média et les permissions audio.", color = WhappyMuted, fontSize = 11.sp)
-                            }
-                        }
-                        Text("Cette option prépare l’interface avant le paiement réel : les cadeaux sont marqués TEST pour éviter toute confusion.", color = WhappyMuted, fontSize = 11.sp)
                     }
                     "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }
@@ -7040,6 +7280,66 @@ private fun readBoundedBytes(input: java.io.InputStream, maximumBytes: Long): By
     return output.toByteArray()
 }
 
+/** Creates a shareable JPEG locally; the original picked image is never uploaded until send. */
+private fun renderWapiMeme(context: Context, source: Uri, topText: String, bottomText: String): File {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    require(bounds.outWidth > 0 && bounds.outHeight > 0) { "invalid-image" }
+    var sample = 1
+    while (bounds.outWidth / sample > 1_600 || bounds.outHeight / sample > 1_600) sample *= 2
+    val decoded = context.contentResolver.openInputStream(source)?.use {
+        BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+    } ?: error("unreadable-image")
+    val scale = min(1f, 1_600f / max(decoded.width, decoded.height).toFloat())
+    val width = (decoded.width * scale).toInt().coerceAtLeast(1)
+    val height = (decoded.height * scale).toInt().coerceAtLeast(1)
+    val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(output)
+    canvas.drawBitmap(decoded, null, android.graphics.Rect(0, 0, width, height), null)
+    if (decoded !== output) decoded.recycle()
+    val textSize = (width * 0.083f).coerceIn(30f, 104f)
+    drawMemeCaption(canvas, topText, width, height, textSize, atTop = true)
+    drawMemeCaption(canvas, bottomText, width, height, textSize, atTop = false)
+    return File(WapiMediaStore.cacheDirectory(context), "wapi-meme-${System.currentTimeMillis()}.jpg").also { file ->
+        file.outputStream().use { output.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+        output.recycle()
+    }
+}
+
+private fun drawMemeCaption(canvas: Canvas, raw: String, width: Int, height: Int, textSize: Float, atTop: Boolean) {
+    val text = raw.trim().uppercase(Locale.FRANCE)
+    if (text.isBlank()) return
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        this.textSize = textSize
+        textAlign = Paint.Align.CENTER
+    }
+    val maximumWidth = width * .88f
+    val words = text.split(Regex("\\s+"))
+    val lines = mutableListOf<String>()
+    var current = ""
+    words.forEach { word ->
+        val candidate = if (current.isBlank()) word else "$current $word"
+        if (paint.measureText(candidate) <= maximumWidth || current.isBlank()) current = candidate
+        else {
+            lines += current
+            current = word
+        }
+    }
+    if (current.isNotBlank()) lines += current
+    val visibleLines = lines.take(3)
+    val lineHeight = textSize * 1.08f
+    val blockHeight = lineHeight * visibleLines.size
+    var baseline = if (atTop) textSize + width * .045f else height - width * .045f - blockHeight + textSize
+    val stroke = Paint(paint).apply { style = Paint.Style.STROKE; color = android.graphics.Color.BLACK; strokeWidth = (textSize * .12f).coerceAtLeast(5f) }
+    val fill = Paint(paint).apply { style = Paint.Style.FILL; color = android.graphics.Color.WHITE }
+    visibleLines.forEach { line ->
+        canvas.drawText(line, width / 2f, baseline, stroke)
+        canvas.drawText(line, width / 2f, baseline, fill)
+        baseline += lineHeight
+    }
+}
+
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
@@ -7047,7 +7347,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 @Composable
-private fun UserAvatar(photoUrl: String, name: String, size: Dp, modifier: Modifier = Modifier) {
+internal fun UserAvatar(photoUrl: String, name: String, size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var bitmap by remember(photoUrl) { mutableStateOf(WapiBitmapMemoryCache.get(photoUrl)) }
     LaunchedEffect(photoUrl) {

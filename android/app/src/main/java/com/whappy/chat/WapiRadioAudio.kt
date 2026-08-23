@@ -100,6 +100,14 @@ class WapiRadioPlayback {
 
     fun stop() = release()
 
+    fun pause() {
+        runCatching { player?.pause() }
+    }
+
+    fun resume() {
+        runCatching { player?.start() }
+    }
+
     fun release() {
         runCatching { equalizer?.release() }; equalizer = null
         runCatching { bassBoost?.release() }; bassBoost = null

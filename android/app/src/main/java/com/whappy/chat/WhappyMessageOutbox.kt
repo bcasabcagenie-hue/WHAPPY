@@ -23,6 +23,7 @@ data class WhappyPendingMessage(
     val durationSeconds: Int = 0,
     val source: String = "conversations",
     val senderName: String = "Membre WAPI",
+    val senderPhotoUrl: String = "",
     val attempts: Int = 0,
 )
 
@@ -106,6 +107,7 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
         .put("durationSeconds", durationSeconds)
         .put("source", source)
         .put("senderName", senderName)
+        .put("senderPhotoUrl", senderPhotoUrl)
         .toString()
 
     private fun pendingMessageFromJson(value: String, attempts: Int): WhappyPendingMessage =
@@ -125,6 +127,7 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
                 durationSeconds = json.optInt("durationSeconds"),
                 source = json.optString("source", "conversations"),
                 senderName = json.optString("senderName", "Membre WAPI"),
+                senderPhotoUrl = json.optString("senderPhotoUrl"),
                 attempts = attempts,
             )
         }
