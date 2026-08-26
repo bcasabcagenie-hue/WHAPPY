@@ -10,6 +10,7 @@ import UIKit
 @MainActor
 final class WhappyStore: ObservableObject {
     @Published var selectedTab: WhappyTab = .messages
+    @Published private(set) var recentSpaces: [WhappyTab] = []
     @Published var conversations: [Conversation] { didSet { save() } }
     @Published var channels: [WhappyChannel] { didSet { save() } }
     @Published var listings: [Listing] { didSet { save() } }
@@ -121,6 +122,17 @@ final class WhappyStore: ObservableObject {
 
     var unreadCount: Int { accountConversations.filter(\.unread).count }
     var cartCount: Int { cart.reduce(0) { $0 + $1.quantity } }
+
+    /// The pull-down drawer in Messages mirrors a super-app's recent spaces.
+    /// Core communication tabs stay out of this list so it remains useful.
+    func rememberRecentSpace(_ tab: WhappyTab) {
+        let discoverable: Set<WhappyTab> = [.home, .actus, .wia, .market, .live, .games, .services, .profile]
+        guard discoverable.contains(tab) else { return }
+        recentSpaces.removeAll { $0 == tab }
+        recentSpaces.insert(tab, at: 0)
+        recentSpaces = Array(recentSpaces.prefix(6))
+        defaults.set(recentSpaces.map(\.rawValue), forKey: "recentSpaces")
+    }
 
     func handleWhappyURL(_ url: URL) {
         guard let link = WhappyDeepLink.parse(url) else { return }
@@ -650,6 +662,11 @@ final class WhappyStore: ObservableObject {
     }
 
     private func restore() {
+        recentSpaces = (defaults.stringArray(forKey: "recentSpaces") ?? [])
+            .compactMap(WhappyTab.init(rawValue:))
+            .filter { $0 != .messages && $0 != .calls }
+            .prefix(6)
+            .map { $0 }
         conversations = decode("conversations") ?? conversations
         channels = decode("channels") ?? channels
         listings = decode("listings") ?? listings

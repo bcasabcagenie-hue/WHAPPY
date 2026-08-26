@@ -121,6 +121,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FlipCameraAndroid
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LocalOffer
 import androidx.compose.material.icons.rounded.LiveTv
@@ -148,6 +149,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -1112,11 +1114,34 @@ private fun WhappyMain(
     val accountDisplayName = activeBusinessPage?.name?.takeIf { isBusinessAccount } ?: personalDisplayName
     val activePhotoUrl = activeBusinessPage?.logoUrl?.takeIf { isBusinessAccount }.orEmpty().ifBlank { state.accountPhotoUrl }
     val visibleConversations = if (isBusinessAccount) {
-        state.conversations.filter { it.profileType == "business" && it.businessPageId == activeBusinessPage?.id }
+        state.conversations.filter { it.profileType == "business" && it.businessPageId == activeBusinessPage.id }
     } else {
         state.conversations.filter { it.profileType != "business" }
     }
     val mainContext = LocalContext.current
+    val recentSpacesPreferences = remember { WhappyFastStorage.preferences(mainContext, "wapi_recent_spaces") }
+    val discoverableSpaces = remember {
+        setOf(
+            WhappyTab.MOMENTS, WhappyTab.STORIES, WhappyTab.WEPI, WhappyTab.MARKET,
+            WhappyTab.LIVE, WhappyTab.RADIO, WhappyTab.PODCASTS, WhappyTab.GAMES,
+            WhappyTab.SERVICES, WhappyTab.BUSINESS, WhappyTab.PROFILE,
+        )
+    }
+    var recentSpaces by remember {
+        mutableStateOf(
+            recentSpacesPreferences.getString("tabs", "").orEmpty().split(',')
+                .mapNotNull { value -> runCatching { WhappyTab.valueOf(value) }.getOrNull() }
+                .filter { it in discoverableSpaces }
+                .distinct()
+                .take(6),
+        )
+    }
+    LaunchedEffect(currentTab) {
+        if (currentTab in discoverableSpaces) {
+            recentSpaces = (listOf(currentTab) + recentSpaces.filterNot { it == currentTab }).take(6)
+            recentSpacesPreferences.edit().putString("tabs", recentSpaces.joinToString(",") { it.name }).apply()
+        }
+    }
     var founderMetrics by remember(isFounderAccount, preview) { mutableStateOf<WapiAdminMetrics?>(null) }
     LaunchedEffect(isFounderAccount, preview) {
         if (!isFounderAccount || preview) {
@@ -1190,6 +1215,7 @@ private fun WhappyMain(
         onDismiss = { showActivityCenter = false },
     )
     if (showAppHub) WhappyFeatureHubDialog(
+        recentTabs = recentSpaces,
         onOpen = { tab -> showAppHub = false; onTab(tab) },
         onOpenTwin = { showAppHub = false; showTwinStudio = true },
         onDismiss = { showAppHub = false },
@@ -1388,7 +1414,7 @@ private fun WhappyMain(
                     onCreateGroup = onCreateGroup,
                     onSubscribeChannel = onSubscribeChannel,
                     onHandleWhappyLink = onHandleWhappyLink,
-                    onOpenSpace = onTab,
+                    onOpenRecents = { showAppHub = true },
                 )
                 WhappyTab.MESSAGES -> MessagesScreen(
                     conversations = if (preview) demoConversations else visibleConversations,
@@ -1423,7 +1449,7 @@ private fun WhappyMain(
                             onCreateGroup = onCreateGroup,
                             onSubscribeChannel = onSubscribeChannel,
                             onHandleWhappyLink = onHandleWhappyLink,
-                            onOpenSpace = onTab,
+                            onOpenRecents = { showAppHub = true },
                         )
                         WhappyTab.WEPI -> WapiAssistantScreen(
                             userName = accountDisplayName,
@@ -1689,12 +1715,13 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
 private data class WhappyFeatureShortcut(val tab: WhappyTab?, val title: String, val subtitle: String, val icon: ImageVector)
 
 @Composable
-private fun WhappyFeatureHubDialog(onOpen: (WhappyTab) -> Unit, onOpenTwin: () -> Unit, onDismiss: () -> Unit) {
+private fun WhappyFeatureHubDialog(recentTabs: List<WhappyTab>, onOpen: (WhappyTab) -> Unit, onOpenTwin: () -> Unit, onDismiss: () -> Unit) {
     val shortcuts = listOf(
         WhappyFeatureShortcut(WhappyTab.MOMENTS, "Accueil", "Vue générale WAPI", Icons.Rounded.Home),
         WhappyFeatureShortcut(WhappyTab.CONTACTS, "Contacts", "Personnes et QR", Icons.Rounded.PersonAdd),
         WhappyFeatureShortcut(WhappyTab.CHANNELS, "Chaînes", "Médias et créateurs", Icons.Rounded.Notifications),
         WhappyFeatureShortcut(WhappyTab.CALLS, "Appels", "Audio et vidéo", Icons.Rounded.Phone),
+        WhappyFeatureShortcut(WhappyTab.WEPI, "WIA", "Mémoire et assistance", Icons.Rounded.SmartToy),
         WhappyFeatureShortcut(WhappyTab.MARKET, "Marché", "Acheter et vendre", Icons.Rounded.Storefront),
         WhappyFeatureShortcut(WhappyTab.RADIO, "Radio", "Créer une émission", Icons.Rounded.Radio),
         WhappyFeatureShortcut(WhappyTab.PODCASTS, "Podcasts", "Écouter et reprendre", Icons.Rounded.AudioFile),
@@ -1704,39 +1731,56 @@ private fun WhappyFeatureHubDialog(onOpen: (WhappyTab) -> Unit, onOpenTwin: () -
         WhappyFeatureShortcut(null, "Jumeau numérique", "Identité, voix et studio", Icons.Rounded.SmartToy),
         WhappyFeatureShortcut(WhappyTab.PROFILE, "Profil", "Compte et sécurité", Icons.Rounded.Person),
     )
+    val recentShortcuts = recentTabs.mapNotNull { tab -> shortcuts.firstOrNull { it.tab == tab } }.ifEmpty { shortcuts.filter { it.tab in listOf(WhappyTab.LIVE, WhappyTab.WEPI, WhappyTab.GAMES) } }.take(6)
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = WapiSheet, dragHandle = { Box(Modifier.padding(top = 12.dp).width(42.dp).height(4.dp).clip(CircleShape).background(WhappyMuted.copy(alpha = .28f))) }) {
-            Column(Modifier.padding(horizontal = WapiMobile.screen, vertical = 10.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(horizontal = WapiMobile.screen, vertical = 8.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.GridView, null, tint = Color.White)
+                        Icon(Icons.Rounded.Schedule, null, tint = Color.White)
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text("Tout WAPI", color = WhappyDark, fontSize = 23.sp, fontWeight = FontWeight.Black)
-                    Text("Vos espaces, pensés pour le mobile", color = WhappyMuted, fontSize = 11.sp)
+                    Text("Récents", color = WhappyDark, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                    Text("Vos derniers espaces WAPI", color = WhappyMuted, fontSize = 11.sp)
                     }
                     IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fermer", tint = WhappyMuted) }
                 }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    recentShortcuts.forEach { item ->
+                        Surface(
+                            modifier = Modifier.width(104.dp).height(88.dp).clickable { item.tab?.let(onOpen) ?: onOpenTwin() },
+                            color = Color.White,
+                            shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .72f)),
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Row(verticalAlignment = Alignment.Top) {
+                                    Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(22.dp))
+                                    Spacer(Modifier.weight(1f))
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF1FA971)))
+                                }
+                                Text(item.title, color = WhappyDark, fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+                Text("Toutes les apps WAPI", color = WhappyDark, fontSize = 15.sp, fontWeight = FontWeight.Black)
                 shortcuts.chunked(3).forEach { rowItems ->
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         rowItems.forEach { item ->
                             Surface(
-                                modifier = Modifier.weight(1f).height(100.dp).clickable { item.tab?.let(onOpen) ?: onOpenTwin() },
+                                modifier = Modifier.weight(1f).height(88.dp).clickable { item.tab?.let(onOpen) ?: onOpenTwin() },
                                 color = WapiElevated,
                                 shape = RoundedCornerShape(WapiMobile.compactRadius),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .86f)),
                             ) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                    Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(23.dp))
-                                    Column {
-                                        Text(item.title, color = WhappyDark, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                                        Text(item.subtitle, color = WhappyMuted, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 2)
-                                    }
+                                Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(21.dp))
+                                    Text(item.title, color = WhappyDark, fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
                                 }
                             }
                         }
                     }
                 }
-                Text("Messages · Groupes · Chaînes · Live · Commerce · IA", Modifier.fillMaxWidth(), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
     }
 }
@@ -5293,7 +5337,7 @@ private fun MessagesScreen(
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onHandleWhappyLink: (String) -> Unit,
-    onOpenSpace: (WhappyTab) -> Unit,
+    onOpenRecents: () -> Unit,
     onOpenStory: (String) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
@@ -5579,9 +5623,22 @@ private fun MessagesScreen(
                     }
                 }
             }
-        } else if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-        else if (filteredConversations.isEmpty()) EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WAPI." else "Essayez un autre nom ou un mot du dernier message.")
+        } else PullToRefreshBox(
+            isRefreshing = false,
+            onRefresh = onOpenRecents,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        ) {
+        if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
+        else if (filteredConversations.isEmpty()) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                WapiPullRecentsHint()
+                Box(Modifier.fillMaxWidth().heightIn(min = 360.dp)) {
+                    EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WAPI." else "Essayez un autre nom ou un mot du dernier message.")
+                }
+            }
+        }
         else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = WapiMobile.screen, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (conversationSearch.isBlank()) item(key = "wapi-recents-hint") { WapiPullRecentsHint() }
             if (conversationSearch.isBlank()) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -5652,11 +5709,7 @@ private fun MessagesScreen(
                 if (index < filteredConversations.lastIndex) Box(Modifier.fillMaxWidth().padding(start = 68.dp).height(1.dp).background(WhappyLine.copy(alpha = .72f)))
                 }
             }
-            if (conversationSearch.isBlank()) {
-                item(key = "wapi-mini-apps") {
-                    WapiMiniAppsShelf(onOpenSpace)
-                }
-            }
+        }
         }
         if (adding) AlertDialog(
             onDismissRequest = { if (!contactBusy) { adding = false; resetContactSearch() } },
@@ -6027,50 +6080,15 @@ private fun CreateGroupDialog(
     }
 }
 
-/** Native mini-app shelf revealed after the conversation list. */
 @Composable
-private fun WapiMiniAppsShelf(onOpen: (WhappyTab) -> Unit) {
-    val apps = listOf(
-        Triple(WhappyTab.LIVE, "Direct", Icons.Rounded.LiveTv),
-        Triple(WhappyTab.RADIO, "Radio", Icons.Rounded.Radio),
-        Triple(WhappyTab.GAMES, "Jeux", Icons.Rounded.Bolt),
-        Triple(WhappyTab.BUSINESS, "Business", Icons.Rounded.BusinessCenter),
-        Triple(WhappyTab.MARKET, "Marché", Icons.Rounded.Storefront),
-        Triple(WhappyTab.PROFILE, "Mon WAPI", Icons.Rounded.Person),
-    )
-    Surface(
-        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 20.dp),
-        color = Color.White,
-        shape = RoundedCornerShape(22.dp),
-        shadowElevation = 1.dp,
+private fun WapiPullRecentsHint() {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.padding(15.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(30.dp).clip(RoundedCornerShape(10.dp)).background(WapiSoftBlue), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.GridView, null, tint = WhappyBlue, modifier = Modifier.size(18.dp))
-                }
-                Column(Modifier.padding(start = 9.dp)) {
-                    Text("Continuer dans WAPI", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                    Text("Activités, créations et services", color = WhappyMuted, fontSize = 10.sp)
-                }
-            }
-            apps.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (tab, label, icon) ->
-                        Surface(
-                            Modifier.weight(1f).clip(RoundedCornerShape(15.dp)).clickable { onOpen(tab) },
-                            color = WapiCanvas,
-                            shape = RoundedCornerShape(15.dp),
-                        ) {
-                            Column(Modifier.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(icon, null, tint = WhappyBlue, modifier = Modifier.size(21.dp))
-                                Text(label, Modifier.padding(top = 6.dp), color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        Icon(Icons.Rounded.KeyboardArrowDown, null, tint = WhappyMuted, modifier = Modifier.size(15.dp))
+        Text(" Tirez vers le bas pour ouvrir Récents", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

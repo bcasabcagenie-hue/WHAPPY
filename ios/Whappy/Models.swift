@@ -82,7 +82,7 @@ enum WapiInterfaceLanguage: String, CaseIterable, Identifiable {
 
     var resolved: WapiInterfaceLanguage {
         guard self == .automatic else { return self }
-        switch Locale.autoupdatingCurrent.languageCode?.lowercased() {
+        switch Locale.autoupdatingCurrent.language.languageCode?.identifier.lowercased() {
         case "en": return .english
         case "ln": return .lingala
         default: return .french
@@ -751,6 +751,6 @@ struct WhappyBusiness: Identifiable, Hashable, Codable {
     }
 }
 
-enum WhappyTab: Hashable {
+enum WhappyTab: String, Hashable {
     case home, messages, calls, actus, wia, market, live, games, services, profile
 }

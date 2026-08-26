@@ -516,7 +516,7 @@ private final class WapiGroupCallSession: NSObject, ObservableObject, @preconcur
                 let cameraGranted = await AVCaptureDevice.requestAccess(for: .video)
                 guard cameraGranted else { throw WapiLiveError.permissions }
             }
-            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .allowBluetooth])
+            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try AVAudioSession.sharedInstance().setActive(true)
             try await room.connect(url: credentials.serverURL, token: credentials.token)
             try await room.localParticipant.setMicrophone(enabled: true)

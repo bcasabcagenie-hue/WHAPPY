@@ -44,6 +44,7 @@ struct ContentView: View {
         }
         .tint(.whappyBlue)
         .onChange(of: store.selectedTab) { _, tab in
+            store.rememberRecentSpace(tab)
             if tab == .actus { store.refreshStories() }
         }
         .fullScreenCover(item: $store.pendingGroupCall) { route in
@@ -589,6 +590,7 @@ struct MessagesView: View {
     @State private var section = 0
     @State private var linkedPhone = "+242"
     @State private var linkedChannel: WhappyChannel?
+    @State private var recentAppsPresented = false
     private var filtered: [Conversation] { store.accountConversations.filter { "\($0.name) \($0.lastMessage) \($0.phoneNumber)".matchesWhappySearch(search) } }
     private var filteredChannels: [WhappyChannel] { store.channels.filter { "\($0.name) \($0.description) \($0.category) \($0.ownerName)".matchesWhappySearch(search) }.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) } }
 
@@ -684,15 +686,25 @@ struct MessagesView: View {
 
             if section == 0 {
                 if filtered.isEmpty {
-                    ContentUnavailableView(
-                        search.isEmpty ? "Aucune conversation" : "Aucun résultat",
-                        systemImage: "message",
-                        description: Text(search.isEmpty ? "Ajoutez un contact pour commencer à discuter sur WAPI." : "Essayez un autre nom ou contenu récent.")
-                    )
-                    .frame(maxHeight: .infinity)
+                    ScrollView {
+                        VStack(spacing: 18) {
+                            recentPullHint
+                            ContentUnavailableView(
+                                search.isEmpty ? "Aucune conversation" : "Aucun résultat",
+                                systemImage: "message",
+                                description: Text(search.isEmpty ? "Ajoutez un contact pour commencer à discuter sur WAPI." : "Essayez un autre nom ou contenu récent.")
+                            )
+                            .padding(.top, 70)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, WapiSpacing.screen)
+                    }
+                    .scrollBounceBehavior(.always)
+                    .refreshable { recentAppsPresented = true }
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 6) {
+                            recentPullHint
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Conversations").font(.headline).foregroundStyle(Color.whappyInk)
@@ -721,13 +733,13 @@ struct MessagesView: View {
                                     }
                                 }
                             }
-                            WapiMiniAppsShelfIOS()
-                                .padding(.top, 14)
                         }
                         .padding(.horizontal, WapiSpacing.screen)
                         .padding(.bottom, 24)
                     }
                     .scrollIndicators(.hidden)
+                    .scrollBounceBehavior(.always)
+                    .refreshable { recentAppsPresented = true }
                 }
             } else {
                 ChannelDirectoryView(channels: filteredChannels)
@@ -739,11 +751,22 @@ struct MessagesView: View {
         .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
         .sheet(isPresented: $composing) { NewConversationView(initialPhone: linkedPhone) }
         .sheet(isPresented: $creatingChannel) { NewChannelView() }
+        .sheet(isPresented: $recentAppsPresented) { WapiRecentAppsDrawerIOS() }
         .sheet(item: $linkedChannel) { channel in NavigationStack { ChannelView(channelID: channel.id) } }
         .onAppear { consumePendingLinks() }
         .onChange(of: store.pendingContactPhone) { _, _ in consumePendingLinks() }
         .onChange(of: store.pendingChannelID) { _, _ in consumePendingLinks() }
         .onChange(of: store.pendingSearch) { _, _ in consumePendingLinks() }
+    }
+
+    private var recentPullHint: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down").font(.caption2.weight(.bold))
+            Text("Tirez vers le bas pour ouvrir Récents").font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(WapiColor.secondaryText)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 3)
     }
 
     @ViewBuilder
@@ -769,11 +792,11 @@ struct MessagesView: View {
     }
 }
 
-/// A deliberate pull to the end of the inbox reveals the active WAPI spaces.
-/// This keeps Messages calm while providing the integrated-app discovery flow
-/// users expect from a super-app.
-private struct WapiMiniAppsShelfIOS: View {
+/// Pulling down from the top of Messages reveals recent WAPI spaces, then the
+/// complete app directory. The drawer is shared with the explicit Apps entry.
+private struct WapiRecentAppsDrawerIOS: View {
     @EnvironmentObject private var store: WhappyStore
+    @Environment(\.dismiss) private var dismiss
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     private struct Item: Identifiable {
@@ -785,45 +808,79 @@ private struct WapiMiniAppsShelfIOS: View {
 
     private let items = [
         Item(id: "live", title: "Direct", icon: "video.fill", tab: .live),
-        Item(id: "games", title: "Jeux", icon: "bolt.fill", tab: .games),
+        Item(id: "actus", title: "Actus", icon: "sparkles", tab: .actus),
+        Item(id: "wia", title: "WIA", icon: "wand.and.stars", tab: .wia),
+        Item(id: "games", title: "Jeux", icon: "gamecontroller.fill", tab: .games),
         Item(id: "market", title: "Marché", icon: "storefront.fill", tab: .market),
-        Item(id: "stories", title: "Créations", icon: "sparkles", tab: .actus),
         Item(id: "services", title: "Services", icon: "wallet.pass.fill", tab: .services),
-        Item(id: "profile", title: "Mon WAPI", icon: "person.crop.circle", tab: .profile),
+        Item(id: "profile", title: "Jumeau", icon: "person.crop.circle.badge.checkmark", tab: .profile),
+        Item(id: "home", title: "Accueil", icon: "house.fill", tab: .home),
     ]
 
+    private var recents: [Item] {
+        let values = store.recentSpaces.compactMap { tab in items.first(where: { $0.tab == tab }) }
+        return values.isEmpty ? Array(items.prefix(3)) : Array(values.prefix(6))
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        NavigationStack {
+        ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 9) {
-                Image(systemName: "square.grid.2x2.fill")
+                Image(systemName: "clock.arrow.circlepath")
                     .foregroundStyle(Color.whappyBlue)
                     .frame(width: 30, height: 30)
                     .background(Color.whappyBlue.opacity(0.10))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Continuer dans WAPI").font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
-                    Text("Activités, créations et services").font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                    Text("Récents").font(.title2.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    Text("Vos derniers espaces WAPI").font(.caption).foregroundStyle(WapiColor.secondaryText)
                 }
             }
             LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(items) { item in
-                    Button { store.selectedTab = item.tab } label: {
-                        VStack(spacing: 7) {
-                            Image(systemName: item.icon).font(.system(size: 19, weight: .semibold)).foregroundStyle(Color.whappyBlue)
-                            Text(item.title).font(.caption2.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(WapiColor.secondarySurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
+                ForEach(recents) { appButton($0, recent: true) }
+            }
+
+            Text("Toutes les apps WAPI").font(.headline).foregroundStyle(Color.whappyInk).padding(.top, 3)
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(items) { appButton($0, recent: false) }
             }
         }
-        .padding(15)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(18)
+        }
+        .background(WapiColor.canvas)
+        .navigationTitle("WAPI Apps")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func appButton(_ item: Item, recent: Bool) -> some View {
+        Button {
+            store.rememberRecentSpace(item.tab)
+            store.selectedTab = item.tab
+            dismiss()
+        } label: {
+            VStack(spacing: 8) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Color.whappyBlue)
+                        .frame(width: 42, height: 42)
+                        .background(Color.whappyBlue.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    if recent { Circle().fill(Color.green).frame(width: 7, height: 7).offset(x: 2, y: -2) }
+                }
+                Text(item.title).font(.caption.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 
