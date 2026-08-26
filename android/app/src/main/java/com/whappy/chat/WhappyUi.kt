@@ -1385,6 +1385,7 @@ private fun WhappyMain(
                     onCreateGroup = onCreateGroup,
                     onSubscribeChannel = onSubscribeChannel,
                     onHandleWhappyLink = onHandleWhappyLink,
+                    onOpenSpace = onTab,
                 )
                 WhappyTab.MESSAGES -> MessagesScreen(
                     conversations = if (preview) demoConversations else visibleConversations,
@@ -1416,6 +1417,7 @@ private fun WhappyMain(
                             onCreateGroup = onCreateGroup,
                             onSubscribeChannel = onSubscribeChannel,
                             onHandleWhappyLink = onHandleWhappyLink,
+                            onOpenSpace = onTab,
                         )
                         WhappyTab.WEPI -> WapiAssistantScreen(
                             userName = accountDisplayName,
@@ -5282,6 +5284,7 @@ private fun MessagesScreen(
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onHandleWhappyLink: (String) -> Unit,
+    onOpenSpace: (WhappyTab) -> Unit,
     onOpenStory: (String) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
@@ -5616,6 +5619,11 @@ private fun MessagesScreen(
                     }
                     if (conversation.unread) Box(Modifier.padding(start = 8.dp).size(9.dp).clip(CircleShape).background(WhappyBlue))
                 }
+                }
+            }
+            if (conversationSearch.isBlank()) {
+                item(key = "wapi-mini-apps") {
+                    WapiMiniAppsShelf(onOpenSpace)
                 }
             }
         }
@@ -5985,6 +5993,53 @@ private fun CreateGroupDialog(
                 photoToCrop = null
             },
         )
+    }
+}
+
+/** Native mini-app shelf revealed after the conversation list. */
+@Composable
+private fun WapiMiniAppsShelf(onOpen: (WhappyTab) -> Unit) {
+    val apps = listOf(
+        Triple(WhappyTab.LIVE, "Direct", Icons.Rounded.LiveTv),
+        Triple(WhappyTab.RADIO, "Radio", Icons.Rounded.Radio),
+        Triple(WhappyTab.GAMES, "Jeux", Icons.Rounded.Bolt),
+        Triple(WhappyTab.BUSINESS, "Business", Icons.Rounded.BusinessCenter),
+        Triple(WhappyTab.MARKET, "Marché", Icons.Rounded.Storefront),
+        Triple(WhappyTab.PROFILE, "Mon WAPI", Icons.Rounded.Person),
+    )
+    Surface(
+        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 20.dp),
+        color = Color.White,
+        shape = RoundedCornerShape(22.dp),
+        shadowElevation = 1.dp,
+    ) {
+        Column(Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(30.dp).clip(RoundedCornerShape(10.dp)).background(WapiSoftBlue), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.GridView, null, tint = WhappyBlue, modifier = Modifier.size(18.dp))
+                }
+                Column(Modifier.padding(start = 9.dp)) {
+                    Text("Continuer dans WAPI", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                    Text("Activités, créations et services", color = WhappyMuted, fontSize = 10.sp)
+                }
+            }
+            apps.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { (tab, label, icon) ->
+                        Surface(
+                            Modifier.weight(1f).clip(RoundedCornerShape(15.dp)).clickable { onOpen(tab) },
+                            color = WapiCanvas,
+                            shape = RoundedCornerShape(15.dp),
+                        ) {
+                            Column(Modifier.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(icon, null, tint = WhappyBlue, modifier = Modifier.size(21.dp))
+                                Text(label, Modifier.padding(top = 6.dp), color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

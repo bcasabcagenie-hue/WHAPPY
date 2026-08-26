@@ -691,6 +691,8 @@ struct MessagesView: View {
                                     }
                                 }
                             }
+                            WapiMiniAppsShelfIOS()
+                                .padding(.top, 14)
                         }
                         .padding(.horizontal, WapiSpacing.screen)
                         .padding(.bottom, 24)
@@ -734,6 +736,64 @@ struct MessagesView: View {
         if let phone = store.pendingContactPhone { linkedPhone = phone; composing = true; section = 0; store.pendingContactPhone = nil }
         if let id = store.pendingChannelID, let channel = store.channels.first(where: { $0.id == id }) { linkedChannel = channel; section = 1; store.pendingChannelID = nil }
         if let query = store.pendingSearch { search = query; section = 1; store.pendingSearch = nil }
+    }
+}
+
+/// A deliberate pull to the end of the inbox reveals the active WAPI spaces.
+/// This keeps Messages calm while providing the integrated-app discovery flow
+/// users expect from a super-app.
+private struct WapiMiniAppsShelfIOS: View {
+    @EnvironmentObject private var store: WhappyStore
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+
+    private struct Item: Identifiable {
+        let id: String
+        let title: String
+        let icon: String
+        let tab: WhappyTab
+    }
+
+    private let items = [
+        Item(id: "live", title: "Direct", icon: "video.fill", tab: .live),
+        Item(id: "games", title: "Jeux", icon: "bolt.fill", tab: .games),
+        Item(id: "market", title: "Marché", icon: "storefront.fill", tab: .market),
+        Item(id: "stories", title: "Créations", icon: "sparkles", tab: .actus),
+        Item(id: "services", title: "Services", icon: "wallet.pass.fill", tab: .services),
+        Item(id: "profile", title: "Mon WAPI", icon: "person.crop.circle", tab: .profile),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 9) {
+                Image(systemName: "square.grid.2x2.fill")
+                    .foregroundStyle(Color.whappyBlue)
+                    .frame(width: 30, height: 30)
+                    .background(Color.whappyBlue.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Continuer dans WAPI").font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    Text("Activités, créations et services").font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                }
+            }
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(items) { item in
+                    Button { store.selectedTab = item.tab } label: {
+                        VStack(spacing: 7) {
+                            Image(systemName: item.icon).font(.system(size: 19, weight: .semibold)).foregroundStyle(Color.whappyBlue)
+                            Text(item.title).font(.caption2.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(WapiColor.secondarySurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(15)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 
