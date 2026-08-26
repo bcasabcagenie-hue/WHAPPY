@@ -14,6 +14,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.Camera1Enumerator
@@ -244,7 +245,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
         }
     }
 
-    private fun createPeer(remoteId: String, localCandidates: String): PeerConnection = factory.createPeerConnection(iceServers, object : PeerConnection.Observer {
+    private fun createPeer(remoteId: String, localCandidates: String): PeerConnection = factory.createPeerConnection(WapiIceDefaults.rtcConfiguration(iceServers), object : PeerConnection.Observer {
         override fun onIceCandidate(candidate: IceCandidate) {
             val localId = auth.currentUser?.uid ?: return
             val pair = pairRef(minOf(localId, remoteId), maxOf(localId, remoteId))
@@ -301,13 +302,13 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
     private fun sessionRef() = db.collection("groupCallSessions").document(callId)
     private fun pairRef(aId: String, bId: String) = sessionRef().collection("peers").document("${aId}__${bId}")
 
-    private fun fallbackIceServers() = listOf(
-        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-    )
+    private fun fallbackIceServers() = WapiIceDefaults.fallbackServers()
 
     private suspend fun loadIceServers(): List<PeerConnection.IceServer> = runCatching {
-        val payload = functions.getHttpsCallable("getWebRtcIceServers").call().await().data as? Map<*, *> ?: return@runCatching fallbackIceServers()
+        val result = withTimeoutOrNull(WapiIceDefaults.CONFIGURATION_TIMEOUT_MS) {
+            functions.getHttpsCallable("getWebRtcIceServers").call().await()
+        } ?: return@runCatching fallbackIceServers()
+        val payload = result.data as? Map<*, *> ?: return@runCatching fallbackIceServers()
         val configured = (payload["iceServers"] as? List<*>).orEmpty().mapNotNull { raw ->
             val value = raw as? Map<*, *> ?: return@mapNotNull null
             val urls = when (val entry = value["urls"]) { is String -> listOf(entry); is List<*> -> entry.mapNotNull { it?.toString() }; else -> emptyList() }.filter(String::isNotBlank)
@@ -317,7 +318,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
                 if (username.isNotBlank() && credential.isNotBlank()) setUsername(username).setPassword(credential)
             }.createIceServer()
         }
-        (configured + fallbackIceServers()).distinctBy { it.urls.joinToString("|") }
+        WapiIceDefaults.merge(configured)
     }.getOrElse { fallbackIceServers() }
 
     private fun createCameraCapturer(): CameraVideoCapturer? {

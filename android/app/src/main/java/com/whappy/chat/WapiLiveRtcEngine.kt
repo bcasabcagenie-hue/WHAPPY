@@ -13,6 +13,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.Camera1Enumerator
@@ -288,7 +289,7 @@ internal class WapiLiveRtcEngine(
     }
 
     private fun createPeer(peerId: String, localCandidateCollection: String, hostSide: Boolean): PeerConnection {
-        val peer = factory.createPeerConnection(iceServers, object : PeerConnection.Observer {
+        val peer = factory.createPeerConnection(WapiIceDefaults.rtcConfiguration(iceServers), object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate) {
                 scope.launch {
                     runCatching {
@@ -349,13 +350,12 @@ internal class WapiLiveRtcEngine(
 
     private fun peerReference(peerId: String) = db.collection("liveSessions").document(liveId).collection("peers").document(peerId)
 
-    private fun fallbackIceServers() = listOf(
-        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-    )
+    private fun fallbackIceServers() = WapiIceDefaults.fallbackServers()
 
     private suspend fun loadIceServers(): List<PeerConnection.IceServer> = runCatching {
-        val result = functions.getHttpsCallable("getWebRtcIceServers").call().await()
+        val result = withTimeoutOrNull(WapiIceDefaults.CONFIGURATION_TIMEOUT_MS) {
+            functions.getHttpsCallable("getWebRtcIceServers").call().await()
+        } ?: return@runCatching fallbackIceServers()
         val payload = result.data as? Map<*, *> ?: return@runCatching fallbackIceServers()
         val configured = (payload["iceServers"] as? List<*>).orEmpty().mapNotNull { raw ->
             val value = raw as? Map<*, *> ?: return@mapNotNull null
@@ -371,7 +371,7 @@ internal class WapiLiveRtcEngine(
                 if (username.isNotBlank() && credential.isNotBlank()) setUsername(username).setPassword(credential)
             }.createIceServer()
         }
-        (configured + fallbackIceServers()).distinctBy { it.urls.joinToString("|") }
+        WapiIceDefaults.merge(configured)
     }.getOrElse { fallbackIceServers() }
 
     private fun createCameraCapturer(): CameraVideoCapturer? {

@@ -63,6 +63,8 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     private var answerApplied = false
     private var connectInFlight = false
     private var callDocumentReady = false
+    private static var cachedIceServers: [WapiIceServer]?
+    private static var cachedIceServersAt = Date.distantPast
 
     init(route: WapiDirectCallRoute) {
         self.route = route
@@ -157,7 +159,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     private func beginOutgoing() async throws {
         guard let user = Auth.auth().currentUser,
               let peerID = route.peerID, !peerID.isEmpty else { throw WapiDirectCallError.invalidRoute }
-        try preparePeer(iceServers: try await loadIceServers())
+        try preparePeer(iceServers: await loadIceServers())
         let offer = try await makeOffer()
         try await setLocalDescription(offer)
         let profile = try? await firestore.collection("users").document(user.uid).getDocument()
@@ -199,7 +201,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         peerName = data["callerName"] as? String ?? peerName
         peerPhotoURL = data["callerPhotoUrl"] as? String ?? peerPhotoURL
         videoEnabled = data["video"] as? Bool ?? videoEnabled
-        try preparePeer(iceServers: try await loadIceServers())
+        try preparePeer(iceServers: await loadIceServers())
         try await setRemoteDescription(LKRTCSessionDescription(type: .offer, sdp: sdp))
         remoteDescriptionReady = true
         flushQueuedCandidates()
@@ -225,16 +227,50 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         speakerEnabled = true
     }
 
-    private func loadIceServers() async throws -> [WapiIceServer] {
-        let result = try await callable("getWebRtcIceServers", data: [:])
-        let raw = result["iceServers"] as? [[String: Any]] ?? []
-        let servers = raw.compactMap { item -> WapiIceServer? in
-            let urls = (item["urls"] as? [String]) ?? (item["urls"] as? String).map { [$0] } ?? []
-            guard !urls.isEmpty else { return nil }
-            return WapiIceServer(urls: urls, username: item["username"] as? String, credential: item["credential"] as? String)
+    private func fallbackIceServers() -> [WapiIceServer] {
+        [
+            "stun:stun.l.google.com:19302",
+            "stun:stun1.l.google.com:19302",
+            "stun:stun2.l.google.com:19302",
+            "stun:stun3.l.google.com:19302",
+            "stun:stun4.l.google.com:19302",
+        ].map { WapiIceServer(urls: [$0], username: nil, credential: nil) }
+    }
+
+    private func loadIceServers() async -> [WapiIceServer] {
+        let fallback = fallbackIceServers()
+        if let cached = Self.cachedIceServers {
+            let includesTurn = cached.contains { server in
+                server.urls.contains { url in
+                    let normalized = url.lowercased()
+                    return normalized.hasPrefix("turn:") || normalized.hasPrefix("turns:")
+                }
+            }
+            let lifetime: TimeInterval = includesTurn ? 45 * 60 : 60
+            if Date().timeIntervalSince(Self.cachedIceServersAt) < lifetime { return cached }
         }
-        guard !servers.isEmpty else { throw WapiDirectCallError.invalidResponse }
-        return servers
+        do {
+            let result = try await callable("getWebRtcIceServers", data: [:], timeout: 8)
+            let raw = result["iceServers"] as? [[String: Any]] ?? []
+            let configured = raw.compactMap { item -> WapiIceServer? in
+                let urls = (item["urls"] as? [String]) ?? (item["urls"] as? String).map { [$0] } ?? []
+                guard !urls.isEmpty else { return nil }
+                return WapiIceServer(urls: urls, username: item["username"] as? String, credential: item["credential"] as? String)
+            }
+            var seen = Set<String>()
+            let merged = (configured + fallback).filter { server in
+                let key = server.urls.joined(separator: "|")
+                return seen.insert(key).inserted
+            }
+            Self.cachedIceServers = merged
+            Self.cachedIceServersAt = Date()
+            return merged
+        } catch {
+            // A cold or unavailable callable must never prevent a direct call.
+            Self.cachedIceServers = fallback
+            Self.cachedIceServersAt = Date()
+            return fallback
+        }
     }
 
     private func preparePeer(iceServers: [WapiIceServer]) throws {
@@ -245,6 +281,10 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         configuration.rtcpMuxPolicy = .require
         configuration.continualGatheringPolicy = .gatherContinually
         configuration.iceCandidatePoolSize = 4
+        configuration.iceTransportPolicy = .all
+        configuration.tcpCandidatePolicy = .enabled
+        configuration.candidateNetworkPolicy = .all
+        configuration.enableDscp = true
         configuration.iceServers = iceServers.map { LKRTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential) }
         guard let connection = factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else { throw WapiDirectCallError.invalidResponse }
         peerConnection = connection
@@ -373,9 +413,11 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         }
     }
 
-    private func callable(_ name: String, data: [String: Any]) async throws -> [String: Any] {
+    private func callable(_ name: String, data: [String: Any], timeout: TimeInterval = 12) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
-            functions.httpsCallable(name).call(data) { result, error in
+            let callable = functions.httpsCallable(name)
+            callable.timeoutInterval = timeout
+            callable.call(data) { result, error in
                 if let error { continuation.resume(throwing: error); return }
                 guard let value = result?.data as? [String: Any] else { continuation.resume(throwing: WapiDirectCallError.invalidResponse); return }
                 continuation.resume(returning: value)
@@ -415,7 +457,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
             case .connected, .completed: self.mediaConnected = true; self.connecting = false; self.connectionLabel = "Connecté"
             case .checking: if !self.mediaConnected { self.connectionLabel = "Recherche du réseau…" }
             case .disconnected: if self.mediaConnected { self.connectionLabel = "Reconnexion…" }
-            case .failed: self.fail("Le réseau n’a pas pu établir cet appel. Vérifiez votre connexion puis réessayez.")
+            case .failed: self.fail("Ce réseau n’a pas pu établir la liaison WebRTC. Essayez une autre connexion Internet puis relancez l’appel.")
             default: break
             }
         }

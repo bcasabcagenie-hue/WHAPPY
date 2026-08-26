@@ -276,6 +276,10 @@ class WhappyCallController(private val activity: ComponentActivity) {
         incomingRegistration = null
         boundUserId = next
         if (next.isBlank()) return
+        // Warm the authenticated TURN/STUN configuration before the user taps
+        // Call. The call screen and remote ringing must never wait on a cold
+        // Cloud Function when WAPI has already been open for a few seconds.
+        activity.lifecycleScope.launch { loadIceServers() }
         incomingRegistration = db.collection("calls").whereEqualTo("calleeId", next)
             .addSnapshotListener { snapshot, _ ->
                 if (state.visible) return@addSnapshotListener
@@ -654,16 +658,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         }
         val ice = loadIceServers()
         turnConfigured = ice.turnConfigured
-        val rtcConfiguration = PeerConnection.RTCConfiguration(ice.servers).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-            iceCandidatePoolSize = 4
-            tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED
-            bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
-            rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
-            iceTransportsType = PeerConnection.IceTransportsType.ALL
-            keyType = PeerConnection.KeyType.ECDSA
-        }
+        val rtcConfiguration = WapiIceDefaults.rtcConfiguration(ice.servers)
         val peerGeneration = signalingGeneration
         peerConnection = factory.createPeerConnection(rtcConfiguration, peerObserver(localCandidateCollection, peerGeneration)) ?: error("peer")
         peerConnection!!.addTrack(localAudioTrack, listOf("whappy-stream"))
@@ -737,15 +732,14 @@ class WhappyCallController(private val activity: ComponentActivity) {
     }
 
     private suspend fun loadIceServers(): WapiIceConfiguration {
-        val fallback = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-        )
+        val fallback = WapiIceDefaults.fallbackServers()
+        val now = System.currentTimeMillis()
         cachedIceConfiguration?.let { cached ->
-            if (cached.turnConfigured && System.currentTimeMillis() - cachedIceConfigurationAt < 45 * 60_000L) return cached
+            val cacheLifetime = if (cached.turnConfigured) 45 * 60_000L else 60_000L
+            if (now - cachedIceConfigurationAt < cacheLifetime) return cached
         }
-        return runCatching {
-            val result = withTimeoutOrNull(2_500L) {
+        val configuration = runCatching {
+            val result = withTimeoutOrNull(WapiIceDefaults.CONFIGURATION_TIMEOUT_MS) {
                 FirebaseFunctions.getInstance("europe-west1")
                     .getHttpsCallable("getWebRtcIceServers")
                     .call()
@@ -769,20 +763,18 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 }
                 builder.createIceServer()
             }
-            val merged = (servers + fallback).distinctBy { it.urls.joinToString(",") }
+            val merged = WapiIceDefaults.merge(servers)
             WapiIceConfiguration(
                 servers = merged,
                 turnConfigured = payload["turnConfigured"] == true || merged.any { server -> server.urls.any { it.startsWith("turn:") || it.startsWith("turns:") } },
-            ).also { configuration ->
-                if (configuration.turnConfigured) {
-                    cachedIceConfiguration = configuration
-                    cachedIceConfigurationAt = System.currentTimeMillis()
-                }
-            }
+            )
         }.getOrElse { failure ->
             Log.w(CALL_TAG, "TURN configuration unavailable; direct ICE only", failure)
             WapiIceConfiguration(fallback, false)
         }
+        cachedIceConfiguration = configuration
+        cachedIceConfigurationAt = System.currentTimeMillis()
+        return configuration
     }
 
     private fun watchCallDocument(id: String) {
@@ -928,7 +920,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 WapiCallSignaling.TransportFailure.REMOTE_ICE_UNAVAILABLE ->
                     "L’autre appareil n’a pas encore transmis sa liaison d’appel. Demandez à votre correspondant de rouvrir WAPI puis réessayez."
                 WapiCallSignaling.TransportFailure.DIRECT_PATH_BLOCKED ->
-                    "Les deux appareils sont joignables, mais ce réseau bloque l’appel direct. Réessayez en Wi‑Fi ou activez le relais sécurisé WAPI."
+                    "Les deux appareils sont joignables, mais ce réseau bloque WebRTC direct. Essayez une autre connexion Internet ; un relais WAPI public est nécessaire sur certains opérateurs."
                 WapiCallSignaling.TransportFailure.RELAY_OR_NETWORK_FAILED ->
                     "Le relais sécurisé ou le réseau a interrompu la communication. Vérifiez la connexion puis touchez Réessayer."
             },

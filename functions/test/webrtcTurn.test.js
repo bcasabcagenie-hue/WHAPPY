@@ -16,17 +16,17 @@ test("creates one-hour TURN REST credentials for the signed-in WAPI user", () =>
 
   assert.equal(result.turnConfigured, true);
   assert.equal(result.expiresAt, Math.floor(now / 1000) + 3600);
-  assert.equal(result.iceServers.length, 3);
-  assert.equal(result.iceServers[2].username, username);
+  assert.equal(result.iceServers.length, 6);
+  assert.equal(result.iceServers[5].username, username);
   assert.equal(
-    result.iceServers[2].credential,
+    result.iceServers[5].credential,
     createHmac("sha1", secret).update(username).digest("base64"),
   );
 });
 test("does not advertise TURN when its secret is absent or too short", () => {
   const result = createTurnIcePayload("turn:relay.wapi.test:3478", "short", "user", 0);
   assert.equal(result.turnConfigured, false);
-  assert.equal(result.iceServers.length, 2);
+  assert.equal(result.iceServers.length, 5);
 });
 
 test("rejects non-TURN and malformed relay URLs", () => {
@@ -37,5 +37,5 @@ test("rejects non-TURN and malformed relay URLs", () => {
     0,
   );
   assert.equal(result.turnConfigured, false);
-  assert.equal(result.iceServers.length, 2);
+  assert.equal(result.iceServers.length, 5);
 });
