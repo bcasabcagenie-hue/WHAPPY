@@ -16,6 +16,10 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
+import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageReference
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import java.io.File
@@ -193,6 +197,29 @@ class WhappyRepository(
         }
         "image/heic", "image/heif", "image/heics", "image/heifs", "image/avif" -> "image/jpeg"
         else -> if (type.startsWith("image/")) "image/jpeg" else "image/jpeg"
+    }
+
+    /**
+     * Every gallery item is first copied to WAPI's private outbox.  Network
+     * hand-offs can still fail once on mobile data, especially after a device
+     * sleeps; retrying the same immutable local file is safe because no
+     * Firestore record is created until Storage returns its download URL.
+     */
+    private suspend fun uploadOutboxFile(reference: StorageReference, file: File, metadata: StorageMetadata) {
+        var firstFailure: Throwable? = null
+        repeat(2) { attempt ->
+            try {
+                reference.putFile(Uri.fromFile(file), metadata).await()
+                return
+            } catch (error: Throwable) {
+                firstFailure = error
+                val storageError = error as? StorageException
+                val canRetry = attempt == 0 && storageError?.errorCode != StorageException.ERROR_NOT_AUTHORIZED
+                if (!canRetry) throw error
+                delay(800)
+            }
+        }
+        throw firstFailure ?: IllegalStateException("storage-upload-failed")
     }
 
     fun observeConversations(
@@ -1628,7 +1655,16 @@ class WhappyRepository(
         val maximumSize = when (mediaKind) { "video" -> 50L * 1024L * 1024L; "audio" -> 25L * 1024L * 1024L; else -> 12L * 1024L * 1024L }
         var storagePath = ""
         val mediaUrl = if (mediaUri == null) "" else {
-            val extension = mediaContentType.substringAfter('/', when (mediaKind) { "video" -> "mp4"; "audio" -> "m4a"; else -> "jpg" }).substringBefore('+').replace("quicktime", "mov").take(8)
+            // Some Android gallery providers return no MIME type. Storage
+            // rules correctly reject an empty content type, so resolve a safe
+            // WAPI type before building both the filename and metadata.
+            val safeMediaContentType = when (mediaKind) {
+                "image" -> normalizeImageContentType(mediaContentType)
+                "video" -> mediaContentType.takeIf { it.startsWith("video/") } ?: "video/mp4"
+                "audio" -> mediaContentType.takeIf { it.startsWith("audio/") } ?: "audio/mp4"
+                else -> error("invalid-story-media")
+            }
+            val extension = safeMediaContentType.substringAfter('/', when (mediaKind) { "video" -> "mp4"; "audio" -> "m4a"; else -> "jpg" }).substringBefore('+').replace("quicktime", "mov").take(8)
             storagePath = "stories/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
             val mediaRef = storage.reference.child(storagePath)
             // Gallery providers can revoke their URI shortly after selection.
@@ -1637,7 +1673,11 @@ class WhappyRepository(
                 ?: error("story-media-unreadable")
             try {
                 require(localMedia.length() in 1..maximumSize)
-                mediaRef.putFile(Uri.fromFile(localMedia), com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()
+                uploadOutboxFile(
+                    mediaRef,
+                    localMedia,
+                    StorageMetadata.Builder().setContentType(safeMediaContentType).build(),
+                )
                 mediaRef.downloadUrl.await().toString()
             } finally {
                 localMedia.delete()
