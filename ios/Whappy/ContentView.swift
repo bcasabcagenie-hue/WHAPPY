@@ -795,6 +795,7 @@ private struct WapiEmojiPicker: View {
     @Environment(\.dismiss) private var dismiss
     let onPick: (String) -> Void
     @State private var category = "🙂"
+    @State private var recentEmojis: [String] = []
     private let groups: [(String, [String])] = [
         ("🙂", "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😍 🥰 😘 😎 🤩 🥳 🤔 😮 😢 😭 😡 🤯 😴 🤗 🤭 🫡 🫠 🫣 👀".split(separator: " ").map(String.init)),
         ("👋", "👋 🤚 ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 👏 🙌 👐 🤲 🙏 💪 🫶 🤝".split(separator: " ").map(String.init)),
@@ -814,10 +815,10 @@ private struct WapiEmojiPicker: View {
                 Text("Le clavier emoji iOS donne accès à tous les emoji Unicode. Cette sélection classe les plus utilisés dans WAPI.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) { ForEach(groups.map { $0.0 }, id: \.self) { icon in Button(icon) { category = icon }.font(.title2).padding(7).background(category == icon ? Color.whappyBlue.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10)) } }.padding(.horizontal)
+                    HStack(spacing: 10) { ForEach(["🕘"] + groups.map { $0.0 }, id: \.self) { icon in Button(icon) { category = icon }.font(.title2).padding(7).background(category == icon ? Color.whappyBlue.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10)) } }.padding(.horizontal)
                 }
-                let emojis = groups.first(where: { $0.0 == category })?.1 ?? []
-                ScrollView { LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 12) { ForEach(emojis, id: \.self) { emoji in Button(emoji) { onPick(emoji); UIImpactFeedbackGenerator(style: .light).impactOccurred() }.font(.system(size: 28)) } }.padding() }
+                let emojis = category == "🕘" ? recentEmojis : (groups.first(where: { $0.0 == category })?.1 ?? [])
+                ScrollView { LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 12) { ForEach(emojis, id: \.self) { emoji in Button(emoji) { recentEmojis = [emoji] + recentEmojis.filter { $0 != emoji }.prefix(23); onPick(emoji); UIImpactFeedbackGenerator(style: .light).impactOccurred() }.font(.system(size: 28)) } }.padding() }
             }
             .navigationTitle("Emojis")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }

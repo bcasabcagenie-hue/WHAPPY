@@ -8299,7 +8299,8 @@ private fun EmojiTray(onEmoji: (String) -> Unit, onClose: () -> Unit) {
         ).mapValues { (_, value) -> value.split(" ") }
     }
     var selectedGroup by rememberSaveable { mutableStateOf("🙂") }
-    val emojis = emojiGroups[selectedGroup].orEmpty()
+    var recentEmojis by remember { mutableStateOf(emptyList<String>()) }
+    val emojis = if (selectedGroup == "🕘") recentEmojis else emojiGroups[selectedGroup].orEmpty()
     Column(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("EMOJIS", Modifier.weight(1f), color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -8307,14 +8308,17 @@ private fun EmojiTray(onEmoji: (String) -> Unit, onClose: () -> Unit) {
             TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Fermer", fontSize = 10.sp) }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            emojiGroups.keys.forEach { group ->
+            (listOf("🕘") + emojiGroups.keys).forEach { group ->
                 TextButton(onClick = { selectedGroup = group }, contentPadding = PaddingValues(horizontal = 9.dp, vertical = 3.dp), colors = ButtonDefaults.textButtonColors(contentColor = if (selectedGroup == group) WhappyBlue else WhappyMuted)) { Text(group, fontSize = 17.sp) }
             }
         }
         FlowRow(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             emojis.forEach { emoji ->
                 TextButton(
-                    onClick = { onEmoji(emoji) },
+                    onClick = {
+                        recentEmojis = listOf(emoji) + recentEmojis.filterNot { it == emoji }.take(23)
+                        onEmoji(emoji)
+                    },
                     contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp),
                     shape = RoundedCornerShape(12.dp),
                 ) { Text(emoji, fontSize = 24.sp) }
