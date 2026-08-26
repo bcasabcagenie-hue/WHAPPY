@@ -1124,6 +1124,107 @@ private struct MessageActionChip: View {
     }
 }
 
+private struct WapiAudioMessagePlayer: View {
+    let path: String
+    @State private var player: AVPlayer?
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 1
+    @State private var rate: Float = 1
+    @State private var playing = false
+
+    private var mediaURL: URL? {
+        if let remote = URL(string: path), remote.scheme == "http" || remote.scheme == "https" { return remote }
+        let local = URL(fileURLWithPath: path)
+        return FileManager.default.fileExists(atPath: local.path) ? local : nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Button { togglePlayback() } label: {
+                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                        .font(.body.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.18), in: Circle())
+                }
+                Image(systemName: "waveform")
+                    .font(.headline)
+                Text("Note vocale")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 4)
+                Menu {
+                    ForEach([Float(1), Float(1.5), Float(2)], id: \.self) { value in
+                        Button("\(value == floor(value) ? String(format: "%.0f", value) : String(format: "%.1f", value))×") {
+                            rate = value
+                            if playing { player?.rate = value }
+                        }
+                    }
+                } label: {
+                    Text("\(rate == floor(rate) ? String(format: "%.0f", rate) : String(format: "%.1f", rate))×")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.18), in: Capsule())
+                }
+            }
+            HStack(spacing: 8) {
+                Slider(value: $currentTime, in: 0...max(duration, 1), onEditingChanged: { editing in
+                    if !editing { seek() }
+                })
+                Text(timeLabel(currentTime))
+                    .font(.caption2.monospacedDigit())
+                    .opacity(0.72)
+            }
+        }
+        .onAppear(perform: prepare)
+        .onDisappear {
+            player?.pause()
+            playing = false
+        }
+        .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in
+            guard let player, playing else { return }
+            let seconds = player.currentTime().seconds
+            if seconds.isFinite { currentTime = min(max(seconds, 0), max(duration, 1)) }
+        }
+    }
+
+    private func prepare() {
+        guard player == nil, let mediaURL else { return }
+        let item = AVPlayerItem(url: mediaURL)
+        let next = AVPlayer(playerItem: item)
+        next.actionAtItemEnd = .pause
+        player = next
+        Task {
+            let loadedDuration = try? await item.asset.load(.duration)
+            guard let seconds = loadedDuration?.seconds, seconds.isFinite, seconds > 0 else { return }
+            await MainActor.run { duration = seconds }
+        }
+    }
+
+    private func togglePlayback() {
+        guard let player else { return }
+        if playing {
+            player.pause()
+            playing = false
+        } else {
+            if currentTime >= duration - 0.05 { seek(to: 0) }
+            player.playImmediately(atRate: rate)
+            playing = true
+        }
+    }
+
+    private func seek(to seconds: Double? = nil) {
+        let value = seconds ?? currentTime
+        player?.seek(to: CMTime(seconds: value, preferredTimescale: 600))
+        currentTime = value
+    }
+
+    private func timeLabel(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "0:00" }
+        return String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60)
+    }
+}
+
 private struct ConversationView: View {
     @EnvironmentObject private var store: WhappyStore
     let conversationID: UUID
@@ -1299,7 +1400,7 @@ private struct ConversationView: View {
                                     } else if message.kind == "image", let path = message.mediaPath {
                                         imageMessage(path)
                                     } else if message.kind == "audio", let path = message.mediaPath {
-                                        Button { playAudio(path) } label: { Label(player?.isPlaying == true ? "Lecture…" : "Lire la note vocale", systemImage: "waveform.circle.fill") }.buttonStyle(.plain)
+                                        WapiAudioMessagePlayer(path: path)
                                     } else if message.kind == "video", let path = message.mediaPath, let url = mediaURL(path) {
                                         VideoPlayer(player: AVPlayer(url: url)).frame(width: 220, height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
                                     } else if message.kind == "document", let path = message.mediaPath, let url = mediaURL(path) {
