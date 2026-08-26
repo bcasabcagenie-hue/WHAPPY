@@ -130,6 +130,7 @@ extension WhappyStore {
     func openFirebaseConversation(_ conversation: Conversation) {
         guard let remoteID = conversation.remoteID else { return }
         firebaseMessageListener?.remove()
+        firebaseMessageListenerHasDeliveredSnapshot = false
         let collection = Firestore.firestore().collection(conversation.source == "groups" ? "groups" : "conversations")
         firebaseMessageListener = collection.document(remoteID).collection("messages")
             .order(by: "createdAt", descending: false)
@@ -143,7 +144,15 @@ extension WhappyStore {
                     }
                     guard let index = self.conversations.firstIndex(where: { $0.remoteID == remoteID }) else { return }
                     let userID = self.firebaseUserID.orEmpty
-                    self.conversations[index].messages = snapshot?.documents.map { self.firebaseMessage(from: $0, userID: userID) } ?? []
+                    let incoming = snapshot?.documents.map { self.firebaseMessage(from: $0, userID: userID) } ?? []
+                    let previousIDs = Set(self.conversations[index].messages.map(\.id))
+                    self.conversations[index].messages = incoming
+                    if self.firebaseMessageListenerHasDeliveredSnapshot,
+                       incoming.contains(where: { !$0.mine && !previousIDs.contains($0.id) }) {
+                        WapiSounds.received()
+                        WapiSounds.haptic(.light)
+                    }
+                    self.firebaseMessageListenerHasDeliveredSnapshot = true
                     if conversation.source != "groups", let userID = self.firebaseUserID {
                         collection.document(remoteID).updateData(["readBy.\(userID)": FieldValue.serverTimestamp()])
                     }
@@ -154,6 +163,7 @@ extension WhappyStore {
     func closeFirebaseConversation() {
         firebaseMessageListener?.remove()
         firebaseMessageListener = nil
+        firebaseMessageListenerHasDeliveredSnapshot = false
     }
 
     func sendFirebaseMessage(_ text: String, conversation: Conversation, replyTo: Message?) {

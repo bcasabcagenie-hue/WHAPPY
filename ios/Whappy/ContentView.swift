@@ -505,6 +505,8 @@ private struct WapiStoryComposer: View {
         errorMessage = nil
         do {
             try await store.publishStory(caption: caption, mediaData: mediaData, mediaType: mediaType, contentType: contentType)
+            WapiSounds.storyPublished()
+            WapiSounds.haptic(.medium)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -1466,7 +1468,11 @@ private struct ConversationView: View {
                     Button { toggleRecordingPause() } label: { Image(systemName: recordingPaused ? "play.circle.fill" : "pause.circle.fill").font(.title2).foregroundStyle(Color.whappyBlue) }
                 }
                 Button { toggleRecording() } label: { Image(systemName: recording ? "stop.circle.fill" : "mic.circle.fill").font(.title2).foregroundStyle(recording ? .red : Color.whappyBlue) }.disabled(voiceDraftURL != nil)
-                TextField("Votre message", text: $draft, axis: .vertical).textFieldStyle(.roundedBorder)
+                TextField("Votre message", text: $draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: draft) { oldValue, newValue in
+                        if newValue.count > oldValue.count { WapiSounds.typing() }
+                    }
                 Button { submitDraft() } label: { Image(systemName: editingMessage == nil ? "arrow.up.circle.fill" : "checkmark.circle.fill").font(.system(size: 34)) }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }.padding(.horizontal).padding(.vertical, 10).background(.bar)
@@ -1495,14 +1501,16 @@ private struct ConversationView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { searchOpen.toggle(); if !searchOpen { search = "" } } label: { Image(systemName: "magnifyingglass") }
                 if let conversation, conversation.groupOwnerID != nil, let groupID = conversation.remoteID {
-                    Button { groupCallRoute = WapiGroupCallRoute(callID: nil, groupID: groupID, groupName: conversation.name, video: false, groupSource: conversation.source ?? "groups") } label: { Image(systemName: "phone.fill") }
-                    Button { groupCallRoute = WapiGroupCallRoute(callID: nil, groupID: groupID, groupName: conversation.name, video: true, groupSource: conversation.source ?? "groups") } label: { Image(systemName: "video.fill") }
+                    Button { WapiSounds.callStarted(); groupCallRoute = WapiGroupCallRoute(callID: nil, groupID: groupID, groupName: conversation.name, video: false, groupSource: conversation.source ?? "groups") } label: { Image(systemName: "phone.fill") }
+                    Button { WapiSounds.callStarted(); groupCallRoute = WapiGroupCallRoute(callID: nil, groupID: groupID, groupName: conversation.name, video: true, groupSource: conversation.source ?? "groups") } label: { Image(systemName: "video.fill") }
                     Button { groupSettingsConversation = conversation } label: { Image(systemName: "info.circle") }
                 } else if let conversation {
                     Button {
+                        WapiSounds.callStarted()
                         directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: false)
                     } label: { Image(systemName: "phone.fill") }
                     Button {
+                        WapiSounds.callStarted()
                         directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: true)
                     } label: { Image(systemName: "video.fill") }
                     Button { profileConversation = conversation } label: { Image(systemName: "person.crop.circle") }
@@ -1536,6 +1544,7 @@ private struct ConversationView: View {
         guard !value.isEmpty else { return }
         if let editingMessage { store.editMessage(editingMessage.id, in: conversationID, text: value); self.editingMessage = nil }
         else { store.send(value, to: conversationID, replyTo: replyTo) }
+        WapiSounds.sent()
         draft = ""; replyTo = nil; UserDefaults.standard.removeObject(forKey: draftKey)
     }
 
@@ -1579,6 +1588,8 @@ private struct ConversationView: View {
         let url = directory.appendingPathComponent("wapi-media-\(UUID().uuidString).\(ext)")
         guard (try? data.write(to: url, options: .atomic)) != nil else { return }
         store.sendMedia(kind: isVideo ? "video" : "image", path: url.path, to: conversationID, mediaName: "wapi-media.\(ext)", viewOnce: nextMediaIsViewOnce)
+        WapiSounds.mediaAdded()
+        WapiSounds.haptic(.light)
         nextMediaIsViewOnce = false
         photoItem = nil
     }
@@ -1593,6 +1604,7 @@ private struct ConversationView: View {
         do {
             try FileManager.default.copyItem(at: source, to: target)
             store.sendMedia(kind: "document", path: target.path, to: conversationID, mediaName: name)
+            WapiSounds.mediaAdded()
         } catch {
             store.firebaseMessage = "WAPI n’a pas pu préparer ce document."
         }
@@ -1604,6 +1616,8 @@ private struct ConversationView: View {
             recordingPaused = false
             if (try? recorder.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 > 0 { voiceDraftURL = recorder.url }
             else { try? FileManager.default.removeItem(at: recorder.url) }
+            WapiSounds.recordingStopped()
+            WapiSounds.haptic(.medium)
             return
         }
         AVAudioApplication.requestRecordPermission { granted in
@@ -1616,6 +1630,8 @@ private struct ConversationView: View {
                     try AVAudioSession.sharedInstance().setActive(true)
                     let audio = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: Int(kAudioFormatMPEG4AAC), AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 128_000, AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue])
                     audio.record(); recorder = audio; recording = true; recordingPaused = false
+                    WapiSounds.recordingStarted()
+                    WapiSounds.haptic(.medium)
                 } catch { recording = false }
             }
         }
@@ -1637,6 +1653,8 @@ private struct ConversationView: View {
     private func sendVoiceDraft() {
         guard let voiceDraftURL else { return }
         store.sendMedia(kind: "audio", path: voiceDraftURL.path, to: conversationID, mediaName: voiceDraftURL.lastPathComponent, viewOnce: nextMediaIsViewOnce)
+        WapiSounds.sent()
+        WapiSounds.haptic(.medium)
         self.voiceDraftURL = nil
         nextMediaIsViewOnce = false
         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -2119,6 +2137,7 @@ struct CallsView: View {
             unavailableMessage = "Ce contact doit avoir un compte WAPI actif pour un appel WAPI."
             return
         }
+        WapiSounds.callStarted()
         directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: video)
     }
 }
@@ -3282,7 +3301,30 @@ private struct WapiLanguageSettingsView: View {
 
 private struct DataSettingsView: View {
     @EnvironmentObject private var store: WhappyStore
-    var body: some View { Form { Section("Réseau") { Toggle("Économiseur de données", isOn: $store.dataSaverEnabled); Text("Réduit le chargement automatique des médias lorsque votre connexion est limitée.").font(.footnote).foregroundStyle(.secondary) }; Section("Stockage") { Label("Photos et notes vocales conservées dans WHAPPY", systemImage: "folder.fill"); Text("Les contenus sont supprimés avec l’application depuis les réglages iOS.").font(.footnote).foregroundStyle(.secondary) } }.navigationTitle("Stockage et données") }
+    @AppStorage("wapi.sounds.enabled") private var soundsEnabled = true
+    @AppStorage("wapi.typing.sounds.enabled") private var typingSoundsEnabled = true
+
+    var body: some View {
+        Form {
+            Section("Réseau") {
+                Toggle("Économiseur de données", isOn: $store.dataSaverEnabled)
+                Text("Réduit le chargement automatique des médias lorsque votre connexion est limitée.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Sons et vibrations") {
+                Toggle("Sons WAPI", isOn: $soundsEnabled)
+                Toggle("Son de saisie", isOn: $typingSoundsEnabled).disabled(!soundsEnabled)
+                Text("Les sons restent courts et suivent le volume de votre appareil. Les appels et les notifications conservent leurs alertes système.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Stockage") {
+                Label("Photos et notes vocales conservées dans WAPI", systemImage: "folder.fill")
+                Text("Les contenus sont supprimés avec l’application depuis les réglages iOS.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Stockage et données")
+    }
 }
 
 private struct ActivityCenterView: View {

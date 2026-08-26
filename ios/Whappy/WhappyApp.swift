@@ -1,5 +1,6 @@
 import FirebaseCore
 import FirebaseMessaging
+import AudioToolbox
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -11,6 +12,48 @@ let wapiPendingDeclineCallKey = "wapi.pending-decline-call"
 private let wapiDirectCallCategory = "WAPI_DIRECT_CALL"
 private let wapiAcceptCallAction = "WAPI_ACCEPT_CALL"
 private let wapiDeclineCallAction = "WAPI_DECLINE_CALL"
+
+enum WapiSounds {
+    private static var lastTypingAt = Date.distantPast
+
+    private static var enabled: Bool {
+        UserDefaults.standard.object(forKey: "wapi.sounds.enabled") as? Bool ?? true
+    }
+
+    private static var typingEnabled: Bool {
+        UserDefaults.standard.object(forKey: "wapi.typing.sounds.enabled") as? Bool ?? true
+    }
+
+    private static func play(_ id: SystemSoundID) {
+        guard enabled else { return }
+        AudioServicesPlaySystemSound(id)
+    }
+
+    static func typing() {
+        guard enabled, typingEnabled else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastTypingAt) >= 0.055 else { return }
+        lastTypingAt = now
+        play(1104)
+    }
+
+    static func sent() { play(1004) }
+    static func received() { play(1003) }
+    static func mediaAdded() { play(1057) }
+    static func recordingStarted() { play(1103) }
+    static func recordingStopped() { play(1057) }
+    static func recordingCancelled() { play(1073) }
+    static func callStarted() { play(1057) }
+    static func callEnded() { play(1001) }
+    static func storyPublished() { play(1025) }
+    static func gameMove() { play(1104) }
+    static func gameReward() { play(1025) }
+
+    static func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
+        guard enabled else { return }
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+}
 
 final class WapiAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {

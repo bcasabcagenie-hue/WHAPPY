@@ -45,6 +45,7 @@ final class WhappyStore: ObservableObject {
     var firebasePresenceListeners: [ListenerRegistration] = []
     var firebasePresencePeerIDs: Set<String> = []
     var firebaseMessageListener: ListenerRegistration?
+    var firebaseMessageListenerHasDeliveredSnapshot = false
     var firebasePresenceTimer: Timer?
     var firebaseDirectConversations: [Conversation] = []
     var firebaseGroupConversations: [Conversation] = []
