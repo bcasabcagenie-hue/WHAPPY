@@ -366,12 +366,15 @@ extension WhappyStore {
                     }
                     groupReference.collection("messages").addDocument(data: event) { eventError in
                         Task { @MainActor in
-                            if eventError == nil {
-                                self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: nextPhoto, eventText: eventText)
-                            }
+                            // The group document is already safely saved at
+                            // this point.  A secondary system-message retry
+                            // must never make the new photo look lost on a
+                            // slow or older Firestore installation.
+                            self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: nextPhoto, eventText: eventText)
                             self.firebaseBusy = false
-                            self.firebaseMessage = eventError.map(self.friendlyFirebaseError)
-                                ?? "Photo du groupe enregistrée dans WAPI."
+                            self.firebaseMessage = eventError == nil
+                                ? "Photo du groupe enregistrée dans WAPI."
+                                : "Photo du groupe enregistrée. L’information aux membres sera synchronisée dès le retour du réseau."
                         }
                     }
                 }

@@ -346,8 +346,15 @@ private struct WapiStoryCircle: View {
         VStack(spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
                 Circle()
-                    .stroke(hasUnseen ? Color.whappyBlue : Color(.systemGray4), lineWidth: 3)
-                    .frame(width: 70, height: 70)
+                    .strokeBorder(
+                        AngularGradient(
+                            colors: hasUnseen ? [Color.whappyBlue, Color(red: 0.00, green: 0.72, blue: 0.96), Color(red: 0.04, green: 0.25, blue: 0.80), Color.whappyBlue] : [Color(.systemGray4), Color(.systemGray4)],
+                            center: .center
+                        ),
+                        lineWidth: hasUnseen ? 4 : 1.5
+                    )
+                    .frame(width: 74, height: 74)
+                    .shadow(color: hasUnseen ? Color.whappyBlue.opacity(0.24) : .clear, radius: 7, y: 3)
                 Group {
                     if let url = story.flatMap({ URL(string: $0.authorPhotoURL) }), !url.absoluteString.isEmpty {
                         AsyncImage(url: url) { phase in
@@ -358,11 +365,11 @@ private struct WapiStoryCircle: View {
                         InitialsAvatar(text: isOwn ? "MOI" : String(title.prefix(2)).uppercased(), size: 62)
                     }
                 }
-                .frame(width: 62, height: 62)
+                .frame(width: 64, height: 64)
                 .clipShape(Circle())
                 if showAdd {
                     Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 23, weight: .bold))
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(.white, Color.whappyBlue)
                         .background(Circle().fill(.white))

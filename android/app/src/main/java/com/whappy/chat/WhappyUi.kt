@@ -2028,7 +2028,7 @@ private fun StoriesScreen(
                         }
                         Text("24 H", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     StoryCircle(
                         name = "Ma Story",
                         subtitle = when { myStories.isEmpty() -> "Ajouter"; myStories.size == 1 -> formatStoryTime(myStories.last().createdAt); else -> "${myStories.size} Stories · ${formatStoryTime(myStories.last().createdAt)}" },
@@ -2202,13 +2202,13 @@ private fun StoryCircle(
     add: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val storyAccent = Brush.sweepGradient(listOf(WhappyBlue, WhappySky, Color(0xFF0066CF), WhappyBlue))
-    Column(Modifier.width(76.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+    val storyAccent = Brush.sweepGradient(listOf(Color(0xFF075DE6), WhappySky, Color(0xFF0A3FCC), Color(0xFF075DE6)))
+    Column(Modifier.width(80.dp).clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick).padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(66.dp)
+                .size(70.dp)
                 .border(if (active) 3.dp else 1.dp, if (active) storyAccent else Brush.linearGradient(listOf(WhappyLine, WhappyLine)), CircleShape)
-                .padding(3.dp)
+                .padding(if (active) 3.dp else 2.dp)
                 .clip(CircleShape)
                 .background(Color.White),
             contentAlignment = Alignment.BottomEnd,
@@ -2216,31 +2216,32 @@ private fun StoryCircle(
             StoryCircleContent(story = story, profilePhotoUrl = profilePhotoUrl, name = name)
             if (story?.mediaKind == "video" || story?.mediaKind == "audio") {
                 Box(
-                    Modifier.align(Alignment.Center).size(25.dp).clip(CircleShape).background(Color.Black.copy(alpha = .56f)),
+                    Modifier.align(Alignment.Center).size(27.dp).clip(CircleShape).background(Color(0xFF071527).copy(alpha = .72f)),
                     contentAlignment = Alignment.Center,
                 ) { Icon(if (story.mediaKind == "video") Icons.Rounded.PlayArrow else Icons.Rounded.AudioFile, null, tint = Color.White, modifier = Modifier.size(15.dp)) }
             }
-            if (publishing) Box(Modifier.size(22.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(12.dp), color = Color.White, strokeWidth = 1.5.dp) }
-            else if (add) Box(Modifier.size(20.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
+            if (publishing) Box(Modifier.size(24.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(13.dp), color = Color.White, strokeWidth = 1.5.dp) }
+            else if (add) Box(Modifier.size(22.dp).clip(CircleShape).background(WhappyBlue).border(2.dp, Color.White, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = Color.White, modifier = Modifier.size(15.dp)) }
         }
-        Text(name.substringBefore(" ").ifBlank { name }, Modifier.padding(top = 6.dp), color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(if (publishing) "Publication…" else subtitle, color = if (publishing) WhappyBlue else WhappyMuted, fontSize = 8.sp, maxLines = 1)
+        Text(name.substringBefore(" ").ifBlank { name }, Modifier.padding(top = 7.dp), color = WhappyDark, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(if (publishing) "Envoi…" else subtitle, color = if (publishing) WhappyBlue else WhappyMuted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun StoryCircleContent(story: WhappyStatus?, profilePhotoUrl: String, name: String) {
     when {
+        profilePhotoUrl.isNotBlank() -> UserAvatar(profilePhotoUrl, name, 62.dp, Modifier.clip(CircleShape), CircleShape)
         story?.mediaKind == "image" && story.mediaUrl.isNotBlank() ->
-            UserAvatar(story.mediaUrl, "Contenu de la Story de $name", 54.dp, Modifier.clip(CircleShape), CircleShape)
+            UserAvatar(story.mediaUrl, "Contenu de la Story de $name", 62.dp, Modifier.clip(CircleShape), CircleShape)
         story != null && story.mediaKind.isBlank() && story.text.isNotBlank() ->
             Box(
-                Modifier.size(54.dp).clip(CircleShape).background(Brush.linearGradient(storyGradient(story.tone))),
+                Modifier.size(62.dp).clip(CircleShape).background(Brush.linearGradient(storyGradient(story.tone))),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(story.text, Modifier.padding(7.dp), color = Color.White, fontSize = 7.sp, lineHeight = 8.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                Text(story.text, Modifier.padding(8.dp), color = Color.White, fontSize = 8.sp, lineHeight = 9.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis)
             }
-        else -> UserAvatar(profilePhotoUrl, name, 54.dp, Modifier.clip(CircleShape), CircleShape)
+        else -> UserAvatar("", name, 62.dp, Modifier.clip(CircleShape), CircleShape)
     }
 }
 
