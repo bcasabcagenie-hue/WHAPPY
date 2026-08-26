@@ -5181,18 +5181,26 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
         if (!callVisible) recentCalls = WapiCallHistory.entries(context)
     }
 
-    LazyColumn(Modifier.fillMaxSize().background(WapiCanvas), contentPadding = PaddingValues(0.dp, 12.dp, 0.dp, 30.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(WapiCanvas), contentPadding = PaddingValues(WapiMobile.screen, 14.dp, WapiMobile.screen, 30.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
         item {
-            Column(Modifier.fillMaxWidth().background(Color.White).padding(horizontal = WapiMobile.screen, vertical = 13.dp)) {
-                Text("Appels", style = MaterialTheme.typography.headlineLarge)
-                Text("Audio et vidéo", color = WhappyMuted, fontSize = 12.sp)
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(WhappyAuroraSoft)) {
+                Box(Modifier.align(Alignment.TopEnd).offset(x = 28.dp, y = (-34).dp).size(120.dp).clip(CircleShape).background(WhappySky.copy(alpha = .10f)))
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(17.dp)).background(WhappyAurora), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Phone, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    }
+                    Column(Modifier.weight(1f).padding(start = 13.dp)) {
+                        Text("Appels", style = MaterialTheme.typography.headlineLarge)
+                        Text("Audio et vidéo, simplement", color = WhappyMuted, fontSize = 12.sp)
+                    }
+                    Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = .82f)) {
+                        Text("WEBRTC", Modifier.padding(horizontal = 9.dp, vertical = 6.dp), color = WhappyDeepBlue, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .5.sp)
+                    }
+                }
             }
         }
-        item {
-            Spacer(Modifier.height(9.dp))
-        }
-        item { Text("Récents", color = WhappyDark, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = WapiMobile.screen, vertical = 9.dp)) }
-        if (recentCalls.isEmpty()) item { Text("Aucun appel récent", color = WhappyMuted, modifier = Modifier.fillMaxWidth().background(Color.White).padding(16.dp)) }
+        item { ActusSectionTitle("Récents", if (recentCalls.isEmpty()) "Aucun appel pour le moment" else "Reprendre une conversation en un geste") }
+        if (recentCalls.isEmpty()) item { EmptyState("Aucun appel récent", "Vos appels audio et vidéo apparaîtront ici.") }
         items(recentCalls.take(8), key = { it }) { raw ->
             val parts = raw.split("|", limit = 7)
             val timestamp = parts.firstOrNull()?.toLongOrNull() ?: 0L
@@ -5215,12 +5223,17 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                 "incoming" -> "Appel reçu"
                 else -> "Appel émis"
             }
-            Surface(Modifier.fillMaxWidth(), color = Color.White) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, if (missed) WapiDanger.copy(alpha = .14f) else WhappyLine.copy(alpha = .62f)), elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        UserAvatar(resolvedPhoto, name, 46.dp, shape = RoundedCornerShape(9.dp))
+                        Box(contentAlignment = Alignment.BottomEnd) {
+                            UserAvatar(resolvedPhoto, name, 50.dp, shape = RoundedCornerShape(15.dp))
+                            Box(Modifier.size(17.dp).clip(RoundedCornerShape(6.dp)).background(if (missed) WapiDanger else WapiSuccess), contentAlignment = Alignment.Center) {
+                                Icon(if (missed) Icons.Rounded.CallEnd else if (video) Icons.Rounded.Videocam else Icons.Rounded.Phone, null, tint = Color.White, modifier = Modifier.size(10.dp))
+                            }
+                        }
                         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
-                            Text(name, color = WhappyDark, fontWeight = FontWeight.Medium)
+                            Text(name, color = WhappyDark, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                             Text("$callLabel · ${if (video) "Vidéo" else "Audio"}", color = callTint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             Text(formatCallMoment(timestamp), color = WhappyMuted, fontSize = 10.sp)
                         }
@@ -5234,11 +5247,10 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                             if (resolvedUserId.isNotBlank()) calls?.start(WhappyMember(resolvedUserId, name, resolvedPhone, resolvedPhoto), true) else calls?.startByPhone(resolvedPhone, true)
                         }
                     }
-                    HorizontalDivider(color = WhappyLine, modifier = Modifier.padding(start = 57.dp))
                 }
             }
         }
-        item { Text("Contacts", color = WhappyDark, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = WapiMobile.screen, vertical = 12.dp)) }
+        item { ActusSectionTitle("Contacts", "Joignables sur WAPI") }
         if (conversations.isEmpty()) {
             item { EmptyState("Aucun contact", "Ajoutez un contact dans Messages pour pouvoir l’appeler.") }
         } else {
@@ -5246,7 +5258,7 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                 // A WAPI-to-WAPI call is addressed by the account uid; users who
                 // hide their phone number must still be reachable in audio/video.
                 val callable = conversation.peer.uid.isNotBlank()
-                Surface(Modifier.fillMaxWidth(), color = Color.White) {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .62f)), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 54.dp, shape = RoundedCornerShape(14.dp))
@@ -5269,12 +5281,11 @@ private fun CallsScreen(conversations: List<WhappyConversation>, onOpenConversat
                                 }
                             }
                         }
-                        HorizontalDivider(color = WhappyLine, modifier = Modifier.padding(start = 66.dp))
                     }
                 }
             }
         }
-        item { Text("Les appels WAPI utilisent votre connexion Internet.", color = WhappyMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = WapiMobile.screen, vertical = 14.dp)) }
+        item { Text("Les appels WAPI utilisent votre connexion Internet et adaptent automatiquement la qualité au réseau disponible.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)) }
     }
 }
 
@@ -9518,7 +9529,7 @@ private fun BusinessWorkspaceHero(
     Box(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(27.dp))
-            .background(Brush.linearGradient(listOf(WhappyNavy, WhappyDeepBlue, WhappyBlue))),
+            .background(Brush.linearGradient(listOf(WhappyNavy, WhappyDeepBlue, WapiViolet))),
     ) {
         Box(Modifier.size(190.dp).offset(x = 235.dp, y = (-72).dp).clip(CircleShape).background(Color.White.copy(alpha = .08f)))
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -9651,7 +9662,13 @@ private fun BusinessQuickAction(
 
 @Composable
 private fun BusinessFeatureCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(WapiMobile.compactRadius), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Row(Modifier.padding(WapiMobile.row), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(WhappyBlue.copy(alpha = .10f)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = WhappyBlue) }; Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(title, fontWeight = FontWeight.Bold, color = WhappyDark); Text(body, Modifier.padding(top = 3.dp), color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 22.sp) } }
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .62f)), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(WhappyAuroraSoft), contentAlignment = Alignment.Center) { Icon(icon, null, tint = WhappyDeepBlue, modifier = Modifier.size(22.dp)) }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(title, fontWeight = FontWeight.SemiBold, color = WhappyDark); Text(body, Modifier.padding(top = 3.dp), color = WhappyMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            Box(Modifier.size(31.dp).clip(RoundedCornerShape(11.dp)).background(WapiSoftBlue), contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = WhappyDeepBlue, modifier = Modifier.size(18.dp)) }
+        }
+    }
 }
 
 @Composable
@@ -9958,7 +9975,13 @@ private fun CampaignDialog(
 
 @Composable
 private fun MetricCard(label: String, value: String, modifier: Modifier) {
-    Card(modifier, shape = RoundedCornerShape(WapiMobile.compactRadius), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(12.dp)) { Text(value, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = WhappyDark); Text(label, color = WhappyMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) } }
+    Card(modifier, shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = WapiBlueMist), border = androidx.compose.foundation.BorderStroke(1.dp, WhappySky.copy(alpha = .20f)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(Modifier.padding(13.dp)) {
+            Box(Modifier.width(26.dp).height(3.dp).clip(CircleShape).background(WhappyAurora))
+            Text(value, Modifier.padding(top = 8.dp), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = WhappyDark)
+            Text(label, color = WhappyMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable

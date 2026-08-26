@@ -2500,20 +2500,77 @@ struct CallsView: View {
     @State private var unavailableMessage: String?
 
     var body: some View {
-        List {
-            Section("Récents") {
-                ForEach(store.calls) { call in
-                    HStack(spacing: 13) {
-                        Image(systemName: call.mode.systemImage).foregroundStyle(call.missed ? .red : Color.whappyBlue).frame(width: 32)
-                        VStack(alignment: .leading) { Text(call.name).font(.headline); Text(call.date, style: .relative).font(.caption).foregroundStyle(.secondary) }
-                        Spacer()
-                        Button { start(call, video: false) } label: { Image(systemName: "phone.circle.fill").font(.title2) }.buttonStyle(.plain)
-                        Button { start(call, video: true) } label: { Image(systemName: "video.circle.fill").font(.title2) }.buttonStyle(.plain)
-                    }.padding(.vertical, 4)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 13) {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(store.activeBusinessMode ? "Appels Business" : "Appels")
+                            .font(.system(size: 27, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.whappyInk)
+                        Text("Audio et vidéo, simplement").font(.caption).foregroundStyle(WapiColor.secondaryText)
+                    }
+                    Spacer()
+                    Text("WEBRTC")
+                        .font(.system(size: 8, weight: .bold)).tracking(0.5)
+                        .foregroundStyle(WapiColor.deepBlue)
+                        .padding(.horizontal, 9).padding(.vertical, 6)
+                        .background(.white.opacity(0.84)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                }
+                .padding(18)
+                .wapiFlowSurface(radius: 26)
+
+                HStack(spacing: 10) {
+                    Capsule().fill(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .top, endPoint: .bottom)).frame(width: 4, height: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Récents").font(.system(.headline, design: .rounded).weight(.semibold)).foregroundStyle(Color.whappyInk)
+                        Text(store.calls.isEmpty ? "Aucun appel pour le moment" : "Reprendre une conversation en un geste").font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                    }
+                }
+
+                if store.calls.isEmpty {
+                    ContentUnavailableView("Aucun appel récent", systemImage: "phone", description: Text("Vos appels audio et vidéo apparaîtront ici."))
+                        .frame(maxWidth: .infinity).padding(.vertical, 50).wapiPanel()
+                } else {
+                    ForEach(store.calls) { call in
+                        HStack(spacing: 12) {
+                            ZStack(alignment: .bottomTrailing) {
+                                InitialsAvatar(text: String(call.name.prefix(2)).uppercased(), size: 50)
+                                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                Image(systemName: call.missed ? "phone.down.fill" : call.mode.systemImage)
+                                    .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                                    .frame(width: 17, height: 17)
+                                    .background(call.missed ? Color.red : Color.green)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(call.name).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                                Text(call.missed ? "Appel manqué" : "Appel WAPI").font(.caption2.weight(.bold)).foregroundStyle(call.missed ? .red : Color.whappyBlue)
+                                Text(call.date, style: .relative).font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                            }
+                            Spacer()
+                            Button { start(call, video: false) } label: {
+                                Image(systemName: "phone.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(WapiColor.deepBlue).frame(width: 40, height: 40).background(WapiColor.blueMist).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            }.buttonStyle(.plain)
+                            Button { start(call, video: true) } label: {
+                                Image(systemName: "video.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).frame(width: 40, height: 40).background(LinearGradient(colors: [WapiColor.blue, WapiColor.violet], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            }.buttonStyle(.plain)
+                        }
+                        .padding(14)
+                        .wapiPanel()
+                    }
                 }
             }
+            .padding(WapiSpacing.screen)
+            .padding(.bottom, 24)
         }
-        .navigationTitle(store.activeBusinessMode ? "Appels Business" : "Appels")
+        .background(Color.whappyBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
         .alert("Appel WAPI indisponible", isPresented: Binding(get: { unavailableMessage != nil }, set: { if !$0 { unavailableMessage = nil } })) { Button("Fermer", role: .cancel) {} } message: { Text(unavailableMessage ?? "") }
     }
@@ -3334,14 +3391,16 @@ private struct BusinessMetricIOS: View {
     let detail: String
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
+            Capsule().fill(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .leading, endPoint: .trailing)).frame(width: 26, height: 3).padding(.bottom, 4)
             Text(title.uppercased()).font(.system(size: 8, weight: .bold)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
-            Text(value).font(.headline.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+            Text(value).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
             Text(detail).font(.system(size: 8, weight: .medium)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(11)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .background(LinearGradient(colors: [WapiColor.blueMist, Color.white], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(WapiColor.sky.opacity(0.20), lineWidth: 0.8))
     }
 }
 
@@ -3352,17 +3411,18 @@ private struct BusinessOperationIOS: View {
     var badge: String? = nil
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 19, weight: .semibold)).foregroundStyle(Color.whappyBlue)
-                .frame(width: 44, height: 44).background(WapiColor.blueMist).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            Image(systemName: icon).font(.system(size: 19, weight: .semibold)).foregroundStyle(WapiColor.deepBlue)
+                .frame(width: 46, height: 46).background(LinearGradient(colors: [WapiColor.blueMist, WapiColor.violet.opacity(0.09)], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
                 Text(detail).font(.caption).foregroundStyle(WapiColor.secondaryText).lineLimit(2)
             }
             Spacer()
             if let badge { Text(badge).font(.caption2.weight(.bold)).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(Color.whappyBlue).clipShape(Capsule()) }
-            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
+            Image(systemName: "arrow.right").font(.caption.bold()).foregroundStyle(WapiColor.deepBlue)
+                .frame(width: 30, height: 30).background(WapiColor.blueMist).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(14).wapiPanel(radius: 20)
     }
 }
 
@@ -3803,7 +3863,11 @@ struct ProfileView: View {
                 Text("Notifications, langue, confidentialité, stockage et aide dans un espace unique.").font(.footnote).foregroundStyle(.secondary)
             }
             Section { Text("WAPI iOS · application native").foregroundStyle(.secondary) }
-        }.navigationTitle("Profil")
+        }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(WapiColor.canvas)
+            .navigationTitle("Profil")
             .onAppear(perform: loadProfilePhoto)
             .onChange(of: profilePhotoItem) { _, item in
                 guard let item else { return }
