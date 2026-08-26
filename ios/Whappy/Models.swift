@@ -538,6 +538,12 @@ struct Conversation: Identifiable, Hashable, Codable {
     var groupOwnerID: String? = nil
     var groupAdminIDs: [String] = []
     var groupMembers: [WapiGroupMember] = []
+    /// The same phone can operate a personal inbox and one or more Business
+    /// inboxes. These fields are persisted on the Firestore conversation so
+    /// both iOS and Android can apply the same account boundary.
+    var profileType: String? = nil
+    var businessPageID: String? = nil
+    var businessPageName: String? = nil
 }
 
 enum CallMode: String, Identifiable, Codable {

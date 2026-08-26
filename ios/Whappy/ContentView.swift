@@ -582,7 +582,7 @@ struct MessagesView: View {
     @State private var section = 0
     @State private var linkedPhone = "+242"
     @State private var linkedChannel: WhappyChannel?
-    private var filtered: [Conversation] { store.conversations.filter { "\($0.name) \($0.lastMessage) \($0.phoneNumber)".matchesWhappySearch(search) } }
+    private var filtered: [Conversation] { store.accountConversations.filter { "\($0.name) \($0.lastMessage) \($0.phoneNumber)".matchesWhappySearch(search) } }
     private var filteredChannels: [WhappyChannel] { store.channels.filter { "\($0.name) \($0.description) \($0.category) \($0.ownerName)".matchesWhappySearch(search) }.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) } }
 
     var body: some View {

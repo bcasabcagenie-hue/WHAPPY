@@ -101,7 +101,20 @@ final class WhappyStore: ObservableObject {
         configureFirebaseMessaging()
     }
 
-    var unreadCount: Int { conversations.filter(\.unread).count }
+    /// Conversations are scoped to the selected account context. A Business
+    /// conversation must never appear in the personal inbox (or the reverse),
+    /// even when both contexts use the same authenticated phone number.
+    var accountConversations: [Conversation] {
+        conversations.filter { conversation in
+            if activeBusinessMode {
+                return conversation.profileType == "business"
+                    && (activeBusinessRemoteID.isEmpty || conversation.businessPageID == activeBusinessRemoteID)
+            }
+            return conversation.profileType != "business"
+        }
+    }
+
+    var unreadCount: Int { accountConversations.filter(\.unread).count }
     var cartCount: Int { cart.reduce(0) { $0 + $1.quantity } }
 
     func handleWhappyURL(_ url: URL) {

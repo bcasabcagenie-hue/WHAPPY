@@ -486,6 +486,12 @@ extension WhappyStore {
 
     func createFirebaseConversation(name: String, phone: String) {
         guard let user = Auth.auth().currentUser, let normalized = WhappyPhoneCountry.normalize(phone) else { return }
+        let profileType = activeBusinessMode ? "business" : "personal"
+        let businessPageID = activeBusinessMode ? activeBusinessRemoteID : ""
+        guard !activeBusinessMode || !businessPageID.isEmpty else {
+            firebaseMessage = "Créez ou sélectionnez votre page Business avant d’ouvrir sa messagerie."
+            return
+        }
         firebaseBusy = true
         firebaseMessage = nil
         let database = Firestore.firestore()
@@ -496,7 +502,15 @@ extension WhappyStore {
                 return
             }
             database.collection("conversations").whereField("memberIds", arrayContains: user.uid).getDocuments { existing, existingError in
-                if let existingConversation = existing?.documents.first(where: { (($0.data()["memberIds"] as? [String]) ?? []).contains(peer.documentID) }) {
+                if let existingConversation = existing?.documents.first(where: {
+                    let data = $0.data()
+                    let members = (data["memberIds"] as? [String]) ?? []
+                    let storedProfileType = data["profileType"] as? String ?? "personal"
+                    let storedBusinessPageID = data["businessPageId"] as? String ?? ""
+                    return members.contains(peer.documentID)
+                        && storedProfileType == profileType
+                        && storedBusinessPageID == businessPageID
+                }) {
                     Task { @MainActor in
                         self.firebaseBusy = false
                         self.selectedTab = .messages
@@ -511,9 +525,10 @@ extension WhappyStore {
                 }
                 let peerData = peer.data()
                 let currentPhone = user.phoneNumber.orEmpty
-                let directID = "direct-" + [user.uid, peer.documentID].sorted().joined(separator: "-")
+                let contextSuffix = profileType == "business" ? "-business-\(businessPageID)" : ""
+                let directID = "direct-" + [user.uid, peer.documentID].sorted().joined(separator: "-") + contextSuffix
                 let members: [[String: Any]] = [
-                    ["uid": user.uid, "displayName": user.displayName ?? "Membre WAPI", "phoneNumber": currentPhone, "photoUrl": user.photoURL?.absoluteString ?? ""],
+                    ["uid": user.uid, "displayName": self.currentFirebaseSenderName, "phoneNumber": currentPhone, "photoUrl": user.photoURL?.absoluteString ?? ""],
                     ["uid": peer.documentID, "displayName": peerData["displayName"] as? String ?? name, "phoneNumber": peerData["phoneNumber"] as? String ?? normalized, "photoUrl": peerData["photoUrl"] as? String ?? ""]
                 ]
                 database.collection("conversations").document(directID).setData([
@@ -526,6 +541,9 @@ extension WhappyStore {
                     "contactName": peerData["displayName"] as? String ?? name,
                     "lastMessage": "Nouvelle conversation",
                     "lastSenderId": "",
+                    "profileType": profileType,
+                    "businessPageId": businessPageID,
+                    "businessPageName": self.activeBusinessMode ? (self.business?.name ?? "Business WAPI") : "",
                     "createdAt": FieldValue.serverTimestamp(),
                     "updatedAt": FieldValue.serverTimestamp()
                 ]) { creationError in
@@ -634,6 +652,9 @@ extension WhappyStore {
         let name = isGroup ? (data["name"] as? String ?? data["title"] as? String ?? "Groupe WAPI") : (peer?["displayName"] as? String ?? data["contactName"] as? String ?? "Contact WAPI")
         let phone = isGroup ? "" : (peer?["phoneNumber"] as? String ?? "")
         let photo = isGroup ? (data["photoUrl"] as? String ?? data["groupPhotoUrl"] as? String ?? "") : (peer?["photoUrl"] as? String ?? "")
+        let profileType = data["profileType"] as? String ?? "personal"
+        let businessPageID = data["businessPageId"] as? String ?? ""
+        let businessPageName = data["businessPageName"] as? String ?? ""
         let initials = name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
         let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? (data["createdAt"] as? Timestamp)?.dateValue() ?? .distantPast
         let readBy = data["readBy"] as? [String: Any]
@@ -653,7 +674,10 @@ extension WhappyStore {
             photoURL: photo,
             groupOwnerID: isGroup ? data["ownerId"] as? String : nil,
             groupAdminIDs: isGroup ? (data["adminIds"] as? [String] ?? []) : [],
-            groupMembers: isGroup ? groupMembers : []
+            groupMembers: isGroup ? groupMembers : [],
+            profileType: profileType,
+            businessPageID: businessPageID.isEmpty ? nil : businessPageID,
+            businessPageName: businessPageName.isEmpty ? nil : businessPageName
         )
     }
 
