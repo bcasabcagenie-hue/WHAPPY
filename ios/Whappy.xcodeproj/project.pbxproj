@@ -12,6 +12,7 @@
 		22B016002A95269368A8048B /* WhappyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 549B293C13503B81B6F4E529 /* WhappyApp.swift */; };
 		356D23B34B46DC3F7861A4A7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A90C325ED3DA9C2494FEDD /* ContentView.swift */; };
 		42E7879B72ABD4AC8A53CD8B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 10F55801F4AF129DDD92974C /* LiveKit */; };
+		A4D10E6B4D0C4C9A90D81103 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = A4D10E6B4D0C4C9A90D81104 /* LiveKitWebRTC */; };
 		66CBF388013B39D5151995AD /* WhappyFirebaseMessaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC27F2ACD71FD215C5BBD95 /* WhappyFirebaseMessaging.swift */; };
 		B282100088C6263F3B14854C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF5C886AFD6F9D4FA97FFC87 /* Foundation.framework */; };
 		B346F1258F6CAB923A3CDF21 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1AFF8CF2C802656DA17B2A84 /* GoogleService-Info.plist */; };
@@ -47,6 +48,7 @@
 			files = (
 				B282100088C6263F3B14854C /* Foundation.framework in Frameworks */,
 				42E7879B72ABD4AC8A53CD8B /* LiveKit in Frameworks */,
+				A4D10E6B4D0C4C9A90D81103 /* LiveKitWebRTC in Frameworks */,
 				DB7A45C3B2E22313635DC31D /* Pods_Whappy.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -137,6 +139,7 @@
 			name = Whappy;
 			packageProductDependencies = (
 				10F55801F4AF129DDD92974C /* LiveKit */,
+				A4D10E6B4D0C4C9A90D81104 /* LiveKitWebRTC */,
 			);
 			productName = Whappy;
 			productReference = 22674B263ABC512285FBCEF1 /* Whappy.app */;
@@ -163,6 +166,7 @@
 			minimizedProjectReferenceProxies = 0;
 			packageReferences = (
 				4BCF0168EAA4B2F5BB30CBCD /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+				A4D10E6B4D0C4C9A90D81105 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 3928946A74C87F65CE6045AC /* Products */;
@@ -504,6 +508,14 @@
 				minimumVersion = 2.16.0;
 			};
 		};
+		A4D10E6B4D0C4C9A90D81105 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/webrtc-xcframework.git";
+			requirement = {
+				kind = exactVersion;
+				version = 144.7559.11;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -511,6 +523,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4BCF0168EAA4B2F5BB30CBCD /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
 			productName = LiveKit;
+		};
+		A4D10E6B4D0C4C9A90D81104 /* LiveKitWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A4D10E6B4D0C4C9A90D81105 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */;
+			productName = LiveKitWebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -132,7 +132,13 @@ final class WhappyStore: ObservableObject {
     private func declineDirectCall(from url: URL) {
         guard case .directCall(let callID) = WhappyDeepLink.parse(url) else { return }
         guard firebaseUserID != nil else { return }
-        Functions.functions(region: "europe-west1").httpsCallable("closeDirectCallSession").call(["callId": callID, "action": "decline"]) { _, error in
+        // Direct calls are native WebRTC calls. The invitation is the signed
+        // Firestore document, so declining works even while the app is waking
+        // from a notification and does not depend on a separate media room.
+        Firestore.firestore().collection("calls").document(callID).updateData([
+            "status": "declined",
+            "updatedAt": FieldValue.serverTimestamp(),
+        ]) { error in
             guard error == nil else { return }
             UserDefaults.standard.removeObject(forKey: wapiPendingDeclineCallKey)
         }

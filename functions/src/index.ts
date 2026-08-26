@@ -363,7 +363,9 @@ async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessa
       const title = String(message.data?.title || "WAPI").slice(0, 120);
       const body = String(message.data?.body || "Nouvelle activité").slice(0, 240);
       const badge = Math.max(0, Math.min(99, Number(message.data?.badgeCount || 0) || 0));
-      const category = message.data?.type === "direct_call" ? "WAPI_DIRECT_CALL" : undefined;
+      const category = message.data?.type === "direct_call" || message.data?.type === "incoming_call"
+        ? "WAPI_DIRECT_CALL"
+        : undefined;
       const response = await getMessaging().sendEachForMulticast({
         ...message,
         ...(apple ? {
@@ -515,6 +517,7 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
       callerPhotoUrl,
       callId: event.params.callId,
       video: String(video),
+      deepLink: `whappy://call/${event.params.callId}`,
     },
     android: { priority: "high", ttl: 120_000, collapseKey: `call-${event.params.callId}` },
   });
