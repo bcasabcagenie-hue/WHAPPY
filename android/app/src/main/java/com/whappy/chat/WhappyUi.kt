@@ -1357,6 +1357,9 @@ private fun WhappyMain(
                 )
                 WhappyTab.CONTACTS, WhappyTab.CHANNELS -> MessagesScreen(
                     conversations = if (preview) demoConversations else visibleConversations,
+                    accountName = accountDisplayName,
+                    accountPhotoUrl = activePhotoUrl,
+                    businessMode = isBusinessAccount,
                     loading = state.loading,
                     preview = preview,
                     contactBusy = state.contactBusy,
@@ -1389,6 +1392,9 @@ private fun WhappyMain(
                 )
                 WhappyTab.MESSAGES -> MessagesScreen(
                     conversations = if (preview) demoConversations else visibleConversations,
+                    accountName = accountDisplayName,
+                    accountPhotoUrl = activePhotoUrl,
+                    businessMode = isBusinessAccount,
                     loading = state.loading,
                     preview = preview,
                     contactBusy = state.contactBusy,
@@ -5257,6 +5263,9 @@ private fun WapiCallAction(
 @Composable
 private fun MessagesScreen(
     conversations: List<WhappyConversation>,
+    accountName: String,
+    accountPhotoUrl: String,
+    businessMode: Boolean,
     loading: Boolean,
     preview: Boolean,
     contactBusy: Boolean,
@@ -5476,8 +5485,8 @@ private fun MessagesScreen(
         Column(Modifier.fillMaxSize().background(WapiCanvas)) {
         Row(Modifier.padding(horizontal = WapiMobile.screen, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> "Messages" }, style = MaterialTheme.typography.headlineLarge)
-                Text(when (messageSection) { 1 -> "Vos personnes sur WAPI"; 2 -> "Les publications que vous choisissez"; else -> "Vos échanges, sans distraction" }, color = WhappyMuted, fontSize = 12.sp)
+                Text(when (messageSection) { 1 -> "Contacts"; 2 -> "Chaînes"; else -> if (businessMode) "Messages Business" else "Messages" }, style = MaterialTheme.typography.headlineLarge)
+                Text(when (messageSection) { 1 -> "Vos personnes sur WAPI"; 2 -> "Les publications que vous choisissez"; else -> if (businessMode) "Clients, commandes et équipe · identité séparée" else "Vos échanges, instantanément" }, color = WhappyMuted, fontSize = 12.sp)
             }
             FilledIconButton(
                 onClick = { when (messageSection) { 2 -> creatingChannel = true; 0 -> creatingGroup = true; else -> { phoneField = TextFieldValue(""); resetContactSearch(); adding = true } } },
@@ -5485,6 +5494,25 @@ private fun MessagesScreen(
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue),
             ) {
                 Icon(Icons.Rounded.Add, when (messageSection) { 2 -> "Créer une chaîne"; 0 -> "Créer un groupe"; else -> "Ajouter un contact" }, tint = Color.White)
+            }
+        }
+        if (messageSection == 0 && businessMode) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen, vertical = 2.dp),
+                color = WhappyNavy,
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    UserAvatar(accountPhotoUrl, accountName, 42.dp, shape = RoundedCornerShape(13.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(accountName, color = Color.White, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("  BUSINESS", color = WhappySky, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                        }
+                        Text("Vous répondez au nom de l’entreprise", color = Color.White.copy(alpha = .72f), fontSize = 10.sp)
+                    }
+                    Icon(Icons.Rounded.BusinessCenter, "Identité Business active", tint = WhappySky, modifier = Modifier.size(21.dp))
+                }
             }
         }
         Row(Modifier.padding(horizontal = WapiMobile.screen).clip(RoundedCornerShape(15.dp)).background(WhappySurface).padding(4.dp)) {
@@ -5574,14 +5602,12 @@ private fun MessagesScreen(
                     }
                 }
             }
-            items(filteredConversations, key = { it.id }) { conversation ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(conversation) },
-                    color = if (conversation.unread) WapiUnreadSurface else Color.White,
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = if (conversation.unread) 1.dp else 0.dp,
+            itemsIndexed(filteredConversations, key = { _, item -> item.id }) { index, conversation ->
+                Column(Modifier.fillMaxWidth().background(if (conversation.unread) WapiUnreadSurface else Color.White)) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpen(conversation) }.padding(horizontal = 4.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (conversation.isGroup && conversation.peer.photoUrl.isBlank()) {
                         Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.Groups, null, tint = Color.White)
@@ -5602,7 +5628,7 @@ private fun MessagesScreen(
                             Text(conversation.peer.displayName, Modifier.weight(1f, fill = false), fontWeight = if (conversation.unread) FontWeight.Black else FontWeight.Bold, color = WhappyDark, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (conversation.profileType == "business") {
                                 Spacer(Modifier.width(6.dp))
-                                Surface(color = WhappyBlue.copy(alpha = .12f), shape = RoundedCornerShape(6.dp)) { Text("BUSINESS", Modifier.padding(horizontal = 5.dp, vertical = 2.dp), color = WhappyBlue, fontSize = 7.sp, fontWeight = FontWeight.Black) }
+                                Surface(color = WhappyBlue.copy(alpha = .11f), shape = RoundedCornerShape(6.dp)) { Text("CLIENT", Modifier.padding(horizontal = 5.dp, vertical = 2.dp), color = WhappyBlue, fontSize = 7.sp, fontWeight = FontWeight.Black) }
                             }
                             Spacer(Modifier.weight(1f))
                             Text(formatConversationMoment(conversation.updatedAt), color = if (conversation.unread) WhappyBlue else WhappyMuted, fontSize = 10.sp, fontWeight = if (conversation.unread) FontWeight.Bold else FontWeight.Normal)
@@ -5617,8 +5643,13 @@ private fun MessagesScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (conversation.unread) Box(Modifier.padding(start = 8.dp).size(9.dp).clip(CircleShape).background(WhappyBlue))
+                    if (conversation.unread) {
+                        Surface(Modifier.padding(start = 8.dp), color = WhappyBlue, shape = CircleShape) {
+                            Text("N", Modifier.padding(horizontal = 7.dp, vertical = 4.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
                 }
+                if (index < filteredConversations.lastIndex) Box(Modifier.fillMaxWidth().padding(start = 68.dp).height(1.dp).background(WhappyLine.copy(alpha = .72f)))
                 }
             }
             if (conversationSearch.isBlank()) {
@@ -9027,29 +9058,37 @@ private fun BusinessScreen(
     val soldUnits = visibleDeals.sumOf { it.sold }
     val availableStock = visibleDeals.sumOf { (it.stock - it.sold).coerceAtLeast(0) }
     val advertisingBudget = visibleCampaigns.filter { it.status == "active" }.sumOf { it.dailyBudget * it.days }
+    val activePage = visiblePages.firstOrNull()
+    val profileCompletion = activePage?.let { page ->
+        listOf(page.logoUrl, page.name, page.category, page.bio, page.city, page.phone, page.website)
+            .count { it.isNotBlank() } * 100 / 7
+    } ?: 0
     LazyColumn(Modifier.fillMaxSize().background(Color(0xFFF7F8FA)), contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Business", color = WhappyDark, fontSize = 25.sp, fontWeight = FontWeight.Black)
-                    Text(if (visiblePages.isEmpty()) "Votre profil professionnel séparé" else visiblePages.first().name, color = WhappyMuted, fontSize = 12.sp)
-                }
-                IconButton(onClick = onEnableNotifications) { Box(contentAlignment = Alignment.TopEnd) { Icon(Icons.Rounded.Notifications, "Alertes Business", tint = WhappyDark); if (unread > 0) Box(Modifier.size(8.dp).clip(CircleShape).background(WhappyBlue)) } }
-                FilledIconButton(onClick = { if (visiblePages.isEmpty()) creatingPage = true else creatingDeal = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue)) { Icon(if (visiblePages.isEmpty()) Icons.Rounded.Add else Icons.Rounded.LocalOffer, if (visiblePages.isEmpty()) "Créer une page" else "Créer une offre", tint = Color.White) }
-            }
+            BusinessWorkspaceHero(
+                page = activePage,
+                profileCompletion = profileCompletion,
+                unread = unread,
+                revenue = paidTotal,
+                orders = paymentNotices.size,
+                onNotifications = onEnableNotifications,
+                onEdit = { if (activePage == null) creatingPage = true else editingPage = activePage },
+            )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("Deals actifs", visibleDeals.count { it.status == "active" }.toString(), Modifier.weight(1f))
-                MetricCard("Paiements", formatMoney(paidTotal), Modifier.weight(1f))
-                MetricCard("Nouveaux", unread.toString(), Modifier.weight(1f))
-            }
+            BusinessQuickActions(
+                enabled = activePage != null,
+                onInbox = onOpenMessages,
+                onProduct = { if (activePage == null) creatingPage = true else creatingDeal = true },
+                onAdvertise = { if (activePage == null) creatingPage = true else { creatingCampaignMode = "campaign" } },
+                onSale = { section = BusinessSection.SALES },
+            )
         }
         item {
             BusinessIdentityCard(
-                page = visiblePages.firstOrNull(),
+                page = activePage,
                 onCreate = { creatingPage = true },
-                onOpenInbox = { /* The inbox is the same Messages tab, filtered by profile identity. */ },
+                onOpenInbox = onOpenMessages,
             )
         }
         item {
@@ -9059,7 +9098,19 @@ private fun BusinessScreen(
         }
         when (section) {
             BusinessSection.DASHBOARD -> {
-                item { Text("Centre Business", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
+                item {
+                    Column(Modifier.padding(top = 4.dp)) {
+                        Text("Aujourd’hui", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark)
+                        Text("Vos opérations importantes, sans chiffres fictifs", color = WhappyMuted, fontSize = 11.sp)
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Offres actives", visibleDeals.count { it.status == "active" }.toString(), Modifier.weight(1f))
+                        MetricCard("Stock", availableStock.toString(), Modifier.weight(1f))
+                        MetricCard("Alertes", unread.toString(), Modifier.weight(1f))
+                    }
+                }
                 item { BusinessFeatureCard(Icons.Rounded.Storefront, "Profil Business", if (visiblePages.isEmpty()) "Créez une page publique professionnelle" else "${visiblePages.first().name} · @${visiblePages.first().handle}") { section = BusinessSection.PAGES } }
                 item { BusinessFeatureCard(Icons.AutoMirrored.Rounded.ReceiptLong, "Catalogue", if (visibleDeals.isEmpty()) "Ajoutez vos produits et services" else "${visibleDeals.size} offre(s) · $availableStock unité(s) disponibles") { section = BusinessSection.CATALOG } }
                 item { BusinessFeatureCard(Icons.Rounded.LocalOffer, "Deals", "Offres limitées, stock et ventes en un coup d’œil") { section = BusinessSection.DEALS } }
@@ -9164,6 +9215,99 @@ private fun BusinessScreen(
                 editingPage = null
             },
         )
+    }
+}
+
+@Composable
+private fun BusinessWorkspaceHero(
+    page: WhappyBusinessPage?,
+    profileCompletion: Int,
+    unread: Int,
+    revenue: Long,
+    orders: Int,
+    onNotifications: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    Box(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(27.dp))
+            .background(Brush.linearGradient(listOf(WhappyNavy, WhappyDeepBlue, WhappyBlue))),
+    ) {
+        Box(Modifier.size(190.dp).offset(x = 235.dp, y = (-72).dp).clip(CircleShape).background(Color.White.copy(alpha = .08f)))
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                UserAvatar(page?.logoUrl.orEmpty(), page?.name ?: "WAPI Business", 58.dp, shape = RoundedCornerShape(17.dp))
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text("ESPACE BUSINESS", color = WhappySky, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                    Text(page?.name ?: "Créez votre entreprise", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (page == null) "Identité, ventes et clients séparés" else "@${page.handle} · ${page.category}", color = Color.White.copy(alpha = .72f), fontSize = 10.sp)
+                }
+                IconButton(onClick = onNotifications) {
+                    Box(contentAlignment = Alignment.TopEnd) {
+                        Icon(Icons.Rounded.Notifications, "Notifications Business", tint = Color.White)
+                        if (unread > 0) Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFFC857)))
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BusinessHeroMetric("Revenus confirmés", formatMoney(revenue), Modifier.weight(1.35f))
+                BusinessHeroMetric("Commandes", orders.toString(), Modifier.weight(1f))
+                BusinessHeroMetric("Profil", "$profileCompletion %", Modifier.weight(1f))
+            }
+            Button(
+                onClick = onEdit,
+                modifier = Modifier.fillMaxWidth().height(45.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = WhappyNavy),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(if (page == null) Icons.Rounded.Add else Icons.Rounded.Edit, null, Modifier.size(18.dp))
+                Text(if (page == null) "  Configurer mon Business" else "  Gérer l’identité professionnelle", fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BusinessHeroMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.clip(RoundedCornerShape(13.dp)).background(Color.White.copy(alpha = .11f)).padding(horizontal = 10.dp, vertical = 9.dp)) {
+        Text(label.uppercase(), color = Color.White.copy(alpha = .62f), fontSize = 7.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun BusinessQuickActions(
+    enabled: Boolean,
+    onInbox: () -> Unit,
+    onProduct: () -> Unit,
+    onAdvertise: () -> Unit,
+    onSale: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        BusinessQuickAction(Icons.Rounded.ChatBubble, "Clients", enabled, onInbox)
+        BusinessQuickAction(Icons.Rounded.LocalOffer, "Produit", true, onProduct)
+        BusinessQuickAction(Icons.Rounded.Bolt, "Publicité", true, onAdvertise)
+        BusinessQuickAction(Icons.Rounded.LiveTv, "Vente live", enabled, onSale)
+    }
+}
+
+@Composable
+private fun BusinessQuickAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier.width(76.dp).clip(RoundedCornerShape(17.dp)).clickable(enabled = enabled, onClick = onClick).padding(vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(if (enabled) WapiSoftBlue else WhappySurface),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, label, tint = if (enabled) WhappyBlue else WhappyMuted, modifier = Modifier.size(21.dp)) }
+        Text(label, color = if (enabled) WhappyDark else WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 

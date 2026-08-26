@@ -602,9 +602,9 @@ struct MessagesView: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(section == 0 ? (store.activeBusinessMode ? "Messages Business" : "Messages") : "Chaînes")
-                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .font(.system(size: 30, weight: .black))
                         .foregroundStyle(Color.whappyInk)
-                    Text(section == 0 ? (store.activeBusinessMode ? "Votre relation client, au nom de votre entreprise" : "Vos échanges, sans distraction") : "Les publications que vous choisissez")
+                    Text(section == 0 ? (store.activeBusinessMode ? "Clients, commandes et équipe · identité séparée" : "Vos échanges, instantanément") : "Les publications que vous choisissez")
                         .font(.caption)
                         .foregroundStyle(WapiColor.secondaryText)
                 }
@@ -625,6 +625,42 @@ struct MessagesView: View {
             .padding(.horizontal, WapiSpacing.screen)
             .padding(.top, 12)
             .padding(.bottom, 14)
+
+            if section == 0, store.activeBusinessMode {
+                NavigationLink { BusinessWorkspaceView() } label: {
+                    HStack(spacing: 11) {
+                        if let business = store.business, let url = URL(string: business.logoURL), !business.logoURL.isEmpty {
+                            AsyncImage(url: url) { phase in
+                                if let image = phase.image { image.resizable().scaledToFill() }
+                                else { InitialsAvatar(text: business.name, size: 42) }
+                            }
+                            .frame(width: 42, height: 42)
+                            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        } else {
+                            InitialsAvatar(text: store.business?.name ?? "Business", size: 42)
+                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(store.business?.name ?? "WAPI Business").font(.subheadline.weight(.bold)).lineLimit(1)
+                                Text("BUSINESS").font(.system(size: 8, weight: .black)).foregroundStyle(WapiColor.sky)
+                            }
+                            Text("Vous répondez au nom de l’entreprise").font(.caption2).foregroundStyle(.white.opacity(0.68))
+                        }
+                        Spacer()
+                        Image(systemName: "briefcase.fill").foregroundStyle(WapiColor.sky)
+                        Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.white.opacity(0.55))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 66)
+                    .background(LinearGradient(colors: [Color.whappyInk, WapiColor.deepBlue], startPoint: .leading, endPoint: .trailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, WapiSpacing.screen)
+                .padding(.bottom, 10)
+            }
 
             HStack(spacing: 4) {
                 messageSectionButton("Discussions", value: 0)
@@ -838,14 +874,24 @@ private struct WapiConversationRow: View {
                         .foregroundStyle(conversation.unread ? Color.whappyInk : WapiColor.secondaryText)
                         .lineLimit(1)
                     Spacer()
-                    if conversation.unread { Circle().fill(Color.whappyBlue).frame(width: 9, height: 9) }
+                    if conversation.unread {
+                        Text("N")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Color.whappyBlue)
+                            .clipShape(Capsule())
+                    }
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 12)
         .background(conversation.unread ? WapiColor.unreadSurface : Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(WapiColor.line.opacity(0.72)).frame(height: 1).padding(.leading, 66)
+        }
     }
 }
 
@@ -2920,7 +2966,7 @@ struct ServicesView: View {
                 Text("Services à la demande").font(.title3.bold())
                 HStack { ServiceButton(title: "Transport", icon: "car.fill") { requestType = .transport }; ServiceButton(title: "Livraison", icon: "shippingbox.fill") { requestType = .delivery }; ServiceButton(title: "Assistance", icon: "cross.case.fill") { requestType = .help } }
                 NavigationLink { OrdersView() } label: { Label("Mes commandes et livraisons", systemImage: "shippingbox.and.arrow.backward.fill").frame(maxWidth: .infinity, alignment: .leading).padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 16)) }
-                NavigationLink { BusinessEditorView() } label: { Label(store.business == nil ? "Créer mon espace Business" : "Gérer \(store.business?.name ?? "mon activité")", systemImage: "briefcase.fill").frame(maxWidth: .infinity, alignment: .leading).padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 16)) }
+                NavigationLink { BusinessWorkspaceView() } label: { Label(store.business == nil ? "Créer mon espace Business" : "Piloter \(store.business?.name ?? "mon activité")", systemImage: "briefcase.fill").frame(maxWidth: .infinity, alignment: .leading).padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 16)) }
                 if !store.serviceRequests.isEmpty { Text("Demandes récentes").font(.title3.bold()); ForEach(store.serviceRequests.prefix(5)) { request in HStack { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green); VStack(alignment: .leading) { Text(request.type).font(.headline); Text(request.details).font(.caption).foregroundStyle(.secondary).lineLimit(2) }; Spacer(); Text(request.status).font(.caption.bold()).foregroundStyle(.orange) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 16)) } }
                 if !store.walletTransactions.isEmpty { Text("Historique").font(.title3.bold()); ForEach(store.walletTransactions) { transaction in HStack { Image(systemName: transaction.amount >= 0 ? "arrow.down.circle.fill" : "arrow.up.circle.fill").foregroundStyle(transaction.amount >= 0 ? .green : Color.whappyBlue); VStack(alignment: .leading) { Text(transaction.label).font(.headline); Text(transaction.date, style: .date).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text("\(transaction.amount > 0 ? "+" : "")\(transaction.amount.formatted()) FCFA").font(.subheadline.bold()) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 16)) } }
             }.padding()
@@ -2958,6 +3004,207 @@ private struct ServiceRequestView: View {
 private struct OrdersView: View {
     @EnvironmentObject private var store: WhappyStore
     var body: some View { List { if store.orders.isEmpty { ContentUnavailableView("Aucune commande", systemImage: "shippingbox", description: Text("Validez un panier dans le Marché.")) } else { ForEach(store.orders) { order in Section(order.reference) { Text(order.lines.map { "\($0.quantity) × \($0.listing.title)" }.joined(separator: "\n")); Label(order.delivery, systemImage: "mappin.and.ellipse"); Label(order.status, systemImage: "clock.fill").foregroundStyle(.orange) } } } }.navigationTitle("Commandes") }
+}
+
+private struct BusinessWorkspaceView: View {
+    @EnvironmentObject private var store: WhappyStore
+
+    private var businessMessages: [Conversation] { store.conversations.filter { $0.profileType == "business" } }
+    private var unreadClients: Int { businessMessages.filter(\.unread).count }
+    private var profileCompletion: Int {
+        guard let business = store.business else { return 0 }
+        let values = [business.logoURL, business.name, business.category, business.bio, business.city, business.phone, business.website]
+        return values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count * 100 / values.count
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                businessHero
+
+                HStack(spacing: 10) {
+                    BusinessMetricIOS(title: "Clients", value: "\(businessMessages.count)", detail: unreadClients == 0 ? "À jour" : "\(unreadClients) nouveau(x)")
+                    BusinessMetricIOS(title: "Commandes", value: "\(store.orders.count)", detail: "Données réelles")
+                    BusinessMetricIOS(title: "Profil", value: "\(profileCompletion) %", detail: profileCompletion == 100 ? "Complet" : "À compléter")
+                }
+
+                Text("Piloter l’activité").font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
+
+                Button {
+                    store.switchAccount(business: true)
+                    store.selectedTab = .messages
+                } label: {
+                    BusinessOperationIOS(icon: "bubble.left.and.bubble.right.fill", title: "Messagerie Business", detail: "Répondre aux clients au nom de l’entreprise", badge: unreadClients > 0 ? "\(unreadClients)" : nil)
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink { BusinessSaleRoomManagerIOS() } label: {
+                    BusinessOperationIOS(icon: "person.3.sequence.fill", title: "Ventes privées", detail: "Présenter les produits en direct dans tout WAPI")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink { OrdersView() } label: {
+                    BusinessOperationIOS(icon: "shippingbox.fill", title: "Commandes", detail: "Suivre les achats et les livraisons réelles")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink { BusinessCampaignIOSView() } label: {
+                    BusinessOperationIOS(icon: "megaphone.fill", title: "WAPI Ads", detail: "Préparer une campagne ciblée par région")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink { BusinessEditorView() } label: {
+                    BusinessOperationIOS(icon: "building.2.crop.circle.fill", title: "Identité professionnelle", detail: "Logo, activité, ville, présentation et contacts")
+                }
+                .buttonStyle(.plain)
+
+                Text("Le compte personnel et le compte Business utilisent la même connexion WAPI, mais gardent une identité publique, une messagerie et des opérations séparées.")
+                    .font(.footnote)
+                    .foregroundStyle(WapiColor.secondaryText)
+                    .padding(.horizontal, 4)
+            }
+            .padding(WapiSpacing.screen)
+        }
+        .background(Color.whappyBackground.ignoresSafeArea())
+        .navigationTitle("Business")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var businessHero: some View {
+        ZStack(alignment: .topTrailing) {
+            LinearGradient(colors: [Color.whappyInk, WapiColor.deepBlue, Color.whappyBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle().fill(.white.opacity(0.08)).frame(width: 190, height: 190).offset(x: 65, y: -85)
+            VStack(alignment: .leading, spacing: 15) {
+                HStack(spacing: 12) {
+                    Group {
+                        if let business = store.business, let url = URL(string: business.logoURL), !business.logoURL.isEmpty {
+                            AsyncImage(url: url) { phase in
+                                if let image = phase.image { image.resizable().scaledToFill() }
+                                else { InitialsAvatar(text: business.name, size: 58) }
+                            }
+                        } else { InitialsAvatar(text: store.business?.name ?? "Business", size: 58) }
+                    }
+                    .frame(width: 58, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("ESPACE BUSINESS").font(.system(size: 9, weight: .black)).tracking(1).foregroundStyle(WapiColor.sky)
+                        Text(store.business?.name ?? "Créez votre entreprise").font(.title2.weight(.black)).foregroundStyle(.white).lineLimit(1)
+                        Text(store.business.map { "\($0.category) · \($0.city)" } ?? "Identité, ventes et clients séparés").font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+                NavigationLink { BusinessEditorView() } label: {
+                    Label(store.business == nil ? "Configurer mon Business" : "Gérer l’identité professionnelle", systemImage: store.business == nil ? "plus" : "pencil")
+                        .font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                        .frame(maxWidth: .infinity).frame(height: 44).background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(20)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+    }
+}
+
+private struct BusinessMetricIOS: View {
+    let title: String
+    let value: String
+    let detail: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased()).font(.system(size: 8, weight: .black)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
+            Text(value).font(.headline.weight(.black)).foregroundStyle(Color.whappyInk).lineLimit(1)
+            Text(detail).font(.system(size: 8, weight: .medium)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(11)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+}
+
+private struct BusinessOperationIOS: View {
+    let icon: String
+    let title: String
+    let detail: String
+    var badge: String? = nil
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 19, weight: .semibold)).foregroundStyle(Color.whappyBlue)
+                .frame(width: 44, height: 44).background(WapiColor.blueMist).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                Text(detail).font(.caption).foregroundStyle(WapiColor.secondaryText).lineLimit(2)
+            }
+            Spacer()
+            if let badge { Text(badge).font(.caption2.weight(.black)).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(Color.whappyBlue).clipShape(Capsule()) }
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
+        }
+        .padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+private struct BusinessCampaignIOSView: View {
+    @EnvironmentObject private var store: WhappyStore
+    @State private var title = ""
+    @State private var creative = ""
+    @State private var city = "Brazzaville"
+    @State private var dailyBudget = "1000"
+    @State private var days = "3"
+    @State private var saving = false
+    @State private var result: String?
+
+    var body: some View {
+        Form {
+            Section("Campagne") {
+                TextField("Nom de la campagne", text: $title)
+                TextField("Message publicitaire", text: $creative, axis: .vertical).lineLimit(3...6)
+                TextField("Ville ou région ciblée", text: $city)
+            }
+            Section("Budget contrôlé") {
+                TextField("Budget quotidien (FCFA)", text: $dailyBudget).keyboardType(.numberPad)
+                TextField("Nombre de jours", text: $days).keyboardType(.numberPad)
+                if let budget = Int(dailyBudget), let duration = Int(days) {
+                    Text("Budget total prévu : \((budget * duration).formatted()) FCFA").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                Button(saving ? "Préparation…" : "Préparer la campagne") { createCampaign() }
+                    .disabled(!isValid || saving || store.business == nil)
+                if let result { Text(result).foregroundStyle(result.hasPrefix("Campagne") ? .green : .red) }
+                Text("La campagne est enregistrée avec le statut « paiement requis ». Elle ne peut pas dépenser d’argent sans validation explicite.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("WAPI Ads")
+    }
+
+    private var isValid: Bool {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 &&
+        creative.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 &&
+        (Int(dailyBudget) ?? 0) >= 500 && (1...90).contains(Int(days) ?? 0)
+    }
+
+    private func createCampaign() {
+        guard let uid = store.firebaseUserID, let business = store.business, !business.remoteID.isEmpty,
+              let budget = Int(dailyBudget), let duration = Int(days), isValid else {
+            result = "Complétez d’abord le profil Business et les champs de la campagne."
+            return
+        }
+        saving = true; result = nil
+        Firestore.firestore().collection("adCampaigns").addDocument(data: [
+            "ownerId": uid, "pageId": business.remoteID, "pageName": business.name,
+            "objective": "messages", "placement": "inbox", "destination": "message",
+            "title": title.trimmingCharacters(in: .whitespacesAndNewlines),
+            "creative": creative.trimmingCharacters(in: .whitespacesAndNewlines),
+            "cta": "Contacter", "audience": "Utilisateurs WAPI de la région", "city": city,
+            "phone": business.phone, "link": business.website, "dailyBudget": budget, "days": duration,
+            "totalBudget": budget * duration, "estimatedReach": max(120, (budget / 500) * duration * 120),
+            "status": "pending_payment", "createdAt": FieldValue.serverTimestamp(), "updatedAt": FieldValue.serverTimestamp(),
+        ]) { error in
+            saving = false
+            result = error == nil ? "Campagne préparée. Validation du paiement requise." : wapiUserFacingError(error!, action: "La campagne Business")
+        }
+    }
 }
 
 private struct BusinessEditorView: View {
@@ -3330,7 +3577,7 @@ struct ProfileView: View {
                     NavigationLink { FounderDashboardIOSView() } label: { Label("Tableau Fondateur", systemImage: "chart.xyaxis.line") }
                 }
             }
-            Section("Votre activité") { NavigationLink { MyWhappyLinkView() } label: { Label("Mon code et mon lien WAPI", systemImage: "qrcode") }; NavigationLink { BusinessEditorView() } label: { Label("Ma boutique", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
+            Section("Votre activité") { NavigationLink { MyWhappyLinkView() } label: { Label("Mon code et mon lien WAPI", systemImage: "qrcode") }; NavigationLink { BusinessWorkspaceView() } label: { Label("Espace Business", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
             Section("Réglages") {
                 NavigationLink { WapiSettingsHubView() } label: { Label("Centre des réglages WAPI", systemImage: "slider.horizontal.3") }
                 Text("Notifications, langue, confidentialité, stockage et aide dans un espace unique.").font(.footnote).foregroundStyle(.secondary)
