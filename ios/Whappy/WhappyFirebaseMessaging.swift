@@ -226,6 +226,24 @@ extension WhappyStore {
         let originalExtension = fileURL.pathExtension.isEmpty ? fallbackExtension(for: kind) : fileURL.pathExtension.lowercased()
         let safeName = String((originalName.isEmpty ? "wapi-\(kind).\(originalExtension)" : originalName).prefix(120))
         let fileName = "ios-\(UUID().uuidString).\(originalExtension)"
+        let root = Firestore.firestore().collection(rootName).document(remoteID)
+        let messageReference = root.collection("messages").document()
+        let localMessage = Message(
+            id: stableFirebaseUUID(messageReference.documentID),
+            text: label,
+            mine: true,
+            sentAt: Date(),
+            kind: kind,
+            mediaPath: path,
+            mediaName: safeName,
+            mediaSizeBytes: Int64(fileData.count),
+            viewOnce: viewOnce,
+            status: "sending",
+            remoteID: messageReference.documentID,
+            senderID: userID,
+            senderName: currentFirebaseSenderName
+        )
+        appendOptimisticFirebaseMessage(localMessage, conversationID: conversation.id)
         let object = Storage.storage().reference().child("\(rootName)/\(remoteID)/\(userID)/\(fileName)")
         let metadata = StorageMetadata()
         metadata.contentType = mediaContentType(for: fileURL, kind: kind)
@@ -233,15 +251,25 @@ extension WhappyStore {
         object.putFile(from: URL(fileURLWithPath: path), metadata: metadata) { [weak self] _, error in
             guard let self else { return }
             if let error {
-                Task { @MainActor in self.firebaseBusy = false; self.firebaseMessage = self.friendlyFirebaseError(error) }
+                Task { @MainActor in
+                    self.firebaseBusy = false
+                    self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
+                }
                 return
             }
             object.downloadURL { url, error in
                 Task { @MainActor in
                     self.firebaseBusy = false
-                    if let error { self.firebaseMessage = self.friendlyFirebaseError(error); return }
-                    guard let url else { self.firebaseMessage = "Le média n’a pas pu être envoyé."; return }
-                    self.writeFirebaseMediaMessage(label: label, kind: kind, mediaURL: url.absoluteString, fileName: safeName, mediaSizeBytes: fileData.count, mediaSha256: SHA256.hash(data: fileData).compactMap { String(format: "%02x", $0) }.joined(), viewOnce: viewOnce, conversation: conversation)
+                    if let error {
+                        self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
+                        return
+                    }
+                    guard let url else {
+                        let error = NSError(domain: "WAPI.Media", code: 1, userInfo: [NSLocalizedDescriptionKey: "Le média n’a pas pu être envoyé."])
+                        self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
+                        return
+                    }
+                    self.writeFirebaseMediaMessage(label: label, kind: kind, mediaURL: url.absoluteString, fileName: safeName, mediaSizeBytes: fileData.count, mediaSha256: SHA256.hash(data: fileData).compactMap { String(format: "%02x", $0) }.joined(), viewOnce: viewOnce, conversation: conversation, messageReference: messageReference, localMessageID: localMessage.id)
                 }
             }
         }
@@ -580,7 +608,7 @@ extension WhappyStore {
         )
     }
 
-    private func writeFirebaseMediaMessage(label: String, kind: String, mediaURL: String, fileName: String, mediaSizeBytes: Int, mediaSha256: String, viewOnce: Bool, conversation: Conversation) {
+    private func writeFirebaseMediaMessage(label: String, kind: String, mediaURL: String, fileName: String, mediaSizeBytes: Int, mediaSha256: String, viewOnce: Bool, conversation: Conversation, messageReference: DocumentReference, localMessageID: UUID) {
         guard let remoteID = conversation.remoteID, let userID = firebaseUserID else { return }
         let root = Firestore.firestore().collection(conversation.source == "groups" ? "groups" : "conversations").document(remoteID)
         var data: [String: Any] = [
@@ -590,10 +618,11 @@ extension WhappyStore {
             "viewOnce": viewOnce, "viewedBy": [:]
         ]
         if conversation.source == "groups" { data["senderName"] = currentFirebaseSenderName }
-        root.collection("messages").addDocument(data: data) { [weak self] error in
+        messageReference.setData(data) { [weak self] error in
             Task { @MainActor [weak self] in
-                if let error { self?.firebaseMessage = self?.friendlyFirebaseError(error) }
-                else { self?.updateFirebaseConversationSummary(root: root, source: conversation.source ?? "conversations", text: label, userID: userID) }
+                self?.finishFirebaseSend(messageID: localMessageID, conversationID: conversation.id, error: error)
+                guard error == nil else { return }
+                self?.updateFirebaseConversationSummary(root: root, source: conversation.source ?? "conversations", text: label, userID: userID)
             }
         }
     }
