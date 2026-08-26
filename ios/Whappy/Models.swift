@@ -752,5 +752,5 @@ struct WhappyBusiness: Identifiable, Hashable, Codable {
 }
 
 enum WhappyTab: Hashable {
-    case home, messages, calls, actus, market, live, games, services, profile
+    case home, messages, calls, actus, wia, market, live, games, services, profile
 }

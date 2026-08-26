@@ -723,7 +723,9 @@ class WhappyRepository(
                     ownerId = userId,
                     enabled = document.getBoolean("enabled") ?: true,
                     autoReply = document.getBoolean("autoReply") ?: true,
-                    assistantName = document.getString("assistantName") ?: "WEPI",
+                    assistantName = document.getString("assistantName")
+                        ?.takeUnless { it.isBlank() || it.equals("WEPI", true) || it.equals("Assistant WAPI", true) }
+                        ?: "WIA",
                     businessName = document.getString("businessName").orEmpty(),
                     tone = document.getString("tone") ?: "chaleureux",
                     welcomeMessage = document.getString("welcomeMessage") ?: "Bonjour et merci pour votre message.",
@@ -788,7 +790,9 @@ class WhappyRepository(
     suspend fun saveWepiSettings(settings: WapiWepiSettings) {
         require(auth.currentUser?.uid == settings.ownerId)
         val safe = settings.copy(
-            assistantName = settings.assistantName.trim().take(60).ifBlank { "WEPI" },
+            assistantName = settings.assistantName.trim().take(60)
+                .takeUnless { it.isBlank() || it.equals("WEPI", true) || it.equals("Assistant WAPI", true) }
+                ?: "WIA",
             businessName = settings.businessName.trim().take(100),
             tone = settings.tone.takeIf { it in setOf("chaleureux", "expert", "direct") } ?: "chaleureux",
             welcomeMessage = settings.welcomeMessage.trim().take(240),

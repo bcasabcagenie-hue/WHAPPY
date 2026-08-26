@@ -19,7 +19,7 @@ object WapiAssistantGateway {
         val result = functions.getHttpsCallable("getWepiHistory")
             .call(mapOf("threadId" to threadId))
             .await()
-        val data = result.data as? Map<*, *> ?: error("Mémoire WEPI invalide.")
+        val data = result.data as? Map<*, *> ?: error("Mémoire WIA invalide.")
         (data["messages"] as? List<*>).orEmpty().mapNotNull { raw ->
             val value = raw as? Map<*, *> ?: return@mapNotNull null
             val text = value["content"]?.toString()?.trim().orEmpty()
@@ -49,8 +49,8 @@ object WapiAssistantGateway {
                 "messageId" to messageId.take(96),
             ),
         ).await()
-        val data = result.data as? Map<*, *> ?: error("Réponse WEPI invalide.")
+        val data = result.data as? Map<*, *> ?: error("Réponse WIA invalide.")
         data["text"]?.toString()?.trim()?.takeIf { it.isNotBlank() }
-            ?: error("Réponse WEPI invalide.")
+            ?: error("Réponse WIA invalide.")
     }
 }

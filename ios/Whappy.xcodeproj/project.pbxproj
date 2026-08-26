@@ -13,6 +13,7 @@
 		356D23B34B46DC3F7861A4A7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A90C325ED3DA9C2494FEDD /* ContentView.swift */; };
 		42E7879B72ABD4AC8A53CD8B /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 10F55801F4AF129DDD92974C /* LiveKit */; };
 		A4D10E6B4D0C4C9A90D81103 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = A4D10E6B4D0C4C9A90D81104 /* LiveKitWebRTC */; };
+		A4D10E6B4D0C4C9A90D81107 /* WiaAssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4D10E6B4D0C4C9A90D81106 /* WiaAssistantView.swift */; };
 		66CBF388013B39D5151995AD /* WhappyFirebaseMessaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC27F2ACD71FD215C5BBD95 /* WhappyFirebaseMessaging.swift */; };
 		B282100088C6263F3B14854C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF5C886AFD6F9D4FA97FFC87 /* Foundation.framework */; };
 		B346F1258F6CAB923A3CDF21 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1AFF8CF2C802656DA17B2A84 /* GoogleService-Info.plist */; };
@@ -35,6 +36,7 @@
 		9BDF6D9582D819B72636E14D /* Pods-Whappy.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Whappy.release.xcconfig"; path = "Target Support Files/Pods-Whappy/Pods-Whappy.release.xcconfig"; sourceTree = "<group>"; };
 		BADA6F6434F1547AA9237126 /* WapiNativeLive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WapiNativeLive.swift; sourceTree = "<group>"; };
 		A4D10E6B4D0C4C9A90D81102 /* WapiDirectCall.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WapiDirectCall.swift; sourceTree = "<group>"; };
+		A4D10E6B4D0C4C9A90D81106 /* WiaAssistantView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WiaAssistantView.swift; sourceTree = "<group>"; };
 		BF5C886AFD6F9D4FA97FFC87 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		E2050F776AB96AFFD56F5EB5 /* Pods_Whappy.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Whappy.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E4433857A527E5BBB906B5BD /* WapiDesignSystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WapiDesignSystem.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				E4433857A527E5BBB906B5BD /* WapiDesignSystem.swift */,
 				BADA6F6434F1547AA9237126 /* WapiNativeLive.swift */,
 				A4D10E6B4D0C4C9A90D81102 /* WapiDirectCall.swift */,
+				A4D10E6B4D0C4C9A90D81106 /* WiaAssistantView.swift */,
 				549B293C13503B81B6F4E529 /* WhappyApp.swift */,
 				68CF36E3C51D48B17D589C03 /* Models.swift */,
 				F7C58A6CB9B10738EE997BF3 /* WhappyStore.swift */,
@@ -282,6 +285,7 @@
 				EE1E0EDE0F98EAC9A095C7C2 /* WhappyStore.swift in Sources */,
 				66CBF388013B39D5151995AD /* WhappyFirebaseMessaging.swift in Sources */,
 				356D23B34B46DC3F7861A4A7 /* ContentView.swift in Sources */,
+				A4D10E6B4D0C4C9A90D81107 /* WiaAssistantView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -27,6 +27,8 @@ struct ContentView: View {
                 .tabItem { Label(ui("Appels", "Calls", "Mabéle"), systemImage: "phone.fill") }.tag(WhappyTab.calls)
             NavigationStack { UpdatesView() }
                 .tabItem { Label(ui("Actus", "Updates", "Sango"), systemImage: "sparkles") }.tag(WhappyTab.actus)
+            NavigationStack { WiaAssistantView() }
+                .tabItem { Label("WIA", systemImage: "wand.and.stars") }.tag(WhappyTab.wia)
             NavigationStack { HomeView() }
                 .tabItem { Label(ui("Accueil", "Home", "Ndako"), systemImage: "house.fill") }.tag(WhappyTab.home)
             NavigationStack { MarketView() }
@@ -3004,7 +3006,7 @@ private struct BusinessEditorView: View {
                 NavigationLink { BusinessSaleRoomManagerIOS() } label: {
                     Label("Salons de vente", systemImage: "person.3.sequence.fill")
                 }
-                Text("WEPI peut préparer vos réponses clients, vos descriptions et vos relances. Les campagnes sont gérées dans Business Ads.")
+                Text("WIA peut préparer vos réponses clients, vos descriptions et vos relances. Les campagnes sont gérées dans Business Ads.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

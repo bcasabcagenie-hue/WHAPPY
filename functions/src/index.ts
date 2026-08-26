@@ -25,7 +25,7 @@ const livekitApiSecret = defineSecret("WAPI_LIVEKIT_API_SECRET");
 const lingwapRelayUrl = defineString("WAPI_LINGWAP_RELAY_URL", { default: "" });
 // Optional until the self-hosted Lingwap relay is provisioned. Keeping this as
 // an empty server parameter prevents an unrelated missing token from blocking
-// deployments of WEPI, Live or notifications. No value is sent to clients.
+// deployments of WIA, Live or notifications. No value is sent to clients.
 const lingwapRelayToken = defineString("WAPI_LINGWAP_RELAY_TOKEN", { default: "" });
 // Optional self-hosted coturn relay. STUN alone cannot cross every carrier NAT;
 // production calls become reliable only when these values point to WAPI's own
@@ -33,10 +33,11 @@ const lingwapRelayToken = defineString("WAPI_LINGWAP_RELAY_TOKEN", { default: ""
 // callable and never embedded in the mobile binaries.
 const webRtcTurnUrls = defineSecret("WAPI_TURN_URLS");
 const webRtcTurnSharedSecret = defineSecret("WAPI_TURN_SHARED_SECRET");
-// WEPI is hosted by Pilotis. Keep its bearer credential in WAPI Secret
-// Manager; it must never be shipped in the Android or iOS clients.
+// WIA is hosted by Pilotis. The historical secret name and HTTP header remain
+// unchanged for API compatibility; the credential never ships in a client.
 const wepiApiKey = defineSecret("WAPI_WEPI_API_KEY");
 const wepiEndpoint = "https://mypilotis.web.app/wepi-api/v1/chat/completions";
+const wiaChatModel = "wepi-ai-nova-1";
 // The mobile language catalog and the server policy deliberately match. Add a
 // language here only after the self-hosted Lingwap relay supports it.
 const lingwapSupportedLanguages = new Set([
@@ -161,7 +162,8 @@ function wepiSystemPrompt(
   pages: Array<Record<string, unknown>>,
   deals: Array<Record<string, unknown>>,
 ) {
-  const assistantName = String(settings.assistantName || "Assistant WAPI").trim().slice(0, 60) || "Assistant WAPI";
+  const storedAssistantName = String(settings.assistantName || "WIA").trim().slice(0, 60) || "WIA";
+  const assistantName = /^(wepi|assistant wapi)$/i.test(storedAssistantName) ? "WIA" : storedAssistantName;
   const tone = String(settings.tone || "chaleureux").trim().slice(0, 30) || "chaleureux";
   const businessName = String(settings.businessName || "").trim().slice(0, 100);
   const instructions = String(settings.instructions || "").trim().slice(0, 600);
@@ -177,8 +179,12 @@ function wepiSystemPrompt(
     return `${String(deal.title || "Produit").slice(0, 120)} — ${Number(deal.dealPrice || 0)} XAF — stock ${stock} — ${String(deal.description || "").slice(0, 180)}`;
   }).join("\n");
   return [
-    `Tu es ${assistantName}, l’assistant intelligent intégré à WAPI.`,
-    `Réponds en français avec un ton ${tone}, de façon claire, utile et naturelle.`,
+    `Tu es ${assistantName}, propulsé par WIA, le même moteur conversationnel que WIA Chat dans Pilotis.`,
+    "MODE GÉNÉRAL — ESPACE CHAT.",
+    `Réponds avec un ton ${tone}, de façon claire, utile et naturelle, dans la langue de l’utilisateur.`,
+    "Commence par la réponse directement utile, puis ajoute seulement le contexte nécessaire et une prochaine action concrète.",
+    "Si une information indispensable manque, pose une question ciblée au lieu d’inventer.",
+    "Maîtrise les sujets généraux, les langues, le raisonnement, les métiers, le développement logiciel, les données, la sécurité, les tests et le déploiement.",
     "Ne prétends jamais avoir exécuté une action, confirmé un prix ou accédé à des données si ce n’est pas établi.",
     businessName ? `Compte business : ${businessName}.` : "",
     instructions ? `Consignes du propriétaire : ${instructions}` : "",
@@ -192,7 +198,7 @@ function wepiSystemPrompt(
 }
 
 /**
- * Secure WEPI gateway. Pilotis stays the model provider while the Pilotis
+ * Secure WIA gateway. Pilotis stays the model provider while the Pilotis
  * bearer credential remains on the WAPI server only.
  */
 function safeWepiThreadId(value: unknown) {
@@ -206,12 +212,13 @@ function safeWepiMessageId(value: unknown) {
 }
 
 function wepiMessageFromDocument(document: DocumentSnapshot) {
+  if (document.get("status") === "failed") return null;
   const role = document.get("role") === "assistant" ? "assistant" : "user";
   const content = String(document.get("content") || "").trim().slice(0, 12_000);
   return content ? { role, content } : null;
 }
 
-/** Restores the account-owned WEPI thread on every device. */
+/** Restores the account-owned WIA thread on every device. */
 export const getWepiHistory = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const threadId = safeWepiThreadId(request.data?.threadId);
@@ -234,7 +241,7 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
 
   const prompt = String(request.data?.prompt || "").trim();
   if (prompt.length < 1 || prompt.length > 4_000) {
-    throw new HttpsError("invalid-argument", "Le message WEPI doit contenir entre 1 et 4 000 caractères.");
+    throw new HttpsError("invalid-argument", "Le message WIA doit contenir entre 1 et 4 000 caractères.");
   }
 
   const clientHistory = Array.isArray(request.data?.history)
@@ -250,7 +257,7 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     db.doc(`users/${request.auth.uid}/wepi/settings`).get(),
     db.collection("businessPages").where("ownerId", "==", request.auth.uid).limit(10).get(),
     db.collection("businessDeals").where("ownerId", "==", request.auth.uid).limit(40).get(),
-    thread.collection("messages").orderBy("createdAt", "desc").limit(20).get(),
+    thread.collection("messages").orderBy("createdAt", "desc").limit(48).get(),
   ]);
   const settings = (settingsSnapshot.data() || {}) as Record<string, unknown>;
   const pages = pagesSnapshot.docs.map((document) => document.data() as Record<string, unknown>);
@@ -277,7 +284,8 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
       ownerId: request.auth.uid,
       title: prompt.slice(0, 80),
       lastMessage: prompt.slice(0, 240),
-      provider: "pilotis",
+      provider: "wia-pilotis",
+      model: wiaChatModel,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
   ]);
@@ -287,7 +295,7 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
   const apiKey = wepiApiKey.value().trim();
   if (!apiKey) {
     await markPromptFailed();
-    throw new HttpsError("failed-precondition", "La connexion sécurisée à WEPI n’est pas configurée.");
+    throw new HttpsError("failed-precondition", "La connexion sécurisée à WIA n’est pas configurée.");
   }
 
   let upstream: Response;
@@ -301,7 +309,9 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
         Accept: "application/json",
       },
       body: JSON.stringify({
-        model: "wepi",
+        model: wiaChatModel,
+        temperature: 0.5,
+        max_tokens: 640,
         messages: [
           { role: "system", content: wepiSystemPrompt(settings, pages, deals) },
           ...history,
@@ -311,9 +321,9 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
       signal: AbortSignal.timeout(45_000),
     });
   } catch (error) {
-    logger.warn("WEPI Pilotis indisponible", { userId: request.auth.uid, error: String(error) });
+    logger.warn("WIA Pilotis indisponible", { userId: request.auth.uid, error: String(error) });
     await markPromptFailed();
-    throw new HttpsError("unavailable", "WEPI Pilotis est momentanément indisponible.");
+    throw new HttpsError("unavailable", "WIA est momentanément indisponible.");
   }
 
   const raw = await upstream.text();
@@ -324,15 +334,15 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     // Never show an HTML/proxy error as an assistant answer in the mobile app.
   }
   if (!upstream.ok) {
-    logger.warn("WEPI Pilotis a refusé la requête", { userId: request.auth.uid, status: upstream.status });
+    logger.warn("WIA Pilotis a refusé la requête", { userId: request.auth.uid, status: upstream.status });
     await markPromptFailed();
-    throw new HttpsError("unavailable", "WEPI Pilotis a refusé la requête. Réessayez dans un instant.");
+    throw new HttpsError("unavailable", "WIA ne peut pas répondre pour le moment. Réessayez dans un instant.");
   }
   const answer = String(payload?.choices?.[0]?.message?.content || payload?.content || "").trim();
   if (!answer) {
-    logger.error("Réponse WEPI Pilotis invalide", { userId: request.auth.uid });
+    logger.error("Réponse WIA Pilotis invalide", { userId: request.auth.uid });
     await markPromptFailed();
-    throw new HttpsError("internal", "La réponse WEPI est invalide.");
+    throw new HttpsError("internal", "La réponse WIA est invalide.");
   }
   const batch = db.batch();
   batch.set(userMessage, {
@@ -342,18 +352,20 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
   batch.set(assistantMessage, {
     role: "assistant",
     content: answer.slice(0, 12_000),
-    provider: "pilotis",
+    provider: "wia-pilotis",
+    model: wiaChatModel,
     createdAt: FieldValue.serverTimestamp(),
   });
   batch.set(thread, {
     ownerId: request.auth.uid,
     title: prompt.slice(0, 80),
     lastMessage: answer.slice(0, 240),
-    provider: "pilotis",
+    provider: "wia-pilotis",
+    model: wiaChatModel,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   await batch.commit();
-  return { text: answer, provider: "pilotis", threadId };
+  return { text: answer, provider: "wia-pilotis", model: wiaChatModel, assistant: "WIA", threadId };
 });
 
 async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessage, "tokens">) {

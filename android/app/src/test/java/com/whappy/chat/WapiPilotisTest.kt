@@ -7,7 +7,7 @@ class WapiPilotisTest {
     private val settings = WapiWepiSettings(
         ownerId = "owner",
         enabled = true,
-        assistantName = "WEPI",
+        assistantName = "WIA",
         businessName = "BCA SA",
         tone = "expert",
     )
@@ -22,7 +22,7 @@ class WapiPilotisTest {
     @Test
     fun usesSyncedBusinessIdentityForGreetings() {
         val reply = WapiPilotis.reply("Bonjour", settings, "Cyril Bokilo")
-        assertTrue(reply.contains("WEPI"))
+        assertTrue(reply.contains("WIA"))
         assertTrue(reply.contains("BCA SA"))
         assertTrue(reply.contains("l’IA intégrée à WAPI"))
     }

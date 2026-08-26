@@ -12,7 +12,7 @@ data class WapiStoredAssistantMessage(
 )
 
 /**
- * Encrypted local-first memory for WEPI.
+ * Encrypted local-first memory for WIA.
  *
  * Cloud history remains the cross-device source of truth, while this cache
  * restores the conversation immediately and preserves a prompt if the app is

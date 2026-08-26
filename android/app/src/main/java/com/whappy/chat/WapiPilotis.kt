@@ -4,7 +4,7 @@ data class WapiWepiSettings(
     val ownerId: String,
     val enabled: Boolean = true,
     val autoReply: Boolean = true,
-    val assistantName: String = "Assistant WAPI",
+    val assistantName: String = "WIA",
     val businessName: String = "",
     val tone: String = "chaleureux",
     val welcomeMessage: String = "Bonjour et merci pour votre message.",
@@ -30,7 +30,7 @@ data class WapiPilotisResponse(
     val actions: List<WapiPilotisAction> = emptyList(),
 )
 
-/** Internal WAPI AI implementation kept in parity with lib/whappy-wepi.ts. */
+/** Offline WIA fallback used only when the secure Pilotis gateway is unavailable. */
 object WapiPilotis {
     private fun hasAny(text: String, vararg values: String): Boolean = values.any { value ->
         val words = value.split(' ').filter(String::isNotBlank)
@@ -41,7 +41,7 @@ object WapiPilotis {
         val lower = SearchNormalizer.normalize(message)
         return when {
             hasAny(lower, "bonjour", "bonsoir", "salut", "hello", "coucou") -> WapiPilotisIntent.GREETING
-            hasAny(lower, "qui es tu", "qui es-tu", "pilotis", "wepi", "intelligence artificielle") -> WapiPilotisIntent.IDENTITY
+            hasAny(lower, "qui es tu", "qui es-tu", "pilotis", "wia", "wepi", "intelligence artificielle") -> WapiPilotisIntent.IDENTITY
             hasAny(lower, "prix", "tarif", "coute", "cout", "combien", "budget") -> WapiPilotisIntent.PRICE
             hasAny(lower, "disponible", "disponibilite", "stock", "livraison", "livrer", "rendez vous", "rdv") -> WapiPilotisIntent.AVAILABILITY
             hasAny(lower, "message", "repondre", "reponds", "transfert", "transferer", "vu", "lu", "conversation") -> WapiPilotisIntent.MESSAGES
@@ -77,7 +77,7 @@ object WapiPilotis {
         val firstName = customerName.trim().substringBefore(' ').takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
         val business = settings.businessName.trim().ifBlank { "notre activité" }
         val greeting = settings.welcomeMessage.trim().ifBlank { "Bonjour et merci pour votre message." }
-        val assistant = settings.assistantName.trim().ifBlank { "Assistant WAPI" }
+        val assistant = settings.assistantName.trim().takeUnless { it.equals("WEPI", true) || it.equals("Assistant WAPI", true) }.orEmpty().ifBlank { "WIA" }
         val instructions = settings.instructions.trim().ifBlank { "Je transmets votre demande à l’équipe." }
         val tone = when (settings.tone) {
             "direct" -> "Je vais à l’essentiel."
@@ -85,8 +85,8 @@ object WapiPilotis {
             else -> "Je suis là pour vous aider avec plaisir."
         }
         val text = when (intent) {
-            WapiPilotisIntent.GREETING -> "$greeting$firstName Je suis $assistant, l’IA intégrée à WAPI pour $business. $tone"
-            WapiPilotisIntent.IDENTITY -> "Je suis $assistant, l’IA intégrée à WAPI. Je peux vous aider dans les messages, les groupes, les Stories, Business, les appels, la radio et les jeux. Je reste transparent : je n’invente ni prix, ni disponibilité, ni action effectuée."
+            WapiPilotisIntent.GREETING -> "$greeting$firstName Je suis $assistant, propulsé par le même moteur WIA Chat que Pilotis, l’IA intégrée à WAPI pour $business. $tone"
+            WapiPilotisIntent.IDENTITY -> "Je suis $assistant, propulsé par WIA, le même moteur conversationnel que dans Pilotis. Je peux vous aider dans vos échanges, vos projets, WAPI Business, les appels, la radio et les jeux. Je reste transparent : je n’invente ni prix, ni disponibilité, ni action effectuée."
             WapiPilotisIntent.PRICE -> "Merci pour votre question$firstName. Je n’invente pas de tarif : aucun catalogue prix n’est configuré pour $business. Ajoutez vos offres dans Business ou demandez le relais d’un membre de l’équipe. $tone"
             WapiPilotisIntent.AVAILABILITY -> "Merci$firstName. Je peux enregistrer votre demande pour $business, mais je ne peux pas confirmer un stock ou une livraison sans donnée connectée. Un membre de l’équipe doit valider la disponibilité. $tone"
             WapiPilotisIntent.MESSAGES -> "Je peux vous guider pour répondre, citer un message, le transférer, suivre les vues d’un groupe ou ouvrir la conversation concernée. Dites-moi l’action à faire et le contact visé."
@@ -97,7 +97,7 @@ object WapiPilotis {
             WapiPilotisIntent.CALLS -> "Pour appeler sur WAPI, choisissez Audio ou Vidéo depuis le profil du contact. Dans un groupe, ouvrez les informations puis sélectionnez Appel de groupe. Vous pourrez activer le haut-parleur, couper le micro ou la caméra et inviter les membres disponibles."
             WapiPilotisIntent.RADIO -> "La Radio WAPI permet d’écouter un direct, de changer de station et de retrouver les podcasts publiés. Un épisode doit posséder une vraie source audio cloud avant d’être annoncé comme disponible."
             WapiPilotisIntent.PRIVACY -> "WAPI garde les messages récents en cache local pour afficher la conversation rapidement, synchronise les données cloud quand la connexion revient et ne présente jamais un cache comme une donnée confirmée. Les messages protégés restent chiffrés côté conversation."
-            WapiPilotisIntent.HELP -> "Je suis l’IA de WAPI. Essayez : « comment publier une Story ? », « créer une campagne régionale », « ouvrir un jeu en ligne », « lancer un direct radio » ou « gérer mon groupe »."
+            WapiPilotisIntent.HELP -> "Je suis WIA dans WAPI. Essayez : « comment publier une Story ? », « créer une campagne régionale », « ouvrir un jeu en ligne », « lancer un direct radio » ou « gérer mon groupe »."
             WapiPilotisIntent.OTHER -> "$greeting$firstName J’ai reçu votre demande pour $business. $instructions Pour une réponse précise, indiquez l’action WAPI, le contact ou le service concerné. $tone"
         }
         val actions = when (intent) {

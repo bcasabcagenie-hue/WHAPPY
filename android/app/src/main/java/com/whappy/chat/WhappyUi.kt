@@ -1739,7 +1739,7 @@ private fun mobileTabLabel(tab: WhappyTab, language: WhappyLanguage): String = w
     WhappyTab.MOMENTS -> whappyText(language, "Accueil", "Home", "Ndako")
     WhappyTab.STORIES -> whappyText(language, "Actus", "Updates", "Sango")
     WhappyTab.MESSAGES -> whappyText(language, "Messages", "Messages", "Nsango")
-    WhappyTab.WEPI -> "Assistant"
+    WhappyTab.WEPI -> "WIA"
     WhappyTab.CHANNELS -> whappyText(language, "Chaînes", "Channels", "Ba chaîne")
     WhappyTab.PODCASTS -> "Podcasts"
     WhappyTab.LIVE -> whappyText(language, "Live", "Live", "Na bomoi")
@@ -2471,11 +2471,11 @@ private data class WapiAssistantMessage(
 private fun wepiFailureMessage(error: Throwable): String {
     val remote = error as? FirebaseFunctionsException
     return when (remote?.code?.name) {
-        "UNAUTHENTICATED", "PERMISSION_DENIED" -> "Votre session WAPI doit être actualisée avant de continuer avec WEPI."
-        "RESOURCE_EXHAUSTED" -> "WEPI traite beaucoup de demandes. Patientez quelques secondes puis renvoyez votre message."
-        "DEADLINE_EXCEEDED", "UNAVAILABLE" -> "La connexion avec WEPI a été interrompue. Votre message est conservé : renvoyez-le lorsque le réseau revient."
-        "NOT_FOUND" -> "WEPI se met à jour. Réessayez dans quelques instants."
-        else -> "WEPI n’a pas pu répondre pour le moment. Votre conversation reste conservée dans WAPI."
+        "UNAUTHENTICATED", "PERMISSION_DENIED" -> "Votre session WAPI doit être actualisée avant de continuer avec WIA."
+        "RESOURCE_EXHAUSTED" -> "WIA traite beaucoup de demandes. Patientez quelques secondes puis renvoyez votre message."
+        "DEADLINE_EXCEEDED", "UNAVAILABLE" -> "La connexion avec WIA a été interrompue. Votre message est conservé : renvoyez-le lorsque le réseau revient."
+        "NOT_FOUND" -> "WIA se met à jour. Réessayez dans quelques instants."
+        else -> "WIA n’a pas pu répondre pour le moment. Votre conversation reste conservée dans WAPI."
     }
 }
 
@@ -2501,7 +2501,7 @@ private fun WapiAssistantScreen(
         }
         mutableStateOf(stored.ifEmpty {
             listOf(WapiAssistantMessage(
-                "Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis ${activeSettings.assistantName.ifBlank { "l’Assistant WAPI" }}. Vos questions restent dans WAPI et aucune action n’est exécutée sans votre confirmation.",
+                "Bonjour ${userName.substringBefore(' ').ifBlank { "Cyril" }}. Je suis WIA, le même moteur conversationnel que dans Pilotis, intégré à WAPI. Votre mémoire est privée et aucune action n’est exécutée sans votre confirmation.",
                 false,
                 id = "welcome-$userId",
             ))
@@ -2571,14 +2571,14 @@ private fun WapiAssistantScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(44.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.AutoAwesome, "WEPI", tint = Color.White, modifier = Modifier.size(23.dp))
+                    Icon(Icons.Rounded.AutoAwesome, "WIA", tint = Color.White, modifier = Modifier.size(23.dp))
                 }
                 Column(Modifier.weight(1f).padding(start = 11.dp)) {
-                    Text(activeSettings.assistantName.ifBlank { "WEPI" }, color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                    Text("WIA", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Black)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(if (activeSettings.enabled && !memoryUnavailable) Color(0xFF1FA971) else Color(0xFFE09A24)))
                         Text(
-                            if (!activeSettings.enabled) "Assistant en pause" else if (memoryUnavailable) "Mémoire locale active · cloud à resynchroniser" else "Disponible · mémoire privée synchronisée",
+                            if (!activeSettings.enabled) "WIA en pause" else if (memoryUnavailable) "Mémoire locale active · synchronisation à reprendre" else "WIA Chat · mémoire privée synchronisée",
                             Modifier.padding(start = 6.dp),
                             color = WhappyMuted,
                             fontSize = 10.sp,
@@ -2587,13 +2587,13 @@ private fun WapiAssistantScreen(
                 }
                 IconButton(onClick = onOpenMessages) { Icon(Icons.Rounded.ChatBubble, "Ouvrir les messages", tint = WhappyMuted) }
                 IconButton(onClick = onOpenBusiness) { Icon(Icons.Rounded.BusinessCenter, "Ouvrir Business", tint = WhappyMuted) }
-                IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.MoreVert, "Régler WEPI", tint = WhappyDark) }
+                IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.MoreVert, "Régler WIA", tint = WhappyDark) }
             }
         }
         if (!activeSettings.enabled) {
             Surface(Modifier.fillMaxWidth(), color = Color(0xFFFFF7E7)) {
                 Row(Modifier.padding(horizontal = 15.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("WEPI est en pause.", Modifier.weight(1f), color = Color(0xFF8A5A00), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("WIA est en pause.", Modifier.weight(1f), color = Color(0xFF8A5A00), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     TextButton(onClick = { showSettings = true }) { Text("Activer") }
                 }
             }
@@ -2622,7 +2622,7 @@ private fun WapiAssistantScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.Bottom) {
                     if (!message.fromUser) {
                         Box(Modifier.padding(end = 7.dp, bottom = 2.dp).size(29.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.AutoAwesome, "Réponse WEPI", tint = Color.White, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.AutoAwesome, "Réponse WIA", tint = Color.White, modifier = Modifier.size(16.dp))
                         }
                     }
                     Column(Modifier.widthIn(max = 310.dp), horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start) {
@@ -2648,7 +2648,7 @@ private fun WapiAssistantScreen(
                     Surface(Modifier.padding(start = 7.dp), color = Color.White, shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp), shadowElevation = 1.dp) {
                         Row(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(15.dp), color = WhappyBlue, strokeWidth = 2.dp)
-                            Text("WEPI prépare sa réponse…", Modifier.padding(start = 8.dp), color = WhappyMuted, fontSize = 11.sp)
+                            Text("WIA prépare sa réponse…", Modifier.padding(start = 8.dp), color = WhappyMuted, fontSize = 11.sp)
                         }
                     }
                 }
@@ -2660,7 +2660,7 @@ private fun WapiAssistantScreen(
                     value = prompt,
                     onValueChange = { value -> if (value.length > prompt.length) WhappySounds.typing(context); prompt = value.take(1200) },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Écrivez à WEPI…") },
+                    placeholder = { Text("Écrivez à WIA…") },
                     minLines = 1,
                     maxLines = 5,
                     shape = RoundedCornerShape(22.dp),
@@ -2672,7 +2672,7 @@ private fun WapiAssistantScreen(
                     enabled = prompt.isNotBlank() && !waitingForReply && activeSettings.enabled,
                     modifier = Modifier.padding(start = 7.dp, bottom = 2.dp).size(48.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = WhappyBlue),
-                ) { Icon(Icons.AutoMirrored.Rounded.Send, "Envoyer à WEPI", tint = Color.White) }
+                ) { Icon(Icons.AutoMirrored.Rounded.Send, "Envoyer à WIA", tint = Color.White) }
             }
         }
     }
@@ -2694,16 +2694,16 @@ private fun WapiAssistantSettingsDialog(settings: WapiWepiSettings, busy: Boolea
     var deliveryPolicy by remember(settings) { mutableStateOf(settings.deliveryPolicy) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Column { Text("Assistant WAPI", fontWeight = FontWeight.Black); Text("Configuration privée du compte", color = WhappyMuted, fontSize = 10.sp) } },
+        title = { Column { Text("WIA dans WAPI", fontWeight = FontWeight.Black); Text("Configuration privée du compte", color = WhappyMuted, fontSize = 10.sp) } },
         text = {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Activer l’assistant", fontWeight = FontWeight.Bold); Text("Assistant disponible dans WAPI", color = WhappyMuted, fontSize = 10.sp) }; Switch(enabled, { enabled = it }) } }
+                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Activer WIA", fontWeight = FontWeight.Bold); Text("WIA Chat disponible dans WAPI", color = WhappyMuted, fontSize = 10.sp) }; Switch(enabled, { enabled = it }) } }
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Réponse automatique", fontWeight = FontWeight.Bold); Text("Toujours sous vos consignes", color = WhappyMuted, fontSize = 10.sp) }; Switch(autoReply, { autoReply = it }, enabled = enabled) } }
                 item { Text("VENTE ASSISTÉE", color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp) }
-                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Conseiller les produits", fontWeight = FontWeight.Bold); Text("WEPI utilise uniquement le catalogue actif", color = WhappyMuted, fontSize = 10.sp) }; Switch(salesAutomation, { salesAutomation = it }, enabled = enabled) } }
+                item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Conseiller les produits", fontWeight = FontWeight.Bold); Text("WIA utilise uniquement le catalogue actif", color = WhappyMuted, fontSize = 10.sp) }; Switch(salesAutomation, { salesAutomation = it }, enabled = enabled) } }
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Préparer les demandes", fontWeight = FontWeight.Bold); Text("Produit, quantité et livraison, sans simuler un paiement", color = WhappyMuted, fontSize = 10.sp) }; Switch(captureOrderRequests, { captureOrderRequests = it }, enabled = salesAutomation) } }
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Transfert humain", fontWeight = FontWeight.Bold); Text("Proposé pour validation, doute ou litige", color = WhappyMuted, fontSize = 10.sp) }; Switch(humanHandoff, { humanHandoff = it }, enabled = enabled) } }
-                item { OutlinedTextField(assistantName, { assistantName = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Nom de l’assistant") }, singleLine = true) }
+                item { OutlinedTextField(assistantName, { assistantName = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("Nom d’affichage de WIA") }, singleLine = true) }
                 item { OutlinedTextField(businessName, { businessName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text("Nom du business") }, singleLine = true) }
                 item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("chaleureux", "expert", "direct").forEach { option -> OutlinedButton(onClick = { tone = option }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (tone == option) WhappyBlue else Color.Transparent, contentColor = if (tone == option) Color.White else WhappyBlue)) { Text(option.replaceFirstChar { it.uppercase() }) } } } }
                 item { OutlinedTextField(welcome, { welcome = it.take(240) }, Modifier.fillMaxWidth(), label = { Text("Message d’accueil") }, minLines = 2) }
@@ -9320,7 +9320,7 @@ private fun DealPreviewCard(pageName: String, title: String, description: String
 @Composable
 private fun BusinessPageDialog(busy:Boolean,onDismiss:()->Unit,onSave:(String,String,String,String,String,String)->Unit){
     var name by remember{mutableStateOf("")};var category by remember{mutableStateOf("")};var bio by remember{mutableStateOf("")};var city by remember{mutableStateOf("Brazzaville")};var phone by remember{mutableStateOf("")};var website by remember{mutableStateOf("")}
-    AlertDialog(onDismissRequest=onDismiss,title={Column{Text("Créer votre profil Business",fontWeight=FontWeight.Black);Text("Un profil professionnel séparé de votre compte personnel",color=WhappyMuted,fontSize=11.sp)}},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){Text("Répondez à ces questions pour préparer votre vitrine et vos ventes.",color=WhappyDark,fontSize=12.sp);OutlinedTextField(name,{name=it.take(80)},Modifier.fillMaxWidth(),label={Text("Quel est le nom de l'entreprise ?")},singleLine=true);OutlinedTextField(category,{category=it.take(80)},Modifier.fillMaxWidth(),label={Text("Quelle est votre activité ?")},singleLine=true);OutlinedTextField(bio,{bio=it.take(400)},Modifier.fillMaxWidth(),label={Text("Que proposez-vous aux clients ?")},minLines=3);OutlinedTextField(city,{city=it.take(80)},Modifier.fillMaxWidth(),label={Text("Dans quelle ville ou région ?")},singleLine=true);OutlinedTextField(phone,{phone=it.take(30)},Modifier.fillMaxWidth(),label={Text("Quel numéro Business utiliser ?")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Phone),singleLine=true);OutlinedTextField(website,{website=it.take(180)},Modifier.fillMaxWidth(),label={Text("Site, catalogue ou lien de commande (facultatif)")},singleLine=true);Text("Votre numéro peut rester le même : l'identité, les conversations, les réglages WEPI et les statistiques sont séparés par page Business.",color=WhappyMuted,fontSize=10.sp,lineHeight=14.sp)}},confirmButton={Button(enabled=name.trim().length>=2&&category.isNotBlank()&&!busy,onClick={onSave(name.trim(),category.trim(),bio.trim(),city.trim(),phone.trim(),website.trim())}){Text(if(busy)"Création…" else "Créer le profil")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
+    AlertDialog(onDismissRequest=onDismiss,title={Column{Text("Créer votre profil Business",fontWeight=FontWeight.Black);Text("Un profil professionnel séparé de votre compte personnel",color=WhappyMuted,fontSize=11.sp)}},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){Text("Répondez à ces questions pour préparer votre vitrine et vos ventes.",color=WhappyDark,fontSize=12.sp);OutlinedTextField(name,{name=it.take(80)},Modifier.fillMaxWidth(),label={Text("Quel est le nom de l'entreprise ?")},singleLine=true);OutlinedTextField(category,{category=it.take(80)},Modifier.fillMaxWidth(),label={Text("Quelle est votre activité ?")},singleLine=true);OutlinedTextField(bio,{bio=it.take(400)},Modifier.fillMaxWidth(),label={Text("Que proposez-vous aux clients ?")},minLines=3);OutlinedTextField(city,{city=it.take(80)},Modifier.fillMaxWidth(),label={Text("Dans quelle ville ou région ?")},singleLine=true);OutlinedTextField(phone,{phone=it.take(30)},Modifier.fillMaxWidth(),label={Text("Quel numéro Business utiliser ?")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Phone),singleLine=true);OutlinedTextField(website,{website=it.take(180)},Modifier.fillMaxWidth(),label={Text("Site, catalogue ou lien de commande (facultatif)")},singleLine=true);Text("Votre numéro peut rester le même : l'identité, les conversations, les réglages WIA et les statistiques sont séparés par page Business.",color=WhappyMuted,fontSize=10.sp,lineHeight=14.sp)}},confirmButton={Button(enabled=name.trim().length>=2&&category.isNotBlank()&&!busy,onClick={onSave(name.trim(),category.trim(),bio.trim(),city.trim(),phone.trim(),website.trim())}){Text(if(busy)"Création…" else "Créer le profil")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
 }
 
 @Composable
@@ -9335,7 +9335,7 @@ private fun BusinessIdentityCard(page: WhappyBusinessPage?, onCreate: () -> Unit
                 }
                 Surface(color = WhappyBlue.copy(alpha = .10f), shape = RoundedCornerShape(9.dp)) { Text("BUSINESS", Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Black) }
             }
-            Text(if (page == null) "Créez une page Business pour vendre, recevoir des demandes et configurer WEPI sans mélanger vos messages personnels." else "Même numéro, deux identités : vos clients écrivent à cette page et non à votre profil personnel.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 15.sp)
+            Text(if (page == null) "Créez une page Business pour vendre, recevoir des demandes et configurer WIA sans mélanger vos messages personnels." else "Même numéro, deux identités : vos clients écrivent à cette page et non à votre profil personnel.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 15.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = if (page == null) onCreate else onOpenInbox, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Icon(if (page == null) Icons.Rounded.BusinessCenter else Icons.Rounded.ChatBubble, null); Text(if (page == null) "Créer le Business" else "Messagerie Business", Modifier.padding(start = 6.dp)) }
                 if (page != null) OutlinedButton(onClick = onCreate, shape = RoundedCornerShape(12.dp)) { Icon(Icons.Rounded.Edit, null); Text("Gérer") }
@@ -9871,7 +9871,7 @@ private fun ProfileControlCenter(onOpenSpace: (WhappyTab) -> Unit) {
         Triple(WhappyTab.MESSAGES, "Messages", "Discussions et demandes"),
         Triple(WhappyTab.CALLS, "Appels", "Voix, vidéo et historique"),
         Triple(WhappyTab.STORIES, "Ma Story", "Texte, photo, vidéo et podcast"),
-        Triple(WhappyTab.WEPI, "Assistant", "Assistant privé et actions intelligentes"),
+        Triple(WhappyTab.WEPI, "WIA", "WIA Chat, mémoire privée et actions intelligentes"),
         Triple(WhappyTab.CHANNELS, "Chaînes", "Médias et créateurs suivis"),
         Triple(WhappyTab.LIVE, "Live", "Directs, audio et cadeaux"),
         Triple(WhappyTab.GAMES, "Jeux", "Ludo et défis WAPI"),
