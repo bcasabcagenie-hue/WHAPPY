@@ -590,7 +590,9 @@ struct MessagesView: View {
     @State private var section = 0
     @State private var linkedPhone = "+242"
     @State private var linkedChannel: WhappyChannel?
-    @State private var recentAppsPresented = false
+    @State private var recentAppsExpanded = false
+    @State private var recentPullProgress: CGFloat = 0
+    @State private var recentPullArmed = false
     private var filtered: [Conversation] { store.accountConversations.filter { "\($0.name) \($0.lastMessage) \($0.phoneNumber)".matchesWhappySearch(search) } }
     private var filteredChannels: [WhappyChannel] { store.channels.filter { "\($0.name) \($0.description) \($0.category) \($0.ownerName)".matchesWhappySearch(search) }.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) } }
 
@@ -688,7 +690,13 @@ struct MessagesView: View {
                 if filtered.isEmpty {
                     ScrollView {
                         VStack(spacing: 18) {
-                            recentPullHint
+                            recentPullReader
+                            if recentAppsExpanded {
+                                WapiInlineRecentAppsIOS { withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { recentAppsExpanded = false } }
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            } else {
+                                recentPullHint
+                            }
                             ContentUnavailableView(
                                 search.isEmpty ? "Aucune conversation" : "Aucun résultat",
                                 systemImage: "message",
@@ -699,12 +707,19 @@ struct MessagesView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, WapiSpacing.screen)
                     }
+                    .coordinateSpace(name: "wapiMessagesPull")
+                    .onPreferenceChange(WapiMessagePullOffsetKey.self, perform: handleRecentPull)
                     .scrollBounceBehavior(.always)
-                    .refreshable { recentAppsPresented = true }
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 6) {
-                            recentPullHint
+                            recentPullReader
+                            if recentAppsExpanded {
+                                WapiInlineRecentAppsIOS { withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { recentAppsExpanded = false } }
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            } else {
+                                recentPullHint
+                            }
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Conversations").font(.headline).foregroundStyle(Color.whappyInk)
@@ -737,9 +752,10 @@ struct MessagesView: View {
                         .padding(.horizontal, WapiSpacing.screen)
                         .padding(.bottom, 24)
                     }
+                    .coordinateSpace(name: "wapiMessagesPull")
+                    .onPreferenceChange(WapiMessagePullOffsetKey.self, perform: handleRecentPull)
                     .scrollIndicators(.hidden)
                     .scrollBounceBehavior(.always)
-                    .refreshable { recentAppsPresented = true }
                 }
             } else {
                 ChannelDirectoryView(channels: filteredChannels)
@@ -751,7 +767,6 @@ struct MessagesView: View {
         .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
         .sheet(isPresented: $composing) { NewConversationView(initialPhone: linkedPhone) }
         .sheet(isPresented: $creatingChannel) { NewChannelView() }
-        .sheet(isPresented: $recentAppsPresented) { WapiRecentAppsDrawerIOS() }
         .sheet(item: $linkedChannel) { channel in NavigationStack { ChannelView(channelID: channel.id) } }
         .onAppear { consumePendingLinks() }
         .onChange(of: store.pendingContactPhone) { _, _ in consumePendingLinks() }
@@ -761,12 +776,46 @@ struct MessagesView: View {
 
     private var recentPullHint: some View {
         HStack(spacing: 6) {
-            Image(systemName: "arrow.down").font(.caption2.weight(.bold))
-            Text("Tirez vers le bas pour ouvrir Récents").font(.caption2.weight(.semibold))
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .rotationEffect(.degrees(recentPullArmed ? 180 : 0))
+            Text(recentPullArmed ? "Relâchez pour garder Récents ouvert" : "Tirez vers le bas pour afficher Récents")
+                .font(.caption2.weight(recentPullArmed ? .bold : .semibold))
         }
-        .foregroundStyle(WapiColor.secondaryText)
+        .foregroundStyle(recentPullArmed ? Color.whappyBlue : WapiColor.secondaryText)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 3)
+        .scaleEffect(0.96 + recentPullProgress * 0.04)
+    }
+
+    private var recentPullReader: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: WapiMessagePullOffsetKey.self,
+                value: proxy.frame(in: .named("wapiMessagesPull")).minY
+            )
+        }
+        .frame(height: 0)
+    }
+
+    private func handleRecentPull(_ offset: CGFloat) {
+        guard section == 0, search.isEmpty else {
+            recentPullArmed = false
+            recentPullProgress = 0
+            return
+        }
+        if !recentAppsExpanded {
+            recentPullProgress = min(max(offset / 104, 0), 1)
+            if offset >= 96 { recentPullArmed = true }
+            if recentPullArmed, offset <= 5 {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) { recentAppsExpanded = true }
+                recentPullArmed = false
+                recentPullProgress = 0
+            }
+        } else if offset < -190 {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) { recentAppsExpanded = false }
+        }
     }
 
     @ViewBuilder
@@ -789,6 +838,97 @@ struct MessagesView: View {
         if let phone = store.pendingContactPhone { linkedPhone = phone; composing = true; section = 0; store.pendingContactPhone = nil }
         if let id = store.pendingChannelID, let channel = store.channels.first(where: { $0.id == id }) { linkedChannel = channel; section = 1; store.pendingChannelID = nil }
         if let query = store.pendingSearch { search = query; section = 1; store.pendingSearch = nil }
+    }
+}
+
+private struct WapiMessagePullOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Inline recent spaces revealed by the Messages scroll itself. This is not a
+/// modal: the conversation list follows the finger and the user can continue
+/// scrolling upward to return to messages.
+private struct WapiInlineRecentAppsIOS: View {
+    @EnvironmentObject private var store: WhappyStore
+    let onClose: () -> Void
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+
+    private struct Item: Identifiable {
+        let id: String
+        let title: String
+        let icon: String
+        let tab: WhappyTab
+    }
+
+    private let items = [
+        Item(id: "live", title: "Direct", icon: "video.fill", tab: .live),
+        Item(id: "actus", title: "Actus", icon: "sparkles", tab: .actus),
+        Item(id: "wia", title: "WIA", icon: "wand.and.stars", tab: .wia),
+        Item(id: "games", title: "Jeux", icon: "gamecontroller.fill", tab: .games),
+        Item(id: "market", title: "Marché", icon: "storefront.fill", tab: .market),
+        Item(id: "services", title: "Services", icon: "wallet.pass.fill", tab: .services),
+        Item(id: "profile", title: "Jumeau", icon: "person.crop.circle.badge.checkmark", tab: .profile),
+        Item(id: "home", title: "Accueil", icon: "house.fill", tab: .home),
+    ]
+
+    private var recents: [Item] {
+        let values = store.recentSpaces.compactMap { tab in items.first(where: { $0.tab == tab }) }
+        return Array((values + items).reduce(into: [Item]()) { result, item in
+            if !result.contains(where: { $0.id == item.id }) { result.append(item) }
+        }.prefix(6))
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(WapiColor.sky)
+                    .frame(width: 34, height: 34)
+                    .background(.white.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Récents WAPI").font(.headline.weight(.bold)).foregroundStyle(.white)
+                    Text("Reprenez instantanément là où vous étiez").font(.caption2).foregroundStyle(.white.opacity(0.62))
+                }
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark").font(.caption.bold()).foregroundStyle(.white.opacity(0.72)).frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+            }
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(recents) { item in
+                    Button {
+                        store.rememberRecentSpace(item.tab)
+                        store.selectedTab = item.tab
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 32, height: 32)
+                                .background(Color.whappyBlue)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            Text(item.title).font(.caption2.weight(.bold)).foregroundStyle(.white).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 9)
+                        .frame(height: 58)
+                        .background(.white.opacity(0.09))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.10)))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
+        .background(LinearGradient(colors: [Color(red: 0.03, green: 0.09, blue: 0.15), Color(red: 0.04, green: 0.18, blue: 0.27)], startPoint: .top, endPoint: .bottom))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, WapiSpacing.screen)
+        .padding(.bottom, 4)
     }
 }
 

@@ -149,7 +149,6 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -207,6 +206,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
@@ -219,6 +219,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -242,6 +245,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1414,7 +1418,8 @@ private fun WhappyMain(
                     onCreateGroup = onCreateGroup,
                     onSubscribeChannel = onSubscribeChannel,
                     onHandleWhappyLink = onHandleWhappyLink,
-                    onOpenRecents = { showAppHub = true },
+                    recentTabs = recentSpaces,
+                    onOpenRecent = onTab,
                 )
                 WhappyTab.MESSAGES -> MessagesScreen(
                     conversations = if (preview) demoConversations else visibleConversations,
@@ -1449,7 +1454,8 @@ private fun WhappyMain(
                             onCreateGroup = onCreateGroup,
                             onSubscribeChannel = onSubscribeChannel,
                             onHandleWhappyLink = onHandleWhappyLink,
-                            onOpenRecents = { showAppHub = true },
+                            recentTabs = recentSpaces,
+                            onOpenRecent = onTab,
                         )
                         WhappyTab.WEPI -> WapiAssistantScreen(
                             userName = accountDisplayName,
@@ -1714,23 +1720,26 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
 
 private data class WhappyFeatureShortcut(val tab: WhappyTab?, val title: String, val subtitle: String, val icon: ImageVector)
 
+private fun wapiFeatureShortcuts() = listOf(
+    WhappyFeatureShortcut(WhappyTab.MOMENTS, "Accueil", "Vue générale WAPI", Icons.Rounded.Home),
+    WhappyFeatureShortcut(WhappyTab.CONTACTS, "Contacts", "Personnes et QR", Icons.Rounded.PersonAdd),
+    WhappyFeatureShortcut(WhappyTab.CHANNELS, "Chaînes", "Médias et créateurs", Icons.Rounded.Notifications),
+    WhappyFeatureShortcut(WhappyTab.CALLS, "Appels", "Audio et vidéo", Icons.Rounded.Phone),
+    WhappyFeatureShortcut(WhappyTab.WEPI, "WIA", "Mémoire et assistance", Icons.Rounded.SmartToy),
+    WhappyFeatureShortcut(WhappyTab.MARKET, "Marché", "Acheter et vendre", Icons.Rounded.Storefront),
+    WhappyFeatureShortcut(WhappyTab.RADIO, "Radio", "Créer une émission", Icons.Rounded.Radio),
+    WhappyFeatureShortcut(WhappyTab.PODCASTS, "Podcasts", "Écouter et reprendre", Icons.Rounded.AudioFile),
+    WhappyFeatureShortcut(WhappyTab.LIVE, "Direct", "Diffuser maintenant", Icons.Rounded.LiveTv),
+    WhappyFeatureShortcut(WhappyTab.GAMES, "Jeux", "Défis et tournois", Icons.Rounded.Bolt),
+    WhappyFeatureShortcut(WhappyTab.SERVICES, "Services", "Paiements et outils", Icons.Rounded.Payments),
+    WhappyFeatureShortcut(WhappyTab.BUSINESS, "Business", "Pages, Deals et Ads", Icons.Rounded.BusinessCenter),
+    WhappyFeatureShortcut(null, "Jumeau numérique", "Identité, voix et studio", Icons.Rounded.SmartToy),
+    WhappyFeatureShortcut(WhappyTab.PROFILE, "Profil", "Compte et sécurité", Icons.Rounded.Person),
+)
+
 @Composable
 private fun WhappyFeatureHubDialog(recentTabs: List<WhappyTab>, onOpen: (WhappyTab) -> Unit, onOpenTwin: () -> Unit, onDismiss: () -> Unit) {
-    val shortcuts = listOf(
-        WhappyFeatureShortcut(WhappyTab.MOMENTS, "Accueil", "Vue générale WAPI", Icons.Rounded.Home),
-        WhappyFeatureShortcut(WhappyTab.CONTACTS, "Contacts", "Personnes et QR", Icons.Rounded.PersonAdd),
-        WhappyFeatureShortcut(WhappyTab.CHANNELS, "Chaînes", "Médias et créateurs", Icons.Rounded.Notifications),
-        WhappyFeatureShortcut(WhappyTab.CALLS, "Appels", "Audio et vidéo", Icons.Rounded.Phone),
-        WhappyFeatureShortcut(WhappyTab.WEPI, "WIA", "Mémoire et assistance", Icons.Rounded.SmartToy),
-        WhappyFeatureShortcut(WhappyTab.MARKET, "Marché", "Acheter et vendre", Icons.Rounded.Storefront),
-        WhappyFeatureShortcut(WhappyTab.RADIO, "Radio", "Créer une émission", Icons.Rounded.Radio),
-        WhappyFeatureShortcut(WhappyTab.PODCASTS, "Podcasts", "Écouter et reprendre", Icons.Rounded.AudioFile),
-        WhappyFeatureShortcut(WhappyTab.GAMES, "Jeux", "Défis et tournois", Icons.Rounded.Bolt),
-        WhappyFeatureShortcut(WhappyTab.SERVICES, "Services", "Paiements et outils", Icons.Rounded.Payments),
-        WhappyFeatureShortcut(WhappyTab.BUSINESS, "Business", "Pages, Deals et Ads", Icons.Rounded.BusinessCenter),
-        WhappyFeatureShortcut(null, "Jumeau numérique", "Identité, voix et studio", Icons.Rounded.SmartToy),
-        WhappyFeatureShortcut(WhappyTab.PROFILE, "Profil", "Compte et sécurité", Icons.Rounded.Person),
-    )
+    val shortcuts = wapiFeatureShortcuts()
     val recentShortcuts = recentTabs.mapNotNull { tab -> shortcuts.firstOrNull { it.tab == tab } }.ifEmpty { shortcuts.filter { it.tab in listOf(WhappyTab.LIVE, WhappyTab.WEPI, WhappyTab.GAMES) } }.take(6)
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = WapiSheet, dragHandle = { Box(Modifier.padding(top = 12.dp).width(42.dp).height(4.dp).clip(CircleShape).background(WhappyMuted.copy(alpha = .28f))) }) {
             Column(Modifier.padding(horizontal = WapiMobile.screen, vertical = 8.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(13.dp)) {
@@ -5337,7 +5346,8 @@ private fun MessagesScreen(
     onCreateGroup: (String, List<WhappyMember>, Uri?, String) -> Unit,
     onSubscribeChannel: (String, Boolean) -> Unit,
     onHandleWhappyLink: (String) -> Unit,
-    onOpenRecents: () -> Unit,
+    recentTabs: List<WhappyTab>,
+    onOpenRecent: (WhappyTab) -> Unit,
     onOpenStory: (String) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
@@ -5362,6 +5372,11 @@ private fun MessagesScreen(
     var imageScanInProgress by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val conversationListState = rememberLazyListState()
+    val emptyConversationScrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val maximumRecentRevealPx = with(density) { 238.dp.toPx() }
+    var recentRevealPx by rememberSaveable { mutableFloatStateOf(0f) }
     val normalizedContactPhone = PhoneNumberFormatter.normalize(contactCountry, phone)
         ?: PhoneNumberFormatter.normalizeAny(phone)
     val isPhoneComplete = normalizedContactPhone != null
@@ -5377,6 +5392,50 @@ private fun MessagesScreen(
             contactSearchMessage.startsWith("Ce contact existe déjà")
     )
     val resetContactSearch: () -> Unit = { if (!preview) onClearContactSearch() }
+
+    val canRevealRecents = messageSection == 0 && conversationSearch.isBlank() && when {
+        filteredConversations.isEmpty() -> !emptyConversationScrollState.canScrollBackward
+        else -> conversationListState.firstVisibleItemIndex == 0 && conversationListState.firstVisibleItemScrollOffset == 0
+    }
+    fun settleRecentPanel(open: Boolean) {
+        val target = if (open) maximumRecentRevealPx else 0f
+        scope.launch {
+            Animatable(recentRevealPx).animateTo(target, spring(dampingRatio = .82f, stiffness = 430f)) {
+                recentRevealPx = value
+            }
+        }
+    }
+    val recentNestedScroll = remember(maximumRecentRevealPx, canRevealRecents) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y >= 0f || recentRevealPx <= 0f) return Offset.Zero
+                val consumed = available.y.coerceAtLeast(-recentRevealPx)
+                recentRevealPx = (recentRevealPx + consumed).coerceIn(0f, maximumRecentRevealPx)
+                return Offset(0f, consumed)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y <= 0f || !canRevealRecents || recentRevealPx >= maximumRecentRevealPx) return Offset.Zero
+                val previous = recentRevealPx
+                recentRevealPx = (recentRevealPx + available.y * .68f).coerceAtMost(maximumRecentRevealPx)
+                return if (recentRevealPx > previous) Offset(0f, available.y) else Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (recentRevealPx <= 0f) return Velocity.Zero
+                val shouldOpen = recentRevealPx >= maximumRecentRevealPx * .42f || available.y > 850f
+                val target = if (shouldOpen) maximumRecentRevealPx else 0f
+                Animatable(recentRevealPx).animateTo(target, spring(dampingRatio = .82f, stiffness = 430f)) {
+                    recentRevealPx = value
+                }
+                return Velocity(0f, available.y)
+            }
+        }
+    }
+
+    LaunchedEffect(messageSection, conversationSearch) {
+        if (messageSection != 0 || conversationSearch.isNotBlank()) recentRevealPx = 0f
+    }
 
     LaunchedEffect(initialQuery) { if (initialQuery.isNotBlank()) { conversationSearch = initialQuery; messageSection = 2 } }
     LaunchedEffect(initialSection) { if (initialSection == 1 || initialSection == 0 || initialSection == 2) messageSection = initialSection }
@@ -5623,43 +5682,51 @@ private fun MessagesScreen(
                     }
                 }
             }
-        } else PullToRefreshBox(
-            isRefreshing = false,
-            onRefresh = onOpenRecents,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+        } else Box(
+            Modifier.weight(1f).fillMaxWidth().clipToBounds().nestedScroll(recentNestedScroll),
         ) {
-        if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
-        else if (filteredConversations.isEmpty()) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-                WapiPullRecentsHint()
-                Box(Modifier.fillMaxWidth().heightIn(min = 360.dp)) {
-                    EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WAPI." else "Essayez un autre nom ou un mot du dernier message.")
+            WapiPullDownRecentPanel(
+                recentTabs = recentTabs,
+                revealProgress = (recentRevealPx / maximumRecentRevealPx).coerceIn(0f, 1f),
+                modifier = Modifier.fillMaxWidth().height(238.dp).graphicsLayer {
+                    translationY = recentRevealPx - maximumRecentRevealPx
+                },
+                onOpen = { tab -> recentRevealPx = 0f; onOpenRecent(tab) },
+                onClose = { settleRecentPanel(false) },
+            )
+            Box(Modifier.fillMaxSize().graphicsLayer { translationY = recentRevealPx }) {
+            if (loading && conversations.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }
+            else if (filteredConversations.isEmpty()) {
+                Column(Modifier.fillMaxSize().verticalScroll(emptyConversationScrollState), horizontalAlignment = Alignment.CenterHorizontally) {
+                    WapiPullRecentsHint(recentRevealPx / maximumRecentRevealPx)
+                    Box(Modifier.fillMaxWidth().heightIn(min = 360.dp)) {
+                        EmptyState(if (conversationSearch.isBlank()) "Aucune conversation" else "Aucun résultat", if (conversationSearch.isBlank()) "Ouvrez l’onglet Contacts pour ajouter une personne sur WAPI." else "Essayez un autre nom ou un mot du dernier message.")
+                    }
                 }
             }
-        }
-        else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = WapiMobile.screen, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            if (conversationSearch.isBlank()) item(key = "wapi-recents-hint") { WapiPullRecentsHint() }
-            if (conversationSearch.isBlank()) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Conversations", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                            Text("${directConversations.size} privées · ${groupConversations.size} groupes", color = WhappyMuted, fontSize = 10.sp)
-                        }
-                        Surface(
-                            modifier = Modifier.clip(CircleShape).clickable { creatingGroup = true },
-                            color = WapiSoftBlue,
-                            shape = CircleShape,
-                        ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.Groups, null, tint = WhappyBlue, modifier = Modifier.size(17.dp))
-                                Text("  Nouveau groupe", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            else LazyColumn(state = conversationListState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = WapiMobile.screen, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (conversationSearch.isBlank()) item(key = "wapi-recents-hint") { WapiPullRecentsHint(recentRevealPx / maximumRecentRevealPx) }
+                if (conversationSearch.isBlank()) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Conversations", color = WhappyDark, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                Text("${directConversations.size} privées · ${groupConversations.size} groupes", color = WhappyMuted, fontSize = 10.sp)
+                            }
+                            Surface(
+                                modifier = Modifier.clip(CircleShape).clickable { creatingGroup = true },
+                                color = WapiSoftBlue,
+                                shape = CircleShape,
+                            ) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Groups, null, tint = WhappyBlue, modifier = Modifier.size(17.dp))
+                                    Text("  Nouveau groupe", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                }
                             }
                         }
                     }
                 }
-            }
-            itemsIndexed(filteredConversations, key = { _, item -> item.id }) { index, conversation ->
+                itemsIndexed(filteredConversations, key = { _, item -> item.id }) { index, conversation ->
                 Column(Modifier.fillMaxWidth().background(if (conversation.unread) WapiUnreadSurface else Color.White)) {
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpen(conversation) }.padding(horizontal = 4.dp, vertical = 12.dp),
@@ -5708,6 +5775,7 @@ private fun MessagesScreen(
                 }
                 if (index < filteredConversations.lastIndex) Box(Modifier.fillMaxWidth().padding(start = 68.dp).height(1.dp).background(WhappyLine.copy(alpha = .72f)))
                 }
+            }
             }
         }
         }
@@ -6081,14 +6149,83 @@ private fun CreateGroupDialog(
 }
 
 @Composable
-private fun WapiPullRecentsHint() {
+private fun WapiPullDownRecentPanel(
+    recentTabs: List<WhappyTab>,
+    revealProgress: Float,
+    modifier: Modifier = Modifier,
+    onOpen: (WhappyTab) -> Unit,
+    onClose: () -> Unit,
+) {
+    val shortcuts = wapiFeatureShortcuts()
+    val defaults = shortcuts.filter { it.tab in listOf(WhappyTab.LIVE, WhappyTab.WEPI, WhappyTab.GAMES, WhappyTab.RADIO, WhappyTab.MARKET, WhappyTab.BUSINESS) }
+    val recent = (recentTabs.mapNotNull { tab -> shortcuts.firstOrNull { it.tab == tab } } + defaults)
+        .distinctBy { it.tab }
+        .take(6)
+    Column(
+        modifier.background(Brush.verticalGradient(listOf(Color(0xFF071827), Color(0xFF0B2940))))
+            .padding(horizontal = WapiMobile.screen, vertical = 13.dp)
+            .graphicsLayer {
+                alpha = (.28f + revealProgress * .72f).coerceIn(0f, 1f)
+                scaleX = .96f + revealProgress * .04f
+                scaleY = .96f + revealProgress * .04f
+            },
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Schedule, null, tint = WhappySky, modifier = Modifier.size(19.dp))
+            }
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                Text("Récents WAPI", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text("Reprenez instantanément là où vous étiez", color = Color.White.copy(alpha = .62f), fontSize = 9.sp)
+            }
+            IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Rounded.Close, "Refermer Récents", tint = Color.White.copy(alpha = .72f), modifier = Modifier.size(18.dp))
+            }
+        }
+        recent.chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { item ->
+                    Surface(
+                        modifier = Modifier.weight(1f).height(67.dp).clip(RoundedCornerShape(17.dp)).clickable { item.tab?.let(onOpen) },
+                        color = Color.White.copy(alpha = .09f),
+                        shape = RoundedCornerShape(17.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .10f)),
+                    ) {
+                        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                                Icon(item.icon, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                            Text(item.title, Modifier.padding(start = 8.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WapiPullRecentsHint(progress: Float = 0f) {
+    val ready = progress >= .42f
     Row(
         Modifier.fillMaxWidth().padding(vertical = 5.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.KeyboardArrowDown, null, tint = WhappyMuted, modifier = Modifier.size(15.dp))
-        Text(" Tirez vers le bas pour ouvrir Récents", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Icon(
+            Icons.Rounded.KeyboardArrowDown,
+            null,
+            tint = if (ready) WhappyBlue else WhappyMuted,
+            modifier = Modifier.size(15.dp).graphicsLayer { rotationZ = if (ready) 180f else 0f },
+        )
+        Text(
+            if (ready) " Relâchez pour garder Récents ouvert" else " Tirez vers le bas pour afficher Récents",
+            color = if (ready) WhappyBlue else WhappyMuted,
+            fontSize = 10.sp,
+            fontWeight = if (ready) FontWeight.Bold else FontWeight.SemiBold,
+        )
     }
 }
 
