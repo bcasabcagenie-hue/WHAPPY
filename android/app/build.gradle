@@ -24,8 +24,8 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Continuité de mise à jour avec la branche 2.1.0 déjà distribuée.
         // Android compare ce code interne avant le nom public de la version.
-        versionCode 2080
-        versionName "2.1.12-native"
+        versionCode 2090
+        versionName "2.1.13-native"
     }
 
     signingConfigs {
