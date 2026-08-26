@@ -292,6 +292,7 @@ struct WapiDirectCallRoom: View {
         // Closing the sheet is a local action and must never wait for the
         // signalling server on a weak or interrupted mobile network.
         let activeSession = session
+        WapiSounds.callEnded()
         dismiss()
         onClosed()
         await activeSession.close(decline: decline)

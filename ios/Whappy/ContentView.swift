@@ -1522,7 +1522,7 @@ private struct ConversationView: View {
         .sheet(item: $profileConversation) { WapiContactProfileView(conversation: $0) }
         .sheet(item: $groupSettingsConversation) { WapiGroupSettingsView(conversation: $0) }
         .sheet(item: $translationMessage) { WapiTranslationSheet(message: $0) }
-        .sheet(isPresented: $showingEmojiPicker) { WapiEmojiPicker { emoji in draft.append(emoji) } }
+        .sheet(isPresented: $showingEmojiPicker) { WapiEmojiPicker { emoji in draft.append(emoji); WapiSounds.gameMove(); WapiSounds.haptic(.light) } }
         .fullScreenCover(item: $zoomedPhoto) { photo in
             ZoomablePhotoViewer(image: photo.image, onDismiss: { zoomedPhoto = nil })
         }
@@ -2301,7 +2301,7 @@ struct GamesView: View {
                 }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [.whappyInk, .whappyBlue.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 26))
                 Text("Choisir un jeu").font(.title3.bold()).foregroundStyle(Color.whappyInk)
                 ForEach(games, id: \.0) { game in
-                    Button { launchedGame = WapiIOSGameLaunch(name: game.0, subtitle: game.1); UIImpactFeedbackGenerator(style: .medium).impactOccurred() } label: {
+                    Button { launchedGame = WapiIOSGameLaunch(name: game.0, subtitle: game.1); WapiSounds.gameMove(); WapiSounds.haptic(.medium) } label: {
                         HStack(spacing: 13) { Image(systemName: game.2).font(.title2).foregroundStyle(Color.whappyBlue).frame(width: 48, height: 48).background(Color.whappyBlue.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14)); VStack(alignment: .leading) { Text(game.0).font(.headline).foregroundStyle(Color.whappyInk); Text(game.1).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text("JOUER  ›").font(.caption.bold()).foregroundStyle(Color.whappyBlue) }.padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
                     }.buttonStyle(.plain)
                 }
@@ -2347,11 +2347,11 @@ private struct WapiIOSTabletopGame: View {
                 WapiIOS3DTabletop(scene: game.name, dieValue: dieValue).frame(maxWidth: .infinity).frame(height: 380).clipShape(RoundedRectangle(cornerRadius: 26)).padding(.horizontal)
                 Text(status).font(.footnote).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center).padding(.horizontal)
                 HStack(spacing: 12) {
-                    Button { status = "Mode entraînement avec IA sélectionné."; UIImpactFeedbackGenerator(style: .medium).impactOccurred() } label: { Label("IA", systemImage: "brain.head.profile") }.buttonStyle(.bordered).tint(.white)
+                    Button { status = "Mode entraînement avec IA sélectionné."; WapiSounds.gameMove(); WapiSounds.haptic(.medium) } label: { Label("IA", systemImage: "brain.head.profile") }.buttonStyle(.bordered).tint(.white)
                     Button {
                         turn += 1; dieValue = Int.random(in: 1...6); score += 10; streak += 1
                         status = game.name == "Ludo WAPI" ? "Dé : \(dieValue). Choisissez un pion à déplacer." : game.name == "Billard WAPI" ? "Coup joué : ajustez la visée avec un glissement sur la table." : "Coup validé. À l’adversaire."
-                        UINotificationFeedbackGenerator().notificationOccurred(.success); AudioServicesPlaySystemSound(1104)
+                        UINotificationFeedbackGenerator().notificationOccurred(.success); WapiSounds.gameMove()
                     } label: { Label(primaryAction, systemImage: game.name == "Ludo WAPI" ? "dice.fill" : "play.fill").frame(minWidth: 150) }.buttonStyle(.borderedProminent).tint(Color.whappyBlue)
                     Button { status = "Salon en ligne prêt : invitez vos contacts WAPI avec le bouton Partager." } label: { Image(systemName: "person.2.fill") }.buttonStyle(.bordered).tint(.white)
                 }
@@ -2458,8 +2458,8 @@ private struct WapiIOSArcadeGame: View {
                         Button {
                             guard answer == nil else { return }
                             answer = option
-                            if option == correct { score += 25; streak += 1; UINotificationFeedbackGenerator().notificationOccurred(.success) }
-                            else { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+                            if option == correct { score += 25; streak += 1; UINotificationFeedbackGenerator().notificationOccurred(.success); WapiSounds.gameReward() }
+                            else { UINotificationFeedbackGenerator().notificationOccurred(.error); WapiSounds.gameMove() }
                         } label: {
                             HStack { Text(option).font(.headline); Spacer(); if answer == option { Image(systemName: option == correct ? "checkmark.circle.fill" : "xmark.circle.fill") } }
                                 .foregroundStyle(answer == option ? .white : Color.whappyInk)
@@ -2470,7 +2470,7 @@ private struct WapiIOSArcadeGame: View {
                     }
                     if let answer {
                         Text(answer == correct ? "Bonne réponse · +25 XP" : "La bonne réponse était : \(correct)").font(.headline).foregroundStyle(.white)
-                        Button { round += 1; self.answer = nil; UIImpactFeedbackGenerator(style: .light).impactOccurred() } label: { Label("Manche suivante", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.white).foregroundStyle(Color.whappyBlue)
+                        Button { round += 1; self.answer = nil; WapiSounds.gameMove(); WapiSounds.haptic(.light) } label: { Label("Manche suivante", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.white).foregroundStyle(Color.whappyBlue)
                     }
                     Spacer()
                 }.padding(20)

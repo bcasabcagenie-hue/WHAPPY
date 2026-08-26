@@ -430,7 +430,7 @@ private struct WapiNativeLiveRoom: View {
         .alert("Direct indisponible", isPresented: Binding(get: { session.errorMessage != nil }, set: { if !$0 { session.errorMessage = nil } })) { Button("Fermer") { Task { await close(end: false) } } } message: { Text(session.errorMessage ?? "") }
     }
 
-    private func close(end: Bool) async { await session.leave(end: end); dismiss(); onClosed() }
+    private func close(end: Bool) async { WapiSounds.callEnded(); await session.leave(end: end); dismiss(); onClosed() }
 }
 
 private struct WapiKingQiLiveOverlay: View {
