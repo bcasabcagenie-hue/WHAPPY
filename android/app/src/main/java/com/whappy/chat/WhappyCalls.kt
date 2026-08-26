@@ -254,6 +254,14 @@ class WhappyCallController(private val activity: ComponentActivity) {
     var state by mutableStateOf(WhappyCallUiState())
         private set
 
+    init {
+        WhappyCallEvents.bind { endedCallId ->
+            activity.runOnUiThread {
+                if (endedCallId == callId || endedCallId == pendingCallId) closeLocal()
+            }
+        }
+    }
+
     private val permissionLauncher = activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val allowed = grants.values.all { it }
         val action = pendingPermissionAction
@@ -1113,6 +1121,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
     }
 
     fun release() {
+        WhappyCallEvents.bind(null)
         closeLocal()
         incomingRegistration?.remove()
         incomingRegistration = null

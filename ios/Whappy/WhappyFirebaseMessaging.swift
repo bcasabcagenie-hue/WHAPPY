@@ -399,21 +399,28 @@ extension WhappyStore {
             } else {
                 request["photoUrl"] = removePhoto ? "" : (conversation.photoURL ?? "")
             }
-            Functions.functions(region: "europe-west1").httpsCallable("updateGroupIdentity").call(request) { result, error in
-                Task { @MainActor in
-                    guard let error else {
-                        let persistedPhoto = (result?.data as? [String: Any])?["photoUrl"] as? String ?? (removePhoto ? "" : (conversation.photoURL ?? ""))
-                        self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: persistedPhoto, eventText: eventText)
-                        self.firebaseBusy = false
-                        self.firebaseMessage = "Photo du groupe enregistrée dans WAPI."
-                        return
-                    }
-                    let description = error.localizedDescription.lowercased()
-                    let canUseCompatibilityPath = description.contains("not found")
-                        || description.contains("unavailable")
-                        || description.contains("deadline")
-                        || description.contains("network")
-                    if canUseCompatibilityPath {
+            let callable = Functions.functions(region: "europe-west1").httpsCallable("updateGroupIdentity")
+            func performRequest(attempt: Int) {
+                callable.call(request) { result, error in
+                    Task { @MainActor in
+                        guard let error else {
+                            let persistedPhoto = (result?.data as? [String: Any])?["photoUrl"] as? String ?? (removePhoto ? "" : (conversation.photoURL ?? ""))
+                            self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: persistedPhoto, eventText: eventText)
+                            self.firebaseBusy = false
+                            self.firebaseMessage = "Photo du groupe enregistrée dans WAPI."
+                            return
+                        }
+                        let description = error.localizedDescription.lowercased()
+                        let transient = description.contains("unavailable")
+                            || description.contains("deadline")
+                            || description.contains("network")
+                            || description.contains("timed out")
+                        if transient && attempt < 3 {
+                            try? await Task.sleep(for: .milliseconds(500 * attempt))
+                            performRequest(attempt: attempt + 1)
+                            return
+                        }
+                        if description.contains("not found") {
                         guard let photoData else {
                             persistFallback(removePhoto ? "" : (conversation.photoURL ?? ""))
                             return
@@ -440,12 +447,14 @@ extension WhappyStore {
                                 }
                             }
                         }
-                    } else {
-                        self.firebaseBusy = false
-                        self.firebaseMessage = self.friendlyFirebaseError(error)
+                        } else {
+                            self.firebaseBusy = false
+                            self.firebaseMessage = self.friendlyFirebaseError(error)
+                        }
                     }
                 }
             }
+            performRequest(attempt: 1)
         }
         save(photoData?.base64EncodedString())
     }

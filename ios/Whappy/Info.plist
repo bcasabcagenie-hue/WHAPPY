@@ -45,6 +45,10 @@
 	<string>WAPI utilise la reconnaissance vocale uniquement lorsque vous répondez à une question King QI avec votre voix.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

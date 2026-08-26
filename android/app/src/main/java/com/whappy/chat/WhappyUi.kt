@@ -10672,9 +10672,20 @@ private fun renderSquareCrop(context: Context, source: Uri, zoom: Float, panX: F
     val left = (centerX - side / 2f).toInt().coerceIn(0, (decoded.width - side).coerceAtLeast(0))
     val top = (centerY - side / 2f).toInt().coerceIn(0, (decoded.height - side).coerceAtLeast(0))
     val cropped = Bitmap.createBitmap(decoded, left, top, side, side)
-    val output = if (side == 1_024) cropped else Bitmap.createScaledBitmap(cropped, 1_024, 1_024, true)
+    // A 768 px avatar remains crisp on high-density phones while keeping the
+    // callable request small enough for unstable mobile networks.
+    val targetSide = 768
+    val output = if (side == targetSide) cropped else Bitmap.createScaledBitmap(cropped, targetSide, targetSide, true)
     return File(WapiMediaStore.cacheDirectory(context), "wapi-group-${System.currentTimeMillis()}.jpg").also { file ->
-        file.outputStream().use { output.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+        var quality = 88
+        var encoded = ByteArrayOutputStream()
+        do {
+            encoded.reset()
+            output.compress(Bitmap.CompressFormat.JPEG, quality, encoded)
+            quality -= 8
+        } while (encoded.size() > 1_500_000 && quality >= 56)
+        file.writeBytes(encoded.toByteArray())
+        encoded.close()
         if (output !== cropped) cropped.recycle()
         if (cropped !== decoded) decoded.recycle()
         output.recycle()

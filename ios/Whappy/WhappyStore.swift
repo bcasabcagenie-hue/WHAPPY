@@ -389,28 +389,48 @@ final class WhappyStore: ObservableObject {
     private func uploadStory(userID: String, caption cleanCaption: String, mediaData: Data?, mediaType: String, contentType: String) async throws -> WapiStory {
         var mediaURL = ""
         var storagePath = ""
+        var serverImageData: Data?
         if let mediaData {
-            let ext = mediaType == "image" ? "jpg" : mediaType == "video" ? "mp4" : "m4a"
-            storagePath = "stories/\(userID)/\(UUID().uuidString).\(ext)"
-            let reference = Storage.storage().reference().child(storagePath)
-            let metadata = StorageMetadata(); metadata.contentType = contentType.isEmpty ? (mediaType == "image" ? "image/jpeg" : mediaType == "video" ? "video/mp4" : "audio/mp4") : contentType
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                reference.putData(mediaData, metadata: metadata) { _, error in if let error { continuation.resume(throwing: error) } else { continuation.resume() } }
-            }
-            mediaURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
-                reference.downloadURL { url, error in if let error { continuation.resume(throwing: error) } else if let url { continuation.resume(returning: url.absoluteString) } else { continuation.resume(throwing: NSError(domain: "WAPI", code: 500)) } }
+            if mediaType == "image" {
+                serverImageData = try normalizedStoryImage(mediaData)
+            } else {
+                let ext = mediaType == "video" ? "mp4" : "m4a"
+                storagePath = "stories/\(userID)/\(UUID().uuidString).\(ext)"
+                let reference = Storage.storage().reference().child(storagePath)
+                let metadata = StorageMetadata(); metadata.contentType = contentType.isEmpty ? (mediaType == "video" ? "video/mp4" : "audio/mp4") : contentType
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    reference.putData(mediaData, metadata: metadata) { _, error in if let error { continuation.resume(throwing: error) } else { continuation.resume() } }
+                }
+                mediaURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                    reference.downloadURL { url, error in if let error { continuation.resume(throwing: error) } else if let url { continuation.resume(returning: url.absoluteString) } else { continuation.resume(throwing: NSError(domain: "WAPI", code: 500)) } }
+                }
             }
         }
+        var payload: [String: Any] = ["caption": cleanCaption, "mediaType": mediaType, "mediaUrl": mediaURL, "storagePath": storagePath]
+        if let serverImageData { payload["mediaDataBase64"] = serverImageData.base64EncodedString() }
         let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
-            Functions.functions(region: "europe-west1").httpsCallable("publishStory").call(["caption": cleanCaption, "mediaType": mediaType, "mediaUrl": mediaURL, "storagePath": storagePath]) { result, error in
+            Functions.functions(region: "europe-west1").httpsCallable("publishStory").call(payload) { result, error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: result?.data as? [String: Any] ?? [:]) }
             }
         }
         guard let id = result["id"] as? String else { throw NSError(domain: "WAPI", code: 500, userInfo: [NSLocalizedDescriptionKey: "La Story n’a pas reçu d’identifiant."]) }
+        mediaURL = result["mediaUrl"] as? String ?? mediaURL
         let now = Date()
         let created = (result["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? now
         let expiry = (result["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
         return WapiStory(id: id, authorID: userID, authorName: result["authorName"] as? String ?? "Membre WAPI", authorPhotoURL: result["authorPhotoUrl"] as? String ?? "", caption: cleanCaption, mediaURL: mediaURL, mediaType: mediaType, createdAt: created, expiresAt: expiry, viewCount: 0, viewed: true)
+    }
+
+    private func normalizedStoryImage(_ data: Data) throws -> Data {
+        guard let image = UIImage(data: data) else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Cette image ne peut pas être lue."]) }
+        let longest = max(image.size.width, image.size.height)
+        let scale = min(1, 2_048 / max(longest, 1))
+        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
+        let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        for quality in [0.88, 0.78, 0.68] {
+            if let encoded = rendered.jpegData(compressionQuality: quality), encoded.count <= 5 * 1_024 * 1_024 { return encoded }
+        }
+        throw NSError(domain: "WAPI", code: 413, userInfo: [NSLocalizedDescriptionKey: "Cette image reste trop volumineuse après optimisation."])
     }
 
     private func localStoryMediaURL(for data: Data?, mediaType: String, pendingID: String) throws -> String {

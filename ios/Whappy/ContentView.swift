@@ -2313,7 +2313,9 @@ private struct WapiGroupSettingsView: View {
 /// keeps Storage rules fast on mobile networks, and gives Android/iOS the same
 /// group-avatar geometry.
 private func makeWapiGroupPhotoData(_ image: UIImage) -> Data? {
-    let canvasSide: CGFloat = 1024
+    // 768 px is visually sharp for an avatar and keeps server-authoritative
+    // uploads reliable during Wi-Fi/cellular handovers.
+    let canvasSide: CGFloat = 768
     guard image.size.width > 0, image.size.height > 0 else { return nil }
     let scale = max(canvasSide / image.size.width, canvasSide / image.size.height)
     let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -2322,7 +2324,7 @@ private func makeWapiGroupPhotoData(_ image: UIImage) -> Data? {
     format.scale = 1
     format.opaque = true
     return UIGraphicsImageRenderer(size: CGSize(width: canvasSide, height: canvasSide), format: format)
-        .jpegData(withCompressionQuality: 0.86) { _ in
+        .jpegData(withCompressionQuality: 0.82) { _ in
             UIColor.white.setFill()
             UIRectFill(CGRect(x: 0, y: 0, width: canvasSide, height: canvasSide))
             image.draw(in: CGRect(origin: origin, size: drawSize))

@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.Notification
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -49,13 +50,17 @@ class WhappyMessagingService : FirebaseMessagingService() {
         // sounds and duplicate message cards while preserving closed-app push.
         if (WapiPresence.isForeground && type in setOf("message", "chat") && WhappyRealtimeNotifications.isReady) return
         when (type) {
-            "call", "incoming_call" -> WhappyNotifications.showIncomingCall(
+            "call", "incoming_call", "direct_call" -> WhappyNotifications.showIncomingCall(
                 context = this,
                 callId = data["callId"].orEmpty(),
                 callerName = data["callerName"] ?: title,
                 callerPhotoUrl = data["callerPhotoUrl"].orEmpty(),
                 video = data["video"].toBoolean(),
             )
+            "call_cancel", "call_ended", "call_declined" -> {
+                WhappyNotifications.cancelCall(this, data["callId"].orEmpty())
+                WhappyCallEvents.notifyEnded(data["callId"].orEmpty())
+            }
             "group_call" -> WhappyNotifications.showGroupCall(
                 context = this,
                 callId = data["callId"].orEmpty(),
@@ -93,7 +98,7 @@ object WhappyNotifications {
     // Android keeps a channel's sound policy after its first creation.  A new
     // id deliberately upgrades devices that installed an older silent build.
     private const val CHANNEL_MESSAGES = "wapi_messages_v5"
-    private const val CHANNEL_CALLS = "whappy_calls_v3"
+    private const val CHANNEL_CALLS = "whappy_calls_v4"
     private const val CHANNEL_ACTIVITY = "whappy_activity_v2"
     private const val CALL_NOTIFICATION_BASE = 6_100
     private const val MESSAGE_SUMMARY_ID = 6_001
@@ -241,6 +246,7 @@ object WhappyNotifications {
             .setTimeoutAfter(120_000L)
             .apply { callerAvatar?.let { avatar -> setLargeIcon(avatar) } }
             .build()
+            .apply { flags = flags or Notification.FLAG_INSISTENT }
         NotificationManagerCompat.from(context).notify(callNotificationId(safeCallId), notification)
         return true
     }
@@ -372,6 +378,19 @@ object WhappyNotifications {
 
     private fun notificationId(key: String): Int = key.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
     private fun callNotificationId(callId: String): Int = CALL_NOTIFICATION_BASE + notificationId(callId) % 1_000_000
+}
+
+/** Bridges a background FCM cancellation to the in-process call controller. */
+object WhappyCallEvents {
+    @Volatile private var endedListener: ((String) -> Unit)? = null
+
+    fun bind(listener: ((String) -> Unit)?) {
+        endedListener = listener
+    }
+
+    fun notifyEnded(callId: String) {
+        if (callId.isNotBlank()) endedListener?.invoke(callId)
+    }
 }
 
 /**

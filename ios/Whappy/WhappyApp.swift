@@ -9,6 +9,7 @@ import UserNotifications
 let wapiPushTokenDidChange = Notification.Name("wapi.push-token-did-change")
 let wapiPushDidOpen = Notification.Name("wapi.push-did-open")
 let wapiPushDidDeclineCall = Notification.Name("wapi.push-did-decline-call")
+let wapiPushDidEndCall = Notification.Name("wapi.push-did-end-call")
 let wapiPendingDeclineCallKey = "wapi.pending-decline-call"
 private let wapiDirectCallCategory = "WAPI_DIRECT_CALL"
 private let wapiAcceptCallAction = "WAPI_ACCEPT_CALL"
@@ -103,6 +104,35 @@ final class WapiAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate,
         guard let fcmToken, !fcmToken.isEmpty else { return }
         UserDefaults.standard.set(fcmToken, forKey: "wapi.ios.fcm-token")
         NotificationCenter.default.post(name: wapiPushTokenDidChange, object: nil)
+    }
+
+    func application(
+        _: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard (userInfo["type"] as? String) == "call_cancel",
+              let callID = userInfo["callId"] as? String,
+              !callID.isEmpty else {
+            completionHandler(.noData)
+            return
+        }
+        removeDeliveredCallNotification(callID: callID)
+        NotificationCenter.default.post(name: wapiPushDidEndCall, object: callID)
+        completionHandler(.newData)
+    }
+
+    private func removeDeliveredCallNotification(callID: String) {
+        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+            let identifiers = notifications.compactMap { notification in
+                (notification.request.content.userInfo["callId"] as? String) == callID
+                    ? notification.request.identifier
+                    : nil
+            }
+            if !identifiers.isEmpty {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+            }
+        }
     }
 
     func userNotificationCenter(_: UNUserNotificationCenter, willPresent _: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {

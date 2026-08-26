@@ -4,7 +4,7 @@ import { getMessaging, type MulticastMessage } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { defineSecret, defineString } from "firebase-functions/params";
 import { randomUUID } from "node:crypto";
 import { connect as connectTcp } from "node:net";
@@ -379,16 +379,24 @@ async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessa
       const title = String(message.data?.title || "WAPI").slice(0, 120);
       const body = String(message.data?.body || "Nouvelle activité").slice(0, 240);
       const badge = Math.max(0, Math.min(99, Number(message.data?.badgeCount || 0) || 0));
+      const silent = message.data?.silent === "true";
       const category = message.data?.type === "direct_call" || message.data?.type === "incoming_call"
         ? "WAPI_DIRECT_CALL"
         : undefined;
       const response = await getMessaging().sendEachForMulticast({
         ...message,
         ...(apple ? {
-          notification: { title, body },
+          ...(silent ? {} : { notification: { title, body } }),
           apns: {
-            headers: { "apns-priority": "10" },
-            payload: { aps: { alert: { title, body }, sound: "default", badge, category, contentAvailable: true } },
+            headers: {
+              "apns-priority": silent ? "5" : "10",
+              ...(message.data?.callId ? { "apns-collapse-id": `wapi-call-${message.data.callId}`.slice(0, 64) } : {}),
+            },
+            payload: {
+              aps: silent
+                ? { contentAvailable: true }
+                : { alert: { title, body }, sound: "default", badge, category, contentAvailable: true },
+            },
           },
         } : {}),
         tokens: batch.map((device) => device.token),
@@ -536,6 +544,32 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
       deepLink: `whappy://call/${event.params.callId}`,
     },
     android: { priority: "high", ttl: 120_000, collapseKey: `call-${event.params.callId}` },
+  });
+});
+
+/**
+ * A call notification is persistent by design, so creating it is only half of
+ * the lifecycle.  When either participant declines or hangs up, this high
+ * priority data event tells a sleeping Android/iOS client to remove the
+ * ringing notification immediately instead of waiting for its timeout.
+ */
+export const notifyCallStateChanged = onDocumentUpdated("calls/{callId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after || before.status !== "ringing" || after.status === "ringing") return;
+  const calleeId = String(after.calleeId || before.calleeId || "");
+  const devices = await pushDevices([calleeId]);
+  if (!devices.length) return;
+  await sendInBatches(devices, {
+    data: {
+      type: "call_cancel",
+      title: "WAPI",
+      body: "Appel terminé",
+      callId: event.params.callId,
+      status: String(after.status || "ended"),
+      silent: "true",
+    },
+    android: { priority: "high", ttl: 60_000, collapseKey: `call-${event.params.callId}` },
   });
 });
 
@@ -1679,10 +1713,35 @@ export const publishStory = onCall(async (request) => {
   const userId = request.auth.uid;
   const caption = String(request.data?.caption || "").trim().slice(0, 600);
   const mediaType = String(request.data?.mediaType || "text").trim().toLowerCase();
-  const mediaUrl = String(request.data?.mediaUrl || "").trim().slice(0, 2_000);
-  const storagePath = String(request.data?.storagePath || "").trim().slice(0, 300);
-  if (!caption && !mediaUrl) throw new HttpsError("invalid-argument", "Ajoutez un texte ou un média.");
+  let mediaUrl = String(request.data?.mediaUrl || "").trim().slice(0, 2_000);
+  let storagePath = String(request.data?.storagePath || "").trim().slice(0, 300);
+  const mediaDataBase64 = request.data?.mediaDataBase64;
   if (!["text", "image", "video", "audio"].includes(mediaType)) throw new HttpsError("invalid-argument", "Type de Story invalide.");
+  let uploadedFilePath = "";
+  if (mediaDataBase64 !== undefined) {
+    if (mediaType !== "image" || mediaUrl || storagePath) throw new HttpsError("invalid-argument", "Le média Story est invalide.");
+    let uploadedPhoto: ReturnType<typeof decodeGroupPhotoBase64>;
+    try {
+      uploadedPhoto = decodeGroupPhotoBase64(mediaDataBase64);
+    } catch {
+      throw new HttpsError("invalid-argument", "Cette image Story est invalide ou trop volumineuse.");
+    }
+    if (!uploadedPhoto) throw new HttpsError("invalid-argument", "L’image Story est vide.");
+    const bucket = getStorage().bucket();
+    const downloadToken = randomUUID();
+    uploadedFilePath = `stories/${userId}/story-${randomUUID()}.${uploadedPhoto.extension}`;
+    await bucket.file(uploadedFilePath).save(uploadedPhoto.bytes, {
+      resumable: false,
+      metadata: {
+        contentType: uploadedPhoto.contentType,
+        cacheControl: "public,max-age=86400",
+        metadata: { firebaseStorageDownloadTokens: downloadToken },
+      },
+    });
+    storagePath = uploadedFilePath;
+    mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+  }
+  if (!caption && !mediaUrl) throw new HttpsError("invalid-argument", "Ajoutez un texte ou un média.");
   const isFirebaseMedia = mediaUrl.startsWith("https://firebasestorage.googleapis.com/") || mediaUrl.startsWith("https://storage.googleapis.com/");
   if (mediaType === "text" && (mediaUrl || storagePath)) throw new HttpsError("invalid-argument", "Une Story texte ne peut pas contenir un média externe.");
   if (mediaType !== "text" && (!isFirebaseMedia || !storagePath.startsWith(`stories/${userId}/`))) throw new HttpsError("invalid-argument", "Le média Story n’est pas sécurisé.");
@@ -1691,24 +1750,29 @@ export const publishStory = onCall(async (request) => {
   const authorPhotoUrl = String(profile.get("photoUrl") || "").trim().slice(0, 2_000);
   const createdAt = Date.now();
   const story = db.collection("stories").doc();
-  await story.set({
-    authorId: userId,
-    authorName,
-    authorPhotoUrl,
-    caption,
-    mediaUrl,
-    mediaType,
-    storagePath,
-    audienceIds: await storyAudienceIds(userId),
-    viewCount: 0,
-    // Keep a concrete millisecond value in addition to the server timestamp.
-    // A just-created Firestore serverTimestamp can be unresolved in the first
-    // response read; the mobile clients use this value to keep the Story in
-    // the rail immediately after publication.
-    createdAtMillis: createdAt,
-    createdAt: FieldValue.serverTimestamp(),
-    expiresAt: new Date(createdAt + 24 * 60 * 60 * 1_000),
-  });
+  try {
+    await story.set({
+      authorId: userId,
+      authorName,
+      authorPhotoUrl,
+      caption,
+      mediaUrl,
+      mediaType,
+      storagePath,
+      audienceIds: await storyAudienceIds(userId),
+      viewCount: 0,
+      // Keep a concrete millisecond value in addition to the server timestamp.
+      // A just-created Firestore serverTimestamp can be unresolved in the first
+      // response read; the mobile clients use this value to keep the Story in
+      // the rail immediately after publication.
+      createdAtMillis: createdAt,
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt: new Date(createdAt + 24 * 60 * 60 * 1_000),
+    });
+  } catch (error) {
+    if (uploadedFilePath) await getStorage().bucket().file(uploadedFilePath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    throw error;
+  }
   return { id: story.id, authorId: userId, authorName, authorPhotoUrl, caption, mediaUrl, mediaType, createdAtMillis: createdAt, expiresAtMillis: createdAt + 24 * 60 * 60 * 1_000, viewCount: 0 };
 });
 

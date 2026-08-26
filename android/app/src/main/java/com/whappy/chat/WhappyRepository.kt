@@ -1,6 +1,8 @@
 package com.whappy.chat
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import com.google.firebase.FirebaseApp
@@ -27,6 +29,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.io.FileInputStream
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1219,15 +1222,10 @@ class WhappyRepository(
             payload["photoContentType"] = safePhotoContentType
         } ?: run { payload["photoUrl"] = photoUrl }
         val response = runCatching {
-            functions.getHttpsCallable("updateGroupIdentity").call(payload).await().data as? Map<*, *>
+            callGroupIdentityWithRetry(payload)
         }.recoverCatching { failure ->
             val code = (failure as? FirebaseFunctionsException)?.code
-            if (code !in setOf(
-                    FirebaseFunctionsException.Code.NOT_FOUND,
-                    FirebaseFunctionsException.Code.UNAVAILABLE,
-                    FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
-                )
-            ) throw failure
+            if (code != FirebaseFunctionsException.Code.NOT_FOUND) throw failure
 
             // Compatibility path for installations whose APK was updated
             // before the matching Cloud Function. Firestore rules still check
@@ -1287,6 +1285,32 @@ class WhappyRepository(
             groupEditInfoByMembers = snapshot.getBoolean("editInfoByMembers") != false,
             groupOnlyAdminsCanSend = snapshot.getBoolean("onlyAdminsCanSend") == true,
         )
+    }
+
+    /**
+     * A mobile handover between Wi-Fi and cellular can briefly make a callable
+     * unavailable. Retrying the authoritative server upload is safer than
+     * switching immediately to a direct Storage write whose rules may differ
+     * between old installations.
+     */
+    private suspend fun callGroupIdentityWithRetry(payload: Map<String, Any>): Map<*, *>? {
+        var lastFailure: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                return functions.getHttpsCallable("updateGroupIdentity").call(payload).await().data as? Map<*, *>
+            } catch (failure: Throwable) {
+                val code = (failure as? FirebaseFunctionsException)?.code
+                if (code !in setOf(
+                        FirebaseFunctionsException.Code.UNAVAILABLE,
+                        FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
+                        FirebaseFunctionsException.Code.INTERNAL,
+                    )
+                ) throw failure
+                lastFailure = failure
+                if (attempt < 2) delay(500L * (attempt + 1))
+            }
+        }
+        throw lastFailure ?: IllegalStateException("group-photo-upload-failed")
     }
 
     suspend fun setGroupAdministrator(groupId: String, source: String, memberId: String, administrator: Boolean) {
@@ -1666,7 +1690,9 @@ class WhappyRepository(
         }
         val maximumSize = when (mediaKind) { "video" -> 50L * 1024L * 1024L; "audio" -> 25L * 1024L * 1024L; else -> 12L * 1024L * 1024L }
         var storagePath = ""
-        val mediaUrl = if (mediaUri == null) "" else {
+        var mediaUrl = ""
+        var serverImagePayload: ByteArray? = null
+        if (mediaUri != null) {
             // Some Android gallery providers return no MIME type. Storage
             // rules correctly reject an empty content type, so resolve a safe
             // WAPI type before building both the filename and metadata.
@@ -1685,20 +1711,28 @@ class WhappyRepository(
                 ?: error("story-media-unreadable")
             try {
                 require(localMedia.length() in 1..maximumSize)
-                uploadOutboxFile(
-                    mediaRef,
-                    localMedia,
-                    StorageMetadata.Builder().setContentType(safeMediaContentType).build(),
-                )
-                mediaRef.downloadUrl.await().toString()
+                if (mediaKind == "image") {
+                    serverImagePayload = normalizeStoryImage(localMedia)
+                    storagePath = ""
+                } else {
+                    uploadOutboxFile(
+                        mediaRef,
+                        localMedia,
+                        StorageMetadata.Builder().setContentType(safeMediaContentType).build(),
+                    )
+                    mediaUrl = mediaRef.downloadUrl.await().toString()
+                }
             } finally {
                 localMedia.delete()
             }
         }
         val createdAt = System.currentTimeMillis()
+        val publishPayload = mutableMapOf<String, Any>("caption" to value, "mediaType" to mediaKind, "mediaUrl" to mediaUrl, "storagePath" to storagePath)
+        serverImagePayload?.let { publishPayload["mediaDataBase64"] = Base64.encodeToString(it, Base64.NO_WRAP) }
         val result = functions.getHttpsCallable("publishStory").call(
-            mapOf("caption" to value, "mediaType" to mediaKind, "mediaUrl" to mediaUrl, "storagePath" to storagePath),
+            publishPayload,
         ).await().data as? Map<*, *> ?: error("story-publish-empty-response")
+        mediaUrl = result["mediaUrl"]?.toString().orEmpty().ifBlank { mediaUrl }
         val storyId = result["id"]?.toString().orEmpty().ifBlank { error("story-publish-missing-id") }
         val serverAuthorName = result["authorName"]?.toString().orEmpty().ifBlank { authorName.trim().take(80) }
         val serverPhotoUrl = result["authorPhotoUrl"]?.toString().orEmpty()
@@ -1716,6 +1750,32 @@ class WhappyRepository(
             expiresAt = (result["expiresAtMillis"] as? Number)?.toLong() ?: publishedAt + 24L * 60L * 60L * 1000L,
             authorPhotoUrl = serverPhotoUrl,
         )
+    }
+
+    private fun normalizeStoryImage(file: File): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0)
+        var sample = 1
+        while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) sample *= 2
+        val decoded = BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: error("story-image-unreadable")
+        val scale = minOf(1f, 2_048f / maxOf(decoded.width, decoded.height).toFloat())
+        val resized = if (scale < 1f) Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true) else decoded
+        return try {
+            var result = ByteArray(0)
+            for (quality in listOf(88, 78, 68)) {
+                val output = ByteArrayOutputStream()
+                resized.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                result = output.toByteArray()
+                if (result.size <= 5 * 1_024 * 1_024) break
+            }
+            require(result.size in 32..(5 * 1_024 * 1_024))
+            result
+        } finally {
+            if (resized !== decoded) resized.recycle()
+            decoded.recycle()
+        }
     }
 
     fun rememberStoryViewedLocally(storyId: String) {
