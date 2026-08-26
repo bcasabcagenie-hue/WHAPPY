@@ -2116,6 +2116,7 @@ private struct KingQiIOSView: View {
     @State private var section: KingQiIOSSection = .home
     @State private var credits = 0
     @State private var trophies = 0
+    @State private var victories = 0
 
     var body: some View {
         NavigationStack {
@@ -2139,9 +2140,11 @@ private struct KingQiIOSView: View {
                     HStack { Text("♛").font(.system(size: 40)).frame(width: 58, height: 58).background(Color.yellow).clipShape(Circle()); VStack(alignment: .leading) { Text("KING QI").font(.system(size: 31, weight: .black)); Text("La connaissance devient un spectacle.").font(.caption).foregroundStyle(.white.opacity(0.7)) } }
                     HStack { kingStat("CRÉDITS", "\(credits)"); kingStat("TROPHÉES", "\(trophies)"); kingStat("NIVEAU", "National") }
                 }.foregroundStyle(.white).padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
+                KingQiIOSPlayerProfileCard(displayName: Auth.auth().currentUser?.displayName ?? Auth.auth().currentUser?.phoneNumber ?? "Joueur WAPI", photoURL: Auth.auth().currentUser?.photoURL, victories: victories, trophies: trophies)
                 Text("Choisissez votre arène").font(.title2.bold())
                 KingQiIOSMode(title: "SOLO IA", subtitle: "La voix King QI pose les questions. Répondez au micro ou touchez une barre.", icon: "mic.fill", color: .orange) { section = .solo }
-                KingQiIOSMode(title: "TOURNOI AVEC CONTACTS", subtitle: "Créez un code, invitez 2 à 8 proches et gagnez des trophées.", icon: "person.3.fill", color: .whappyBlue) { section = .online }
+                KingQiIOSMode(title: "DUEL WAPI", subtitle: "Deux écrans, une manche synchronisée et un seul champion.", icon: "bolt.horizontal.fill", color: .red) { section = .online }
+                KingQiIOSMode(title: "TOURNOI AVEC CONTACTS", subtitle: "Créez un code, invitez 2 à 4 proches et gagnez des trophées.", icon: "person.3.fill", color: .whappyBlue) { section = .online }
                 KingQiIOSMode(title: "KING QI EN DIRECT", subtitle: "Créez l'arène puis associez-la à votre direct WAPI.", icon: "video.fill", color: .red) { section = .online }
                 Text("Les crédits King QI sont promotionnels, non achetables et non convertibles en argent. Les mises réelles restent verrouillées jusqu’aux autorisations légales et au KYC.").font(.footnote).foregroundStyle(.secondary).padding().background(Color.yellow.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 18))
             }.padding()
@@ -2156,7 +2159,39 @@ private struct KingQiIOSView: View {
             guard let data = result?.data as? [String: Any] else { return }
             credits = data["credits"] as? Int ?? (data["credits"] as? NSNumber)?.intValue ?? 0
             trophies = data["trophies"] as? Int ?? (data["trophies"] as? NSNumber)?.intValue ?? 0
+            victories = data["victories"] as? Int ?? (data["victories"] as? NSNumber)?.intValue ?? 0
         }
+    }
+}
+
+private struct KingQiIOSPlayerProfileCard: View {
+    let displayName: String
+    let photoURL: URL?
+    let victories: Int
+    let trophies: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let photoURL {
+                AsyncImage(url: photoURL) { phase in
+                    if let image = phase.image { image.resizable().scaledToFill() } else { InitialsAvatar(text: displayName, size: 48) }
+                }.frame(width: 48, height: 48).clipShape(Circle())
+            } else {
+                InitialsAvatar(text: displayName.isEmpty ? "W" : displayName, size: 48)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("PROFIL JOUEUR · KING QI").font(.caption2.bold()).foregroundStyle(Color.whappyBlue)
+                Text(displayName.isEmpty ? "Joueur WAPI" : displayName).font(.headline.bold())
+                Text("\(victories) victoire\(victories == 1 ? "" : "s") · \(trophies) coupe\(trophies == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text("♛").font(.system(size: 28)).foregroundStyle(.yellow)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white)
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.whappyBlue.opacity(0.14)))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 
@@ -2271,7 +2306,7 @@ private struct KingQiIOSOnlineView: View {
     }.padding() }.onDisappear { listener?.remove() } }
 
     private var setup: some View { Group {
-        VStack(alignment: .leading, spacing: 10) { Text(maxPlayers == 2 ? "Créer un duel" : "Créer un tournoi").font(.title2.bold()); Text(maxPlayers == 2 ? "Affrontez un contact dans une arène à deux joueurs." : "Crédits promotionnels par joueur · jusqu’à huit joueurs.").font(.caption).foregroundStyle(.secondary); Picker("Format", selection: $maxPlayers) { Text("Duel · 2 joueurs").tag(2); Text("Tournoi · 8 joueurs").tag(8) }.pickerStyle(.segmented); HStack { ForEach([0, 10, 25, 50], id: \.self) { value in Button("\(value)") { entry = value }.buttonStyle(.borderedProminent).tint(entry == value ? .yellow : .gray) } }; Picker("Diffusion", selection: $visibility) { Text("Contacts").tag("private"); Text("Direct WAPI").tag("live") }.pickerStyle(.segmented); Button { call("kingQiCreateTournament", ["entryCredits": entry, "maxPlayers": maxPlayers, "visibility": visibility]) { watch($0["roomId"] as? String ?? "") } } label: { Label(maxPlayers == 2 ? "Créer le duel" : "Créer le tournoi", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(Color.whappyInk) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 22))
+        VStack(alignment: .leading, spacing: 10) { Text(maxPlayers == 2 ? "Créer un duel" : "Créer un tournoi").font(.title2.bold()); Text(maxPlayers == 2 ? "Affrontez un contact dans une arène à deux joueurs." : "Crédits promotionnels par joueur · jusqu’à quatre écrans.").font(.caption).foregroundStyle(.secondary); Picker("Format", selection: $maxPlayers) { Text("Duel · 2 joueurs").tag(2); Text("Tournoi · 4 joueurs").tag(4) }.pickerStyle(.segmented); HStack { ForEach([0, 10, 25, 50], id: \.self) { value in Button("\(value)") { entry = value }.buttonStyle(.borderedProminent).tint(entry == value ? .yellow : .gray) } }; Picker("Diffusion", selection: $visibility) { Text("Contacts").tag("private"); Text("Direct WAPI").tag("live") }.pickerStyle(.segmented); Button { call("kingQiCreateTournament", ["entryCredits": entry, "maxPlayers": maxPlayers, "visibility": visibility]) { watch($0["roomId"] as? String ?? "") } } label: { Label(maxPlayers == 2 ? "Créer le duel" : "Créer le tournoi", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(Color.whappyInk) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 22))
         Text("OU REJOINDRE").font(.caption.bold()).foregroundStyle(.secondary)
         TextField("Code à 6 caractères", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled().padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 15)).onChange(of: code) { _, value in code = String(value.filter { $0.isLetter || $0.isNumber }.prefix(6)).uppercased() }
         Button("Rejoindre l'arène") { call("kingQiJoinTournament", ["code": code]) { watch($0["roomId"] as? String ?? "") } }.buttonStyle(.borderedProminent).disabled(code.count != 6 || busy)
@@ -2281,13 +2316,15 @@ private struct KingQiIOSOnlineView: View {
         let status = room["status"] as? String ?? "waiting"
         let playerIDs = room["playerIds"] as? [String] ?? []
         let names = room["playerNames"] as? [String: String] ?? [:]
+        let photos = room["playerPhotos"] as? [String: String] ?? [:]
         let scores = room["scores"] as? [String: NSNumber] ?? [:]
+        let answeredIDs = room["answeredIds"] as? [String] ?? []
         let uid = Auth.auth().currentUser?.uid ?? ""
         return VStack(spacing: 12) {
             Text("CODE  \(room["code"] as? String ?? "")").font(.title2.bold())
-            let capacity = room["maxPlayers"] as? Int ?? maxPlayers
+            let capacity = (room["maxPlayers"] as? NSNumber)?.intValue ?? (room["maxPlayers"] as? Int ?? maxPlayers)
             Text(status == "waiting" ? "\(playerIDs.count)/\(capacity) joueurs dans l’arène" : status == "finished" ? (capacity == 2 ? "Duel terminé" : "Tournoi terminé") : "King QI en cours").font(.title.bold()).foregroundStyle(.white).padding().frame(maxWidth: .infinity).background(Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 22))
-            ForEach(playerIDs.sorted { (scores[$0]?.intValue ?? 0) > (scores[$1]?.intValue ?? 0) }, id: \.self) { player in HStack { Text(names[player] ?? "Joueur WAPI").bold(); Spacer(); Text("\(scores[player]?.intValue ?? 0) pts") }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 14)) }
+            KingQiIOSPlayerStage(playerIDs: playerIDs, names: names, photos: photos, scores: scores, answeredIDs: answeredIDs, currentUserID: uid, capacity: capacity)
             if status == "waiting", room["hostId"] as? String == uid { Button("Démarrer King QI") { call("kingQiStartTournament", ["roomId": roomID]) }.buttonStyle(.borderedProminent).disabled(playerIDs.count < 2 || busy) }
             if status == "waiting", room["hostId"] as? String == uid, room["visibility"] as? String == "live" { Button { call("kingQiPrepareLive", ["roomId": roomID]) { _ in onStartLive() } } label: { Label("Ouvrir mon direct WAPI", systemImage: "video.fill") }.buttonStyle(.bordered) }
             if status == "playing", let question = room["currentQuestion"] as? [String: Any], let options = question["options"] as? [String] { Text(question["text"] as? String ?? "Question").font(.title2.bold()); ForEach(options.indices, id: \.self) { option in Button(options[option]) { call("kingQiSubmitAnswer", ["roomId": roomID, "optionIndex": option]) }.buttonStyle(.bordered).frame(maxWidth: .infinity) }; Button("Manche suivante") { call("kingQiAdvanceTournament", ["roomId": roomID]) }.buttonStyle(.borderedProminent) }
@@ -2297,6 +2334,56 @@ private struct KingQiIOSOnlineView: View {
 
     private func watch(_ id: String) { guard !id.isEmpty else { return }; roomID = id; listener?.remove(); listener = Firestore.firestore().collection("kingQiRooms").document(id).addSnapshotListener { snapshot, failure in if let failure { error = wapiUserFacingError(failure, action: "La synchronisation King QI") } else { room = snapshot?.data() ?? [:] } } }
     private func call(_ name: String, _ data: [String: Any], completion: @escaping ([String: Any]) -> Void = { _ in }) { guard !busy else { return }; busy = true; error = nil; functions.httpsCallable(name).call(data) { result, failure in busy = false; if let failure { error = wapiUserFacingError(failure, action: "King QI") } else { completion(result?.data as? [String: Any] ?? [:]) } } }
+}
+
+private struct KingQiIOSPlayerStage: View {
+    let playerIDs: [String]
+    let names: [String: String]
+    let photos: [String: String]
+    let scores: [String: NSNumber]
+    let answeredIDs: [String]
+    let currentUserID: String
+    let capacity: Int
+
+    private var slots: [String?] { (0..<min(max(capacity, 2), 4)).map { index in playerIDs.indices.contains(index) ? playerIDs[index] : nil } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(capacity == 2 ? "DUEL · 2 ÉCRANS" : "ARÈNE · 4 ÉCRANS")
+                .font(.caption2.bold())
+                .foregroundStyle(Color.whappyBlue)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(Array(slots.enumerated()), id: \.offset) { _, player in
+                    let name = player.flatMap { names[$0] } ?? "En attente"
+                    let score = player.flatMap { scores[$0]?.intValue } ?? 0
+                    let answered = player.map { answeredIDs.contains($0) } ?? false
+                    HStack(spacing: 8) {
+                        if let player, let photo = photos[player], !photo.isEmpty {
+                            AsyncImage(url: URL(string: photo)) { phase in
+                                if let image = phase.image { image.resizable().scaledToFill() } else { InitialsAvatar(text: name, size: 40) }
+                            }.frame(width: 40, height: 40).clipShape(Circle())
+                        } else {
+                            InitialsAvatar(text: name, size: 40)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name).font(.caption.bold()).lineLimit(1)
+                            Text("\(score) pts").font(.subheadline.bold()).foregroundStyle(Color.whappyBlue)
+                            Text(player == nil ? "En attente" : answered ? "Réponse reçue" : "Réfléchit…")
+                                .font(.caption2)
+                                .foregroundStyle(answered ? .green : .secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(player == currentUserID ? Color.whappyBlue.opacity(0.10) : .white)
+                    .overlay(RoundedRectangle(cornerRadius: 17).stroke(player == currentUserID ? Color.whappyBlue.opacity(0.35) : Color.gray.opacity(0.12)))
+                    .clipShape(RoundedRectangle(cornerRadius: 17))
+                }
+            }
+        }
+    }
 }
 
 private struct StatPill: View {

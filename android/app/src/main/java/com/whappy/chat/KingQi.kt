@@ -165,7 +165,7 @@ internal fun KingQiArena(
     when (section) {
         KingQiSection.SOLO -> KingQiSoloGame(accountName = accountName, onExit = { section = KingQiSection.HOME })
         KingQiSection.DUEL -> KingQiOnlineArena(currentUserId, accountName, functions, initialMaxPlayers = 2, onBack = { section = KingQiSection.HOME }, onStartLive = onStartLive)
-        KingQiSection.ONLINE -> KingQiOnlineArena(currentUserId, accountName, functions, initialMaxPlayers = 8, onBack = { section = KingQiSection.HOME }, onStartLive = onStartLive)
+        KingQiSection.ONLINE -> KingQiOnlineArena(currentUserId, accountName, functions, initialMaxPlayers = 4, onBack = { section = KingQiSection.HOME }, onStartLive = onStartLive)
         KingQiSection.HOME -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -175,10 +175,16 @@ internal fun KingQiArena(
                 trophies = (profile["trophies"] as? Number)?.toInt() ?: 0,
                 loading = loadingProfile,
             )
+            KingQiPlayerProfileCard(
+                displayName = accountName,
+                photoUrl = ((profile["playerProfile"] as? Map<*, *>)?.get("photoUrl") ?: "").toString(),
+                victories = (profile["victories"] as? Number)?.toInt() ?: 0,
+                trophies = (profile["trophies"] as? Number)?.toInt() ?: 0,
+            )
             Text("Choisissez votre arène", color = KingNavy, fontSize = 22.sp, fontWeight = FontWeight.Black)
             KingQiModeCard("SOLO IA", "La voix King QI pose 10 questions. Répondez au micro ou touchez une barre.", "♛", KingGold) { section = KingQiSection.SOLO }
             KingQiModeCard("DUEL WAPI", "Affrontez un seul contact : deux joueurs, une arène, un vainqueur.", "⚔", KingRed) { section = KingQiSection.DUEL }
-            KingQiModeCard("TOURNOI AVEC CONTACTS", "Créez un code privé, invitez 2 à 8 proches et gagnez des trophées.", "👥", WhappyBlue) { section = KingQiSection.ONLINE }
+            KingQiModeCard("TOURNOI AVEC CONTACTS", "Créez un code privé, invitez 2 à 4 proches et gagnez des trophées.", "👥", WhappyBlue) { section = KingQiSection.ONLINE }
             KingQiModeCard("KING QI EN DIRECT", "Créez le tournoi puis ouvrez le direct WAPI. Les scores restent validés par le serveur.", "●", KingRed) { section = KingQiSection.ONLINE }
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E2)), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -214,6 +220,21 @@ private fun KingQiStat(label: String, value: String, modifier: Modifier = Modifi
     Column(modifier.background(Color.White.copy(alpha = .09f), RoundedCornerShape(14.dp)).padding(11.dp)) {
         Text(label, color = Color.White.copy(alpha = .54f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
         Text(value, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+@Composable
+private fun KingQiPlayerProfileCard(displayName: String, photoUrl: String, victories: Int, trophies: Int) {
+    Surface(color = Color.White, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE4EBF4))) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            UserAvatar(photoUrl, displayName, 48.dp, shape = CircleShape)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text("PROFIL JOUEUR · KING QI", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text(displayName.ifBlank { "Joueur WAPI" }, color = KingNavy, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                Text("$victories victoire${if (victories == 1) "" else "s"} · $trophies coupe${if (trophies == 1) "" else "s"}", color = Color(0xFF64748B), fontSize = 11.sp)
+            }
+            Text("♛", color = KingGold, fontSize = 28.sp)
+        }
     }
 }
 
@@ -418,7 +439,7 @@ private fun KingQiOnlineArena(
             KingQiModeCard(if (maxPlayers == 2) "Créer un duel privé" else "Créer un tournoi privé", if (maxPlayers == 2) "Invitez un contact : le premier à prendre l’avantage gagne l’arène." else "Le code peut être partagé à vos contacts WAPI.", if (maxPlayers == 2) "⚔" else "♛", KingGold) {}
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { maxPlayers = 2 }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (maxPlayers == 2) Color(0xFFFFE9EC) else Color.White)) { Text("Duel · 2", fontWeight = FontWeight.Black) }
-                OutlinedButton(onClick = { maxPlayers = 8 }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (maxPlayers == 8) Color(0xFFE8F5FE) else Color.White)) { Text("Tournoi · 8", fontWeight = FontWeight.Black) }
+                OutlinedButton(onClick = { maxPlayers = 4 }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (maxPlayers == 4) Color(0xFFE8F5FE) else Color.White)) { Text("Tournoi · 4", fontWeight = FontWeight.Black) }
             }
             Text("Crédits promotionnels par joueur", color = KingNavy, fontWeight = FontWeight.Black)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0, 10, 25, 50).forEach { value -> OutlinedButton(onClick = { entryCredits = value }, colors = ButtonDefaults.outlinedButtonColors(containerColor = if (entryCredits == value) KingGold else Color.White)) { Text(value.toString(), color = KingNavy, fontWeight = FontWeight.Black) } } }
@@ -438,18 +459,18 @@ private fun KingQiOnlineArena(
     val status = (room["status"] ?: "waiting").toString()
     val players = (room["playerIds"] as? List<*>)?.map { it.toString() }.orEmpty()
     val names = room["playerNames"] as? Map<*, *> ?: emptyMap<Any, Any>()
+    val photos = room["playerPhotos"] as? Map<*, *> ?: emptyMap<Any, Any>()
     val scores = room["scores"] as? Map<*, *> ?: emptyMap<Any, Any>()
     val hostId = (room["hostId"] ?: "").toString()
     val code = (room["code"] ?: "").toString()
     val question = room["currentQuestion"] as? Map<*, *>
-    val answered = (room["answeredIds"] as? List<*>)?.map { it.toString() }.orEmpty().contains(currentUserId)
+    val answeredIds = (room["answeredIds"] as? List<*>)?.map { it.toString() }.orEmpty()
+    val answered = answeredIds.contains(currentUserId)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { OutlinedButton(onClick = onBack) { Text("Quitter") }; Spacer(Modifier.weight(1f)); Text("CODE  $code", color = KingNavy, fontWeight = FontWeight.Black); IconButton(onClick = { val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Rejoins mon tournoi King QI sur WAPI avec le code $code") }; context.startActivity(Intent.createChooser(intent, "Inviter à King QI")) }) { Icon(Icons.Rounded.Share, null) } }
         val roomCapacity = (room["maxPlayers"] as? Number)?.toInt() ?: maxPlayers
         Card(colors = CardDefaults.cardColors(containerColor = KingNavy), shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp)) { Text(if (status == "waiting") "L'arène se remplit" else if (status == "finished") if (roomCapacity == 2) "Duel terminé" else "Tournoi terminé" else "King QI en cours", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black); Text("${players.size}/$roomCapacity joueurs · cagnotte ${room["potCredits"] ?: 0} crédits", color = Color.White.copy(alpha = .68f)) } }
-        players.sortedByDescending { (scores[it] as? Number)?.toInt() ?: 0 }.forEachIndexed { rank, uid ->
-            Row(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(15.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text("${rank + 1}", color = WhappyBlue, fontWeight = FontWeight.Black); Spacer(Modifier.width(12.dp)); Text((names[uid] ?: if (uid == currentUserId) accountName else "Joueur WAPI").toString(), modifier = Modifier.weight(1f), color = KingNavy, fontWeight = FontWeight.Bold); Text("${scores[uid] ?: 0} pts", color = KingNavy, fontWeight = FontWeight.Black) }
-        }
+        KingQiPlayerStage(players, names, photos, scores, answeredIds, currentUserId, roomCapacity, accountName)
         when (status) {
             "waiting" -> {
                 Text("Partagez le code. Le tournoi démarre à partir de deux joueurs.", color = Color(0xFF64748B), fontSize = 13.sp)
@@ -485,6 +506,45 @@ private fun KingQiLeaderboard(raw: List<*>?) {
             Text(if (index < 3) listOf("🥇", "🥈", "🥉")[index] else "${index + 1}", fontSize = 18.sp)
             Spacer(Modifier.width(10.dp)); Text((leader["displayName"] ?: "Joueur WAPI").toString(), Modifier.weight(1f), color = KingNavy, fontWeight = FontWeight.Bold)
             Icon(Icons.Rounded.Star, null, tint = KingGold, modifier = Modifier.size(18.dp)); Text(" ${leader["trophies"] ?: 0}", color = KingNavy, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun KingQiPlayerStage(
+    players: List<String>,
+    names: Map<*, *>,
+    photos: Map<*, *>,
+    scores: Map<*, *>,
+    answeredIds: List<String>,
+    currentUserId: String,
+    capacity: Int,
+    accountName: String,
+) {
+    val slots = (0 until capacity.coerceIn(2, 4)).map { players.getOrNull(it) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(if (capacity == 2) "DUEL · 2 ÉCRANS" else "ARÈNE · 4 ÉCRANS", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+        val rows = slots.chunked(2)
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { uid ->
+                    val playerId = uid.orEmpty()
+                    val playerName = (names[playerId] ?: if (playerId == currentUserId) accountName else "En attente").toString()
+                    val photo = (photos[playerId] ?: "").toString()
+                    val score = (scores[playerId] as? Number)?.toInt() ?: 0
+                    Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = if (playerId == currentUserId) Color(0xFFEAF6FF) else Color.White), shape = RoundedCornerShape(17.dp), border = androidx.compose.foundation.BorderStroke(1.dp, if (playerId == currentUserId) WhappyBlue.copy(alpha = .35f) else Color(0xFFE4EBF4))) {
+                        Row(Modifier.padding(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            UserAvatar(photo, playerName, 38.dp, shape = CircleShape)
+                            Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                                Text(playerName, color = KingNavy, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text("$score pts", color = WhappyBlue, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                                Text(if (playerId.isBlank()) "En attente" else if (answeredIds.contains(playerId)) "Réponse reçue" else "Réfléchit…", color = if (answeredIds.contains(playerId)) KingGreen else Color(0xFF64748B), fontSize = 9.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
     }
 }

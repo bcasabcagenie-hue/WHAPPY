@@ -2102,8 +2102,46 @@ export const kingQiGetProfile = onCall(async (request) => {
   return {
     credits: Number(walletSnapshot.get("credits") || 0),
     trophies: Number(profileSnapshot.get("trophies") || 0),
+    victories: Number(profileSnapshot.get("victories") || 0),
+    gameId: "king-qi",
+    playerProfile: {
+      gameId: "king-qi",
+      displayName: identity.displayName,
+      photoUrl: identity.photoUrl,
+      country: identity.country,
+      trophies: Number(profileSnapshot.get("trophies") || 0),
+      victories: Number(profileSnapshot.get("victories") || 0),
+    },
     leaderboard: leaders.docs.map((document, rank) => ({ rank: rank + 1, uid: document.id, ...document.data() })),
   };
+});
+
+/** One persistent player card per WAPI game. Stats remain server-owned. */
+export const getGameProfile = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const gameId = String(request.data?.gameId || "").trim().toLowerCase();
+  const allowed = new Set(["king-qi", "ludo", "checkers", "chess", "billard", "cards", "poker"]);
+  if (!allowed.has(gameId)) throw new HttpsError("invalid-argument", "Jeu WAPI inconnu.");
+  const identity = await kingQiIdentity(request.auth.uid);
+  const ref = db.collection("gameProfiles").doc(`${request.auth.uid}_${gameId}`);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    const existing = snapshot.data() || {};
+    transaction.set(ref, {
+      uid: request.auth!.uid,
+      gameId,
+      displayName: identity.displayName,
+      photoUrl: identity.photoUrl,
+      country: identity.country,
+      victories: Number(existing.victories || 0),
+      defeats: Number(existing.defeats || 0),
+      trophies: Number(existing.trophies || 0),
+      rating: Number(existing.rating || 1000),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  });
+  const snapshot = await ref.get();
+  return { gameId, profile: snapshot.data() || {} };
 });
 
 export const kingQiCreateTournament = onCall(async (request) => {
@@ -2126,9 +2164,10 @@ export const kingQiCreateTournament = onCall(async (request) => {
     if (credits < entryCredits) throw new HttpsError("failed-precondition", "Crédits King QI insuffisants.");
     transaction.set(wallet, { credits: credits - entryCredits, trophies: Number(walletSnapshot.get("trophies") || 0), promoGranted: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     transaction.set(room, {
-      code, hostId: uid, status: "waiting", visibility, entryCredits, potCredits: entryCredits,
+      code, hostId: uid, gameId: "king-qi", cupName: "Coupe King QI", status: "waiting", visibility, entryCredits, potCredits: entryCredits,
       maxPlayers, playerIds: [uid], playerNames: { [uid]: identity.displayName }, playerPhotos: { [uid]: identity.photoUrl },
       playerCountries: { [uid]: identity.country }, scores: { [uid]: 0 }, questionIds: shuffled,
+      playerProfiles: { [uid]: { displayName: identity.displayName, photoUrl: identity.photoUrl, country: identity.country } },
       currentIndex: -1, answeredIds: [], createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       currencyMode: "PROMO_CREDITS_NON_WITHDRAWABLE", complianceLocked: true,
     });
@@ -2162,6 +2201,7 @@ export const kingQiJoinTournament = onCall(async (request) => {
       playerNames: { ...(value.playerNames || {}), [uid]: identity.displayName },
       playerPhotos: { ...(value.playerPhotos || {}), [uid]: identity.photoUrl },
       playerCountries: { ...(value.playerCountries || {}), [uid]: identity.country },
+      playerProfiles: { ...(value.playerProfiles || {}), [uid]: { displayName: identity.displayName, photoUrl: identity.photoUrl, country: identity.country } },
       scores: { ...(value.scores || {}), [uid]: 0 },
       potCredits: Number(value.potCredits || 0) + entryCredits,
       updatedAt: FieldValue.serverTimestamp(),
@@ -2264,19 +2304,35 @@ export const kingQiAdvanceTournament = onCall(async (request) => {
     winners = playerIds.filter((playerId) => Number(scores[playerId] || 0) === best);
     const walletRefs = winners.map((winner) => db.collection("kingQiWallets").doc(winner));
     const profileRefs = winners.map((winner) => db.collection("kingQiProfiles").doc(winner));
+    const gameProfileRefs = winners.map((winner) => db.collection("gameProfiles").doc(`${winner}_king-qi`));
     const walletSnapshots: DocumentSnapshot[] = [];
     const profileSnapshots: DocumentSnapshot[] = [];
+    const gameProfileSnapshots: DocumentSnapshot[] = [];
     for (const ref of walletRefs) walletSnapshots.push(await transaction.get(ref));
     for (const ref of profileRefs) profileSnapshots.push(await transaction.get(ref));
+    for (const ref of gameProfileRefs) gameProfileSnapshots.push(await transaction.get(ref));
     const pot = Number(value.potCredits || 0);
     const prize = winners.length ? Math.floor(pot / winners.length) : 0;
     winners.forEach((winner, position) => {
       const walletSnapshot = walletSnapshots[position];
       const profileSnapshot = profileSnapshots[position];
+      const gameProfileSnapshot = gameProfileSnapshots[position];
       transaction.set(walletRefs[position], { credits: Number(walletSnapshot.get("credits") || 0) + prize, trophies: Number(walletSnapshot.get("trophies") || 0) + 1, promoGranted: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       transaction.set(profileRefs[position], { trophies: Number(profileSnapshot.get("trophies") || 0) + 1, victories: Number(profileSnapshot.get("victories") || 0) + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.set(gameProfileRefs[position], {
+        uid: winner,
+        gameId: "king-qi",
+        displayName: String((value.playerNames || {})[winner] || "Joueur WAPI"),
+        photoUrl: String((value.playerPhotos || {})[winner] || ""),
+        country: String((value.playerCountries || {})[winner] || "CG"),
+        victories: Number(gameProfileSnapshot.get("victories") || 0) + 1,
+        defeats: Number(gameProfileSnapshot.get("defeats") || 0),
+        trophies: Number(gameProfileSnapshot.get("trophies") || 0) + 1,
+        rating: Number(gameProfileSnapshot.get("rating") || 1000) + 25,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     });
-    transaction.update(room, { status: "finished", winners, prizePerWinner: prize, finishedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    transaction.update(room, { status: "finished", winners, prizePerWinner: prize, cupAwarded: true, cupName: "Coupe King QI", cupId: `king-qi-${room.id}`, finishedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     finished = true;
   });
   return { finished, winners };
