@@ -16,13 +16,13 @@ import androidx.compose.ui.unit.sp
 
 // Adaptateur Android du fichier design-system/wapi.tokens.json.
 internal val WhappyBlue = Color(0xFF0094F0)
-internal val WhappyDark = Color(0xFF101828)
-internal val WhappyInk = Color(0xFF172033)
-internal val WhappyMuted = Color(0xFF667085)
-internal val WhappyBackground = Color(0xFFF7F9FC)
-internal val WhappySurface = Color(0xFFEEF4F9)
+internal val WhappyDark = Color(0xFF171717)
+internal val WhappyInk = Color(0xFF202124)
+internal val WhappyMuted = Color(0xFF73777D)
+internal val WhappyBackground = Color(0xFFF5F5F5)
+internal val WhappySurface = Color(0xFFF5F5F5)
 internal val WhappyNavy = Color(0xFF07345F)
-internal val WhappyLine = Color(0xFFDCE5EE)
+internal val WhappyLine = Color(0xFFE7E7E7)
 internal val WhappyDeepBlue = Color(0xFF0066CF)
 internal val WhappySky = Color(0xFF00A2E6)
 internal val WapiVerifiedGray = Color(0xFF858D96)
@@ -31,7 +31,7 @@ internal val WapiBubbleOutgoing = WhappyBlue
 internal val WapiChatBackground = Color(0xFFF5F8FB)
 internal val WapiToolbar = Color.White
 internal val WapiActionPanel = Color(0xFF0A3557)
-internal val WapiCanvas = Color(0xFFF5F7FA)
+internal val WapiCanvas = Color(0xFFF5F5F5)
 internal val WapiElevated = Color(0xFFFFFFFF)
 internal val WapiSoftBlue = Color(0xFFE9F5FD)
 internal val WapiBluePressed = Color(0xFF007FD1)
@@ -52,9 +52,9 @@ private val WapiDisplayFontFamily = FontFamily(android.graphics.Typeface.create(
 internal object WapiMobile {
     val screen = 16.dp
     val row = 14.dp
-    val compactRadius = 13.dp
-    val panelRadius = 20.dp
-    val dockRadius = 22.dp
+    val compactRadius = 8.dp
+    val panelRadius = 14.dp
+    val dockRadius = 18.dp
     val controlHeight = 52.dp
     val avatar = 54.dp
     val touchTarget = 48.dp
@@ -83,16 +83,16 @@ fun WhappyTheme(content: @Composable () -> Unit) {
             error = Color(0xFFF0445A),
         ),
         shapes = Shapes(
-            extraSmall = RoundedCornerShape(8.dp),
-            small = RoundedCornerShape(12.dp),
-            medium = RoundedCornerShape(16.dp),
-            large = RoundedCornerShape(20.dp),
-            extraLarge = RoundedCornerShape(26.dp),
+            extraSmall = RoundedCornerShape(6.dp),
+            small = RoundedCornerShape(8.dp),
+            medium = RoundedCornerShape(10.dp),
+            large = RoundedCornerShape(14.dp),
+            extraLarge = RoundedCornerShape(18.dp),
         ),
         typography = Typography(
-            headlineLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 29.sp, lineHeight = 35.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.25).sp, color = WhappyDark),
-            headlineMedium = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.15).sp, color = WhappyDark),
-            titleLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.Medium, color = WhappyDark),
+            headlineLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.20).sp, color = WhappyDark),
+            headlineMedium = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.10).sp, color = WhappyDark),
+            titleLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium, color = WhappyDark),
             titleMedium = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium, color = WhappyDark),
             bodyLarge = TextStyle(fontFamily = WapiTextFontFamily, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Normal, color = WhappyInk),
             bodyMedium = TextStyle(fontFamily = WapiTextFontFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal, color = WhappyInk),

@@ -2,7 +2,7 @@
   "$schema": "https://design-tokens.github.io/community-group/format/",
   "meta": {
     "name": "WAPI Native Design System",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "platforms": ["android", "ios"]
   },
   "color": {
@@ -12,15 +12,15 @@
       "sky": { "$type": "color", "$value": "#00A2E6" }
     },
     "text": {
-      "primary": { "$type": "color", "$value": "#202020" },
-      "secondary": { "$type": "color", "$value": "#6F7780" },
+      "primary": { "$type": "color", "$value": "#171717" },
+      "secondary": { "$type": "color", "$value": "#73777D" },
       "inverse": { "$type": "color", "$value": "#FFFFFF" }
     },
     "surface": {
-      "canvas": { "$type": "color", "$value": "#F5F7F9" },
+      "canvas": { "$type": "color", "$value": "#F5F5F5" },
       "primary": { "$type": "color", "$value": "#FFFFFF" },
-      "secondary": { "$type": "color", "$value": "#F1F4F7" },
-      "line": { "$type": "color", "$value": "#E3E8ED" }
+      "secondary": { "$type": "color", "$value": "#F5F5F5" },
+      "line": { "$type": "color", "$value": "#E7E7E7" }
     },
     "semantic": {
       "verified": { "$type": "color", "$value": "#858D96" },
@@ -37,9 +37,9 @@
     "xl": { "$type": "dimension", "$value": { "value": 24, "unit": "px" } }
   },
   "radius": {
-    "compact": { "$type": "dimension", "$value": { "value": 12, "unit": "px" } },
-    "control": { "$type": "dimension", "$value": { "value": 16, "unit": "px" } },
-    "panel": { "$type": "dimension", "$value": { "value": 22, "unit": "px" } },
-    "hero": { "$type": "dimension", "$value": { "value": 28, "unit": "px" } }
+    "compact": { "$type": "dimension", "$value": { "value": 8, "unit": "px" } },
+    "control": { "$type": "dimension", "$value": { "value": 10, "unit": "px" } },
+    "panel": { "$type": "dimension", "$value": { "value": 14, "unit": "px" } },
+    "hero": { "$type": "dimension", "$value": { "value": 18, "unit": "px" } }
   }
 }

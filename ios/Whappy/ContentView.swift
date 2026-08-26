@@ -94,19 +94,26 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                BrandHeader(subtitle: "Vos opportunités, maintenant")
-                ZStack(alignment: .bottomLeading) {
-                    LinearGradient(colors: [.whappyBlue, .whappyBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Circle().fill(.white.opacity(0.12)).frame(width: 170).offset(x: 220, y: -50)
-                    VStack(alignment: .leading, spacing: 9) {
-                        Label("WAPI PULSE", systemImage: "waveform.path.ecg").font(.caption.bold()).foregroundStyle(.white.opacity(0.85))
-                        Text("Tout ce qui bouge\nautour de vous.").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                        Text("Explorez, échangez, payez et discutez.").font(.subheadline).foregroundStyle(.white.opacity(0.82))
-                    }.padding(24)
-                }
-                .frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                BrandHeader(subtitle: "Connecté")
+                Button { store.selectedTab = .messages } label: {
+                    HStack(spacing: 13) {
+                        Image(systemName: "message.fill")
+                            .foregroundStyle(Color.whappyBlue)
+                            .frame(width: 46, height: 46)
+                            .background(WapiColor.blueMist)
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Messages").font(.headline).foregroundStyle(Color.whappyInk)
+                            Text("Toutes vos discussions").font(.caption).foregroundStyle(WapiColor.secondaryText)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
+                    }
+                    .padding(14)
+                    .background(.white)
+                }.buttonStyle(.plain)
 
-                Text("Explorer").font(.title3.bold()).foregroundStyle(Color.whappyInk)
+                Text("Découvrir").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk)
                 LazyVGrid(columns: columns, spacing: 12) {
                     ActionCard(title: "Marché", subtitle: "\(store.listings.count) offres", icon: "storefront.fill", color: .whappyBlue) { store.selectedTab = .market }
                     ActionCard(title: "En direct", subtitle: "\(store.liveRooms.filter(\.live).count) lives", icon: "video.fill", color: .red) { store.selectedTab = .live }
@@ -114,21 +121,21 @@ struct HomeView: View {
                     ActionCard(title: "Services", subtitle: "Wallet et demandes", icon: "wallet.pass.fill", color: .orange) { store.selectedTab = .services }
                     ActionCard(title: "Jeux", subtitle: "Défis et duels", icon: "bolt.fill", color: .yellow) { store.selectedTab = .games }
                 }
-                HStack { Text("Moments").font(.title3.bold()).foregroundStyle(Color.whappyInk); Spacer(); Button { composingMoment = true } label: { Label("Publier", systemImage: "plus.circle.fill") } }
+                HStack { Text("Publications").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk); Spacer(); Button { composingMoment = true } label: { Label("Publier", systemImage: "plus.circle.fill") } }
                 ForEach(store.moments) { moment in
                     VStack(alignment: .leading, spacing: 8) { HStack { InitialsAvatar(text: "CB", size: 38); VStack(alignment: .leading) { Text("Vous").font(.headline); Text(moment.createdAt, style: .relative).font(.caption).foregroundStyle(.secondary) } }; Text(moment.title).font(.title3.bold()).foregroundStyle(Color.whappyInk); Text(moment.text).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
                 }
-                Text("Tendances près de vous").font(.title3.bold()).foregroundStyle(Color.whappyInk)
+                Text("Près de vous").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk)
                 ForEach(store.listings.prefix(2)) { listing in
                     NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(.plain)
                 }
-                Text("Vos activités WAPI").font(.title3.bold()).foregroundStyle(Color.whappyInk)
+                Text("Services").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk)
                 VStack(spacing: 9) {
                     ActionCard(title: "Radio & podcasts", subtitle: "Émissions, chaînes et écoute continue", icon: "dot.radiowaves.left.and.right", color: .whappyBlue) { store.selectedTab = .actus }
                     ActionCard(title: "Jumeau numérique", subtitle: "Votre identité, vos consentements et vos créations", icon: "sparkles", color: .purple) { store.selectedTab = .profile }
                     ActionCard(title: "Lives en cours", subtitle: store.liveRooms.filter(\.live).isEmpty ? "Soyez le premier à démarrer" : "\(store.liveRooms.filter(\.live).count) direct(s) à rejoindre", icon: "video.fill", color: .red) { store.selectedTab = .live }
                 }
-            }.padding()
+            }.padding(.horizontal, WapiSpacing.screen).padding(.bottom, 24)
         }
         .background(Color.whappyBackground)
         .toolbar(.hidden, for: .navigationBar)
@@ -165,7 +172,7 @@ private struct ActionCard: View {
                 Text(title).font(.headline).foregroundStyle(Color.whappyInk)
                 Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
+            .frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white).clipShape(RoundedRectangle(cornerRadius: WapiRadius.panel))
         }.buttonStyle(.plain)
     }
 }
@@ -197,9 +204,9 @@ private struct UpdatesView: View {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Actus")
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(size: 27, weight: .semibold))
                             .foregroundStyle(Color.whappyInk)
-                        Text("Directs, chaînes et découvertes WAPI")
+                        Text("Stories, directs et chaînes")
                             .font(.caption)
                             .foregroundStyle(WapiColor.secondaryText)
                     }
@@ -216,7 +223,7 @@ private struct UpdatesView: View {
                     .accessibilityLabel("Créer un direct")
                 }
 
-                updatesSectionTitle("Stories", subtitle: "Photos, vidéos et voix · visibles pendant 24 h")
+                updatesSectionTitle("Stories", subtitle: "Visibles pendant 24 h")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
                         let ownStories = storyGroups.first(where: { $0.first?.authorID == store.firebaseUserID }) ?? []
@@ -270,7 +277,7 @@ private struct UpdatesView: View {
                     }
                 }
 
-                updatesSectionTitle("Chaînes", subtitle: "Les publications qui comptent")
+                updatesSectionTitle("Chaînes", subtitle: "Chaînes suivies")
                 VStack(spacing: 2) {
                     ForEach(followedChannels.prefix(4)) { channel in
                         NavigationLink(value: channel) {
@@ -291,7 +298,7 @@ private struct UpdatesView: View {
                 .padding(5)
                 .wapiPanel()
 
-                updatesSectionTitle("Explorer", subtitle: "Ouvrez directement un espace WAPI")
+                updatesSectionTitle("Découvrir", subtitle: "Services WAPI")
                 VStack(spacing: 2) {
                     Button { store.selectedTab = .live } label: { updatesRow(icon: "video.fill", title: "Lives", subtitle: "Voir et créer des directs", accent: .red) }.buttonStyle(.plain)
                     Button { store.selectedTab = .games } label: { updatesRow(icon: "gamecontroller.fill", title: "Jeux", subtitle: "Parties, défis et tournois", accent: .indigo) }.buttonStyle(.plain)
@@ -314,7 +321,7 @@ private struct UpdatesView: View {
 
     private func updatesSectionTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
+            Text(title).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk)
             Text(subtitle).font(.caption2).foregroundStyle(WapiColor.secondaryText)
         }.padding(.top, 4)
     }
@@ -603,9 +610,9 @@ struct MessagesView: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(section == 0 ? (store.activeBusinessMode ? "Messages Business" : "Messages") : "Chaînes")
-                        .font(.system(size: 30, weight: .bold))
+                        .font(.system(size: 27, weight: .semibold))
                         .foregroundStyle(Color.whappyInk)
-                    Text(section == 0 ? (store.activeBusinessMode ? "Clients, commandes et équipe · identité séparée" : "Vos échanges, instantanément") : "Les publications que vous choisissez")
+                    Text(section == 0 ? (store.activeBusinessMode ? "Clients et équipe" : "Discussions") : "Chaînes suivies")
                         .font(.caption)
                         .foregroundStyle(WapiColor.secondaryText)
                 }
@@ -653,7 +660,7 @@ struct MessagesView: View {
                     .padding(.horizontal, 14)
                     .frame(height: 66)
                     .background(LinearGradient(colors: [Color.whappyInk, WapiColor.deepBlue], startPoint: .leading, endPoint: .trailing))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: WapiRadius.panel, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, WapiSpacing.screen)
@@ -3255,7 +3262,7 @@ private struct BusinessWorkspaceView: View {
                     .frame(width: 58, height: 58)
                     .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("ESPACE BUSINESS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(WapiColor.sky)
+                        Text("BUSINESS").font(.system(size: 9, weight: .bold)).tracking(0.6).foregroundStyle(WapiColor.sky)
                         Text(store.business?.name ?? "Créez votre entreprise").font(.title2.weight(.bold)).foregroundStyle(.white).lineLimit(1)
                         Text(store.business.map { "\($0.category) · \($0.city)" } ?? "Identité, ventes et clients séparés").font(.caption).foregroundStyle(.white.opacity(0.7))
                     }
@@ -4037,7 +4044,7 @@ private struct WapiSettingsHubView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("CENTRE WAPI").font(.caption.weight(.bold)).tracking(1).foregroundStyle(Color.whappyBlue)
+                    Text("PARAMÈTRES").font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue)
                     Text("Réglages clairs, contrôle réel.").font(.title2.weight(.bold)).foregroundStyle(Color.whappyInk)
                     Text("Chaque réglage agit sur l’application native et reste lié à votre compte ou à cet appareil selon sa nature.").font(.footnote).foregroundStyle(.secondary)
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [Color.whappyInk, Color.whappyInk.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
