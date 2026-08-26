@@ -642,6 +642,20 @@ struct WhappyMoment: Identifiable, Hashable, Codable {
     let createdAt: Date
 }
 
+struct WapiStory: Identifiable, Hashable, Codable {
+    let id: String
+    let authorID: String
+    let authorName: String
+    let authorPhotoURL: String
+    let caption: String
+    let mediaURL: String
+    let mediaType: String
+    let createdAt: Date
+    let expiresAt: Date
+    var viewCount: Int
+    var viewed: Bool
+}
+
 struct Listing: Identifiable, Hashable, Codable {
     let id: UUID
     let title: String

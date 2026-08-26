@@ -166,10 +166,23 @@ private struct ActionCard: View {
 
 private struct UpdatesView: View {
     @EnvironmentObject private var store: WhappyStore
+    @State private var storyComposerPresented = false
+    @State private var selectedStory: WapiStory?
 
     private var activeLives: [LiveRoom] { store.liveRooms.filter(\.live) }
     private var followedChannels: [WhappyChannel] {
         store.channels.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) }
+    }
+    private var storyGroups: [[WapiStory]] {
+        Dictionary(grouping: store.stories, by: \.authorID)
+            .values
+            .map { $0.sorted { $0.createdAt < $1.createdAt } }
+            .sorted { left, right in
+                let leftOwn = left.first?.authorID == store.firebaseUserID
+                let rightOwn = right.first?.authorID == store.firebaseUserID
+                if leftOwn != rightOwn { return leftOwn }
+                return (left.last?.createdAt ?? .distantPast) > (right.last?.createdAt ?? .distantPast)
+            }
     }
 
     var body: some View {
@@ -195,6 +208,29 @@ private struct UpdatesView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Créer un direct")
+                }
+
+                updatesSectionTitle("Stories", subtitle: "Photos, vidéos et voix · visibles pendant 24 h")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        let ownStories = storyGroups.first(where: { $0.first?.authorID == store.firebaseUserID }) ?? []
+                        Button {
+                            if let latest = ownStories.last { selectedStory = latest }
+                            else { storyComposerPresented = true }
+                        } label: {
+                            WapiStoryCircle(story: ownStories.last, title: "Ma Story", isOwn: true, hasUnseen: false, showAdd: ownStories.isEmpty)
+                        }
+                        .buttonStyle(.plain)
+                        ForEach(Array(storyGroups.filter { $0.first?.authorID != store.firebaseUserID }.enumerated()), id: \.offset) { _, group in
+                            if let latest = group.last {
+                                Button { selectedStory = latest } label: {
+                                    WapiStoryCircle(story: latest, title: latest.authorName, isOwn: false, hasUnseen: group.contains(where: { !$0.viewed }), showAdd: false)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
 
                 updatesSectionTitle("En direct", subtitle: activeLives.isEmpty ? "Aucun direct pour le moment" : "\(activeLives.count) diffusion\(activeLives.count > 1 ? "s" : "") maintenant")
@@ -263,6 +299,9 @@ private struct UpdatesView: View {
         .background(Color.whappyBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
+        .sheet(isPresented: $storyComposerPresented) { WapiStoryComposer() }
+        .fullScreenCover(item: $selectedStory) { story in WapiStoryViewer(story: story) }
+        .onAppear { store.refreshStories() }
     }
 
     private func updatesSectionTitle(_ title: String, subtitle: String) -> some View {
@@ -290,6 +329,246 @@ private struct UpdatesView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+    }
+}
+
+private struct WapiStoryCircle: View {
+    let story: WapiStory?
+    let title: String
+    let isOwn: Bool
+    let hasUnseen: Bool
+    let showAdd: Bool
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .bottomTrailing) {
+                Circle()
+                    .stroke(hasUnseen ? Color.whappyBlue : Color(.systemGray4), lineWidth: 3)
+                    .frame(width: 70, height: 70)
+                Group {
+                    if let url = story.flatMap({ URL(string: $0.authorPhotoURL) }), !url.absoluteString.isEmpty {
+                        AsyncImage(url: url) { phase in
+                            if let image = phase.image { image.resizable().scaledToFill() }
+                            else { InitialsAvatar(text: String(title.prefix(2)).uppercased(), size: 62) }
+                        }
+                    } else {
+                        InitialsAvatar(text: isOwn ? "MOI" : String(title.prefix(2)).uppercased(), size: 62)
+                    }
+                }
+                .frame(width: 62, height: 62)
+                .clipShape(Circle())
+                if showAdd {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.whappyBlue)
+                        .background(Circle().fill(.white))
+                        .offset(x: 3, y: 3)
+                }
+            }
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.whappyInk)
+                .lineLimit(1)
+                .frame(width: 76)
+        }
+    }
+}
+
+private struct WapiStoryComposer: View {
+    @EnvironmentObject private var store: WhappyStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var photoItem: PhotosPickerItem?
+    @State private var audioImporterPresented = false
+    @State private var mediaData: Data?
+    @State private var mediaType = "text"
+    @State private var contentType = ""
+    @State private var caption = ""
+    @State private var isPublishing = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Nouvelle Story")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.whappyInk)
+                    Text("Partagez un moment avec vos contacts. Il disparaîtra automatiquement après 24 heures.")
+                        .font(.subheadline)
+                        .foregroundStyle(WapiColor.secondaryText)
+                    HStack(spacing: 10) {
+                        PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+                            Label(mediaData == nil ? "Galerie" : "Remplacer", systemImage: "photo.on.rectangle.angled")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 15)
+                                .background(Color.whappyBlue)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        Button { audioImporterPresented = true } label: {
+                            Label("Audio", systemImage: "waveform")
+                                .font(.headline)
+                                .foregroundStyle(Color.whappyBlue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 15)
+                                .background(Color.whappyBlue.opacity(0.10))
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let mediaData {
+                        storyMediaPreview(data: mediaData)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Texte de la Story").font(.headline).foregroundStyle(Color.whappyInk)
+                        TextEditor(text: $caption)
+                            .frame(minHeight: 110)
+                            .padding(8)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(alignment: .topLeading) {
+                                if caption.isEmpty { Text("Écrivez un message…").foregroundStyle(.secondary).padding(.top, 16).padding(.leading, 13).allowsHitTesting(false) }
+                            }
+                    }
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    Button {
+                        Task { await publish() }
+                    } label: {
+                        HStack {
+                            if isPublishing { ProgressView().tint(.white) }
+                            Text(isPublishing ? "Publication…" : "Publier la Story")
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background((caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && mediaData == nil) ? Color.gray : Color.whappyBlue)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .disabled(isPublishing || (caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && mediaData == nil))
+                }
+                .padding(20)
+            }
+            .background(Color.whappyBackground.ignoresSafeArea())
+            .navigationTitle("Stories")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task { await load(item) }
+        }
+        .fileImporter(isPresented: $audioImporterPresented, allowedContentTypes: [.audio]) { result in
+            importAudio(result)
+        }
+    }
+
+    @ViewBuilder
+    private func storyMediaPreview(data: Data) -> some View {
+        if mediaType == "image", let image = UIImage(data: data) {
+            Image(uiImage: image).resizable().scaledToFill().frame(maxWidth: .infinity).frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        } else {
+            Label(mediaType == "video" ? "Vidéo prête à publier" : "Audio prêt à publier", systemImage: mediaType == "video" ? "video.fill" : "waveform")
+                .frame(maxWidth: .infinity).padding(34).background(Color.whappyBlue.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
+    private func load(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+        let types = item.supportedContentTypes
+        mediaType = types.contains(where: { $0.conforms(to: .movie) || $0.conforms(to: .video) }) ? "video" : types.contains(where: { $0.conforms(to: .audio) }) ? "audio" : "image"
+        contentType = types.first?.preferredMIMEType ?? ""
+        mediaData = data
+    }
+
+    private func importAudio(_ result: Result<URL, Error>) {
+        guard case .success(let source) = result else { return }
+        let accessing = source.startAccessingSecurityScopedResource()
+        defer { if accessing { source.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: source) else {
+            errorMessage = "WAPI n’a pas pu lire ce fichier audio."
+            return
+        }
+        mediaData = data
+        mediaType = "audio"
+        contentType = UTType(filenameExtension: source.pathExtension)?.preferredMIMEType ?? "audio/m4a"
+    }
+
+    private func publish() async {
+        isPublishing = true
+        errorMessage = nil
+        do {
+            try await store.publishStory(caption: caption, mediaData: mediaData, mediaType: mediaType, contentType: contentType)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isPublishing = false
+    }
+}
+
+private struct WapiStoryViewer: View {
+    @EnvironmentObject private var store: WhappyStore
+    @Environment(\.dismiss) private var dismiss
+    let story: WapiStory
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if story.mediaType == "image", let url = URL(string: story.mediaURL), !story.mediaURL.isEmpty {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image { image.resizable().scaledToFit() }
+                    else if phase.error != nil { storyText }
+                    else { ProgressView().tint(.white) }
+                }
+            } else if story.mediaType == "video" || story.mediaType == "audio", let player {
+                VideoPlayer(player: player).ignoresSafeArea(edges: .bottom)
+            } else {
+                storyText
+            }
+            VStack {
+                HStack(spacing: 10) {
+                    if let url = URL(string: story.authorPhotoURL), !story.authorPhotoURL.isEmpty {
+                        AsyncImage(url: url) { phase in
+                            if let image = phase.image { image.resizable().scaledToFill() } else { InitialsAvatar(text: String(story.authorName.prefix(2)), size: 38) }
+                        }.frame(width: 38, height: 38).clipShape(Circle())
+                    } else { InitialsAvatar(text: String(story.authorName.prefix(2)), size: 38) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(story.authorName).font(.headline)
+                        Text(story.createdAt, style: .relative).font(.caption).foregroundStyle(.white.opacity(0.75))
+                    }
+                    Spacer()
+                    Button { dismiss() } label: { Image(systemName: "xmark").font(.headline).foregroundStyle(.white).padding(10).background(.black.opacity(0.35)).clipShape(Circle()) }.buttonStyle(.plain)
+                }
+                .padding(.horizontal, 18).padding(.top, 18)
+                Spacer()
+                if !story.caption.isEmpty {
+                    Text(story.caption).font(.title3.weight(.semibold)).foregroundStyle(.white).frame(maxWidth: .infinity, alignment: .leading).padding(18).background(.black.opacity(0.45))
+                }
+            }
+        }
+        .task {
+            store.markStoryViewed(story)
+            if (story.mediaType == "video" || story.mediaType == "audio"), let url = URL(string: story.mediaURL) {
+                let value = AVPlayer(url: url)
+                player = value
+                value.play()
+            }
+        }
+        .onDisappear { player?.pause() }
+    }
+
+    private var storyText: some View {
+        LinearGradient(colors: [Color.whappyBlue, WapiColor.deepBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
+            .ignoresSafeArea()
+            .overlay(Text(story.caption.isEmpty ? "Story WAPI" : story.caption).font(.system(size: 28, weight: .bold, design: .rounded)).foregroundStyle(.white).multilineTextAlignment(.center).padding(32))
     }
 }
 
@@ -980,6 +1259,21 @@ private struct ConversationView: View {
                                 }
                                 HStack {
                                 if message.mine { Spacer(minLength: 65) }
+                                if !message.mine {
+                                    Group {
+                                        if let photoURL = conversation?.photoURL, let url = URL(string: photoURL), !photoURL.isEmpty {
+                                            AsyncImage(url: url) { phase in
+                                                if let image = phase.image { image.resizable().scaledToFill() }
+                                                else { InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30) }
+                                            }
+                                        } else {
+                                            InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30)
+                                        }
+                                    }
+                                    .frame(width: 30, height: 30)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                                }
                                 VStack(alignment: message.mine ? .trailing : .leading, spacing: 5) {
                                     if let replied = message.replyText, !replied.isEmpty { Text("↩ \(replied)").font(.caption).lineLimit(2).padding(7).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(message.mine ? 0.16 : 0.55)).clipShape(RoundedRectangle(cornerRadius: 9)) }
                                     if let replyTarget = message.replyToID, let targetMessage = visibleMessages.first(where: { $0.id == replyTarget }) {
@@ -1504,7 +1798,7 @@ private struct WapiGroupSettingsView: View {
                         Group {
                             if let selectedImage { Image(uiImage: selectedImage).resizable().scaledToFill() }
                             else { ConversationAvatar(conversation: conversation) }
-                        }.frame(width: 74, height: 74).clipShape(Circle())
+                        }.frame(width: 74, height: 74).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         VStack(alignment: .leading, spacing: 5) {
                             Text(conversation.name).font(.headline)
                             Text("\(conversation.groupMembers.count) membre(s)").font(.caption).foregroundStyle(.secondary)

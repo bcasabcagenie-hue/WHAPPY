@@ -1595,64 +1595,25 @@ class WhappyRepository(
             mediaRef.downloadUrl.await().toString()
         }
         val createdAt = System.currentTimeMillis()
-        val directContacts = db.collection("conversations")
-            .whereArrayContains("memberIds", userId)
-            .get()
-            .await()
-            .documents
-            .filter { document ->
-                val members = (document.get("memberIds") as? List<*>)?.filterIsInstance<String>().orEmpty()
-                document.getString("conversationType") == "direct" || members.size == 2
-            }
-            .flatMap { document -> (document.get("memberIds") as? List<*>)?.filterIsInstance<String>().orEmpty() }
-            .filter { it.isNotBlank() }
-            .toSet()
-        val authorProfile = db.collection("users").document(userId).get().await()
-        val authorPhotoUrl = authorProfile.getString("photoUrl").orEmpty().take(2_000)
-        @Suppress("UNCHECKED_CAST")
-        val savedContactIds = (authorProfile.get("contacts") as? Map<*, *>)
-            ?.keys
-            ?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }
-            ?.toSet()
-            .orEmpty()
-        val groupMemberIds = db.collection("groups")
-            .whereArrayContains("memberIds", userId)
-            .get()
-            .await()
-            .documents
-            .flatMap { document ->
-                (document.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
-            }
-            .filter(String::isNotBlank)
-            .toSet()
-        val audienceIds = (directContacts + savedContactIds + groupMemberIds + userId).distinct().take(500)
-        val story = db.collection("stories").document()
-        story.set(
-            mapOf(
-                "authorId" to userId,
-                "authorName" to authorName.trim().take(80),
-                "authorPhotoUrl" to authorPhotoUrl,
-                "caption" to value,
-                "mediaUrl" to mediaUrl,
-                "mediaType" to mediaKind,
-                "storagePath" to storagePath,
-                "audienceIds" to audienceIds,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "expiresAt" to com.google.firebase.Timestamp(Date(System.currentTimeMillis() + 24L * 60L * 60L * 1000L)),
-            ),
-        ).await()
+        val result = functions.getHttpsCallable("publishStory").call(
+            mapOf("caption" to value, "mediaType" to mediaKind, "mediaUrl" to mediaUrl, "storagePath" to storagePath),
+        ).await().data as? Map<*, *> ?: error("story-publish-empty-response")
+        val storyId = result["id"]?.toString().orEmpty().ifBlank { error("story-publish-missing-id") }
+        val serverAuthorName = result["authorName"]?.toString().orEmpty().ifBlank { authorName.trim().take(80) }
+        val serverPhotoUrl = result["authorPhotoUrl"]?.toString().orEmpty()
+        val publishedAt = (result["createdAtMillis"] as? Number)?.toLong() ?: createdAt
         return WhappyStatus(
-            id = story.id,
+            id = storyId,
             authorId = userId,
-            authorName = authorName.trim().take(80),
+            authorName = serverAuthorName,
             text = value,
             tone = "personal",
-            createdAt = createdAt,
+            createdAt = publishedAt,
             mediaUrl = mediaUrl,
             mediaKind = mediaKind,
             mediaName = when (mediaKind) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; "image" -> "Image WAPI"; else -> "" },
-            expiresAt = createdAt + 24L * 60L * 60L * 1000L,
-            authorPhotoUrl = authorPhotoUrl,
+            expiresAt = (result["expiresAtMillis"] as? Number)?.toLong() ?: publishedAt + 24L * 60L * 60L * 1000L,
+            authorPhotoUrl = serverPhotoUrl,
         )
     }
 

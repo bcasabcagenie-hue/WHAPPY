@@ -7,6 +7,7 @@ import FirebaseFunctions
 import SwiftUI
 import CryptoKit
 import UniformTypeIdentifiers
+import UserNotifications
 
 private enum WapiTranslationError: LocalizedError {
     case invalidText
@@ -38,10 +39,12 @@ extension WhappyStore {
                     self.syncFirebaseProfile(user: user)
                     self.registerFirebasePushDevice()
                     self.setFirebasePresence(online: true)
+                    self.refreshStories()
                     self.drainPendingDirectCallDecline()
                 } else {
                     self.stopFirebaseConversationSync()
                     self.conversations = []
+                    self.stories = []
                     self.firebaseProfileVerified = false
                 }
             }
@@ -504,7 +507,7 @@ extension WhappyStore {
             resolved.readAt = old.readAt
             return resolved
         }.sorted { $0.lastMessage > $1.lastMessage }
-        UIApplication.shared.applicationIconBadgeNumber = unreadCount
+        updateApplicationBadge()
     }
 
     private func firebaseConversation(from document: QueryDocumentSnapshot, userID: String, source: String) -> Conversation? {
@@ -744,7 +747,7 @@ struct ConversationAvatar: View {
             }
         }
         .frame(width: 46, height: 46)
-        .clipShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

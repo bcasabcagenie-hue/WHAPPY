@@ -1583,6 +1583,57 @@ export const livekitWebhook = onRequest({ secrets: [livekitApiSecret] }, async (
  * server timestamp, so this callable is the safe, server-authoritative read
  * path for the Actus screen.
  */
+async function storyAudienceIds(userId: string): Promise<string[]> {
+  const directContacts = await db.collection("conversations")
+    .where("memberIds", "array-contains", userId)
+    .get();
+  const directIds = directContacts.docs
+    .filter((document) => document.get("conversationType") === "direct" || (document.get("memberIds") as unknown[] | undefined)?.length === 2)
+    .flatMap((document) => Array.isArray(document.get("memberIds")) ? (document.get("memberIds") as unknown[]).map(String) : [])
+    .filter(Boolean);
+  const profile = await db.collection("users").doc(userId).get();
+  const savedIds = profile.exists && profile.get("contacts") && typeof profile.get("contacts") === "object"
+    ? Object.keys(profile.get("contacts") as Record<string, unknown>)
+    : [];
+  const groups = await db.collection("groups").where("memberIds", "array-contains", userId).get();
+  const groupIds = groups.docs.flatMap((document) => Array.isArray(document.get("memberIds")) ? (document.get("memberIds") as unknown[]).map(String) : []);
+  return [...new Set([...directIds, ...savedIds, ...groupIds, userId])].filter(Boolean).slice(0, 500);
+}
+
+/** Publishes a Story through a server-owned audience and 24-hour expiry. */
+export const publishStory = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const caption = String(request.data?.caption || "").trim().slice(0, 600);
+  const mediaType = String(request.data?.mediaType || "text").trim().toLowerCase();
+  const mediaUrl = String(request.data?.mediaUrl || "").trim().slice(0, 2_000);
+  const storagePath = String(request.data?.storagePath || "").trim().slice(0, 300);
+  if (!caption && !mediaUrl) throw new HttpsError("invalid-argument", "Ajoutez un texte ou un média.");
+  if (!["text", "image", "video", "audio"].includes(mediaType)) throw new HttpsError("invalid-argument", "Type de Story invalide.");
+  const isFirebaseMedia = mediaUrl.startsWith("https://firebasestorage.googleapis.com/") || mediaUrl.startsWith("https://storage.googleapis.com/");
+  if (mediaType === "text" && (mediaUrl || storagePath)) throw new HttpsError("invalid-argument", "Une Story texte ne peut pas contenir un média externe.");
+  if (mediaType !== "text" && (!isFirebaseMedia || !storagePath.startsWith(`stories/${userId}/`))) throw new HttpsError("invalid-argument", "Le média Story n’est pas sécurisé.");
+  const profile = await db.collection("users").doc(userId).get();
+  const authorName = String(profile.get("displayName") || profile.get("phoneNumber") || "Membre WAPI").trim().slice(0, 80);
+  const authorPhotoUrl = String(profile.get("photoUrl") || "").trim().slice(0, 2_000);
+  const createdAt = Date.now();
+  const story = db.collection("stories").doc();
+  await story.set({
+    authorId: userId,
+    authorName,
+    authorPhotoUrl,
+    caption,
+    mediaUrl,
+    mediaType,
+    storagePath,
+    audienceIds: await storyAudienceIds(userId),
+    viewCount: 0,
+    createdAt: FieldValue.serverTimestamp(),
+    expiresAt: new Date(createdAt + 24 * 60 * 60 * 1_000),
+  });
+  return { id: story.id, authorId: userId, authorName, authorPhotoUrl, caption, mediaUrl, mediaType, createdAtMillis: createdAt, expiresAtMillis: createdAt + 24 * 60 * 60 * 1_000, viewCount: 0 };
+});
+
 export const listVisibleStories = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Connexion WAPI requise.");

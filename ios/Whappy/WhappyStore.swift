@@ -3,6 +3,8 @@ import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
 import FirebaseFunctions
+import FirebaseStorage
+import UserNotifications
 import UIKit
 
 @MainActor
@@ -19,6 +21,7 @@ final class WhappyStore: ObservableObject {
     @Published var walletTransactions: [WalletTransaction] { didSet { save() } }
     @Published var serviceRequests: [WhappyServiceRequest] { didSet { save() } }
     @Published var moments: [WhappyMoment] { didSet { save() } }
+    @Published var stories: [WapiStory] { didSet { save() } }
     @Published var business: WhappyBusiness? { didSet { save() } }
     @Published var notificationsEnabled: Bool { didSet { save() } }
     @Published var privacyMode: String { didSet { save() } }
@@ -55,7 +58,6 @@ final class WhappyStore: ObservableObject {
     private var restoring = true
 
     init() {
-        let now = Date()
         conversations = []
         channels = []
         listings = []
@@ -67,6 +69,7 @@ final class WhappyStore: ObservableObject {
         walletTransactions = []
         serviceRequests = []
         moments = []
+        stories = []
         business = nil
         notificationsEnabled = true
         privacyMode = "contacts"
@@ -127,7 +130,11 @@ final class WhappyStore: ObservableObject {
         guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
         conversations[index].unread = false
         conversations[index].readAt = Date()
-        UIApplication.shared.applicationIconBadgeNumber = unreadCount
+        updateApplicationBadge()
+    }
+
+    func updateApplicationBadge() {
+        UNUserNotificationCenter.current().setBadgeCount(unreadCount)
     }
 
     func toggleUnread(_ conversation: Conversation) {
@@ -240,6 +247,76 @@ final class WhappyStore: ObservableObject {
         let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleanTitle.count >= 2, cleanText.count >= 3 else { return }
         moments.insert(WhappyMoment(id: UUID(), title: cleanTitle, text: cleanText, createdAt: Date()), at: 0)
+    }
+
+    func refreshStories() {
+        guard firebaseUserID != nil else { return }
+        Functions.functions(region: "europe-west1").httpsCallable("listVisibleStories").call { [weak self] result, error in
+            guard let self else { return }
+            Task { @MainActor in
+                guard error == nil, let root = result?.data as? [String: Any], let rawStories = root["stories"] as? [[String: Any]] else { return }
+                let now = Date()
+                self.stories = rawStories.compactMap { value in
+                    guard let id = value["id"] as? String, !id.isEmpty else { return nil }
+                    let created = Self.storyDate(value["createdAt"] as? String) ?? now
+                    let expiry = (value["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
+                    return WapiStory(id: id, authorID: value["authorId"] as? String ?? "", authorName: value["authorName"] as? String ?? "Contact WAPI", authorPhotoURL: value["authorPhotoUrl"] as? String ?? "", caption: value["caption"] as? String ?? "", mediaURL: value["mediaUrl"] as? String ?? "", mediaType: value["mediaType"] as? String ?? "text", createdAt: created, expiresAt: expiry, viewCount: (value["viewCount"] as? NSNumber)?.intValue ?? 0, viewed: value["viewedByCurrentUser"] as? Bool ?? false)
+                }.filter { $0.expiresAt > now }.sorted { $0.createdAt > $1.createdAt }
+            }
+        }
+    }
+
+    func markStoryViewed(_ story: WapiStory) {
+        guard !story.viewed, story.authorID != firebaseUserID else { return }
+        Functions.functions(region: "europe-west1").httpsCallable("recordStoryView").call(["storyId": story.id]) { [weak self] result, error in
+            guard let self, error == nil else { return }
+            Task { @MainActor in
+                if let index = self.stories.firstIndex(where: { $0.id == story.id }) {
+                    self.stories[index].viewed = true
+                    let payload = result?.data as? [String: Any]
+                    self.stories[index].viewCount = (payload?["viewCount"] as? NSNumber)?.intValue
+                        ?? (payload?["viewCount"] as? Int)
+                        ?? self.stories[index].viewCount
+                }
+            }
+        }
+    }
+
+    func publishStory(caption: String, mediaData: Data? = nil, mediaType: String = "text", contentType: String = "") async throws {
+        guard let userID = firebaseUserID else { throw NSError(domain: "WAPI", code: 401, userInfo: [NSLocalizedDescriptionKey: "Connectez-vous à WAPI pour publier."]) }
+        let cleanCaption = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(600))
+        guard !cleanCaption.isEmpty || mediaData != nil else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Ajoutez un texte ou un média."]) }
+        var mediaURL = ""
+        var storagePath = ""
+        if let mediaData {
+            guard ["image", "video", "audio"].contains(mediaType) else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Type de média non pris en charge."]) }
+            let ext = mediaType == "image" ? "jpg" : mediaType == "video" ? "mp4" : "m4a"
+            storagePath = "stories/\(userID)/\(UUID().uuidString).\(ext)"
+            let reference = Storage.storage().reference().child(storagePath)
+            let metadata = StorageMetadata(); metadata.contentType = contentType.isEmpty ? (mediaType == "image" ? "image/jpeg" : mediaType == "video" ? "video/mp4" : "audio/mp4") : contentType
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                reference.putData(mediaData, metadata: metadata) { _, error in if let error { continuation.resume(throwing: error) } else { continuation.resume() } }
+            }
+            mediaURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                reference.downloadURL { url, error in if let error { continuation.resume(throwing: error) } else if let url { continuation.resume(returning: url.absoluteString) } else { continuation.resume(throwing: NSError(domain: "WAPI", code: 500)) } }
+            }
+        }
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
+            Functions.functions(region: "europe-west1").httpsCallable("publishStory").call(["caption": cleanCaption, "mediaType": mediaType, "mediaUrl": mediaURL, "storagePath": storagePath]) { result, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: result?.data as? [String: Any] ?? [:]) }
+            }
+        }
+        guard let id = result["id"] as? String else { throw NSError(domain: "WAPI", code: 500, userInfo: [NSLocalizedDescriptionKey: "La Story n’a pas reçu d’identifiant."]) }
+        let now = Date()
+        let created = (result["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? now
+        let expiry = (result["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
+        stories.insert(WapiStory(id: id, authorID: userID, authorName: result["authorName"] as? String ?? "Membre WAPI", authorPhotoURL: result["authorPhotoUrl"] as? String ?? "", caption: cleanCaption, mediaURL: mediaURL, mediaType: mediaType, createdAt: created, expiresAt: expiry, viewCount: 0, viewed: true), at: 0)
+    }
+
+    private static func storyDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: value)
     }
 
     func createConversation(name: String, phone: String) {
@@ -371,6 +448,7 @@ final class WhappyStore: ObservableObject {
         walletTransactions = decode("walletTransactions") ?? walletTransactions
         serviceRequests = decode("serviceRequests") ?? serviceRequests
         moments = decode("moments") ?? moments
+        stories = decode("stories") ?? stories
         business = decode("business") ?? business
         walletBalance = defaults.object(forKey: "walletBalance") as? Int ?? walletBalance
         notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? notificationsEnabled
@@ -396,6 +474,7 @@ final class WhappyStore: ObservableObject {
         encode(walletTransactions, "walletTransactions")
         encode(serviceRequests, "serviceRequests")
         encode(moments, "moments")
+        encode(stories, "stories")
         encode(business, "business")
         defaults.set(walletBalance, forKey: "walletBalance")
         defaults.set(notificationsEnabled, forKey: "notificationsEnabled")
