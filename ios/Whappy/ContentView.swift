@@ -2214,37 +2214,250 @@ private struct WapiTranslationSheet: View {
 private struct WapiContactProfileView: View {
     let conversation: Conversation
     @Environment(\.dismiss) private var dismiss
+    @State private var directCallRoute: WapiDirectCallRoute?
+    @State private var showPhoto = false
+
+    private var profileLabel: String {
+        conversation.profileType == "business"
+            ? (conversation.businessPageName?.isEmpty == false ? conversation.businessPageName! : "Compte Business")
+            : "Compte personnel WAPI"
+    }
+
+    private var presenceLabel: String {
+        if conversation.peerIsOnline == true { return "En ligne maintenant" }
+        if let date = conversation.peerLastSeenAt {
+            return "Vu \(date.formatted(date: .abbreviated, time: .shortened))"
+        }
+        return "Présence privée"
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 18) {
-                ConversationAvatar(conversation: conversation).frame(width: 96, height: 96)
-                VStack(spacing: 5) {
-                    Text(conversation.name).font(.title2.bold()).foregroundStyle(Color.whappyInk)
-                    if !conversation.phoneNumber.isEmpty { Text(conversation.phoneNumber).font(.callout).foregroundStyle(.secondary) }
-                    Text("Profil WAPI").font(.caption.weight(.semibold)).foregroundStyle(Color.wapiVerified)
-                    if conversation.peerIsOnline == true {
-                        Label("En ligne maintenant", systemImage: "circle.fill")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.whappyBlue)
-                    } else if let lastSeen = conversation.peerLastSeenAt {
-                        Text("Dernière activité : \(lastSeen.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 18) {
+                    VStack(spacing: 13) {
+                        Button { if conversation.photoURL?.isEmpty == false { showPhoto = true } } label: {
+                            ZStack(alignment: .bottomTrailing) {
+                                ConversationAvatar(conversation: conversation)
+                                    .frame(width: 112, height: 112)
+                                    .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(.white.opacity(0.92), lineWidth: 4))
+                                    .shadow(color: WapiColor.deepBlue.opacity(0.23), radius: 16, y: 8)
+                                if conversation.photoURL?.isEmpty == false {
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 31, height: 31)
+                                        .background(WapiColor.deepBlue)
+                                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(.white, lineWidth: 3))
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        VStack(spacing: 5) {
+                            Text(conversation.name)
+                                .font(.system(size: 29, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color.whappyInk)
+                                .multilineTextAlignment(.center)
+                            Text(profileLabel.uppercased())
+                                .font(.system(size: 10, weight: .bold)).tracking(0.7)
+                                .foregroundStyle(conversation.profileType == "business" ? WapiColor.violet : WapiColor.deepBlue)
+                            Label(presenceLabel, systemImage: conversation.peerIsOnline == true ? "circle.fill" : "clock.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(conversation.peerIsOnline == true ? Color.green : WapiColor.secondaryText)
+                        }
+
+                        if conversation.photoURL?.isEmpty == false {
+                            Text("Touchez la photo pour l’ouvrir en plein écran")
+                                .font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 26)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.white, WapiColor.blueMist.opacity(0.78), WapiColor.violet.opacity(0.10)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(WapiColor.sky.opacity(0.24), lineWidth: 1))
+
+                    HStack(spacing: 10) {
+                        profileAction("Message", icon: "message.fill", emphasized: false) { dismiss() }
+                        profileAction("Audio", icon: "phone.fill", emphasized: false) { beginCall(video: false) }
+                        profileAction("Vidéo", icon: "video.fill", emphasized: true) { beginCall(video: true) }
+                    }
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("INFORMATIONS")
+                            .font(.system(size: 10, weight: .bold)).tracking(0.8)
+                            .foregroundStyle(WapiColor.secondaryText)
+                            .padding(.bottom, 12)
+                        if !conversation.phoneNumber.isEmpty {
+                            profileInfo("Numéro", value: conversation.phoneNumber, icon: "phone.badge.checkmark")
+                            Divider().padding(.leading, 44)
+                        }
+                        profileInfo("Identifiant WAPI", value: conversation.peerUID ?? "Protégé", icon: "person.text.rectangle")
+                        Divider().padding(.leading, 44)
+                        profileInfo("Confidentialité", value: "Selon les choix de ce compte", icon: "lock.shield.fill")
+                    }
+                    .padding(17)
+                    .wapiPanel()
+
+                    HStack(spacing: 13) {
+                        Image(systemName: "sparkles.rectangle.stack.fill")
+                            .font(.title3).foregroundStyle(WapiColor.deepBlue)
+                            .frame(width: 46, height: 46)
+                            .background(WapiColor.blueMist)
+                            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Activité publique").font(.headline).foregroundStyle(Color.whappyInk)
+                            Text("Stories, chaînes, radios et lives partagés apparaîtront ici selon la confidentialité du compte.")
+                                .font(.caption).foregroundStyle(WapiColor.secondaryText)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(17)
+                    .wapiFlowSurface()
+                }
+                .padding(WapiSpacing.screen)
+                .padding(.bottom, 24)
+            }
+            .background(Color.whappyBackground.ignoresSafeArea())
+            .navigationTitle("Profil WAPI")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+        }
+        .fullScreenCover(isPresented: $showPhoto) {
+            WapiRemotePhotoViewer(
+                url: conversation.photoURL.flatMap(URL.init(string:)),
+                name: conversation.name,
+                initials: conversation.initials
+            ) { showPhoto = false }
+        }
+        .fullScreenCover(item: $directCallRoute) { route in
+            WapiDirectCallRoom(route: route) { directCallRoute = nil }
+        }
+    }
+
+    private func beginCall(video: Bool) {
+        guard let peerID = conversation.peerUID, !peerID.isEmpty else { return }
+        WapiSounds.callStarted()
+        directCallRoute = WapiDirectCallRoute(
+            callID: nil,
+            peerID: peerID,
+            peerName: conversation.name,
+            peerPhotoURL: conversation.photoURL ?? "",
+            video: video
+        )
+    }
+
+    private func profileAction(_ title: String, icon: String, emphasized: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 19, weight: .semibold))
+                Text(title).font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(emphasized ? Color.white : WapiColor.deepBlue)
+            .frame(maxWidth: .infinity)
+            .frame(height: 76)
+            .background {
+                if emphasized {
+                    LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+                } else {
+                    WapiColor.blueMist
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(title != "Message" && (conversation.peerUID?.isEmpty != false))
+        .opacity(title != "Message" && (conversation.peerUID?.isEmpty != false) ? 0.48 : 1)
+    }
+
+    private func profileInfo(_ title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(WapiColor.deepBlue).frame(width: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.caption).foregroundStyle(WapiColor.secondaryText)
+                Text(value).font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 9)
+    }
+}
+
+private struct WapiRemotePhotoViewer: View {
+    let url: URL?
+    let name: String
+    let initials: String
+    let onDismiss: () -> Void
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            WapiCachedRemoteImage(url: url, contentMode: .fit) {
+                InitialsAvatar(text: initials, size: 170)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(scale)
+            .offset(offset)
+            .gesture(
+                MagnificationGesture()
+                    .onChanged { value in scale = min(max(lastScale * value, 1), 5) }
+                    .onEnded { _ in
+                        lastScale = scale
+                        if scale <= 1.01 { offset = .zero; lastOffset = .zero }
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard scale > 1 else { return }
+                        offset = CGSize(width: lastOffset.width + value.translation.width, height: lastOffset.height + value.translation.height)
+                    }
+                    .onEnded { _ in lastOffset = offset }
+            )
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.88)) {
+                        if scale > 1.05 {
+                            scale = 1; lastScale = 1; offset = .zero; lastOffset = .zero
+                        } else {
+                            scale = 2.4; lastScale = 2.4
+                        }
                     }
                 }
-                if let phoneURL = URL(string: "tel:\(conversation.phoneNumber.filter { $0.isNumber || $0 == "+" })"), !conversation.phoneNumber.isEmpty {
-                    Link(destination: phoneURL) {
-                        Label("Appeler avec l’appareil", systemImage: "phone.fill").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).tint(Color.whappyBlue)
+            )
+
+            VStack {
+                HStack {
+                    Button { onDismiss() } label: {
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 44, height: 44).background(.black.opacity(0.46)).clipShape(Circle())
+                    }
+                    Spacer()
+                    Text(name).font(.headline).foregroundStyle(.white).lineLimit(1)
+                    Spacer()
+                    Color.clear.frame(width: 44, height: 44)
                 }
-                Text("Les informations affichées ici respectent les réglages de confidentialité de ce compte.")
-                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .padding(.horizontal, 16).padding(.top, 8)
                 Spacer()
+                Text("Pincez ou touchez deux fois pour zoomer")
+                    .font(.caption).foregroundStyle(.white.opacity(0.76))
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.black.opacity(0.42)).clipShape(Capsule())
+                    .padding(.bottom, 22)
             }
-            .padding(28).background(Color.whappyBackground)
-            .navigationTitle("Profil").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
         }
     }
 }
@@ -2497,6 +2710,7 @@ private struct ZoomablePhotoViewer: View {
 struct CallsView: View {
     @EnvironmentObject private var store: WhappyStore
     @State private var directCallRoute: WapiDirectCallRoute?
+    @State private var selectedProfile: Conversation?
     @State private var unavailableMessage: String?
 
     var body: some View {
@@ -2538,18 +2752,31 @@ struct CallsView: View {
                         .frame(maxWidth: .infinity).padding(.vertical, 50).wapiPanel()
                 } else {
                     ForEach(store.calls) { call in
+                        let profile = conversation(for: call)
                         HStack(spacing: 12) {
-                            ZStack(alignment: .bottomTrailing) {
-                                InitialsAvatar(text: String(call.name.prefix(2)).uppercased(), size: 50)
+                            Button { if let profile { selectedProfile = profile } } label: {
+                                ZStack(alignment: .bottomTrailing) {
+                                    Group {
+                                        if let profile { ConversationAvatar(conversation: profile) }
+                                        else { InitialsAvatar(text: String(call.name.prefix(2)).uppercased(), size: 50) }
+                                    }
+                                    .frame(width: 50, height: 50)
                                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                                Image(systemName: call.missed ? "phone.down.fill" : call.mode.systemImage)
-                                    .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
-                                    .frame(width: 17, height: 17)
-                                    .background(call.missed ? Color.red : Color.green)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                    Image(systemName: call.missed ? "phone.down.fill" : call.mode.systemImage)
+                                        .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                                        .frame(width: 17, height: 17)
+                                        .background(call.missed ? Color.red : Color.green)
+                                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                }
                             }
+                            .buttonStyle(.plain)
+                            .disabled(profile == nil)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(call.name).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                                Button { if let profile { selectedProfile = profile } } label: {
+                                    Text(call.name).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(profile == nil)
                                 Text(call.missed ? "Appel manqué" : "Appel WAPI").font(.caption2.weight(.bold)).foregroundStyle(call.missed ? .red : Color.whappyBlue)
                                 Text(call.date, style: .relative).font(.caption2).foregroundStyle(WapiColor.secondaryText)
                             }
@@ -2571,17 +2798,25 @@ struct CallsView: View {
         }
         .background(Color.whappyBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $selectedProfile) { WapiContactProfileView(conversation: $0) }
         .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
         .alert("Appel WAPI indisponible", isPresented: Binding(get: { unavailableMessage != nil }, set: { if !$0 { unavailableMessage = nil } })) { Button("Fermer", role: .cancel) {} } message: { Text(unavailableMessage ?? "") }
     }
 
     private func start(_ call: CallRecord, video: Bool) {
-        guard let conversation = store.conversations.first(where: { $0.phoneNumber == call.phoneNumber && $0.peerUID != nil }) else {
+        guard let conversation = conversation(for: call), conversation.peerUID != nil else {
             unavailableMessage = "Ce contact doit avoir un compte WAPI actif pour un appel WAPI."
             return
         }
         WapiSounds.callStarted()
         directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: video)
+    }
+
+    private func conversation(for call: CallRecord) -> Conversation? {
+        store.conversations.first {
+            (!$0.phoneNumber.isEmpty && $0.phoneNumber == call.phoneNumber) ||
+            ($0.name.caseInsensitiveCompare(call.name) == .orderedSame && $0.peerUID != nil)
+        }
     }
 }
 

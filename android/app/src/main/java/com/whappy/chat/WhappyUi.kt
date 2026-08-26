@@ -5323,6 +5323,44 @@ private fun WapiCallAction(
 }
 
 @Composable
+private fun WapiProfileAction(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val background = when {
+        !enabled -> WhappySurface
+        emphasized -> WhappyBlue
+        else -> WapiSoftBlue
+    }
+    Surface(
+        modifier = modifier.height(70.dp).clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = background,
+        border = if (!emphasized && enabled) androidx.compose.foundation.BorderStroke(1.dp, WhappySky.copy(alpha = .18f)) else null,
+    ) {
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, label, tint = if (enabled && emphasized) Color.White else if (enabled) WhappyDeepBlue else WhappyMuted, modifier = Modifier.size(21.dp))
+            Text(label, Modifier.padding(top = 5.dp), color = if (enabled && emphasized) Color.White else if (enabled) WhappyDark else WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun WapiProfileInfoRow(icon: ImageVector, label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(WapiSoftBlue), contentAlignment = Alignment.Center) { Icon(icon, null, tint = WhappyDeepBlue, modifier = Modifier.size(18.dp)) }
+        Column(Modifier.weight(1f).padding(start = 11.dp)) {
+            Text(label.uppercase(), color = WhappyMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .45.sp)
+            Text(value, Modifier.padding(top = 2.dp), color = WhappyDark, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
 private fun MessagesScreen(
     conversations: List<WhappyConversation>,
     accountName: String,
@@ -5367,6 +5405,7 @@ private fun MessagesScreen(
     var groupName by remember { mutableStateOf("") }
     var groupMembers by remember { mutableStateOf(emptySet<String>()) }
     var selectedContactProfile by remember { mutableStateOf<WhappyContact?>(null) }
+    var contactPhotoPreview by remember { mutableStateOf<String?>(null) }
     var groupPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var channelName by remember { mutableStateOf("") }
     var channelDescription by remember { mutableStateOf("") }
@@ -5956,27 +5995,52 @@ private fun MessagesScreen(
         )
         selectedContactProfile?.let { contact ->
             val calls = LocalWhappyCalls.current
-            AlertDialog(
+            val isVerifiedProfile = contact.member.verified || WhappyIdentity.isFounder(contact.member.phoneNumber)
+            Dialog(
                 onDismissRequest = { selectedContactProfile = null },
-                title = { Text(contact.member.displayName, fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        UserAvatar(contact.member.photoUrl, contact.member.displayName, 74.dp, shape = RoundedCornerShape(16.dp))
-                        val isVerifiedProfile = contact.member.verified || WhappyIdentity.isFounder(contact.member.phoneNumber)
-                        if (isVerifiedProfile) Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, "Compte certifié", tint = WapiVerifiedGray, modifier = Modifier.size(16.dp)); Text(if (WhappyIdentity.isFounder(contact.member.phoneNumber)) " ${WhappyIdentity.founderBadgeLabel}" else " Compte WAPI vérifié", color = WapiVerifiedGray, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                        Text(contact.member.phoneNumber.ifBlank { "Numéro protégé" }, color = WhappyMuted, fontSize = 12.sp)
-                        Text(if (contact.member.isOnline) "En ligne maintenant" else if (contact.member.lastSeenAt > 0L) formatLastSeen(contact.member.lastSeenAt) else "Dernière présence indisponible", color = WhappyMuted, fontSize = 11.sp)
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                Surface(Modifier.fillMaxWidth(.94f).heightIn(max = 700.dp), shape = RoundedCornerShape(30.dp), color = WapiSheet, shadowElevation = 20.dp) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Box(Modifier.fillMaxWidth().background(WhappyAuroraSoft).padding(20.dp)) {
+                            Box(Modifier.align(Alignment.TopEnd).size(110.dp).offset(x = 36.dp, y = (-42).dp).clip(CircleShape).background(WhappySky.copy(alpha = .12f)))
+                            IconButton(onClick = { selectedContactProfile = null }, modifier = Modifier.align(Alignment.TopEnd).size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color.White.copy(alpha = .86f))) { Icon(Icons.Rounded.Close, "Fermer", tint = WhappyDark) }
+                            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Surface(shape = RoundedCornerShape(25.dp), color = Color.White, border = androidx.compose.foundation.BorderStroke(3.dp, WhappyBlue.copy(alpha = .20f)), shadowElevation = 10.dp) {
+                                    UserAvatar(contact.member.photoUrl, contact.member.displayName, 104.dp, Modifier.clickable(enabled = contact.member.photoUrl.isNotBlank()) { contactPhotoPreview = contact.member.photoUrl; selectedContactProfile = null }, RoundedCornerShape(22.dp))
+                                }
+                                Text(contact.member.displayName, Modifier.padding(top = 14.dp), color = WhappyDark, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                                if (isVerifiedProfile) Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Verified, "Compte certifié", tint = WapiVerifiedGray, modifier = Modifier.size(16.dp)); Text(if (WhappyIdentity.isFounder(contact.member.phoneNumber)) " ${WhappyIdentity.founderBadgeLabel}" else " Compte WAPI vérifié", color = WapiVerifiedGray, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                Text(if (contact.member.isOnline) "● En ligne maintenant" else if (contact.member.lastSeenAt > 0L) formatLastSeen(contact.member.lastSeenAt) else "Dernière présence indisponible", Modifier.padding(top = 6.dp), color = if (contact.member.isOnline) WapiSuccess else WhappyMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                if (contact.member.photoUrl.isNotBlank()) Text("Touchez la photo pour l’ouvrir", Modifier.padding(top = 5.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                WapiProfileAction(Icons.Rounded.ChatBubble, "Message", true, Modifier.weight(1f), emphasized = true) { selectedContactProfile = null; onOpenContact(contact) }
+                                WapiProfileAction(Icons.Rounded.Phone, "Audio", calls != null && contact.member.uid.isNotBlank(), Modifier.weight(1f)) { calls?.start(contact.member, false); selectedContactProfile = null }
+                                WapiProfileAction(Icons.Rounded.Videocam, "Vidéo", calls != null && contact.member.uid.isNotBlank(), Modifier.weight(1f)) { calls?.start(contact.member, true); selectedContactProfile = null }
+                            }
+                            Surface(color = Color.White, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .70f))) {
+                                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    WapiProfileInfoRow(Icons.Rounded.Phone, "Numéro", contact.member.phoneNumber.ifBlank { "Protégé par la confidentialité" })
+                                    WapiProfileInfoRow(Icons.Rounded.Person, "Identifiant WAPI", contact.member.uid.ifBlank { "En cours de synchronisation" }.take(18))
+                                    WapiProfileInfoRow(Icons.Rounded.Lock, "Confidentialité", "Seules les informations autorisées sont visibles")
+                                }
+                            }
+                            Text("Activité publique", color = WhappyDark, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Surface(color = WapiBlueMist, shape = RoundedCornerShape(18.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Radio, null, tint = WhappyDeepBlue) }
+                                    Column(Modifier.padding(start = 11.dp)) { Text("Radios, playlists et Lives", color = WhappyDark, fontWeight = FontWeight.SemiBold, fontSize = 12.sp); Text("Les contenus publics apparaissent ici lorsqu’ils sont disponibles.", color = WhappyMuted, fontSize = 10.sp) }
+                                }
+                            }
+                        }
                     }
-                },
-                confirmButton = { Button(enabled = !contactBusy, onClick = { selectedContactProfile = null; onOpenContact(contact) }) { Icon(Icons.Rounded.ChatBubble, null); Text(" Écrire") } },
-                dismissButton = {
-                    Row {
-                        TextButton(enabled = calls != null && contact.member.phoneNumber.isNotBlank(), onClick = { calls?.start(contact.member, false) }) { Icon(Icons.Rounded.Phone, null); Text(" Appeler") }
-                        TextButton(enabled = calls != null && contact.member.phoneNumber.isNotBlank(), onClick = { calls?.start(contact.member, true) }) { Icon(Icons.Rounded.Videocam, null); Text(" Vidéo") }
-                    }
-                },
-            )
+                }
+            }
         }
+        contactPhotoPreview?.let { source -> ImageZoomViewer(source) { contactPhotoPreview = null } }
         if (searchingBusiness) BusinessSearchDialog(
             results = businessResults,
             busy = businessSearchBusy,
@@ -7476,7 +7540,16 @@ private fun ChatScreen(
             onDismissRequest = { showPeerProfile = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(conversation.peer.photoUrl, conversation.peer.displayName, 58.dp, shape = RoundedCornerShape(14.dp))
+                    UserAvatar(
+                        conversation.peer.photoUrl,
+                        conversation.peer.displayName,
+                        72.dp,
+                        Modifier.clickable(enabled = conversation.peer.photoUrl.isNotBlank()) {
+                            previewImage = conversation.peer.photoUrl
+                            showPeerProfile = false
+                        },
+                        RoundedCornerShape(20.dp),
+                    )
                     Column(Modifier.padding(start = 13.dp)) {
                         Text(conversation.peer.displayName, color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Bold)
                         Text(if (conversation.isGroup) "Groupe · ${conversation.memberCount} membres" else "Profil WAPI", color = WhappyMuted, fontSize = 11.sp)
