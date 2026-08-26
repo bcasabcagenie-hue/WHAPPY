@@ -1060,7 +1060,11 @@ class WhappyRepository(
                 val localPhoto = WapiMediaStore.copyToOutbox(appContext, photoUri, "group-photo", "cover.$extension")
                     ?: error("group-photo-unreadable")
                 try {
-                    photoRef.putFile(Uri.fromFile(localPhoto), metadata).await()
+                    // Upload the durable outbox bytes instead of the picked/cropped
+                    // URI. Some Samsung and foldable document providers expose a
+                    // valid preview but close the file descriptor before Storage
+                    // finishes putFile(), leaving the group without a photo.
+                    photoRef.putBytes(localPhoto.readBytes(), metadata).await()
                 } finally {
                     localPhoto.delete()
                 }
@@ -1129,7 +1133,10 @@ class WhappyRepository(
             val localPhoto = WapiMediaStore.copyToOutbox(appContext, photoUri, "group-photo", "cover.$extension")
                 ?: error("group-photo-unreadable")
             try {
-                photoRef.putFile(Uri.fromFile(localPhoto), metadata).await()
+                // The local outbox copy is the source of truth for this upload.
+                // putBytes avoids provider/URI revocation during a slow upload
+                // and makes the save path deterministic on Android 13+.
+                photoRef.putBytes(localPhoto.readBytes(), metadata).await()
             } finally {
                 localPhoto.delete()
             }

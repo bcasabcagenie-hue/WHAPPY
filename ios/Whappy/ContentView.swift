@@ -1990,13 +1990,41 @@ private struct WapiGroupSettingsView: View {
     }
 
     private func save() {
+        let photoData = selectedImage.flatMap(makeWapiGroupPhotoData)
+        if selectedImage != nil && photoData == nil {
+            store.firebaseMessage = "La photo n’a pas pu être préparée. Choisissez une autre image."
+            return
+        }
         store.updateFirebaseGroup(
             conversation: conversation,
             name: name,
-            photoData: selectedImage?.jpegData(compressionQuality: 0.92),
+            photoData: photoData,
             removePhoto: removePhoto
         )
     }
+}
+
+/// Normalizes a picked group image before it reaches Firebase.
+///
+/// Photos from modern phones can be 20–60 MB and can keep their original
+/// orientation. Rendering a centered square makes the upload predictable,
+/// keeps Storage rules fast on mobile networks, and gives Android/iOS the same
+/// group-avatar geometry.
+private func makeWapiGroupPhotoData(_ image: UIImage) -> Data? {
+    let canvasSide: CGFloat = 1024
+    guard image.size.width > 0, image.size.height > 0 else { return nil }
+    let scale = max(canvasSide / image.size.width, canvasSide / image.size.height)
+    let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    let origin = CGPoint(x: (canvasSide - drawSize.width) / 2, y: (canvasSide - drawSize.height) / 2)
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    format.opaque = true
+    return UIGraphicsImageRenderer(size: CGSize(width: canvasSide, height: canvasSide), format: format)
+        .jpegData(withCompressionQuality: 0.86) { _ in
+            UIColor.white.setFill()
+            UIRectFill(CGRect(x: 0, y: 0, width: canvasSide, height: canvasSide))
+            image.draw(in: CGRect(origin: origin, size: drawSize))
+        }
 }
 
 private struct WapiMemberAvatar: View {

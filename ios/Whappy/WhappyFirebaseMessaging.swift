@@ -323,6 +323,56 @@ extension WhappyStore {
             let changedName = name != conversation.name
             let changedPhoto = removePhoto || !photoURL.isEmpty
             guard changedName || changedPhoto else { self.firebaseBusy = false; return }
+            let action: String = changedName && changedPhoto
+                ? "a modifié le nom et la photo du groupe"
+                : changedName
+                    ? "a renommé le groupe en « \(name) »"
+                    : removePhoto
+                        ? "a supprimé la photo du groupe"
+                        : "a changé la photo du groupe"
+            let accountDisplayName = (Auth.auth().currentUser?.displayName ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let actor = accountDisplayName.isEmpty ? "Un administrateur" : accountDisplayName
+            let eventText = "\(actor) \(action)"
+            let persistFallback: () -> Void = {
+                let groupReference = Firestore.firestore().collection(source).document(groupID)
+                let photoField = source == "groups" ? "photoUrl" : "groupPhotoUrl"
+                let nameField = source == "groups" ? "name" : "title"
+                let nextPhoto = removePhoto ? "" : photoURL
+                groupReference.updateData([
+                    nameField: name,
+                    photoField: nextPhoto,
+                    "lastMessage": eventText,
+                    "lastSenderId": userID,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ]) { updateError in
+                    guard updateError == nil else {
+                        Task { @MainActor in
+                            self.firebaseBusy = false
+                            self.firebaseMessage = updateError.map(self.friendlyFirebaseError) ?? "La photo du groupe n’a pas pu être enregistrée."
+                        }
+                        return
+                    }
+                    var event: [String: Any] = [
+                        "text": eventText,
+                        "senderId": userID,
+                        "createdAt": FieldValue.serverTimestamp()
+                    ]
+                    // The legacy conversations message rule intentionally does
+                    // not accept senderName/kind; the groups rule does.
+                    if source == "groups" {
+                        event["senderName"] = actor
+                        event["kind"] = "system"
+                    }
+                    groupReference.collection("messages").addDocument(data: event) { eventError in
+                        Task { @MainActor in
+                            self.firebaseBusy = false
+                            self.firebaseMessage = eventError.map(self.friendlyFirebaseError)
+                                ?? "Photo du groupe enregistrée dans WAPI."
+                        }
+                    }
+                }
+            }
             Functions.functions(region: "europe-west1").httpsCallable("updateGroupIdentity").call([
                 "groupId": groupID,
                 "source": source,
@@ -331,8 +381,25 @@ extension WhappyStore {
                 "removePhoto": removePhoto
             ]) { _, error in
                 Task { @MainActor in
-                    self.firebaseBusy = false
-                    if let error { self.firebaseMessage = self.friendlyFirebaseError(error) }
+                    guard let error else {
+                        self.firebaseBusy = false
+                        self.firebaseMessage = "Photo du groupe enregistrée dans WAPI."
+                        return
+                    }
+                    let description = error.localizedDescription.lowercased()
+                    let canUseCompatibilityPath = description.contains("not found")
+                        || description.contains("unavailable")
+                        || description.contains("deadline")
+                        || description.contains("network")
+                    if canUseCompatibilityPath {
+                        // Keep older iOS installations usable while the callable
+                        // is being rolled out. Firestore rules still enforce the
+                        // owner/admin permission on this compatibility path.
+                        persistFallback()
+                    } else {
+                        self.firebaseBusy = false
+                        self.firebaseMessage = self.friendlyFirebaseError(error)
+                    }
                 }
             }
         }
