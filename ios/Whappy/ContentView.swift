@@ -3405,6 +3405,7 @@ private struct AccountSwitcherIOSView: View {
                             title: Auth.auth().currentUser?.displayName?.isEmpty == false ? Auth.auth().currentUser?.displayName ?? "Compte personnel" : "Compte personnel",
                             subtitle: Auth.auth().currentUser?.phoneNumber ?? "Identité personnelle",
                             icon: "person.crop.circle.fill",
+                            photoURL: Auth.auth().currentUser?.photoURL?.absoluteString ?? "",
                             active: !store.activeBusinessMode,
                         )
                     }.buttonStyle(.plain)
@@ -3413,7 +3414,7 @@ private struct AccountSwitcherIOSView: View {
                             store.switchAccount(business: true)
                             dismiss()
                         } label: {
-                            AccountSwitcherIOSRow(title: business.name, subtitle: "Business · \(business.category)", icon: "briefcase.fill", active: store.activeBusinessMode)
+                            AccountSwitcherIOSRow(title: business.name, subtitle: "Business · \(business.category)", icon: "briefcase.fill", photoURL: business.logoURL, active: store.activeBusinessMode)
                         }.buttonStyle(.plain)
                     }
                 }
@@ -3433,15 +3434,35 @@ private struct AccountSwitcherIOSRow: View {
     let title: String
     let subtitle: String
     let icon: String
+    let photoURL: String
     let active: Bool
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon).font(.title2).foregroundStyle(Color.whappyBlue).frame(width: 42, height: 42).background(Color.whappyBlue.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
+            Group {
+                if let url = URL(string: photoURL), !photoURL.isEmpty {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                        else { accountIcon }
+                    }
+                } else {
+                    accountIcon
+                }
+            }
+            .frame(width: 42, height: 42)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             VStack(alignment: .leading, spacing: 3) { Text(title).font(.headline); Text(subtitle).font(.caption).foregroundStyle(.secondary) }
             Spacer()
             if active { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.whappyBlue) }
         }.padding(.vertical, 5)
+    }
+
+    private var accountIcon: some View {
+        Image(systemName: icon)
+            .font(.title2)
+            .foregroundStyle(Color.whappyBlue)
+            .frame(width: 42, height: 42)
+            .background(Color.whappyBlue.opacity(0.10), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 }
 
