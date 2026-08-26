@@ -22,6 +22,11 @@ final class WhappyStore: ObservableObject {
     @Published var serviceRequests: [WhappyServiceRequest] { didSet { save() } }
     @Published var moments: [WhappyMoment] { didSet { save() } }
     @Published var stories: [WapiStory] { didSet { save() } }
+    /// Story uploads are deliberately optimistic: the circle appears as soon
+    /// as its author publishes, then the media is synchronised in background.
+    /// Keeping these identifiers separate prevents a transient Firestore
+    /// refresh from making a fresh Story disappear from the rail.
+    @Published private(set) var pendingStoryIDs: Set<String> = []
     @Published var business: WhappyBusiness? { didSet { save() } }
     @Published var activeBusinessMode: Bool { didSet { save() } }
     @Published var activeBusinessRemoteID: String { didSet { save() } }
@@ -280,14 +285,19 @@ final class WhappyStore: ObservableObject {
             Task { @MainActor in
                 guard error == nil, let root = result?.data as? [String: Any], let rawStories = root["stories"] as? [[String: Any]] else { return }
                 let now = Date()
-                self.stories = rawStories.compactMap { value in
-                    guard let id = value["id"] as? String, !id.isEmpty else { return nil }
-                    let created = (value["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) }
-                        ?? Self.storyDate(value["createdAt"] as? String)
-                        ?? now
-                    let expiry = (value["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
-                    return WapiStory(id: id, authorID: value["authorId"] as? String ?? "", authorName: value["authorName"] as? String ?? "Contact WAPI", authorPhotoURL: value["authorPhotoUrl"] as? String ?? "", caption: value["caption"] as? String ?? "", mediaURL: value["mediaUrl"] as? String ?? "", mediaType: value["mediaType"] as? String ?? "text", createdAt: created, expiresAt: expiry, viewCount: (value["viewCount"] as? NSNumber)?.intValue ?? 0, viewed: value["viewedByCurrentUser"] as? Bool ?? false)
-                }.filter { $0.expiresAt > now }.sorted { $0.createdAt > $1.createdAt }
+                let remoteStories = rawStories
+                    .compactMap { self.decodeStory($0, fallbackDate: now) }
+                    .filter { $0.expiresAt > now }
+                    .sorted { $0.createdAt > $1.createdAt }
+                let pendingStories = self.stories.filter { self.pendingStoryIDs.contains($0.id) && $0.expiresAt > now }
+                self.stories = (pendingStories + remoteStories)
+                    .reduce(into: [String: WapiStory]()) { current, story in
+                        // A remote record replaces its local placeholder as
+                        // soon as the callable has confirmed publication.
+                        current[story.id] = story
+                    }
+                    .values
+                    .sorted { $0.createdAt > $1.createdAt }
             }
         }
     }
@@ -312,14 +322,62 @@ final class WhappyStore: ObservableObject {
         guard let userID = firebaseUserID else { throw NSError(domain: "WAPI", code: 401, userInfo: [NSLocalizedDescriptionKey: "Connectez-vous à WAPI pour publier."]) }
         let cleanCaption = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(600))
         guard !cleanCaption.isEmpty || mediaData != nil else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Ajoutez un texte ou un média."]) }
+        guard mediaData == nil || ["image", "video", "audio"].contains(mediaType) else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Type de média non pris en charge."]) }
+        let maximumBytes = mediaType == "video" ? 50 * 1_024 * 1_024 : mediaType == "audio" ? 25 * 1_024 * 1_024 : 12 * 1_024 * 1_024
+        guard mediaData == nil || (!mediaData!.isEmpty && mediaData!.count <= maximumBytes) else {
+            throw NSError(domain: "WAPI", code: 413, userInfo: [NSLocalizedDescriptionKey: "Ce média dépasse la taille autorisée pour une Story WAPI."])
+        }
+        let pendingID = "pending-story-\(UUID().uuidString)"
+        let now = Date()
+        let localMediaURL = try localStoryMediaURL(for: mediaData, mediaType: mediaType, pendingID: pendingID)
+        let localStory = WapiStory(
+            id: pendingID,
+            authorID: userID,
+            authorName: Auth.auth().currentUser?.displayName ?? Auth.auth().currentUser?.phoneNumber ?? "Membre WAPI",
+            authorPhotoURL: Auth.auth().currentUser?.photoURL?.absoluteString ?? "",
+            caption: cleanCaption,
+            mediaURL: localMediaURL,
+            mediaType: mediaType,
+            createdAt: now,
+            expiresAt: now.addingTimeInterval(24 * 60 * 60),
+            viewCount: 0,
+            viewed: true,
+        )
+        pendingStoryIDs.insert(pendingID)
+        stories.removeAll { $0.id == pendingID }
+        stories.insert(localStory, at: 0)
+
+        // The composer may now close immediately, exactly as a native mobile
+        // Story flow.  Upload, callable publication and Firestore convergence
+        // continue without blocking the user's next action.
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let published = try await self.uploadStory(
+                    userID: userID,
+                    caption: cleanCaption,
+                    mediaData: mediaData,
+                    mediaType: mediaType,
+                    contentType: contentType,
+                )
+                self.pendingStoryIDs.remove(pendingID)
+                self.stories.removeAll { $0.id == pendingID || $0.id == published.id }
+                self.stories.insert(published, at: 0)
+                self.removeLocalStoryMedia(at: localMediaURL)
+                self.refreshStories()
+            } catch {
+                // Do not remove the user's work on a temporary Firebase or
+                // network failure.  The local Story remains visible instead
+                // of looking as if publishing silently failed.
+                self.pendingStoryIDs.remove(pendingID)
+            }
+        }
+    }
+
+    private func uploadStory(userID: String, caption cleanCaption: String, mediaData: Data?, mediaType: String, contentType: String) async throws -> WapiStory {
         var mediaURL = ""
         var storagePath = ""
         if let mediaData {
-            guard ["image", "video", "audio"].contains(mediaType) else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Type de média non pris en charge."]) }
-            let maximumBytes = mediaType == "video" ? 50 * 1_024 * 1_024 : mediaType == "audio" ? 25 * 1_024 * 1_024 : 12 * 1_024 * 1_024
-            guard !mediaData.isEmpty, mediaData.count <= maximumBytes else {
-                throw NSError(domain: "WAPI", code: 413, userInfo: [NSLocalizedDescriptionKey: "Ce média dépasse la taille autorisée pour une Story WAPI."])
-            }
             let ext = mediaType == "image" ? "jpg" : mediaType == "video" ? "mp4" : "m4a"
             storagePath = "stories/\(userID)/\(UUID().uuidString).\(ext)"
             let reference = Storage.storage().reference().child(storagePath)
@@ -340,11 +398,48 @@ final class WhappyStore: ObservableObject {
         let now = Date()
         let created = (result["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? now
         let expiry = (result["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
-        stories.removeAll { $0.id == id }
-        stories.insert(WapiStory(id: id, authorID: userID, authorName: result["authorName"] as? String ?? "Membre WAPI", authorPhotoURL: result["authorPhotoUrl"] as? String ?? "", caption: cleanCaption, mediaURL: mediaURL, mediaType: mediaType, createdAt: created, expiresAt: expiry, viewCount: 0, viewed: true), at: 0)
-        // The local Story appears immediately; refresh afterwards to reconcile
-        // audience and expiry with the server-owned record.
-        refreshStories()
+        return WapiStory(id: id, authorID: userID, authorName: result["authorName"] as? String ?? "Membre WAPI", authorPhotoURL: result["authorPhotoUrl"] as? String ?? "", caption: cleanCaption, mediaURL: mediaURL, mediaType: mediaType, createdAt: created, expiresAt: expiry, viewCount: 0, viewed: true)
+    }
+
+    private func localStoryMediaURL(for data: Data?, mediaType: String, pendingID: String) throws -> String {
+        guard let data else { return "" }
+        let ext = mediaType == "image" ? "jpg" : mediaType == "video" ? "mp4" : "m4a"
+        let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("WAPI/story-outbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("\(pendingID).\(ext)")
+        try data.write(to: file, options: .atomic)
+        return file.absoluteString
+    }
+
+    private func removeLocalStoryMedia(at value: String) {
+        guard let url = URL(string: value), url.isFileURL else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    private func decodeStory(_ value: [String: Any], fallbackDate: Date) -> WapiStory? {
+        guard let id = value["id"] as? String, !id.isEmpty else { return nil }
+        let createdMillis = (value["createdAtMillis"] as? NSNumber)?.doubleValue
+        let created = createdMillis.map { Date(timeIntervalSince1970: $0 / 1_000) }
+            ?? Self.storyDate(value["createdAt"] as? String)
+            ?? fallbackDate
+        let expiryMillis = (value["expiresAtMillis"] as? NSNumber)?.doubleValue
+        let expiry = expiryMillis.map { Date(timeIntervalSince1970: $0 / 1_000) }
+            ?? created.addingTimeInterval(24 * 60 * 60)
+        let views = (value["viewCount"] as? NSNumber)?.intValue ?? (value["viewCount"] as? Int ?? 0)
+        return WapiStory(
+            id: id,
+            authorID: value["authorId"] as? String ?? "",
+            authorName: value["authorName"] as? String ?? "Contact WAPI",
+            authorPhotoURL: value["authorPhotoUrl"] as? String ?? "",
+            caption: value["caption"] as? String ?? "",
+            mediaURL: value["mediaUrl"] as? String ?? "",
+            mediaType: value["mediaType"] as? String ?? "text",
+            createdAt: created,
+            expiresAt: expiry,
+            viewCount: views,
+            viewed: value["viewedByCurrentUser"] as? Bool ?? false,
+        )
     }
 
     private static func storyDate(_ value: String?) -> Date? {

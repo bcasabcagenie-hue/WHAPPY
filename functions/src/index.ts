@@ -1663,10 +1663,22 @@ export const listVisibleStories = onCall(async (request) => {
       profilePhotos.set(profile.id, String(profile.get("photoUrl") || "").trim().slice(0, 2000));
     });
   }
-  const stories = await Promise.all(snapshot.docs.map(async (document) => {
+  // Fetching one view document at a time made the Actus rail increasingly
+  // slow as a user followed more people.  Read the viewer state in one batch
+  // instead: this keeps a newly published Story responsive and avoids a burst
+  // of hundreds of callable-function reads on every refresh.
+  const viewerSnapshots = snapshot.empty
+    ? []
+    : await db.getAll(...snapshot.docs.map((document) => document.ref.collection("views").doc(viewerId)));
+  const viewedStoryIds = new Set(
+    viewerSnapshots
+      .filter((view) => view.exists)
+      .map((view) => view.ref.parent.parent?.id)
+      .filter((storyId): storyId is string => Boolean(storyId)),
+  );
+  const stories = snapshot.docs.map((document) => {
     const value = document.data();
     const createdAt = value.createdAt;
-    const viewerSnapshot = await document.ref.collection("views").doc(viewerId).get();
     return {
       id: document.id,
       authorId: String(value.authorId || ""),
@@ -1683,10 +1695,13 @@ export const listVisibleStories = onCall(async (request) => {
         ? value.expiresAt.toMillis()
         : 0,
       viewCount: Number(value.viewCount || 0),
-      viewedByCurrentUser: viewerSnapshot.exists,
+      viewedByCurrentUser: viewedStoryIds.has(document.id),
     };
-  }));
-  stories.sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+  });
+  // A server timestamp can be unresolved in the first few milliseconds after
+  // publishing.  The concrete millisecond field is therefore the canonical
+  // ordering key for every client, including the just-created Story.
+  stories.sort((left, right) => right.createdAtMillis - left.createdAtMillis);
   return { stories };
 });
 

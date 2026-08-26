@@ -1779,6 +1779,10 @@ private fun StoriesScreen(
     var storyRecordingSeconds by rememberSaveable { mutableIntStateOf(0) }
     var pendingStoryRecordingKind by rememberSaveable { mutableStateOf("voice") }
     var pendingStoryCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    // The main + button follows the fast mobile Story flow: picking a photo
+    // or video publishes it straight away.  The Studio remains available for
+    // captions, text, audio and richer composition.
+    var publishPickedMediaImmediately by remember { mutableStateOf(false) }
     val context = LocalContext.current
     fun selectStoryMedia(uri: Uri) {
         val selectedName = displayName(context, uri)
@@ -1806,7 +1810,38 @@ private fun StoriesScreen(
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             selectStoryMedia(uri)
-            showComposer = true
+            if (publishPickedMediaImmediately && mediaUri != null) {
+                val selectedUri = mediaUri
+                val selectedType = mediaType
+                val selectedName = mediaName
+                publishPickedMediaImmediately = false
+                // The optimistic Story is rendered immediately; selecting the
+                // author is enough to open it without waiting for the rail's
+                // later derived `myStories` value.
+                openOwnStoryAfterCount = -1
+                selectedStoryAuthorId = currentUserId
+                if (preview) {
+                    previewStatuses = listOf(
+                        WhappyStatus(
+                            "local-${System.currentTimeMillis()}",
+                            currentUserId,
+                            currentUserName,
+                            "",
+                            "personal",
+                            System.currentTimeMillis(),
+                            selectedUri.toString(),
+                            if (selectedType.startsWith("audio/")) "audio" else if (selectedType.startsWith("video/")) "video" else "image",
+                            selectedName,
+                            authorPhotoUrl = currentUserPhotoUrl,
+                        ),
+                    ) + previewStatuses
+                } else {
+                    onPublish("", "personal", selectedUri, selectedType)
+                }
+                mediaUri = null; mediaType = ""; mediaName = ""; showComposer = false
+            } else {
+                showComposer = true
+            }
         }
     }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -1824,7 +1859,8 @@ private fun StoriesScreen(
         if (!captured) pendingStoryCaptureUri = null
     }
 
-    fun openStoryGallery() {
+    fun openStoryGallery(publishImmediately: Boolean = true) {
+        publishPickedMediaImmediately = publishImmediately
         mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
     }
 
@@ -2067,13 +2103,16 @@ private fun StoriesScreen(
                             OutlinedButton(
                                 onClick = {
                                     when (option.second) {
-                                        "Galerie" -> openStoryGallery()
+                                        "Galerie" -> openStoryGallery(publishImmediately = false)
                                         "Caméra" -> requestStoryCamera()
                                         "Texte" -> { mediaUri = null; mediaType = ""; mediaName = "" }
                                         "Musique", "Podcast" -> audioPicker.launch(arrayOf("audio/*"))
                                         "Radio" -> requestStoryRecording("radio")
                                         "Vocale" -> requestStoryRecording("voice")
-                                        "Vidéo" -> mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                                        "Vidéo" -> {
+                                            publishPickedMediaImmediately = false
+                                            mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                                        }
                                     }
                                 },
                                 shape = RoundedCornerShape(14.dp),
@@ -2103,7 +2142,10 @@ private fun StoriesScreen(
                         }
                     }
                     OutlinedTextField(draft, { draft = it.take(600) }, Modifier.fillMaxWidth(), placeholder = { Text("Ajoutez un texte, une légende ou un contexte…") }, minLines = 3, maxLines = 7, shape = RoundedCornerShape(17.dp))
-                    Surface(Modifier.fillMaxWidth().clickable(enabled = !busy) { mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, shape = RoundedCornerShape(16.dp), color = Color(0xFFF0F8FD), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .18f))) {
+                    Surface(Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                        publishPickedMediaImmediately = false
+                        mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                    }, shape = RoundedCornerShape(16.dp), color = Color(0xFFF0F8FD), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .18f))) {
                         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (mediaType.startsWith("audio/")) Icons.Rounded.AudioFile else if (mediaType.startsWith("video/")) Icons.Rounded.Movie else Icons.Rounded.Photo, null, tint = WhappyBlue)
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) { Text(if (mediaUri == null) "Photo, vidéo ou audio" else mediaName, color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1); Text(if (mediaUri == null) "Choisir depuis votre téléphone" else "Prêt à publier", color = WhappyMuted, fontSize = 9.sp) }
