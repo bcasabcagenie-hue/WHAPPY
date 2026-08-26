@@ -501,6 +501,7 @@ private struct WapiNativeCallVideoSurface: UIViewRepresentable {
 struct WapiDirectCallRoom: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var session: WapiDirectCallSession
+    @State private var connectedSeconds = 0
     let onClosed: () -> Void
 
     init(route: WapiDirectCallRoute, onClosed: @escaping () -> Void) {
@@ -517,15 +518,31 @@ struct WapiDirectCallRoom: View {
                 HStack {
                     Button { Task { await close(decline: !session.outgoing && !session.mediaConnected) } } label: { Image(systemName: "chevron.down").frame(width: 42, height: 42).background(.black.opacity(0.28)).clipShape(Circle()) }
                     Spacer()
-                    Text(session.videoEnabled ? "APPEL VIDÉO WAPI" : "APPEL AUDIO WAPI").font(.caption2.weight(.bold)).tracking(1.1).padding(.horizontal, 12).padding(.vertical, 7).background(.black.opacity(0.25)).clipShape(Capsule())
+                    Text(callDirection).font(.caption2.weight(.bold)).tracking(1.1).padding(.horizontal, 12).padding(.vertical, 7).background(.black.opacity(0.30)).clipShape(Capsule())
                 }.padding().foregroundStyle(.white)
                 Spacer()
                 if session.videoTrack == nil {
-                    VStack(spacing: 14) {
+                    VStack(spacing: 12) {
                         AsyncImage(url: URL(string: session.peerPhotoURL)) { image in image.resizable().scaledToFill() } placeholder: { Text(session.peerName.prefix(1).uppercased()).font(.system(size: 45, weight: .bold)) }
-                            .frame(width: 128, height: 128).background(.white.opacity(0.16)).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 2))
-                        Text(session.peerName).font(.title2.bold())
-                        Text(session.connectionLabel).font(.callout).foregroundStyle(.white.opacity(0.76))
+                            .frame(width: 136, height: 136).background(.white.opacity(0.16)).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.52), lineWidth: 3)).shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+                        Text(session.peerName).font(.title.bold())
+                        HStack(spacing: 11) {
+                            if session.mediaConnected {
+                                Circle().fill(.green).frame(width: 11, height: 11)
+                            } else if session.connecting {
+                                ProgressView().tint(.white).controlSize(.small)
+                            } else {
+                                Image(systemName: "phone.fill").foregroundStyle(.white.opacity(0.82))
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(session.mediaConnected && connectedSeconds > 0 ? "\(durationLabel) · \(phaseTitle)" : phaseTitle).font(.subheadline.bold())
+                                Text(phaseDetail).font(.caption).foregroundStyle(.white.opacity(0.68))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 17).padding(.vertical, 14)
+                        .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .padding(.horizontal, 28)
                     }.foregroundStyle(.white)
                 }
                 Spacer()
@@ -533,22 +550,29 @@ struct WapiDirectCallRoom: View {
                     HStack(spacing: 46) {
                         IncomingCallAction(icon: "phone.down.fill", label: "Refuser", color: .red) { Task { await close(decline: true) } }
                         IncomingCallAction(icon: session.videoEnabled ? "video.fill" : "phone.fill", label: "Accepter", color: .green) { Task { await session.connect() } }
-                    }.padding(.bottom, 42).foregroundStyle(.white)
+                    }.padding(.horizontal, 26).padding(.vertical, 20).background(.black.opacity(0.36), in: RoundedRectangle(cornerRadius: 28, style: .continuous)).padding(.bottom, 28).foregroundStyle(.white)
                 } else if session.mediaConnected {
                     HStack(spacing: 19) {
                         CallControl(icon: session.microphoneEnabled ? "mic.fill" : "mic.slash.fill", label: "Micro") { Task { await session.toggleMicrophone() } }
-                        CallControl(icon: session.speakerEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", label: "HP") { session.toggleSpeaker() }
+                        CallControl(icon: session.speakerEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", label: "Haut-parleur") { session.toggleSpeaker() }
                         if session.videoEnabled {
                             CallControl(icon: session.cameraEnabled ? "video.fill" : "video.slash.fill", label: "Caméra") { Task { await session.toggleCamera() } }
                             CallControl(icon: "camera.rotate.fill", label: "Retourner") { Task { await session.switchCamera() } }
                         }
                         CallControl(icon: "phone.down.fill", label: "Terminer", destructive: true) { Task { await close() } }
-                    }.padding(.bottom, 34).foregroundStyle(.white)
+                    }.padding(.horizontal, 14).padding(.vertical, 16).background(.black.opacity(0.38), in: RoundedRectangle(cornerRadius: 28, style: .continuous)).padding(.bottom, 24).foregroundStyle(.white)
                 }
             }
-            if session.connecting { ProgressView("Connexion de l’appel…").tint(.white).foregroundStyle(.white).padding(18).background(.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius: 16)) }
         }
         .task { if session.outgoing { await session.connect() } else { await session.loadInvitation() } }
+        .task(id: session.mediaConnected) {
+            connectedSeconds = 0
+            guard session.mediaConnected else { return }
+            while !Task.isCancelled && session.mediaConnected {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if !Task.isCancelled && session.mediaConnected { connectedSeconds += 1 }
+            }
+        }
         .alert("Appel WAPI indisponible", isPresented: Binding(get: { session.errorMessage != nil }, set: { if !$0 { session.errorMessage = nil } })) {
             Button("Fermer") { Task { await close(decline: !session.mediaConnected) } }
         } message: { Text(session.errorMessage ?? "") }
@@ -561,6 +585,29 @@ struct WapiDirectCallRoom: View {
         onClosed()
         await activeSession.close(decline: decline)
     }
+
+    private var callDirection: String {
+        let media = session.videoEnabled ? "VIDÉO" : "AUDIO"
+        return "APPEL \(media) \(session.outgoing ? "SORTANT" : "ENTRANT")"
+    }
+
+    private var phaseTitle: String {
+        if session.mediaConnected { return "Communication sécurisée" }
+        if !session.outgoing && session.invitationReady && !session.connecting { return "\(session.peerName) vous appelle" }
+        if session.connectionLabel.localizedCaseInsensitiveContains("Sonnerie") { return "Le téléphone de votre contact sonne" }
+        if session.connectionLabel.localizedCaseInsensitiveContains("Reconnexion") { return "Reconnexion automatique" }
+        if session.connectionLabel.localizedCaseInsensitiveContains("Mise en relation") { return "Connexion des deux appareils" }
+        return "Préparation de la connexion"
+    }
+
+    private var phaseDetail: String {
+        if session.mediaConnected { return "Audio \(session.videoEnabled ? "et vidéo " : "")transmis en temps réel" }
+        if !session.outgoing && session.invitationReady && !session.connecting { return "Choisissez clairement Accepter ou Refuser" }
+        if session.connectionLabel.localizedCaseInsensitiveContains("Sonnerie") { return "En attente de la réponse de \(session.peerName)" }
+        return "WAPI sécurise le micro\(session.videoEnabled ? ", la caméra" : "") et le réseau"
+    }
+
+    private var durationLabel: String { String(format: "%02d:%02d", connectedSeconds / 60, connectedSeconds % 60) }
 }
 
 private struct IncomingCallAction: View {

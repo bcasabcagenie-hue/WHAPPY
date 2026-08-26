@@ -19,8 +19,10 @@ import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.io.FileInputStream
@@ -919,7 +921,14 @@ class WhappyRepository(
         val pendingMessages = messageOutbox.pending()
         for (pending in pendingMessages) {
             if (pending.senderId != currentUserId) continue
-            val delivered = runCatching { withTimeout(4_500L) { deliverPendingMessage(pending) } }.isSuccess
+            val timeout = when (pending.kind) {
+                "audio" -> 20_000L
+                "image" -> 25_000L
+                "document" -> 35_000L
+                "video" -> 60_000L
+                else -> 4_500L
+            }
+            val delivered = runCatching { withTimeout(timeout) { deliverPendingMessage(pending) } }.isSuccess
             if (!delivered) {
                 messageOutbox.markAttempt(pending.id)
                 return false
@@ -1417,10 +1426,14 @@ class WhappyRepository(
             "document" -> "Document"
             else -> "Photo"
         }
-        val localFile = WapiMediaStore.copyToOutbox(appContext, uri, kind, safeName)
-            ?: error("attachment-unreadable")
-        val exactSize = localFile.length()
-        val checksum = localFile.sha256()
+        // Stage and hash the recording away from the UI thread. The local
+        // outbox becomes the source of truth before any network operation so
+        // the voice bubble can appear immediately in the conversation.
+        val (localFile, exactSize, checksum) = withContext(Dispatchers.IO) {
+            val file = WapiMediaStore.copyToOutbox(appContext, uri, kind, safeName)
+                ?: error("attachment-unreadable")
+            Triple(file, file.length(), file.sha256())
+        }
         val pending = WhappyPendingMessage(
             id = db.collection(if (source == "groups") "groups" else "conversations")
                 .document(conversationId).collection("messages").document().id,
@@ -1443,16 +1456,7 @@ class WhappyRepository(
             senderPhotoUrl = senderPhotoUrl.takeIf { it.startsWith("https://") }?.take(2_000).orEmpty(),
         )
         messageOutbox.enqueue(pending)
-        return runCatching {
-            withTimeout(15_000L) { deliverPendingMessage(pending) }
-            messageOutbox.remove(pending.id)
-            localFile.delete()
-            WhappyDeliveryResult.SENT
-        }.getOrElse {
-            messageOutbox.markAttempt(pending.id)
-            WhappyMessageSync.schedule(appContext)
-            WhappyDeliveryResult.QUEUED
-        }
+        return WhappyDeliveryResult.QUEUED
     }
 
     suspend fun publishListing(user: WhappyMember, title: String, price: String, place: String, mode: String) {

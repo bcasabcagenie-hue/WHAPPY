@@ -504,12 +504,15 @@ class WhappyViewModel(
                     senderName = accountName(),
                     senderPhotoUrl = state.accountPhotoUrl,
                 )
-            }.onSuccess { delivery ->
-                _uiState.update { current -> current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT) }
-                // Keep the local bubble visible while an attachment is being
-                // uploaded. The outbox is the source of truth until the
-                // Firestore listener confirms the final download URL.
+            }.onSuccess {
+                // Staging is complete: release the composer and expose the
+                // outbox bubble before waiting for Firebase Storage.
+                _uiState.update { current -> current.copy(sending = false, error = null) }
                 refreshPendingMessages(conversation.id, user.uid)
+                val delivered = runCatching { repository.flushPendingMessages() }.getOrDefault(false)
+                if (!delivered) repository.schedulePendingMessageSync()
+                _uiState.update { current -> current.copy(online = delivered || current.online) }
+                if (!delivered) refreshPendingMessages(conversation.id, user.uid)
             }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le média n’a pas été envoyé") } }
         }

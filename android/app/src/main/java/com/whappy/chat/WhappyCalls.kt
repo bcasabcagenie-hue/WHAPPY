@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1174,6 +1175,31 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
     }
     val acceptGreen = Color(0xFF22C55E)
     val declineRed = Color(0xFFEF4444)
+    val connected = call.status == "Connecté"
+    val callDirection = when {
+        call.incoming && call.video -> "APPEL VIDÉO ENTRANT"
+        call.incoming -> "APPEL AUDIO ENTRANT"
+        call.video -> "APPEL VIDÉO SORTANT"
+        else -> "APPEL AUDIO SORTANT"
+    }
+    val phaseTitle = when {
+        call.error != null -> "Connexion interrompue"
+        connected -> "Communication sécurisée"
+        call.incoming && call.actionPending -> "Préparation de l’appel"
+        call.incoming -> "${call.peerName.ifBlank { "Votre contact" }} vous appelle"
+        call.status.contains("Sonnerie", ignoreCase = true) -> "Le téléphone de votre contact sonne"
+        call.status.contains("Reconnexion", ignoreCase = true) -> "Reconnexion automatique"
+        call.status.contains("Mise en relation", ignoreCase = true) -> "Connexion des deux appareils"
+        else -> "Préparation de la connexion"
+    }
+    val phaseDetail = when {
+        call.error != null -> "L’appel reste ouvert : réessayez ou fermez proprement la session."
+        connected -> "Audio ${if (call.video) "et vidéo " else ""}transmis en temps réel"
+        call.incoming && !call.actionPending -> "Choisissez clairement Accepter ou Refuser"
+        call.status.contains("Sonnerie", ignoreCase = true) -> "En attente de la réponse de ${call.peerName.ifBlank { "votre contact" }}"
+        call.status.contains("Reconnexion", ignoreCase = true) -> "WAPI recherche le meilleur chemin Internet disponible"
+        else -> "WAPI sécurise le micro${if (call.video) ", la caméra" else ""} et le réseau"
+    }
     val pulseTransition = rememberInfiniteTransition(label = "wapi-call-pulse")
     val pulse by pulseTransition.animateFloat(
         initialValue = .96f,
@@ -1203,28 +1229,54 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
         }
         Surface(
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 15.dp),
-            color = Color.Black.copy(alpha = .18f),
+            color = Color.Black.copy(alpha = .28f),
             shape = RoundedCornerShape(100.dp),
         ) {
-            Text("🔒  WAPI · chiffrement de session", Modifier.padding(horizontal = 15.dp, vertical = 8.dp), color = Color.White.copy(alpha = .86f), fontSize = 10.sp)
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(callDirection, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text("🔒 Session WAPI chiffrée", color = Color.White.copy(alpha = .72f), fontSize = 9.sp)
+            }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             if (!call.video || !call.mediaReady || call.incoming || call.error != null) {
                 Box(
-                    Modifier.size(142.dp).graphicsLayer {
+                    Modifier.size(158.dp).graphicsLayer {
                         scaleX = if (call.incoming && !call.actionPending) pulse else 1f
                         scaleY = if (call.incoming && !call.actionPending) pulse else 1f
-                    }.clip(CircleShape).background(Color.White.copy(alpha = .13f)),
+                    }.clip(CircleShape).background(Color.White.copy(alpha = .12f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    UserAvatar(call.peerPhotoUrl, call.peerName, 120.dp, Modifier.clip(CircleShape))
+                    UserAvatar(call.peerPhotoUrl, call.peerName, 132.dp, Modifier.clip(CircleShape))
                 }
             }
-            Text(call.peerName.ifBlank { "Contact WAPI" }, Modifier.padding(top = 22.dp), color = Color.White, fontSize = 28.sp)
-            if (call.incoming) Text(if (call.video) "Appel vidéo entrant" else "Appel audio entrant", Modifier.padding(top = 6.dp), color = Color.White.copy(alpha = .76f), fontSize = 14.sp)
-            Text(if (connectedSeconds > 0) "%02d:%02d · Connecté".format(connectedSeconds / 60, connectedSeconds % 60) else call.status, Modifier.padding(top = 9.dp), color = Color.White.copy(alpha = .84f))
+            Text(call.peerName.ifBlank { "Contact WAPI" }, Modifier.padding(top = 20.dp), color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.SemiBold)
+            if (call.peerPhone.isNotBlank()) Text(call.peerPhone, Modifier.padding(top = 4.dp), color = Color.White.copy(alpha = .66f), fontSize = 12.sp)
+            Surface(
+                Modifier.padding(horizontal = 24.dp, vertical = 16.dp).fillMaxWidth(),
+                color = Color.Black.copy(alpha = .24f),
+                shape = RoundedCornerShape(22.dp),
+            ) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (connected) {
+                        Box(Modifier.size(12.dp).clip(CircleShape).background(acceptGreen))
+                    } else if (call.error == null) {
+                        CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Rounded.CallEnd, null, tint = declineRed, modifier = Modifier.size(24.dp))
+                    }
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(
+                            if (connectedSeconds > 0) "%02d:%02d · %s".format(connectedSeconds / 60, connectedSeconds % 60, phaseTitle) else phaseTitle,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(phaseDetail, Modifier.padding(top = 3.dp), color = Color.White.copy(alpha = .70f), fontSize = 10.sp, lineHeight = 14.sp)
+                    }
+                }
+            }
             call.error?.let {
-                Surface(Modifier.padding(horizontal = 28.dp, vertical = 18.dp), color = Color(0x33FFFFFF), shape = RoundedCornerShape(18.dp)) {
+                Surface(Modifier.padding(horizontal = 28.dp), color = Color(0x33FFFFFF), shape = RoundedCornerShape(18.dp)) {
                     Text(it, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), color = Color.White, fontSize = 13.sp)
                 }
             }
@@ -1235,9 +1287,22 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             shape = RoundedCornerShape(30.dp),
             shadowElevation = 24.dp,
         ) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp), contentAlignment = Alignment.Center) {
-            if (call.incoming) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                when {
+                    call.incoming -> "Répondez à l’appel"
+                    call.error != null -> "La session peut être relancée"
+                    connected -> "Commandes de l’appel"
+                    else -> "Commandes disponibles pendant la connexion"
+                },
+                color = Color.White.copy(alpha = .68f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = .5.sp,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+                if (call.incoming) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         FilledIconButton(onClick = controller::declineIncoming, modifier = Modifier.size(70.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = declineRed)) { Icon(Icons.Rounded.CallEnd, "Refuser", tint = Color.White, modifier = Modifier.size(30.dp)) }
                         Text("Refuser", Modifier.padding(top = 7.dp), color = Color.White, fontSize = 12.sp)
@@ -1246,25 +1311,22 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                         FilledIconButton(onClick = { controller.acceptIncoming() }, enabled = !call.actionPending, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = acceptGreen)) { Icon(if (call.video) Icons.Rounded.Videocam else Icons.Rounded.Phone, "Décrocher", tint = Color.White) }
                         Text(if (call.actionPending) "Connexion…" else "Décrocher", Modifier.padding(top = 7.dp), color = Color.White, fontSize = 12.sp)
                     }
-                }
-            } else if (call.error != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    }
+                } else if (call.error != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = controller::retryCall, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(BRAND_BLUE))) { Text("Réessayer") }
                     Button(onClick = controller::dismissError, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .18f), contentColor = Color.White)) { Text("Fermer") }
-                }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     WapiCallControl(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (call.muted) "Réactiver" else "Micro", call.muted, controller::toggleMicrophone)
                     WapiCallControl(if (call.speakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
                     if (call.video) WapiCallControl(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", !call.cameraEnabled, controller::toggleCamera)
                     if (call.video) WapiCallControl(Icons.Rounded.Cameraswitch, "Retourner", false, controller::switchCamera)
                     WapiCallControl(Icons.Rounded.CallEnd, "Raccrocher", true, controller::hangUp, destructive = true)
+                    }
                 }
             }
-            }
-        }
-        if (!call.incoming && call.error == null && call.status != "Connecté") {
-            CircularProgressIndicator(Modifier.align(Alignment.TopStart).padding(22.dp).size(22.dp), color = Color.White, strokeWidth = 2.dp)
         }
     }
 }
@@ -1272,8 +1334,8 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
 @Composable
 private fun WapiCallControl(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit, destructive: Boolean = false) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(onClick = onClick, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (destructive) Color(0xFFEF4444) else if (active) Color(0xFF38BDF8) else Color.White)) { Icon(icon, label, tint = if (destructive || active) Color.White else Color(BRAND_BLUE)) }
-        Text(label, Modifier.padding(top = 6.dp), color = Color.White, fontSize = 9.sp, maxLines = 1)
+        FilledIconButton(onClick = onClick, modifier = Modifier.size(50.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (destructive) Color(0xFFEF4444) else if (active) Color(0xFF38BDF8) else Color.White)) { Icon(icon, label, tint = if (destructive || active) Color.White else Color(BRAND_BLUE)) }
+        Text(label, Modifier.padding(top = 6.dp), color = Color.White, fontSize = 8.sp, maxLines = 1)
     }
 }
 

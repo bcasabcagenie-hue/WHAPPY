@@ -211,7 +211,8 @@ extension WhappyStore {
             return
         }
         let fileURL = URL(fileURLWithPath: path)
-        guard let fileData = try? Data(contentsOf: fileURL), !fileData.isEmpty else {
+        guard let fileValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+              let fileSize = fileValues.fileSize, fileSize > 0 else {
             firebaseMessage = "Ce média n’est plus disponible sur cet appareil."
             return
         }
@@ -221,7 +222,7 @@ extension WhappyStore {
         case "video": 60 * 1024 * 1024
         default: 25 * 1024 * 1024
         }
-        guard fileData.count <= maxBytes else {
+        guard fileSize <= maxBytes else {
             firebaseMessage = "Ce média dépasse la taille autorisée par WAPI."
             return
         }
@@ -246,14 +247,20 @@ extension WhappyStore {
             kind: kind,
             mediaPath: path,
             mediaName: safeName,
-            mediaSizeBytes: Int64(fileData.count),
+            mediaSizeBytes: Int64(fileSize),
             viewOnce: viewOnce,
             status: "sending",
             remoteID: messageReference.documentID,
             senderID: userID,
             senderName: currentFirebaseSenderName
         )
+        // Display the local voice bubble before any disk hashing or network
+        // operation. The checksum is calculated in parallel with the upload.
         appendOptimisticFirebaseMessage(localMessage, conversationID: conversation.id)
+        let checksumTask = Task.detached(priority: .utility) { () -> String in
+            guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else { return "" }
+            return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
         let object = Storage.storage().reference().child("\(rootName)/\(remoteID)/\(userID)/\(fileName)")
         let metadata = StorageMetadata()
         metadata.contentType = mediaContentType(for: fileURL, kind: kind)
@@ -279,7 +286,8 @@ extension WhappyStore {
                         self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
                         return
                     }
-                    self.writeFirebaseMediaMessage(label: label, kind: kind, mediaURL: url.absoluteString, fileName: safeName, mediaSizeBytes: fileData.count, mediaSha256: SHA256.hash(data: fileData).compactMap { String(format: "%02x", $0) }.joined(), viewOnce: viewOnce, conversation: conversation, messageReference: messageReference, localMessageID: localMessage.id)
+                    let checksum = await checksumTask.value
+                    self.writeFirebaseMediaMessage(label: label, kind: kind, mediaURL: url.absoluteString, fileName: safeName, mediaSizeBytes: fileSize, mediaSha256: checksum, viewOnce: viewOnce, conversation: conversation, messageReference: messageReference, localMessageID: localMessage.id)
                 }
             }
         }
