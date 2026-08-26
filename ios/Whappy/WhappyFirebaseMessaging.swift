@@ -366,6 +366,9 @@ extension WhappyStore {
                     }
                     groupReference.collection("messages").addDocument(data: event) { eventError in
                         Task { @MainActor in
+                            if eventError == nil {
+                                self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: nextPhoto, eventText: eventText)
+                            }
                             self.firebaseBusy = false
                             self.firebaseMessage = eventError.map(self.friendlyFirebaseError)
                                 ?? "Photo du groupe enregistrée dans WAPI."
@@ -379,9 +382,11 @@ extension WhappyStore {
                 "name": name,
                 "photoUrl": removePhoto ? "" : photoURL,
                 "removePhoto": removePhoto
-            ]) { _, error in
+            ]) { result, error in
                 Task { @MainActor in
                     guard let error else {
+                        let persistedPhoto = (result?.data as? [String: Any])?["photoUrl"] as? String ?? (removePhoto ? "" : photoURL)
+                        self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: persistedPhoto, eventText: eventText)
                         self.firebaseBusy = false
                         self.firebaseMessage = "Photo du groupe enregistrée dans WAPI."
                         return
@@ -421,6 +426,36 @@ extension WhappyStore {
                 save(url.absoluteString)
             }
         }
+    }
+
+    /// The remote snapshot can be delayed on mobile data. Reflect the
+    /// server-confirmed identity immediately so a saved group photo never
+    /// appears to vanish while Firestore finishes its reconciliation.
+    private func applyFirebaseGroupIdentity(conversation: Conversation, name: String, photoURL: String, eventText: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
+        let previous = conversations[index]
+        conversations[index] = Conversation(
+            id: previous.id,
+            name: name,
+            initials: name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased(),
+            phoneNumber: previous.phoneNumber,
+            lastMessage: eventText,
+            unread: previous.unread,
+            readAt: previous.readAt,
+            messages: previous.messages,
+            remoteID: previous.remoteID,
+            source: previous.source,
+            peerUID: previous.peerUID,
+            photoURL: photoURL,
+            peerIsOnline: previous.peerIsOnline,
+            peerLastSeenAt: previous.peerLastSeenAt,
+            groupOwnerID: previous.groupOwnerID,
+            groupAdminIDs: previous.groupAdminIDs,
+            groupMembers: previous.groupMembers,
+            profileType: previous.profileType,
+            businessPageID: previous.businessPageID,
+            businessPageName: previous.businessPageName
+        )
     }
 
     func setFirebaseGroupAdministrator(conversation: Conversation, memberID: String, administrator: Bool) {
