@@ -106,6 +106,7 @@ import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.BusinessCenter
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Check
@@ -1876,11 +1877,12 @@ private fun StoriesScreen(
                 val selectedType = mediaType
                 val selectedName = mediaName
                 publishPickedMediaImmediately = false
-                // The optimistic Story is rendered immediately; selecting the
-                // author is enough to open it without waiting for the rail's
-                // later derived `myStories` value.
-                openOwnStoryAfterCount = -1
-                selectedStoryAuthorId = currentUserId
+                // Do not open the local source URI: its EXIF orientation and
+                // dimensions can briefly produce the wrong shape. The viewer
+                // opens only after the normalized server Story is confirmed.
+                openOwnStoryAfterCount = statuses.count {
+                    it.authorId == currentUserId && it.mediaName != "Publication en cours"
+                }
                 if (preview) {
                     previewStatuses = listOf(
                         WhappyStatus(
@@ -2017,6 +2019,7 @@ private fun StoriesScreen(
         .groupBy { it.authorId }
         .mapValues { (_, stories) -> stories.sortedBy { it.createdAt } }
     val myStories = storyGroups[currentUserId].orEmpty()
+    val confirmedMyStories = myStories.filterNot { it.mediaName == "Publication en cours" }
     val contactStoryGroups = visibleStatuses
         .filterNot { it.authorId == currentUserId }
         .groupBy { it.authorId }
@@ -2032,8 +2035,8 @@ private fun StoriesScreen(
         }
     }
 
-    LaunchedEffect(myStories.size, openOwnStoryAfterCount) {
-        if (openOwnStoryAfterCount >= 0 && myStories.size > openOwnStoryAfterCount) {
+    LaunchedEffect(confirmedMyStories.size, openOwnStoryAfterCount) {
+        if (openOwnStoryAfterCount >= 0 && confirmedMyStories.size > openOwnStoryAfterCount) {
             selectedStoryAuthorId = currentUserId
             openOwnStoryAfterCount = -1
         }
@@ -2092,12 +2095,18 @@ private fun StoriesScreen(
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     StoryCircle(
                         name = "Ma Story",
-                        subtitle = when { myStories.isEmpty() -> "Ajouter"; myStories.size == 1 -> formatStoryTime(myStories.last().createdAt); else -> "${myStories.size} Stories · ${formatStoryTime(myStories.last().createdAt)}" },
+                        subtitle = when { myStories.isEmpty() -> "Ajouter"; confirmedMyStories.isEmpty() -> "Publication…"; confirmedMyStories.size == 1 -> formatStoryTime(confirmedMyStories.last().createdAt); else -> "${confirmedMyStories.size} Stories · ${formatStoryTime(confirmedMyStories.last().createdAt)}" },
                         active = myStories.any { !it.viewedByCurrentUser && it.id !in locallyOpenedStoryIds },
-                        story = myStories.lastOrNull(),
+                        story = confirmedMyStories.lastOrNull(),
                         profilePhotoUrl = currentUserPhotoUrl,
                         publishing = myStories.any { it.mediaName == "Publication en cours" },
-                        onClick = { if (myStories.isEmpty()) openStoryGallery() else { locallyOpenedStoryIds = locallyOpenedStoryIds + myStories.map { it.id }; selectedStoryAuthorId = currentUserId } },
+                        onClick = {
+                            if (myStories.isEmpty()) openStoryGallery()
+                            else if (confirmedMyStories.isNotEmpty()) {
+                                locallyOpenedStoryIds = locallyOpenedStoryIds + confirmedMyStories.map { it.id }
+                                selectedStoryAuthorId = currentUserId
+                            }
+                        },
                         add = myStories.isEmpty(),
                     )
                     contactStoryGroups.forEach { stories ->
@@ -2217,12 +2226,7 @@ private fun StoriesScreen(
                         enabled = (draft.trim().isNotEmpty() || mediaUri != null) && !busy && !storyRecording,
                         onClick = {
                             val value = draft.trim()
-                            openOwnStoryAfterCount = myStories.size
-                            // Select the owner before the upload begins.  The
-                            // optimistic Story added by the view model then
-                            // opens as soon as it is rendered, rather than
-                            // leaving the user on an apparently empty rail.
-                            selectedStoryAuthorId = currentUserId
+                            openOwnStoryAfterCount = confirmedMyStories.size
                             if (preview) previewStatuses = listOf(WhappyStatus("local-${System.currentTimeMillis()}", currentUserId, currentUserName, value, "personal", System.currentTimeMillis(), mediaUri?.toString().orEmpty(), if (mediaType.startsWith("audio/")) "audio" else if (mediaType.startsWith("video/")) "video" else if (mediaUri != null) "image" else "text", mediaName, authorPhotoUrl = currentUserPhotoUrl)) + previewStatuses
                             else onPublish(value, "personal", mediaUri, mediaType)
                             draft = ""; mediaUri = null; mediaType = ""; mediaName = ""; showComposer = false
@@ -2235,7 +2239,7 @@ private fun StoriesScreen(
     }
 
     selectedStoryAuthorId?.let { authorId ->
-        val selectedStories = storyGroups[authorId].orEmpty()
+        val selectedStories = storyGroups[authorId].orEmpty().filterNot { it.mediaName == "Publication en cours" }
         if (selectedStories.isNotEmpty()) {
             StoryViewerDialog(
                 stories = selectedStories,
@@ -6589,6 +6593,9 @@ private fun ChatScreen(
     var groupPhotoToCrop by remember(conversation.id) { mutableStateOf<Uri?>(null) }
     var removeGroupPhoto by remember(conversation.id) { mutableStateOf(false) }
     var groupSavePending by remember(conversation.id) { mutableStateOf(false) }
+    var groupNotificationsMuted by rememberSaveable(conversation.id) {
+        mutableStateOf(WhappyNotifications.isConversationMuted(context, conversation.id))
+    }
     val groupPhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         groupPhotoToCrop = uri
     }
@@ -7503,6 +7510,16 @@ private fun ChatScreen(
                         }
                     }
                     if (conversation.isGroup) {
+                        OutlinedButton(
+                            onClick = {
+                                groupNotificationsMuted = !groupNotificationsMuted
+                                WhappyNotifications.setConversationMuted(context, conversation.id, groupNotificationsMuted)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Rounded.Notifications, null)
+                            Text(if (groupNotificationsMuted) "  Réactiver les notifications" else "  Mettre le groupe en silencieux")
+                        }
                         OutlinedButton(onClick = { groupNameDraft = conversation.peer.displayName; groupPhotoUri = null; removeGroupPhoto = false; showGroupEditor = true; showPeerProfile = false }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Rounded.Edit, null)
                             Text("  Modifier le nom ou la photo")
@@ -7543,6 +7560,13 @@ private fun ChatScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             OutlinedButton(onClick = { showPeerProfile = false; groupCallInvitation = null; groupCallRadio = false; groupCallVideo = false; groupCallOpen = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Phone, null); Text(" Audio") }
                             OutlinedButton(onClick = { showPeerProfile = false; groupCallInvitation = null; groupCallRadio = false; groupCallVideo = true; groupCallOpen = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Videocam, null); Text(" Vidéo") }
+                        }
+                        OutlinedButton(
+                            onClick = { showPeerProfile = false; groupCallInvitation = null; groupCallRadio = true; groupCallVideo = false; groupCallOpen = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Rounded.Radio, null)
+                            Text("  Ouvrir une session radio du groupe")
                         }
                     }
                     if (!conversation.isGroup) {
@@ -9205,15 +9229,24 @@ private fun BusinessScreen(
     var previewPageUpdates by remember { mutableStateOf(emptyMap<String, WhappyBusinessPage>()) }
     var previewDealStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
     var locallyRead by remember { mutableStateOf(emptySet<String>()) }
+    var selectedPageId by rememberSaveable { mutableStateOf("") }
     val visiblePages = (localPages + pages).map { previewPageUpdates[it.id] ?: it }
     val visibleCampaigns = localCampaigns + campaigns
     val visibleDeals = (localDeals + deals).map { deal -> previewDealStatuses[deal.id]?.let { deal.copy(status = it) } ?: deal }
-    val unread = paymentNotices.count { !it.read && it.id !in locallyRead }
-    val paidTotal = paymentNotices.filter { it.status == "paid" }.sumOf { it.amount }
-    val soldUnits = visibleDeals.sumOf { it.sold }
-    val availableStock = visibleDeals.sumOf { (it.stock - it.sold).coerceAtLeast(0) }
-    val advertisingBudget = visibleCampaigns.filter { it.status == "active" }.sumOf { it.dailyBudget * it.days }
-    val activePage = visiblePages.firstOrNull()
+    LaunchedEffect(visiblePages.map { it.id }, selectedPageId) {
+        if (selectedPageId.isBlank() || visiblePages.none { it.id == selectedPageId }) {
+            selectedPageId = visiblePages.firstOrNull()?.id.orEmpty()
+        }
+    }
+    val activePage = visiblePages.firstOrNull { it.id == selectedPageId } ?: visiblePages.firstOrNull()
+    val pageDeals = activePage?.let { page -> visibleDeals.filter { it.pageId == page.id } }.orEmpty()
+    val pageCampaigns = activePage?.let { page -> visibleCampaigns.filter { it.pageId == page.id } }.orEmpty()
+    val pagePayments = activePage?.let { page -> paymentNotices.filter { it.pageId == page.id } }.orEmpty()
+    val unread = pagePayments.count { !it.read && it.id !in locallyRead }
+    val paidTotal = pagePayments.filter { it.status == "paid" }.sumOf { it.amount }
+    val soldUnits = pageDeals.sumOf { it.sold }
+    val availableStock = pageDeals.sumOf { (it.stock - it.sold).coerceAtLeast(0) }
+    val advertisingBudget = pageCampaigns.filter { it.status == "active" }.sumOf { it.dailyBudget * it.days }
     val profileCompletion = activePage?.let { page ->
         listOf(page.logoUrl, page.name, page.category, page.bio, page.city, page.phone, page.website)
             .count { it.isNotBlank() } * 100 / 7
@@ -9225,10 +9258,34 @@ private fun BusinessScreen(
                 profileCompletion = profileCompletion,
                 unread = unread,
                 revenue = paidTotal,
-                orders = paymentNotices.size,
+                orders = pagePayments.size,
                 onNotifications = onEnableNotifications,
                 onEdit = { if (activePage == null) creatingPage = true else editingPage = activePage },
             )
+        }
+        if (visiblePages.size > 1) item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ESPACE ACTIF", color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    visiblePages.forEach { page ->
+                        val selected = page.id == activePage?.id
+                        Surface(
+                            modifier = Modifier.clickable { selectedPageId = page.id },
+                            color = if (selected) WhappyNavy else Color.White,
+                            shape = RoundedCornerShape(15.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) WhappyNavy else WhappyLine),
+                        ) {
+                            Row(Modifier.padding(horizontal = 11.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                UserAvatar(page.logoUrl, page.name, 34.dp, shape = RoundedCornerShape(9.dp))
+                                Column(Modifier.padding(start = 8.dp)) {
+                                    Text(page.name, color = if (selected) Color.White else WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text(page.category.ifBlank { "Business WAPI" }, color = if (selected) Color.White.copy(alpha = .66f) else WhappyMuted, fontSize = 8.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         item {
             BusinessQuickActions(
@@ -9261,16 +9318,16 @@ private fun BusinessScreen(
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricCard("Offres actives", visibleDeals.count { it.status == "active" }.toString(), Modifier.weight(1f))
+                        MetricCard("Offres actives", pageDeals.count { it.status == "active" }.toString(), Modifier.weight(1f))
                         MetricCard("Stock", availableStock.toString(), Modifier.weight(1f))
                         MetricCard("Alertes", unread.toString(), Modifier.weight(1f))
                     }
                 }
-                item { BusinessFeatureCard(Icons.Rounded.Storefront, "Profil Business", if (visiblePages.isEmpty()) "Créez une page publique professionnelle" else "${visiblePages.first().name} · @${visiblePages.first().handle}") { section = BusinessSection.PAGES } }
-                item { BusinessFeatureCard(Icons.AutoMirrored.Rounded.ReceiptLong, "Catalogue", if (visibleDeals.isEmpty()) "Ajoutez vos produits et services" else "${visibleDeals.size} offre(s) · $availableStock unité(s) disponibles") { section = BusinessSection.CATALOG } }
+                item { BusinessFeatureCard(Icons.Rounded.Storefront, "Profil Business", activePage?.let { "${it.name} · @${it.handle}" } ?: "Créez une page publique professionnelle") { section = BusinessSection.PAGES } }
+                item { BusinessFeatureCard(Icons.AutoMirrored.Rounded.ReceiptLong, "Catalogue", if (pageDeals.isEmpty()) "Ajoutez vos produits et services" else "${pageDeals.size} offre(s) · $availableStock unité(s) disponibles") { section = BusinessSection.CATALOG } }
                 item { BusinessFeatureCard(Icons.Rounded.LocalOffer, "Deals", "Offres limitées, stock et ventes en un coup d’œil") { section = BusinessSection.DEALS } }
                 item { BusinessFeatureCard(Icons.Rounded.LiveTv, "Salons de vente", "Lancez une vente événementielle visible dans tout WAPI") { section = BusinessSection.SALES } }
-                item { BusinessFeatureCard(Icons.Rounded.BusinessCenter, "Commandes", if (paymentNotices.isEmpty()) "Centralisez vos prochaines ventes" else "${paymentNotices.size} commande(s) à suivre") { section = BusinessSection.ORDERS } }
+                item { BusinessFeatureCard(Icons.Rounded.BusinessCenter, "Commandes", if (pagePayments.isEmpty()) "Centralisez vos prochaines ventes" else "${pagePayments.size} commande(s) à suivre") { section = BusinessSection.ORDERS } }
                 item { BusinessFeatureCard(Icons.Rounded.Payments, "Paiements", if (unread > 0) "$unread nouvelle(s) notification(s)" else "Historique et alertes de transactions") { section = BusinessSection.PAYMENTS } }
                 item { BusinessFeatureCard(Icons.Rounded.Visibility, "Performances", "Revenus, stock, ventes et budget publicitaire") { section = BusinessSection.INSIGHTS } }
                 item { BusinessFeatureCard(Icons.Rounded.AutoAwesome, "Mon WAPI pour Business", "Créez des contenus et préparez vos directs") { onOpenTwin() } }
@@ -9283,14 +9340,14 @@ private fun BusinessScreen(
             BusinessSection.DEALS -> {
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Deals en cours", Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark); if (visiblePages.isNotEmpty()) TextButton(onClick = { creatingDeal = true }) { Text("+ Créer") } } }
                 if (visiblePages.isEmpty()) item { EmptyState("Page requise", "Créez d’abord votre page Business pour publier des Deals.") }
-                else if (visibleDeals.isEmpty()) item { EmptyState("Aucun Deal", "Publiez une offre limitée pour activer vos ventes.") }
-                items(visibleDeals, key = { it.id }) { deal -> DealCard(deal) { status -> if (preview) previewDealStatuses = previewDealStatuses + (deal.id to status) else onUpdateDealStatus(deal.id, status) } }
+                else if (pageDeals.isEmpty()) item { EmptyState("Aucun Deal", "Publiez une offre limitée pour activer vos ventes.") }
+                items(pageDeals, key = { it.id }) { deal -> DealCard(deal) { status -> if (preview) previewDealStatuses = previewDealStatuses + (deal.id to status) else onUpdateDealStatus(deal.id, status) } }
             }
             BusinessSection.CATALOG -> {
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Catalogue", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark); Text("Produits, services et offres vendables", color = WhappyMuted, fontSize = 11.sp) }; if (visiblePages.isNotEmpty()) Button(onClick = { creatingDeal = true }, shape = RoundedCornerShape(13.dp)) { Text("+ Ajouter") } } }
                 if (visiblePages.isEmpty()) item { EmptyState("Page requise", "Créez votre page Business avant de composer le catalogue.") }
-                else if (visibleDeals.isEmpty()) item { EmptyState("Catalogue vide", "Ajoutez votre premier produit ou service avec une offre attractive.") }
-                items(visibleDeals, key = { "catalog-${it.id}" }) { deal ->
+                else if (pageDeals.isEmpty()) item { EmptyState("Catalogue vide", "Ajoutez votre premier produit ou service avec une offre attractive.") }
+                items(pageDeals, key = { "catalog-${it.id}" }) { deal ->
                     CatalogCard(
                         deal = deal,
                         onAddVariant = { creatingDeal = true },
@@ -9299,18 +9356,18 @@ private fun BusinessScreen(
                 }
             }
             BusinessSection.SALES -> {
-                item { WapiBusinessSaleRoomManager(visiblePages, visibleDeals) }
+                item { WapiBusinessSaleRoomManager(activePage?.let(::listOf).orEmpty(), pageDeals) }
             }
             BusinessSection.ORDERS -> {
                 item { Text("Centre de commandes", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
-                if (paymentNotices.isEmpty()) item { EmptyState("Aucune commande", "Les commandes confirmées par paiement apparaîtront ici.") }
-                items(paymentNotices, key = { "order-${it.id}" }) { notice -> OrderCard(notice) }
+                if (pagePayments.isEmpty()) item { EmptyState("Aucune commande", "Les commandes confirmées par paiement apparaîtront ici.") }
+                items(pagePayments, key = { "order-${it.id}" }) { notice -> OrderCard(notice) }
             }
             BusinessSection.PAYMENTS -> {
                 item { Text("Notifications de paiement", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
                 item { OutlinedButton(onClick = onEnableNotifications, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Notifications, null); Text("Recevoir les alertes sur ce téléphone", Modifier.padding(start = 7.dp), fontWeight = FontWeight.Bold) } }
-                if (paymentNotices.isEmpty()) item { EmptyState("Aucun paiement", "Les paiements confirmés apparaîtront ici dès que votre fournisseur sera connecté.") }
-                items(paymentNotices, key = { it.id }) { notice -> PaymentNoticeCard(notice, notice.id in locallyRead) { locallyRead = locallyRead + notice.id; if (!preview) onMarkPaymentRead(notice.id) } }
+                if (pagePayments.isEmpty()) item { EmptyState("Aucun paiement", "Les paiements confirmés apparaîtront ici dès que votre fournisseur sera connecté.") }
+                items(pagePayments, key = { it.id }) { notice -> PaymentNoticeCard(notice, notice.id in locallyRead) { locallyRead = locallyRead + notice.id; if (!preview) onMarkPaymentRead(notice.id) } }
                 item { Text("Sécurité : une alerte n’est créée qu’après confirmation du fournisseur de paiement. La réception réelle nécessite son webhook serveur.", color = WhappyMuted, fontSize = 10.sp, lineHeight = 15.sp) }
             }
             BusinessSection.ADS -> {
@@ -9326,8 +9383,8 @@ private fun BusinessScreen(
                     }
                 }
                 if (visiblePages.isEmpty()) item { EmptyState("Page requise", "Créez une page Business avant de lancer une publicité.") }
-                else if (visibleCampaigns.isEmpty()) item { EmptyState("Aucune campagne", "Développez votre audience avec une campagne ciblée.") }
-                items(visibleCampaigns, key = { it.id }) { campaign -> CampaignCard(campaign) }
+                else if (pageCampaigns.isEmpty()) item { EmptyState("Aucune campagne", "Développez votre audience avec une campagne ciblée.") }
+                items(pageCampaigns, key = { it.id }) { campaign -> CampaignCard(campaign) }
             }
             BusinessSection.INSIGHTS -> {
                 item { Text("Performances Business", fontSize = 21.sp, fontWeight = FontWeight.Black, color = WhappyDark) }
@@ -9941,6 +9998,7 @@ private fun ProfileScreen(
     var privacy by rememberSaveable { mutableStateOf(prefs.getString("privacy", "contacts") ?: "contacts") }
     var messageNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_messages", true)) }
     var callNotifications by rememberSaveable { mutableStateOf(prefs.getBoolean("notify_calls", true)) }
+    var callEndSounds by rememberSaveable { mutableStateOf(prefs.getBoolean("call_end_sounds", true)) }
     var dataSaver by rememberSaveable { mutableStateOf(prefs.getBoolean("data_saver", false)) }
     var compactMode by rememberSaveable { mutableStateOf(prefs.getBoolean("compact_mode", false)) }
     var protectPreview by rememberSaveable { mutableStateOf(prefs.getBoolean("protect_preview", true)) }
@@ -10084,6 +10142,12 @@ private fun ProfileScreen(
                     prefs.edit().putBoolean("notify_calls", enabled).apply()
                     if (enabled) onEnableNotifications()
                 },
+                callEndSounds = callEndSounds,
+                onCallEndSounds = { enabled ->
+                    callEndSounds = enabled
+                    prefs.edit().putBoolean("call_end_sounds", enabled).apply()
+                    if (enabled) WhappySounds.callEnded(context)
+                },
                 dataSaver = dataSaver,
                 onDataSaver = { enabled ->
                     dataSaver = enabled
@@ -10106,8 +10170,14 @@ private fun ProfileScreen(
             )
         }
         item { Card(Modifier.fillMaxWidth().clickable { settingDialog = "Langue" }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Language, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(t("Langue de l’application", "App language", "Lokota ya application"), fontWeight = FontWeight.Bold, color = WhappyDark); Text(if (language == WhappyLanguage.AUTOMATIC) "Automatique · ${detectedLanguage.label}" else language.label, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } } }
-        items(listOf("Confidentialité" to "Contrôlez qui peut vous contacter", "Notifications" to "Messages, appels et commandes", "Stockage et données" to "Médias et utilisation réseau", "Aide et sécurité" to "Assistance et appareils connectés")) { setting ->
-            Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Lock, null, tint = WhappyBlue); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
+        items(listOf(
+            Triple("Confidentialité", "Contrôlez qui peut vous contacter", Icons.Rounded.Lock),
+            Triple("Notifications", "Messages, sonnerie et appels", Icons.Rounded.Notifications),
+            Triple("Discussions et apparence", "Saisie, vibration et densité", Icons.Rounded.ChatBubble),
+            Triple("Stockage et données", "Médias et utilisation réseau", Icons.Rounded.AudioFile),
+            Triple("Aide et sécurité", "Assistance et appareils connectés", Icons.Rounded.Info),
+        )) { setting ->
+            Card(Modifier.fillMaxWidth().clickable { settingDialog = setting.first }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(WapiSoftBlue), contentAlignment = Alignment.Center) { Icon(setting.third, null, tint = WhappyBlue) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(setting.first, fontWeight = FontWeight.Bold, color = WhappyDark); Text(setting.second, color = WhappyMuted, fontSize = 11.sp) }; Text("›", color = WhappyMuted, fontSize = 23.sp) } }
         }
         if (!preview) item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Se déconnecter de cet appareil") } }
         }
@@ -10146,8 +10216,18 @@ private fun ProfileScreen(
                             Column(Modifier.weight(1f)) { Text("Appels entrants", fontWeight = FontWeight.Bold); Text("Sonnerie plein écran, décrocher ou refuser", color = WhappyMuted, fontSize = 10.sp) }
                             Switch(callNotifications, { enabled -> callNotifications = enabled; prefs.edit().putBoolean("notify_calls", enabled).apply(); if (enabled) onEnableNotifications() })
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text("Fin d’appel", fontWeight = FontWeight.Bold); Text("Confirmation sonore quand la communication est coupée", color = WhappyMuted, fontSize = 10.sp) }
+                            Switch(callEndSounds, { enabled -> callEndSounds = enabled; prefs.edit().putBoolean("call_end_sounds", enabled).apply(); if (enabled) WhappySounds.callEnded(context) })
+                        }
                         OutlinedButton(onClick = onEnableNotifications, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.Notifications, null); Text("  Vérifier l’autorisation Android") }
                         Text("Les appels utilisent une alerte prioritaire ; les messages restent masqués sur l’écran verrouillé.", color = WhappyMuted, fontSize = 11.sp)
+                    }
+                    "Discussions et apparence" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Sons de saisie", fontWeight = FontWeight.Bold); Text("Clic court lié au volume multimédia", color = WhappyMuted, fontSize = 10.sp) }; Switch(typingSounds, { typingSounds = it; prefs.edit().putBoolean("typing_sounds", it).apply(); if (it) WhappySounds.typing(context) }) }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Réponse tactile", fontWeight = FontWeight.Bold); Text("Vibration légère sur les actions importantes", color = WhappyMuted, fontSize = 10.sp) }; Switch(hapticFeedback, { hapticFeedback = it; prefs.edit().putBoolean("haptic_feedback", it).apply(); if (it) WhappySounds.haptic(context) }) }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Aperçu privé", fontWeight = FontWeight.Bold); Text("Masque les contenus sensibles hors de WAPI", color = WhappyMuted, fontSize = 10.sp) }; Switch(protectPreview, { protectPreview = it; prefs.edit().putBoolean("protect_preview", it).apply() }) }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Mode compact", fontWeight = FontWeight.Bold); Text("Plus de conversations visibles sur les petits écrans", color = WhappyMuted, fontSize = 10.sp) }; Switch(compactMode, { compactMode = it; prefs.edit().putBoolean("compact_mode", it).apply() }) }
                     }
                     "Stockage et données" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Économiseur de données", fontWeight = FontWeight.Bold); Text("Réduit le chargement automatique des médias", color = WhappyMuted, fontSize = 11.sp) }; Switch(dataSaver, { dataSaver = it; prefs.edit().putBoolean("data_saver", it).apply() }) }
@@ -10252,6 +10332,8 @@ private fun ProfileQuickSettings(
     onMessageNotifications: (Boolean) -> Unit,
     callNotifications: Boolean,
     onCallNotifications: (Boolean) -> Unit,
+    callEndSounds: Boolean,
+    onCallEndSounds: (Boolean) -> Unit,
     dataSaver: Boolean,
     onDataSaver: (Boolean) -> Unit,
     compactMode: Boolean,
@@ -10284,6 +10366,13 @@ private fun ProfileQuickSettings(
                 subtitle = "Sonnerie et alerte prioritaire",
                 checked = callNotifications,
                 onCheckedChange = onCallNotifications,
+            )
+            QuickSwitchRow(
+                icon = Icons.Rounded.CallEnd,
+                title = "Son de fin d’appel",
+                subtitle = "Confirmation nette après avoir raccroché",
+                checked = callEndSounds,
+                onCheckedChange = onCallEndSounds,
             )
             QuickSwitchRow(
                 icon = Icons.Rounded.AudioFile,

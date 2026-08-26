@@ -38,6 +38,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     @Published private(set) var microphoneEnabled = false
     @Published private(set) var cameraEnabled = false
     @Published private(set) var speakerEnabled = true
+    @Published private(set) var onHold = false
     @Published private(set) var outgoing = false
     @Published private(set) var invitationReady = false
     @Published private(set) var mediaConnected = false
@@ -119,9 +120,16 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     }
 
     func toggleMicrophone() async {
+        guard !onHold else { return }
         let next = !microphoneEnabled
         audioTrack?.isEnabled = next
         microphoneEnabled = next
+    }
+
+    func toggleHold() {
+        onHold.toggle()
+        audioTrack?.isEnabled = onHold ? false : microphoneEnabled
+        localVideoTrack?.isEnabled = onHold ? false : cameraEnabled
     }
 
     func toggleCamera() async {
@@ -444,6 +452,9 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         queuedCandidates.removeAll(); localCandidates.removeAll()
         remoteDescriptionReady = false; answerApplied = false; callDocumentReady = false
         mediaConnected = false
+        onHold = false
+        microphoneEnabled = false
+        cameraEnabled = false
         if !keepState { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 
@@ -552,15 +563,18 @@ struct WapiDirectCallRoom: View {
                         IncomingCallAction(icon: session.videoEnabled ? "video.fill" : "phone.fill", label: "Accepter", color: .green) { Task { await session.connect() } }
                     }.padding(.horizontal, 26).padding(.vertical, 20).background(.black.opacity(0.36), in: RoundedRectangle(cornerRadius: 28, style: .continuous)).padding(.bottom, 28).foregroundStyle(.white)
                 } else if session.mediaConnected {
-                    HStack(spacing: 19) {
-                        CallControl(icon: session.microphoneEnabled ? "mic.fill" : "mic.slash.fill", label: "Micro") { Task { await session.toggleMicrophone() } }
-                        CallControl(icon: session.speakerEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", label: "Haut-parleur") { session.toggleSpeaker() }
-                        if session.videoEnabled {
-                            CallControl(icon: session.cameraEnabled ? "video.fill" : "video.slash.fill", label: "Caméra") { Task { await session.toggleCamera() } }
-                            CallControl(icon: "camera.rotate.fill", label: "Retourner") { Task { await session.switchCamera() } }
-                        }
-                        CallControl(icon: "phone.down.fill", label: "Terminer", destructive: true) { Task { await close() } }
-                    }.padding(.horizontal, 14).padding(.vertical, 16).background(.black.opacity(0.38), in: RoundedRectangle(cornerRadius: 28, style: .continuous)).padding(.bottom, 24).foregroundStyle(.white)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            CallControl(icon: session.onHold ? "play.fill" : "pause.fill", label: session.onHold ? "Reprendre" : "Attente") { session.toggleHold() }
+                            CallControl(icon: session.microphoneEnabled ? "mic.fill" : "mic.slash.fill", label: "Micro") { Task { await session.toggleMicrophone() } }
+                            CallControl(icon: session.speakerEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", label: "Haut-parleur") { session.toggleSpeaker() }
+                            if session.videoEnabled {
+                                CallControl(icon: session.cameraEnabled ? "video.fill" : "video.slash.fill", label: "Caméra") { Task { await session.toggleCamera() } }
+                                CallControl(icon: "camera.rotate.fill", label: "Retourner") { Task { await session.switchCamera() } }
+                            }
+                            CallControl(icon: "phone.down.fill", label: "Terminer", destructive: true) { Task { await close() } }
+                        }.padding(.horizontal, 14)
+                    }.padding(.vertical, 16).background(.black.opacity(0.38), in: RoundedRectangle(cornerRadius: 28, style: .continuous)).padding(.horizontal, 14).padding(.bottom, 24).foregroundStyle(.white)
                 }
             }
         }
@@ -592,6 +606,7 @@ struct WapiDirectCallRoom: View {
     }
 
     private var phaseTitle: String {
+        if session.onHold { return "Appel en attente" }
         if session.mediaConnected { return "Communication sécurisée" }
         if !session.outgoing && session.invitationReady && !session.connecting { return "\(session.peerName) vous appelle" }
         if session.connectionLabel.localizedCaseInsensitiveContains("Sonnerie") { return "Le téléphone de votre contact sonne" }
@@ -601,6 +616,7 @@ struct WapiDirectCallRoom: View {
     }
 
     private var phaseDetail: String {
+        if session.onHold { return "Votre micro et votre caméra sont temporairement suspendus" }
         if session.mediaConnected { return "Audio \(session.videoEnabled ? "et vidéo " : "")transmis en temps réel" }
         if !session.outgoing && session.invitationReady && !session.connecting { return "Choisissez clairement Accepter ou Refuser" }
         if session.connectionLabel.localizedCaseInsensitiveContains("Sonnerie") { return "En attente de la réponse de \(session.peerName)" }

@@ -46,7 +46,8 @@ internal val WhappyAuroraSoft = Brush.linearGradient(listOf(Color(0xFFE7F7FF), C
 // Use Android's neutral system family for a more premium, information-dense
 // product feel. It keeps rendering identical offline on every device and
 // avoids the toy-like proportions of a rounded display face in dense screens.
-private val WapiFontFamily = FontFamily(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL))
+private val WapiTextFontFamily = FontFamily(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL))
+private val WapiDisplayFontFamily = FontFamily(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL))
 
 internal object WapiMobile {
     val screen = 16.dp
@@ -89,13 +90,13 @@ fun WhappyTheme(content: @Composable () -> Unit) {
             extraLarge = RoundedCornerShape(26.dp),
         ),
         typography = Typography(
-            headlineLarge = TextStyle(fontFamily = WapiFontFamily, fontSize = 30.sp, lineHeight = 35.sp, fontWeight = FontWeight.Black, color = WhappyDark),
-            headlineMedium = TextStyle(fontFamily = WapiFontFamily, fontSize = 24.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, color = WhappyDark),
-            titleLarge = TextStyle(fontFamily = WapiFontFamily, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold, color = WhappyDark),
-            titleMedium = TextStyle(fontFamily = WapiFontFamily, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = WhappyDark),
-            bodyLarge = TextStyle(fontFamily = WapiFontFamily, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Normal, color = WhappyInk),
-            bodyMedium = TextStyle(fontFamily = WapiFontFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal, color = WhappyInk),
-            labelLarge = TextStyle(fontFamily = WapiFontFamily, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold),
+            headlineLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 29.sp, lineHeight = 35.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.25).sp, color = WhappyDark),
+            headlineMedium = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.15).sp, color = WhappyDark),
+            titleLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.Medium, color = WhappyDark),
+            titleMedium = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium, color = WhappyDark),
+            bodyLarge = TextStyle(fontFamily = WapiTextFontFamily, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Normal, color = WhappyInk),
+            bodyMedium = TextStyle(fontFamily = WapiTextFontFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal, color = WhappyInk),
+            labelLarge = TextStyle(fontFamily = WapiDisplayFontFamily, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
         ),
         content = content,
     )

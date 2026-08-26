@@ -106,11 +106,21 @@ object WhappySounds {
     fun cardFlip(context: Context) = sample(context, R.raw.wapi_card_flip, .68f)
     fun reward(context: Context) = sample(context, R.raw.wapi_victory, .86f)
 
+    /** Audible confirmation that a call has actually left the screen/session. */
+    fun callEnded(context: Context) {
+        if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("call_end_sounds", true)) return
+        tone(ToneGenerator.TONE_PROP_ACK, 105, 42)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            { tone(ToneGenerator.TONE_PROP_BEEP2, 95, 34) },
+            115L,
+        )
+    }
+
     fun typing(context: Context) {
         if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("typing_sounds", true)) return
         val now = android.os.SystemClock.elapsedRealtime()
-        // Keep a crisp, audible pulse without turning fast typing into a
-        // continuous tone. It still follows the user's media-volume setting.
+        // A short native key click is less electronic and tiring than a DTMF
+        // beep. It follows the media volume and remains throttled while typing.
         if (now - lastKeyAt < 54L) return
         lastKeyAt = now
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -118,14 +128,11 @@ object WhappySounds {
         // person controls on the device, even when Android system touch sounds
         // have been disabled.  It remains silent when media volume is zero.
         if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) <= 0) return
-        runCatching {
-            val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 34).also { keyboardTone = it }
-            generator.startTone(ToneGenerator.TONE_PROP_BEEP, 28)
-        }.onFailure {
-            // A few OEMs restrict ToneGenerator. Their native sound effect is
-            // a graceful fallback rather than making typing soundless.
-            runCatching { audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, .12f) }
-        }
+        runCatching { audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, .22f) }
+            .onFailure {
+                val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 24).also { keyboardTone = it }
+                generator.startTone(ToneGenerator.TONE_PROP_BEEP, 18)
+            }
     }
 
     fun haptic(context: Context, strong: Boolean = false) {

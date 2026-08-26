@@ -64,7 +64,10 @@ enum WapiSounds {
     static func recordingStopped() { play(1057) }
     static func recordingCancelled() { play(1073) }
     static func callStarted() { play(1057) }
-    static func callEnded() { play(1001) }
+    static func callEnded() {
+        guard UserDefaults.standard.object(forKey: "wapi.call.end.sounds.enabled") as? Bool ?? true else { return }
+        play(1001)
+    }
     static func storyPublished() { play(1025) }
     static func gameMove() { playGameSample("wapi_piece_move", volume: 0.66, fallback: 1104) }
     static func gameCapture() { playGameSample("wapi_piece_capture", volume: 0.82, fallback: 1057) }

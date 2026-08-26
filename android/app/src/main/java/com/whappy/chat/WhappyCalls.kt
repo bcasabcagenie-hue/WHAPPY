@@ -45,7 +45,9 @@ import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Phone
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material3.Button
@@ -136,6 +138,7 @@ data class WhappyCallUiState(
     val peerPhotoUrl: String = "",
     val status: String = "",
     val muted: Boolean = false,
+    val onHold: Boolean = false,
     val cameraEnabled: Boolean = true,
     val speakerOn: Boolean = false,
     val mediaReady: Boolean = false,
@@ -493,6 +496,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
     }
 
     fun toggleMicrophone() {
+        if (state.onHold) return
         val enabled = !(localAudioTrack?.enabled() ?: true)
         mutedByAudioFocus = false
         localAudioTrack?.setEnabled(enabled)
@@ -508,6 +512,13 @@ class WhappyCallController(private val activity: ComponentActivity) {
     fun toggleSpeaker() {
         val speakerOn = routeCallAudio(preferSpeaker = !state.speakerOn)
         state = state.copy(speakerOn = speakerOn)
+    }
+
+    fun toggleHold() {
+        val next = !state.onHold
+        localAudioTrack?.setEnabled(if (next) false else !state.muted)
+        localVideoTrack?.setEnabled(if (next) false else state.cameraEnabled)
+        state = state.copy(onHold = next)
     }
 
     fun switchCamera() {
@@ -1038,7 +1049,8 @@ class WhappyCallController(private val activity: ComponentActivity) {
         }
     }
 
-    private fun closeLocal() {
+    private fun closeLocal(playEndSound: Boolean = true) {
+        val wasVisible = state.visible
         stopRinging()
         WhappyNotifications.cancelCall(activity, callId.ifBlank { pendingCallId })
         closeConnectionsOnly()
@@ -1048,6 +1060,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         callDocumentReady = false
         terminalActionPending = false
         state = WhappyCallUiState()
+        if (playEndSound && wasVisible) WhappySounds.callEnded(activity)
     }
 
     private fun startRinging() {
@@ -1122,7 +1135,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
 
     fun release() {
         WhappyCallEvents.bind(null)
-        closeLocal()
+        closeLocal(playEndSound = false)
         incomingRegistration?.remove()
         incomingRegistration = null
         if (factoryDelegate.isInitialized()) factory.dispose()
@@ -1193,6 +1206,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
     }
     val phaseTitle = when {
         call.error != null -> "Connexion interrompue"
+        call.onHold -> "Appel en attente"
         connected -> "Communication sécurisée"
         call.incoming && call.actionPending -> "Préparation de l’appel"
         call.incoming -> "${call.peerName.ifBlank { "Votre contact" }} vous appelle"
@@ -1203,6 +1217,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
     }
     val phaseDetail = when {
         call.error != null -> "L’appel reste ouvert : réessayez ou fermez proprement la session."
+        call.onHold -> "Votre micro et votre caméra sont temporairement suspendus"
         connected -> "Audio ${if (call.video) "et vidéo " else ""}transmis en temps réel"
         call.incoming && !call.actionPending -> "Choisissez clairement Accepter ou Refuser"
         call.status.contains("Sonnerie", ignoreCase = true) -> "En attente de la réponse de ${call.peerName.ifBlank { "votre contact" }}"
@@ -1328,6 +1343,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    WapiCallControl(if (call.onHold) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (call.onHold) "Reprendre" else "Attente", call.onHold, controller::toggleHold)
                     WapiCallControl(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (call.muted) "Réactiver" else "Micro", call.muted, controller::toggleMicrophone)
                     WapiCallControl(if (call.speakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
                     if (call.video) WapiCallControl(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", !call.cameraEnabled, controller::toggleCamera)

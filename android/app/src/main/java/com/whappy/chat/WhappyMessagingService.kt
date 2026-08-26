@@ -98,7 +98,7 @@ object WhappyNotifications {
     // Android keeps a channel's sound policy after its first creation.  A new
     // id deliberately upgrades devices that installed an older silent build.
     private const val CHANNEL_MESSAGES = "wapi_messages_v5"
-    private const val CHANNEL_CALLS = "whappy_calls_v4"
+    private const val CHANNEL_CALLS = "whappy_calls_v5"
     private const val CHANNEL_ACTIVITY = "whappy_activity_v2"
     private const val CALL_NOTIFICATION_BASE = 6_100
     private const val MESSAGE_SUMMARY_ID = 6_001
@@ -151,7 +151,7 @@ object WhappyNotifications {
 
     @SuppressLint("MissingPermission")
     fun showMessage(context: Context, title: String, body: String, senderName: String, senderPhotoUrl: String = "", conversationId: String) {
-        if (!preferences(context).getBoolean("notify_messages", true) || !canNotify(context)) return
+        if (!preferences(context).getBoolean("notify_messages", true) || isConversationMuted(context, conversationId) || !canNotify(context)) return
         ensureChannel(context)
         val safeConversationId = conversationId.ifBlank { "$title:$body" }
         val unreadCount = incrementUnreadBadge(context, safeConversationId)
@@ -185,6 +185,15 @@ object WhappyNotifications {
         val manager = NotificationManagerCompat.from(context)
         manager.notify(notificationId(safeConversationId), notification)
         manager.notify(MESSAGE_SUMMARY_ID, messageSummary(context, unreadCount))
+    }
+
+    fun isConversationMuted(context: Context, conversationId: String): Boolean =
+        conversationId.isNotBlank() && preferences(context).getBoolean("muted_conversation_$conversationId", false)
+
+    fun setConversationMuted(context: Context, conversationId: String, muted: Boolean) {
+        if (conversationId.isBlank()) return
+        preferences(context).edit().putBoolean("muted_conversation_$conversationId", muted).apply()
+        if (muted) NotificationManagerCompat.from(context).cancel(notificationId(conversationId))
     }
 
     /** Clears only the opened thread from the launcher count, not unrelated chats. */
@@ -239,6 +248,8 @@ object WhappyNotifications {
             .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer))
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+            .setVibrate(longArrayOf(0, 700, 350, 700, 350, 700))
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open)
             .setFullScreenIntent(open, true)

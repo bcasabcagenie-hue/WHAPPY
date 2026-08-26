@@ -220,11 +220,13 @@ private struct UpdatesView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
                         let ownStories = storyGroups.first(where: { $0.first?.authorID == store.firebaseUserID }) ?? []
+                        let confirmedOwnStories = ownStories.filter { !store.pendingStoryIDs.contains($0.id) }
                         Button {
-                            if let latest = ownStories.last { selectedStory = latest }
+                            if let latest = confirmedOwnStories.last { selectedStory = latest }
+                            else if !ownStories.isEmpty { return }
                             else { storyComposerPresented = true }
                         } label: {
-                            WapiStoryCircle(story: ownStories.last, title: "Ma Story", isOwn: true, hasUnseen: false, showAdd: ownStories.isEmpty)
+                            WapiStoryCircle(story: confirmedOwnStories.last, title: "Ma Story", isOwn: true, hasUnseen: false, showAdd: ownStories.isEmpty)
                         }
                         .buttonStyle(.plain)
                         ForEach(Array(storyGroups.filter { $0.first?.authorID != store.firebaseUserID }.enumerated()), id: \.offset) { _, group in
@@ -4108,6 +4110,7 @@ private struct DataSettingsView: View {
     @EnvironmentObject private var store: WhappyStore
     @AppStorage("wapi.sounds.enabled") private var soundsEnabled = true
     @AppStorage("wapi.typing.sounds.enabled") private var typingSoundsEnabled = true
+    @AppStorage("wapi.call.end.sounds.enabled") private var callEndSoundsEnabled = true
 
     var body: some View {
         Form {
@@ -4119,6 +4122,7 @@ private struct DataSettingsView: View {
             Section("Sons et vibrations") {
                 Toggle("Sons WAPI", isOn: $soundsEnabled)
                 Toggle("Son de saisie", isOn: $typingSoundsEnabled).disabled(!soundsEnabled)
+                Toggle("Son de fin d’appel", isOn: $callEndSoundsEnabled).disabled(!soundsEnabled)
                 Text("Les sons restent courts et suivent le volume de votre appareil. Les appels et les notifications conservent leurs alertes système.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
