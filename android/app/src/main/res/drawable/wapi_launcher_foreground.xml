@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The supplied WAPI mark already includes its safe white margin and blue field. -->
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:gravity="fill"
-    android:src="@drawable/wapi_identity" />
+<!-- Launcher-specific artwork keeps the white spiral inside Android's safe zone. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/wapi_launcher_identity"
+    android:inset="16%" />

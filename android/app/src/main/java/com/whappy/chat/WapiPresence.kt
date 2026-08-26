@@ -18,6 +18,9 @@ object WapiPresence {
     private var foreground = false
     private var activeUserId: String? = null
 
+    val isForeground: Boolean
+        get() = foreground
+
     private val heartbeat = object : Runnable {
         override fun run() {
             activeUserId?.takeIf { foreground }?.let(::markOnline)

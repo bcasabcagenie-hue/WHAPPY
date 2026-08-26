@@ -4,8 +4,8 @@ import com.google.firebase.auth.FirebaseUser
 
 enum class WhappyTab(val label: String) {
     MOMENTS("Accueil"),
-    STORIES("Actus"),
     MESSAGES("Messages"),
+    STORIES("Actus"),
     WEPI("Assistant"),
     CONTACTS("Contacts"),
     CHANNELS("Chaînes"),
@@ -25,6 +25,7 @@ data class WhappyMember(
     val displayName: String,
     val phoneNumber: String = "",
     val photoUrl: String = "",
+    val verified: Boolean = false,
     val isOnline: Boolean = false,
     val lastSeenAt: Long = 0L,
 )
@@ -44,6 +45,14 @@ data class WhappyConversation(
     val groupAdminIds: List<String> = emptyList(),
     val groupMembers: List<WhappyMember> = emptyList(),
     val groupReadAt: Map<String, Long> = emptyMap(),
+    val groupDescription: String = "",
+    val groupInviteToken: String = "",
+    val groupEditInfoByMembers: Boolean = true,
+    val groupOnlyAdminsCanSend: Boolean = false,
+    /** Distinguishes the personal inbox from a Business inbox owned by the same user. */
+    val profileType: String = "personal",
+    val businessPageId: String = "",
+    val businessPageName: String = "",
 )
 
 data class WhappyContact(
@@ -60,6 +69,11 @@ data class WhappyMessage(
     val mediaUrl: String = "",
     val mediaName: String = "",
     val durationSeconds: Int = 0,
+    /** Waphsare keeps the exact source bytes; this checksum lets the recipient verify it. */
+    val mediaSizeBytes: Long = 0L,
+    val mediaSha256: String = "",
+    val viewOnce: Boolean = false,
+    val viewedByIds: Set<String> = emptySet(),
     val replyToId: String = "",
     val replyText: String = "",
     val reactions: Map<String, String> = emptyMap(),
@@ -116,6 +130,9 @@ data class WhappyBusinessPage(
     val ownerId: String,
     val phone: String = "",
     val website: String = "",
+    val logoUrl: String = "",
+    val verified: Boolean = false,
+    val onboardingComplete: Boolean = true,
 )
 
 data class WhappyCampaign(
@@ -174,6 +191,7 @@ data class WhappyLive(
     val audioOnly: Boolean = false,
     val allowGiftWearables: Boolean = false,
     val giftCount: Int = 0,
+    val hostPhotoUrl: String = "",
 )
 
 data class WhappyStatus(
@@ -188,6 +206,8 @@ data class WhappyStatus(
     val mediaName: String = "",
     val expiresAt: Long = 0L,
     val viewCount: Int = 0,
+    val viewedByCurrentUser: Boolean = false,
+    val authorPhotoUrl: String = "",
 )
 
 data class WapiStoryViewer(
@@ -252,6 +272,7 @@ data class WhappyTwinProfile(
     val videoUrl: String = "",
     val voiceUrl: String = "",
     val movementUrl: String = "",
+    val outfitUrl: String = "",
     val voiceStatus: String = "empty",
     val movementStatus: String = "empty",
 ) {
@@ -293,8 +314,9 @@ data class WhappyUiState(
     val user: FirebaseUser? = null,
     val accountDisplayName: String = "",
     val accountPhotoUrl: String = "",
+    val accountVerified: Boolean = false,
     val sessionRestoring: Boolean = true,
-    val tab: WhappyTab = WhappyTab.MOMENTS,
+    val tab: WhappyTab = WhappyTab.MESSAGES,
     val conversations: List<WhappyConversation> = emptyList(),
     val contacts: List<WhappyContact> = emptyList(),
     val contactSearchResult: WhappyMember? = null,
@@ -328,7 +350,14 @@ data class WhappyUiState(
     val contactBusy: Boolean = false,
     val businessSearchBusy: Boolean = false,
     val actionBusy: Boolean = false,
+    val groupUpdate: WapiGroupUpdateState = WapiGroupUpdateState(),
     val twinBusy: Boolean = false,
     val online: Boolean = true,
     val error: String? = null,
+)
+
+data class WapiGroupUpdateState(
+    val groupId: String = "",
+    val status: String = "idle",
+    val message: String = "",
 )

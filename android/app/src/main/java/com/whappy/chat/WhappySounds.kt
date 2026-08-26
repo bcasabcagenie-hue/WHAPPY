@@ -2,16 +2,21 @@ package com.whappy.chat
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.SoundPool
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.view.SoundEffectConstants
 
 object WhappySounds {
     private var lastKeyAt = 0L
     private var keyboardTone: ToneGenerator? = null
+    private val gameSamples = mutableMapOf<Int, Int>()
+    private val readySamples = mutableSetOf<Int>()
+    private var gameSoundPool: SoundPool? = null
 
     private fun tone(type: Int, duration: Int, volume: Int = 55) {
         runCatching {
@@ -31,11 +36,75 @@ object WhappySounds {
     fun voiceRecordingStopped() = tone(ToneGenerator.TONE_PROP_ACK, 118, 48)
     fun voiceRecordingCancelled() = tone(ToneGenerator.TONE_PROP_NACK, 74, 30)
     fun dice() = tone(ToneGenerator.TONE_DTMF_6, 90, 34)
+    fun gameOpen() = tone(ToneGenerator.TONE_PROP_PROMPT, 135, 44)
     fun move() = tone(ToneGenerator.TONE_PROP_BEEP, 55, 24)
+    fun billiardCue() = tone(ToneGenerator.TONE_DTMF_4, 78, 46)
+    fun billiardPocket() = tone(ToneGenerator.TONE_PROP_ACK, 145, 52)
     fun cardFlip() = tone(ToneGenerator.TONE_DTMF_2, 70, 30)
     fun pokerAction() = tone(ToneGenerator.TONE_PROP_PROMPT, 100, 34)
     fun reward() = tone(ToneGenerator.TONE_PROP_ACK, 180, 48)
     fun impact() = tone(ToneGenerator.TONE_PROP_NACK, 160, 38)
+
+    @Synchronized
+    fun preloadGames(context: Context) {
+        if (gameSoundPool != null) return
+        val pool = SoundPool.Builder()
+            .setMaxStreams(10)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            .build()
+        pool.setOnLoadCompleteListener { _, sampleId, status ->
+            if (status == 0) synchronized(this) { readySamples += sampleId }
+        }
+        gameSoundPool = pool
+        listOf(
+            R.raw.wapi_dice_roll,
+            R.raw.wapi_piece_select,
+            R.raw.wapi_piece_move,
+            R.raw.wapi_piece_capture,
+            R.raw.wapi_piece_crown,
+            R.raw.wapi_pool_hit,
+            R.raw.wapi_pool_pocket,
+            R.raw.wapi_card_flip,
+            R.raw.wapi_victory,
+        ).forEach { resource -> gameSamples[resource] = pool.load(context.applicationContext, resource, 1) }
+    }
+
+    private fun sample(context: Context, resourceId: Int, volume: Float = .78f, rate: Float = 1f) {
+        preloadGames(context)
+        val pool = synchronized(this) { gameSoundPool }
+        val sampleId = synchronized(this) { gameSamples[resourceId] }
+        val ready = sampleId != null && synchronized(this) { sampleId in readySamples }
+        if (pool != null && sampleId != null && ready) {
+            pool.play(sampleId, volume, volume, 1, 0, rate.coerceIn(.5f, 2f))
+            return
+        }
+        // First-use fallback while SoundPool is still decoding the WAV.
+        runCatching {
+            MediaPlayer.create(context.applicationContext, resourceId)?.apply {
+                setVolume(volume, volume)
+                setOnCompletionListener { player -> player.release() }
+                setOnErrorListener { player, _, _ -> player.release(); true }
+                start()
+            }
+        }
+    }
+
+    fun dice(context: Context) = sample(context, R.raw.wapi_dice_roll, .72f)
+    fun pieceSelected(context: Context) = sample(context, R.raw.wapi_piece_select, .62f)
+    fun move(context: Context) = sample(context, R.raw.wapi_piece_move, .64f)
+    fun capture(context: Context) = sample(context, R.raw.wapi_piece_capture, .80f)
+    fun crowned(context: Context) = sample(context, R.raw.wapi_piece_crown, .82f)
+    fun billiardCue(context: Context) = sample(context, R.raw.wapi_pool_hit, .88f)
+    fun billiardCollision(context: Context, intensity: Float = .45f) =
+        sample(context, R.raw.wapi_pool_hit, intensity.coerceIn(.18f, .66f), 1.22f)
+    fun billiardPocket(context: Context) = sample(context, R.raw.wapi_pool_pocket, .82f)
+    fun cardFlip(context: Context) = sample(context, R.raw.wapi_card_flip, .68f)
+    fun reward(context: Context) = sample(context, R.raw.wapi_victory, .86f)
 
     fun typing(context: Context) {
         if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("typing_sounds", true)) return
@@ -55,7 +124,7 @@ object WhappySounds {
         }.onFailure {
             // A few OEMs restrict ToneGenerator. Their native sound effect is
             // a graceful fallback rather than making typing soundless.
-            runCatching { audioManager.playSoundEffect(SoundEffectConstants.CLICK, .12f) }
+            runCatching { audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, .12f) }
         }
     }
 

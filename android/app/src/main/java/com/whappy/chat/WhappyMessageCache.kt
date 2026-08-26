@@ -46,6 +46,10 @@ class WhappyMessageCache(context: Context) {
         .put("mediaUrl", mediaUrl)
         .put("mediaName", mediaName)
         .put("durationSeconds", durationSeconds)
+        .put("mediaSizeBytes", mediaSizeBytes)
+        .put("mediaSha256", mediaSha256)
+        .put("viewOnce", viewOnce)
+        .put("viewedByIds", org.json.JSONArray(viewedByIds.toList()))
         .put("replyToId", replyToId)
         .put("replyText", replyText)
         .put("reactions", JSONObject(reactions))
@@ -74,6 +78,13 @@ class WhappyMessageCache(context: Context) {
             mediaUrl = optString("mediaUrl"),
             mediaName = optString("mediaName"),
             durationSeconds = optInt("durationSeconds"),
+            mediaSizeBytes = optLong("mediaSizeBytes"),
+            mediaSha256 = optString("mediaSha256"),
+            viewOnce = optBoolean("viewOnce"),
+            viewedByIds = buildSet {
+                val values = optJSONArray("viewedByIds")
+                for (index in 0 until (values?.length() ?: 0)) values?.optString(index)?.takeIf(String::isNotBlank)?.let(::add)
+            },
             replyToId = optString("replyToId"),
             replyText = optString("replyText"),
             reactions = reactions,

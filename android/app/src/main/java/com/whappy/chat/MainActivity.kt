@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit
 class MainActivity : ComponentActivity() {
     private var incomingLink by mutableStateOf<String?>(null)
     private var pendingCallAction by mutableStateOf<String?>(null)
+    private var pendingCallId by mutableStateOf<String?>(null)
     private lateinit var callController: WhappyCallController
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,8 +42,8 @@ class MainActivity : ComponentActivity() {
         WhappyFastStorage.initialize(applicationContext)
         // Cache is disposable; trim it at launch without touching messages,
         // pending uploads or media the user chose to keep offline.
-        WapiMediaStore.trimCache(applicationContext)
-        WhappyMessageSync.schedule(applicationContext)
+        runCatching { WapiMediaStore.trimCache(applicationContext) }
+        runCatching { WhappyMessageSync.schedule(applicationContext) }
         if (!EmojiCompat.isConfigured()) {
             DefaultEmojiCompatConfig.create(applicationContext)?.let { EmojiCompat.init(it) }
         }
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
             intent?.getBooleanExtra("wapi_qa_preview", false) == true
         incomingLink = intent?.dataString
         pendingCallAction = intent?.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
+        pendingCallId = intent?.getStringExtra(WhappyNotifications.EXTRA_CALL_ID)
         setContent {
             val model: WhappyViewModel = viewModel()
             val state by model.uiState.collectAsStateWithLifecycle()
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(state.user?.uid) {
                 WapiPresence.setActiveUser(state.user?.uid)
+                WhappyRealtimeNotifications.bind(this@MainActivity, state.user?.uid)
             }
             LaunchedEffect(incomingLink, state.user?.uid, state.sessionRestoring) {
                 val link = incomingLink
@@ -94,11 +97,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(state.user?.uid) { callController.bindUser(state.user?.uid) }
-            val callState = callController.state
-            LaunchedEffect(pendingCallAction, callState.incoming) {
-                if (pendingCallAction == WhappyNotifications.ACTION_ACCEPT_CALL && callState.incoming) {
-                    callController.acceptIncoming()
+            LaunchedEffect(pendingCallAction, pendingCallId, state.user?.uid) {
+                if (pendingCallAction == WhappyNotifications.ACTION_ACCEPT_CALL && state.user != null) {
+                    callController.acceptIncoming(pendingCallId)
                     pendingCallAction = null
+                    pendingCallId = null
                 }
             }
             CompositionLocalProvider(LocalWhappyCalls provides callController) {
@@ -114,6 +117,7 @@ class MainActivity : ComponentActivity() {
                     onSendMessage = model::sendMessage,
                     onRetryMessages = model::retryPendingMessages,
                     onSendMedia = model::sendMedia,
+                    onMarkViewOnce = model::markViewOnceOpened,
                     onReactMessage = model::reactToMessage,
                     onDeleteMessage = model::deleteMessage,
                     onEditMessage = model::editMessage,
@@ -125,6 +129,8 @@ class MainActivity : ComponentActivity() {
                     onCreateGroup = model::createGroup,
                     onUpdateGroup = model::updateGroup,
                     onSetGroupAdministrator = model::setGroupAdministrator,
+                    onManageGroupMembers = model::manageGroupMembers,
+                    onUpdateGroupSettings = model::updateGroupSettings,
                     onSubscribeChannel = model::setChannelSubscription,
                     onSetLiveSubscription = model::setLiveSubscription,
                     onPublishChannelPost = model::publishChannelPost,
@@ -140,6 +146,7 @@ class MainActivity : ComponentActivity() {
                     onPublishListing = model::publishListing,
                     onCreateBusinessPage = model::createBusinessPage,
                     onUpdateBusinessPage = model::updateBusinessPage,
+                    onUpdateBusinessLogo = model::updateBusinessPageLogo,
                     onCreateCampaign = model::createCampaign,
                     onCreateLive = model::createLive,
                     onPublishStatus = model::publishStatus,
@@ -184,6 +191,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         incomingLink = intent.dataString
         pendingCallAction = intent.getStringExtra(WhappyNotifications.EXTRA_CALL_ACTION)
+        pendingCallId = intent.getStringExtra(WhappyNotifications.EXTRA_CALL_ID)
     }
 
     override fun onStart() {
@@ -197,6 +205,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        WhappyRealtimeNotifications.clear()
         if (::callController.isInitialized) callController.release()
         super.onDestroy()
     }
@@ -246,7 +255,7 @@ class PhoneAuthController(private val activity: Activity) {
             state = state.copy(
                 busy = false,
                 status = "",
-                error = error.localizedMessage ?: "Le numéro n’a pas pu être vérifié.",
+                error = wapiVerificationMessage(error),
             )
         }
 
@@ -346,5 +355,20 @@ class PhoneAuthController(private val activity: Activity) {
                 )
             }
             .addOnFailureListener { state = state.copy(busy = false, status = "", error = "Code incorrect ou expiré.") }
+    }
+
+    private fun wapiVerificationMessage(error: FirebaseException): String {
+        val detail = error.message.orEmpty().lowercase()
+        return when {
+            "not authorized" in detail || "sha-1" in detail || "sha-256" in detail || "play integrity" in detail ->
+                "La vérification WAPI n’est pas encore autorisée sur cette version de l’application. Installez la dernière mise à jour WAPI ou contactez l’assistance."
+            "too many" in detail || "quota" in detail ->
+                "Trop de tentatives de vérification. Patientez avant de demander un nouveau code WAPI."
+            "network" in detail || "internet" in detail ->
+                "WAPI ne peut pas joindre le service de vérification. Vérifiez votre connexion puis réessayez."
+            "invalid" in detail || "phone" in detail ->
+                "Ce numéro ne peut pas être vérifié. Vérifiez l’indicatif et le numéro saisi."
+            else -> "La vérification WAPI est indisponible pour le moment. Réessayez dans quelques instants."
+        }
     }
 }

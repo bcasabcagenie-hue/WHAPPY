@@ -1,11 +1,23 @@
 package com.whappy.chat
 
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 data class WapiMoveResult(
     val board: List<String>,
     val captured: Boolean,
     val promoted: Boolean = false,
+)
+
+/**
+ * Real rule switches for the checkers board. They are intentionally explicit
+ * so a room can later persist the selected rules instead of silently changing
+ * the way a match behaves.
+ */
+data class WapiCheckersRules(
+    val mandatoryCapture: Boolean = true,
+    val backwardCapture: Boolean = true,
+    val flyingKings: Boolean = false,
 )
 
 object WapiGameRules {
@@ -20,12 +32,38 @@ object WapiGameRules {
         val piece = board[from]
         val target = board[to]
         if (piece.isBlank() || isWhite(piece) != whiteTurn || (target.isNotBlank() && isWhite(target) == whiteTurn)) return null
+        if (target == "♔" || target == "♚") return null
         if (!rawChessMoveLegal(board, from, to, attackOnly = false)) return null
-        val next = board.toMutableList().also { it[to] = piece; it[from] = "" }
+        val destinationRow = to / 8
+        val promoted = (piece == "♙" && destinationRow == 0) || (piece == "♟" && destinationRow == 7)
+        val movedPiece = when {
+            promoted && whiteTurn -> "♕"
+            promoted -> "♛"
+            else -> piece
+        }
+        val next = board.toMutableList().also { it[to] = movedPiece; it[from] = "" }
         val king = if (whiteTurn) "♔" else "♚"
         val kingIndex = next.indexOf(king)
         if (kingIndex < 0 || squareAttacked(next, kingIndex, byWhite = !whiteTurn)) return null
-        return WapiMoveResult(next, target.isNotBlank())
+        return WapiMoveResult(next, target.isNotBlank(), promoted)
+    }
+
+    fun isChessKingInCheck(board: List<String>, whiteTurn: Boolean): Boolean {
+        if (board.size != 64) return false
+        val kingIndex = board.indexOf(if (whiteTurn) "♔" else "♚")
+        return kingIndex >= 0 && squareAttacked(board, kingIndex, byWhite = !whiteTurn)
+    }
+
+    fun hasAnyLegalMove(
+        board: List<String>,
+        whiteTurn: Boolean,
+        checkers: Boolean,
+        checkersRules: WapiCheckersRules = WapiCheckersRules(),
+    ): Boolean = board.indices.any { from ->
+        board[from].isNotBlank() && isWhite(board[from]) == whiteTurn && board.indices.any { to ->
+            if (checkers) checkersMove(board, from, to, whiteTurn, checkersRules) != null
+            else chessMove(board, from, to, whiteTurn) != null
+        }
     }
 
     private fun squareAttacked(board: List<String>, square: Int, byWhite: Boolean): Boolean = board.indices.any { index ->
@@ -66,65 +104,166 @@ object WapiGameRules {
         return true
     }
 
-    fun checkersMove(board: List<String>, from: Int, to: Int, whiteTurn: Boolean): WapiMoveResult? {
-        if (board.size != 64 || from !in board.indices || to !in board.indices || from == to || board[to].isNotBlank()) return null
+    fun checkersMove(
+        board: List<String>,
+        from: Int,
+        to: Int,
+        whiteTurn: Boolean,
+        rules: WapiCheckersRules = WapiCheckersRules(),
+    ): WapiMoveResult? {
+        val dimension = checkersDimension(board) ?: return null
+        if (from !in board.indices || to !in board.indices || from == to || board[to].isNotBlank()) return null
         val piece = board[from]
         if (piece.isBlank() || isWhite(piece) != whiteTurn) return null
-        val fr = from / 8; val fc = from % 8; val tr = to / 8; val tc = to % 8
-        val dr = tr - fr; val dc = tc - fc; val king = piece == "W" || piece == "B"
-        val directionOkay = king || (piece == "w" && dr < 0) || (piece == "b" && dr > 0)
-        if (!directionOkay || abs(dr) != abs(dc) || abs(dr) !in 1..2) return null
-        val mandatoryCapture = hasCheckersCapture(board, whiteTurn)
-        if (mandatoryCapture && abs(dr) != 2) return null
-        var captured = false
+        val path = checkersPath(board, from, to, whiteTurn, rules) ?: return null
+        val mandatoryCapture = rules.mandatoryCapture && hasCheckersCapture(board, whiteTurn, rules)
+        if (mandatoryCapture && path < 0) return null
         val next = board.toMutableList()
-        if (abs(dr) == 2) {
-            val middle = ((fr + tr) / 2) * 8 + (fc + tc) / 2
-            val middlePiece = board[middle]
-            if (middlePiece.isBlank() || isWhite(middlePiece) == whiteTurn) return null
-            next[middle] = ""; captured = true
-        }
-        val promoted = (piece == "w" && tr == 0) || (piece == "b" && tr == 7)
+        val captured = path >= 0
+        if (captured) next[path] = ""
+        val tr = to / dimension
+        val promoted = (piece == "w" && tr == 0) || (piece == "b" && tr == dimension - 1)
         next[to] = if (promoted) piece.uppercase() else piece
         next[from] = ""
         return WapiMoveResult(next, captured, promoted)
     }
 
-    fun hasCheckersCapture(board: List<String>, whiteTurn: Boolean): Boolean = board.indices.any { from ->
+    fun hasCheckersCapture(
+        board: List<String>,
+        whiteTurn: Boolean,
+        rules: WapiCheckersRules = WapiCheckersRules(),
+    ): Boolean = board.indices.any { from ->
         val piece = board[from]
         if (piece.isBlank() || isWhite(piece) != whiteTurn) false
         else {
-            val row = from / 8; val col = from % 8
-            listOf(-2 to -2, -2 to 2, 2 to -2, 2 to 2).any { (dr, dc) ->
-                val tr = row + dr; val tc = col + dc
-                tr in 0..7 && tc in 0..7 && checkersMoveIgnoringMandatory(board, from, tr * 8 + tc, whiteTurn)
-            }
+            board.indices.any { to -> checkersMoveIgnoringMandatory(board, from, to, whiteTurn, rules) }
         }
     }
 
-    /** Small deterministic opponent used by the native game boards. */
-    fun bestMove(board: List<String>, whiteTurn: Boolean, checkers: Boolean): Pair<Int, Int>? {
+    fun hasCheckersCaptureFrom(
+        board: List<String>,
+        from: Int,
+        whiteTurn: Boolean,
+        rules: WapiCheckersRules = WapiCheckersRules(),
+    ): Boolean {
+        if (from !in board.indices || board[from].isBlank() || isWhite(board[from]) != whiteTurn) return false
+        return board.indices.any { to -> checkersMoveIgnoringMandatory(board, from, to, whiteTurn, rules) }
+    }
+
+    fun checkersCaptureTargets(
+        board: List<String>,
+        from: Int,
+        whiteTurn: Boolean,
+        rules: WapiCheckersRules = WapiCheckersRules(),
+    ): List<Int> {
+        if (from !in board.indices || board[from].isBlank() || isWhite(board[from]) != whiteTurn) return emptyList()
+        return board.indices.filter { to ->
+            checkersPath(board, from, to, whiteTurn, rules)?.let { captured -> captured >= 0 } == true
+        }
+    }
+
+    /** Native opponent with transparent, local difficulty levels. */
+    fun bestMove(
+        board: List<String>,
+        whiteTurn: Boolean,
+        checkers: Boolean,
+        difficulty: String = "medium",
+        checkersRules: WapiCheckersRules = WapiCheckersRules(),
+    ): Pair<Int, Int>? {
         val moves = buildList {
             board.indices.filter { index ->
                 board[index].isNotBlank() && isWhite(board[index]) == whiteTurn
             }.forEach { from ->
                 board.indices.forEach { to ->
-                    val result = if (checkers) checkersMove(board, from, to, whiteTurn) else chessMove(board, from, to, whiteTurn)
+                    val result = if (checkers) checkersMove(board, from, to, whiteTurn, checkersRules) else chessMove(board, from, to, whiteTurn)
                     if (result != null) add(from to to to result)
                 }
             }
         }
-        return moves.maxWithOrNull(compareBy<Pair<Pair<Int, Int>, WapiMoveResult>> { it.second.captured }
-            .thenBy { it.second.promoted }
-            .thenBy { it.first.second })?.first
+        if (moves.isEmpty()) return null
+        if (difficulty == "easy") {
+            // Stable but deliberately imperfect choice so Easy remains humane.
+            return moves[(board.joinToString().hashCode().ushr(1) + moves.size) % moves.size].first
+        }
+        fun tacticalScore(move: Pair<Pair<Int, Int>, WapiMoveResult>) =
+            (if (move.second.captured) 80 else 0) + (if (move.second.promoted) 110 else 0) + move.first.second
+        if (difficulty == "medium") return moves.maxByOrNull(::tacticalScore)?.first
+
+        fun material(value: List<String>, sideWhite: Boolean): Int = value.sumOf { piece ->
+            if (piece.isBlank() || isWhite(piece) != sideWhite) 0
+            else when (piece.lowercase()) {
+                "q" -> 90
+                "r" -> 50
+                "b", "n" -> 32
+                "p", "w", "b" -> 10
+                else -> 12
+            }
+        }
+        fun positionalScore(result: WapiMoveResult): Int {
+            val own = material(result.board, whiteTurn)
+            val opponent = material(result.board, !whiteTurn)
+            return (own - opponent) * 10 + tacticalScore(Pair(0 to 0, result))
+        }
+        if (difficulty == "hard") return moves.maxByOrNull { positionalScore(it.second) }?.first
+
+        // Ultra evaluates the opponent's strongest immediate reply as well.
+        return moves.maxByOrNull { candidate ->
+            val reply = bestMove(candidate.second.board, !whiteTurn, checkers, "hard", checkersRules)
+            val afterReply = if (reply == null) candidate.second.board else {
+                val next = if (checkers) checkersMove(candidate.second.board, reply.first, reply.second, !whiteTurn, checkersRules)
+                else chessMove(candidate.second.board, reply.first, reply.second, !whiteTurn)
+                next?.board ?: candidate.second.board
+            }
+            positionalScore(candidate.second) + (material(afterReply, whiteTurn) - material(afterReply, !whiteTurn)) * 6
+        }?.first
     }
 
-    private fun checkersMoveIgnoringMandatory(board: List<String>, from: Int, to: Int, whiteTurn: Boolean): Boolean {
-        val piece = board[from]; val fr = from / 8; val fc = from % 8; val tr = to / 8; val tc = to % 8
-        if (board[to].isNotBlank()) return false
-        val dr = tr - fr; val king = piece == "W" || piece == "B"
-        if (!(king || (piece == "w" && dr < 0) || (piece == "b" && dr > 0))) return false
-        val middle = ((fr + tr) / 2) * 8 + (fc + tc) / 2
-        return abs(dr) == 2 && abs(tc - fc) == 2 && board[middle].isNotBlank() && isWhite(board[middle]) != whiteTurn
+    private fun checkersMoveIgnoringMandatory(
+        board: List<String>,
+        from: Int,
+        to: Int,
+        whiteTurn: Boolean,
+        rules: WapiCheckersRules,
+    ): Boolean = checkersPath(board, from, to, whiteTurn, rules)?.let { it >= 0 } == true
+
+    /** Returns -1 for a normal move, the captured square for a capture, null otherwise. */
+    private fun checkersPath(
+        board: List<String>,
+        from: Int,
+        to: Int,
+        whiteTurn: Boolean,
+        rules: WapiCheckersRules,
+    ): Int? {
+        val dimension = checkersDimension(board) ?: return null
+        if (from !in board.indices || to !in board.indices || from == to || board[to].isNotBlank()) return null
+        val piece = board[from]
+        if (piece.isBlank() || isWhite(piece) != whiteTurn) return null
+        val fr = from / dimension; val fc = from % dimension; val tr = to / dimension; val tc = to % dimension
+        val dr = tr - fr; val dc = tc - fc; val distance = abs(dr)
+        if (distance == 0 || distance != abs(dc)) return null
+        val king = piece == "W" || piece == "B"
+        val captureMove = distance >= 2
+        val forward = (piece == "w" && dr < 0) || (piece == "b" && dr > 0)
+        if (!king && !forward && !(captureMove && rules.backwardCapture)) return null
+        if (!king && distance > 2) return null
+        if (king && distance > 2 && !rules.flyingKings) return null
+
+        val rowStep = dr.compareTo(0); val colStep = dc.compareTo(0)
+        var row = fr + rowStep; var col = fc + colStep
+        val occupied = mutableListOf<Int>()
+        while (row != tr || col != tc) {
+            val index = row * dimension + col
+            if (board[index].isNotBlank()) occupied += index
+            row += rowStep; col += colStep
+        }
+        if (occupied.isEmpty()) return if (!captureMove || (king && rules.flyingKings)) -1 else null
+        if (occupied.size != 1) return null
+        val captured = occupied.single()
+        return if (isWhite(board[captured]) != whiteTurn && (king || distance == 2)) captured else null
+    }
+
+    private fun checkersDimension(board: List<String>): Int? {
+        val dimension = sqrt(board.size.toDouble()).toInt()
+        return dimension.takeIf { it in setOf(8, 10) && it * it == board.size }
     }
 }

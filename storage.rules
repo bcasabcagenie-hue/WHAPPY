@@ -41,12 +41,17 @@ service firebase.storage {
       allow create: if request.auth != null
         && request.auth.uid == userId
         && request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.memberIds
-        && ((request.resource.contentType.matches('image/(jpeg|jpg|png|webp)')
+        && ((request.resource.contentType.matches('image/.*')
               && request.resource.size < 20 * 1024 * 1024)
           || (request.resource.contentType.matches('audio/.*')
               && request.resource.size < 12 * 1024 * 1024)
           || (request.resource.contentType.matches('video/.*')
-              && request.resource.size < 60 * 1024 * 1024));
+              && request.resource.size < 60 * 1024 * 1024)
+          || ((request.resource.contentType == 'application/pdf'
+                || request.resource.contentType == 'application/msword'
+                || request.resource.contentType == 'text/plain'
+                || request.resource.contentType.matches('application/vnd\\..*'))
+              && request.resource.size < 25 * 1024 * 1024));
       allow update: if false;
       allow delete: if request.auth != null
         && request.auth.uid == userId
@@ -62,7 +67,12 @@ service firebase.storage {
           || (request.resource.contentType.matches('audio/.*')
               && request.resource.size < 12 * 1024 * 1024)
           || (request.resource.contentType.matches('video/.*')
-              && request.resource.size < 60 * 1024 * 1024));
+              && request.resource.size < 60 * 1024 * 1024)
+          || ((request.resource.contentType == 'application/pdf'
+                || request.resource.contentType == 'application/msword'
+                || request.resource.contentType == 'text/plain'
+                || request.resource.contentType.matches('application/vnd\\..*'))
+              && request.resource.size < 25 * 1024 * 1024));
       allow delete: if conversationMember(conversationId)
         && request.auth.uid == userId;
       allow update: if false;
@@ -102,7 +112,10 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/users/$(userId)/twinProfiles/main).data.movementConsent == true
         && request.resource.size < 80 * 1024 * 1024
         && (request.resource.contentType.matches('video/.*')
-          || request.resource.contentType.matches('audio/.*'));
+          || request.resource.contentType.matches('audio/.*')
+          || (fileName.matches('outfit-.*')
+            && request.resource.contentType.matches('image/(jpeg|png|webp)')
+            && request.resource.size < 10 * 1024 * 1024));
       allow update: if false;
     }
   }

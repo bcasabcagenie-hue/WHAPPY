@@ -1,18 +1,143 @@
 import Foundation
+import FirebaseFirestore
+import FirebaseFunctions
 import SwiftUI
 
 let whappyFounderPhone = "+242065465808"
-let whappyFounderName = "Happy"
-let whappyFounderBusinessName = "Whappy by BCA"
-let whappyFounderChannelName = "Le Cercle de Happy"
-let whappyFounderChannelTagline = "Idées, projets et annonces publiés directement par Happy."
+let whappyFounderName = "Cyril Bokilo"
+let whappyFounderBusinessName = "BCA SA"
+let whappyFounderChannelName = "Le Cercle de Cyril"
+let whappyFounderChannelTagline = "Idées, projets et annonces publiés directement par Cyril Bokilo."
 let whappyFounderBadgeLabel = "Fondateur"
 let whappyFounderPaySlug = "whappy-by-bca"
 let whappyFounderPhoneNormalized = WhappyPhoneCountry.normalize(whappyFounderPhone) ?? whappyFounderPhone
 
+/// Keeps Firebase, network and media implementation details out of the UI.
+func wapiUserFacingError(_ error: Error, action: String) -> String {
+    let failure = error as NSError
+    if failure.domain == FunctionsErrorDomain, let code = FunctionsErrorCode(rawValue: failure.code) {
+        switch code {
+        case .notFound:
+            return "\(action) est en cours de mise à jour. Réessayez dans quelques instants."
+        case .unauthenticated:
+            return "Votre session WAPI a expiré. Reconnectez-vous puis réessayez."
+        case .permissionDenied:
+            return "Votre compte n’est pas autorisé à effectuer cette action."
+        case .failedPrecondition:
+            return "\(action) ne peut pas continuer dans son état actuel. Actualisez puis réessayez."
+        case .alreadyExists:
+            return "\(action) est déjà en cours."
+        case .resourceExhausted:
+            return "Trop de demandes ont été envoyées. Patientez un instant puis réessayez."
+        case .unavailable, .deadlineExceeded:
+            return "Le réseau WAPI ne répond pas pour le moment. Vérifiez votre connexion puis réessayez."
+        default:
+            return "\(action) n’a pas abouti. Réessayez dans quelques instants."
+        }
+    }
+    if failure.domain == FirestoreErrorDomain {
+        // FIRFirestoreErrorCode uses the canonical gRPC status numbers.
+        switch failure.code {
+        case 16: // unauthenticated
+            return "Votre session WAPI a expiré. Reconnectez-vous puis réessayez."
+        case 7: // permissionDenied
+            return "WAPI ne peut pas accéder à ces données avec ce compte."
+        case 14, 4: // unavailable, deadlineExceeded
+            return "La synchronisation WAPI est momentanément indisponible. Vérifiez votre connexion."
+        default:
+            return "\(action) n’a pas pu être synchronisé. Actualisez puis réessayez."
+        }
+    }
+    if failure.domain == NSURLErrorDomain {
+        return "Connexion internet instable. Vérifiez le réseau puis réessayez."
+    }
+    let local = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    if local.hasPrefix("Autorisez ") || local.hasPrefix("Le contact WAPI ") {
+        return local
+    }
+    return "\(action) n’a pas abouti. Fermez cet écran puis réessayez."
+}
+
 func isWhappyFounderPhone(_ rawPhone: String) -> Bool {
     guard let normalized = WhappyPhoneCountry.normalize(rawPhone) else { return false }
     return normalized == whappyFounderPhoneNormalized
+}
+
+enum WapiInterfaceLanguage: String, CaseIterable, Identifiable {
+    case automatic = "auto"
+    case french = "fr"
+    case english = "en"
+    case lingala = "ln"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .automatic: return "Automatique (région)"
+        case .french: return "Français"
+        case .english: return "English"
+        case .lingala: return "Lingála"
+        }
+    }
+
+    var resolved: WapiInterfaceLanguage {
+        guard self == .automatic else { return self }
+        switch Locale.autoupdatingCurrent.languageCode?.lowercased() {
+        case "en": return .english
+        case "ln": return .lingala
+        default: return .french
+        }
+    }
+
+    var automaticSummary: String {
+        self == .automatic ? "Automatique · \(resolved.label)" : label
+    }
+
+    func text(_ french: String, _ english: String, _ lingala: String) -> String {
+        switch resolved {
+        case .english: return english
+        case .lingala: return lingala
+        case .automatic, .french: return french
+        }
+    }
+}
+
+struct WapiTranslationLanguage: Identifiable, Hashable {
+    let code: String
+    let name: String
+    let nativeName: String
+
+    var id: String { code }
+    var displayName: String { "\(nativeName) · \(name)" }
+
+    static let supported: [WapiTranslationLanguage] = [
+        .init(code: "fr", name: "Français", nativeName: "Français"),
+        .init(code: "en", name: "Anglais", nativeName: "English"),
+        .init(code: "zh-CN", name: "Chinois simplifié", nativeName: "中文"),
+        .init(code: "ar", name: "Arabe", nativeName: "العربية"),
+        .init(code: "ru", name: "Russe", nativeName: "Русский"),
+        .init(code: "es", name: "Espagnol", nativeName: "Español"),
+        .init(code: "pt", name: "Portugais", nativeName: "Português"),
+        .init(code: "tr", name: "Turc", nativeName: "Türkçe"),
+        .init(code: "ja", name: "Japonais", nativeName: "日本語"),
+        .init(code: "it", name: "Italien", nativeName: "Italiano"),
+        .init(code: "nl", name: "Néerlandais", nativeName: "Nederlands"),
+        .init(code: "de", name: "Allemand", nativeName: "Deutsch"),
+        .init(code: "ko", name: "Coréen", nativeName: "한국어"),
+        .init(code: "hi", name: "Hindi", nativeName: "हिन्दी"),
+        .init(code: "sw", name: "Swahili", nativeName: "Kiswahili"),
+        .init(code: "ln", name: "Lingála", nativeName: "Lingála")
+    ]
+
+    static func language(for code: String) -> WapiTranslationLanguage {
+        supported.first(where: { $0.code == code }) ?? supported[0]
+    }
+}
+
+struct WapiTranslationResult: Hashable {
+    let text: String
+    let detectedLanguage: String
+    let targetLanguage: String
 }
 
 struct WhappyPhoneCountry: Identifiable, Hashable {
@@ -318,6 +443,8 @@ extension String {
 enum WhappyDeepLink: Equatable {
     case contact(String)
     case channel(UUID)
+    case groupCall(String)
+    case directCall(String)
     case search(String)
 
     static func parse(_ value: String) -> WhappyDeepLink? {
@@ -339,11 +466,58 @@ enum WhappyDeepLink: Equatable {
                 ?? URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name.lowercased() == "phone" })?.value
             return value.flatMap { WhappyPhoneCountry.normalize($0.removingPercentEncoding ?? $0) }.map(Self.contact)
         case "channel", "chaine": return payload.flatMap { UUID(uuidString: $0) }.map(Self.channel)
+        case "group-call", "appel-groupe":
+            guard let raw = payload?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  raw.range(of: "^[A-Za-z0-9_-]{2,160}$", options: .regularExpression) != nil else { return nil }
+            return .groupCall(raw)
+        case "call", "appel":
+            guard let raw = payload?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  raw.range(of: "^[A-Za-z0-9_-]{2,160}$", options: .regularExpression) != nil else { return nil }
+            return .directCall(raw)
         case "search", "recherche":
             return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { ["q", "query"].contains($0.name.lowercased()) })?.value.flatMap { value -> WhappyDeepLink? in value.isEmpty ? nil : .search(String(value.prefix(120))) }
         default: return nil
         }
     }
+}
+
+struct WapiGroupCallRoute: Identifiable, Equatable {
+    let callID: String?
+    let groupID: String?
+    let groupName: String
+    let video: Bool
+    let groupSource: String
+
+    init(callID: String?, groupID: String?, groupName: String, video: Bool, groupSource: String = "groups") {
+        self.callID = callID
+        self.groupID = groupID
+        self.groupName = groupName
+        self.video = video
+        self.groupSource = groupSource
+    }
+
+    var id: String { callID ?? "new-\(groupID ?? "group")-\(video ? "video" : "audio")" }
+}
+
+/// A direct WAPI call is always tied to a real WAPI account—not a telephone
+/// URL. Incoming routes contain a session ID; outgoing routes contain the peer.
+struct WapiDirectCallRoute: Identifiable, Equatable {
+    let callID: String?
+    let peerID: String?
+    let peerName: String
+    let peerPhotoURL: String
+    let video: Bool
+
+    var id: String { callID ?? "new-\(peerID ?? "contact")-\(video ? "video" : "audio")" }
+}
+
+struct WapiGroupMember: Identifiable, Hashable, Codable {
+    let uid: String
+    let displayName: String
+    let phoneNumber: String
+    let photoURL: String
+
+    var id: String { uid }
 }
 
 struct Conversation: Identifiable, Hashable, Codable {
@@ -359,6 +533,11 @@ struct Conversation: Identifiable, Hashable, Codable {
     var source: String? = nil
     var peerUID: String? = nil
     var photoURL: String? = nil
+    var peerIsOnline: Bool? = nil
+    var peerLastSeenAt: Date? = nil
+    var groupOwnerID: String? = nil
+    var groupAdminIDs: [String] = []
+    var groupMembers: [WapiGroupMember] = []
 }
 
 enum CallMode: String, Identifiable, Codable {
@@ -385,6 +564,11 @@ struct Message: Identifiable, Hashable, Codable {
     let sentAt: Date
     var kind: String = "text"
     var mediaPath: String? = nil
+    var mediaName: String? = nil
+    var mediaSizeBytes: Int64? = nil
+    var mediaSha256: String? = nil
+    var viewOnce = false
+    var viewedByIDs: [String] = []
     var replyToID: UUID? = nil
     var replyText: String? = nil
     var reactions: [String: String] = [:]
@@ -395,13 +579,13 @@ struct Message: Identifiable, Hashable, Codable {
     var senderID: String? = nil
     var senderName: String? = nil
 
-    init(id: UUID, text: String, mine: Bool, sentAt: Date, kind: String = "text", mediaPath: String? = nil, replyToID: UUID? = nil, replyText: String? = nil, reactions: [String: String] = [:], deleted: Bool = false, edited: Bool = false, status: String = "sent", remoteID: String? = nil, senderID: String? = nil, senderName: String? = nil) {
-        self.id = id; self.text = text; self.mine = mine; self.sentAt = sentAt; self.kind = kind; self.mediaPath = mediaPath; self.replyToID = replyToID; self.replyText = replyText; self.reactions = reactions; self.deleted = deleted; self.edited = edited
+    init(id: UUID, text: String, mine: Bool, sentAt: Date, kind: String = "text", mediaPath: String? = nil, mediaName: String? = nil, mediaSizeBytes: Int64? = nil, mediaSha256: String? = nil, viewOnce: Bool = false, viewedByIDs: [String] = [], replyToID: UUID? = nil, replyText: String? = nil, reactions: [String: String] = [:], deleted: Bool = false, edited: Bool = false, status: String = "sent", remoteID: String? = nil, senderID: String? = nil, senderName: String? = nil) {
+        self.id = id; self.text = text; self.mine = mine; self.sentAt = sentAt; self.kind = kind; self.mediaPath = mediaPath; self.mediaName = mediaName; self.mediaSizeBytes = mediaSizeBytes; self.mediaSha256 = mediaSha256; self.viewOnce = viewOnce; self.viewedByIDs = viewedByIDs; self.replyToID = replyToID; self.replyText = replyText; self.reactions = reactions; self.deleted = deleted; self.edited = edited
         self.status = status
         self.remoteID = remoteID; self.senderID = senderID; self.senderName = senderName
     }
 
-    private enum CodingKeys: String, CodingKey { case id, text, mine, sentAt, kind, mediaPath, replyToID, replyText, reactions, deleted, edited, status, remoteID, senderID, senderName }
+    private enum CodingKeys: String, CodingKey { case id, text, mine, sentAt, kind, mediaPath, mediaName, mediaSizeBytes, mediaSha256, viewOnce, viewedByIDs, replyToID, replyText, reactions, deleted, edited, status, remoteID, senderID, senderName }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -411,6 +595,11 @@ struct Message: Identifiable, Hashable, Codable {
         sentAt = try values.decode(Date.self, forKey: .sentAt)
         kind = try values.decodeIfPresent(String.self, forKey: .kind) ?? "text"
         mediaPath = try values.decodeIfPresent(String.self, forKey: .mediaPath)
+        mediaName = try values.decodeIfPresent(String.self, forKey: .mediaName)
+        mediaSizeBytes = try values.decodeIfPresent(Int64.self, forKey: .mediaSizeBytes)
+        mediaSha256 = try values.decodeIfPresent(String.self, forKey: .mediaSha256)
+        viewOnce = try values.decodeIfPresent(Bool.self, forKey: .viewOnce) ?? false
+        viewedByIDs = try values.decodeIfPresent([String].self, forKey: .viewedByIDs) ?? []
         replyToID = try values.decodeIfPresent(UUID.self, forKey: .replyToID)
         replyText = try values.decodeIfPresent(String.self, forKey: .replyText)
         reactions = try values.decodeIfPresent([String: String].self, forKey: .reactions) ?? [:]
@@ -510,8 +699,10 @@ struct WhappyBusiness: Identifiable, Hashable, Codable {
     var category: String
     var bio: String
     var city: String
+    var phone: String = ""
+    var website: String = ""
 }
 
 enum WhappyTab: Hashable {
-    case home, messages, calls, market, live, games, services, profile
+    case home, messages, calls, actus, market, live, games, services, profile
 }

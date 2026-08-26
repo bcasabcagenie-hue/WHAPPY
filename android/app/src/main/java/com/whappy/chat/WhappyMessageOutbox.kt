@@ -21,6 +21,9 @@ data class WhappyPendingMessage(
     val contentType: String = "",
     val mediaName: String = "",
     val durationSeconds: Int = 0,
+    val mediaSizeBytes: Long = 0L,
+    val mediaSha256: String = "",
+    val viewOnce: Boolean = false,
     val source: String = "conversations",
     val senderName: String = "Membre WAPI",
     val senderPhotoUrl: String = "",
@@ -59,7 +62,7 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
     }
 
     suspend fun pending(limit: Int = 50): List<WhappyPendingMessage> = withContext(Dispatchers.IO) {
-        readableDatabase.query(
+        val cursor = readableDatabase.query(
             "message_outbox",
             arrayOf("envelope", "attempts"),
             null,
@@ -68,7 +71,8 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
             null,
             "created_at ASC",
             limit.coerceIn(1, 200).toString(),
-        ).use { cursor ->
+        )
+        try {
             buildList {
                 while (cursor.moveToNext()) {
                     val envelope = cursor.getString(0)
@@ -78,6 +82,8 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
                         ?.let(::add)
                 }
             }
+        } finally {
+            cursor.close()
         }
     }
 
@@ -105,6 +111,9 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
         .put("contentType", contentType)
         .put("mediaName", mediaName)
         .put("durationSeconds", durationSeconds)
+        .put("mediaSizeBytes", mediaSizeBytes)
+        .put("mediaSha256", mediaSha256)
+        .put("viewOnce", viewOnce)
         .put("source", source)
         .put("senderName", senderName)
         .put("senderPhotoUrl", senderPhotoUrl)
@@ -125,6 +134,9 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
                 contentType = json.optString("contentType"),
                 mediaName = json.optString("mediaName"),
                 durationSeconds = json.optInt("durationSeconds"),
+                mediaSizeBytes = json.optLong("mediaSizeBytes"),
+                mediaSha256 = json.optString("mediaSha256"),
+                viewOnce = json.optBoolean("viewOnce"),
                 source = json.optString("source", "conversations"),
                 senderName = json.optString("senderName", "Membre WAPI"),
                 senderPhotoUrl = json.optString("senderPhotoUrl"),

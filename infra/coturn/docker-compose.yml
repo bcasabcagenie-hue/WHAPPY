@@ -10,9 +10,7 @@ services:
       - --use-auth-secret
       - --static-auth-secret=${WAPI_TURN_SHARED_SECRET}
       - --fingerprint
-      - --lt-cred-mech
       - --no-cli
-      - --no-loopback-peers
       - --no-multicast-peers
       - --external-ip=${WAPI_TURN_EXTERNAL_IP}
       - --min-port=49152

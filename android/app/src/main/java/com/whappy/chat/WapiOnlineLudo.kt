@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,7 +47,7 @@ fun WapiOnlineLudoCard(userId: String, userName: String) {
     var positions by remember { mutableStateOf(listOf(-1, -1, -1, -1)) }
     var turnUid by remember { mutableStateOf("") }
     var roomStatus by remember { mutableStateOf("") }
-    var dice by remember { mutableStateOf(0) }
+    var dice by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Créez une salle ou entrez le code d’un ami.") }
 

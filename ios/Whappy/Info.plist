@@ -41,6 +41,8 @@
 	<string>WAPI utilise le microphone pour les messages vocaux, appels et directs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>WHAPPY accède uniquement aux médias que vous choisissez de publier ou d’envoyer.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>WAPI utilise la reconnaissance vocale uniquement lorsque vous répondez à une question King QI avec votre voix.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

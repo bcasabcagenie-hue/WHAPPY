@@ -13,7 +13,9 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="WAPI"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -21,9 +23,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Whappy"
         android:usesCleartextTraffic="false">
-        <meta-data
-            android:name="com.google.mlkit.vision.DEPENDENCIES"
-            android:value="barcode_ui" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"
@@ -48,8 +47,7 @@
             android:windowSoftInputMode="adjustResize"
             android:exported="true"
             android:launchMode="singleTask"
-            android:resizeableActivity="true"
-            android:screenOrientation="unspecified">
+            android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

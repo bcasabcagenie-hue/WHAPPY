@@ -2,10 +2,12 @@ import Foundation
 import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
+import FirebaseFunctions
+import UIKit
 
 @MainActor
 final class WhappyStore: ObservableObject {
-    @Published var selectedTab: WhappyTab = .home
+    @Published var selectedTab: WhappyTab = .messages
     @Published var conversations: [Conversation] { didSet { save() } }
     @Published var channels: [WhappyChannel] { didSet { save() } }
     @Published var listings: [Listing] { didSet { save() } }
@@ -21,10 +23,14 @@ final class WhappyStore: ObservableObject {
     @Published var notificationsEnabled: Bool { didSet { save() } }
     @Published var privacyMode: String { didSet { save() } }
     @Published var dataSaverEnabled: Bool { didSet { save() } }
+    @Published var interfaceLanguage: WapiInterfaceLanguage { didSet { save() } }
     @Published var pendingContactPhone: String?
     @Published var pendingChannelID: UUID?
     @Published var pendingSearch: String?
+    @Published var pendingGroupCall: WapiGroupCallRoute?
+    @Published var pendingDirectCall: WapiDirectCallRoute?
     @Published var firebaseUserID: String?
+    @Published var firebaseProfileVerified = false
     @Published var firebaseSessionLoading = true
     @Published var firebaseBusy = false
     @Published var firebaseMessage: String?
@@ -33,9 +39,15 @@ final class WhappyStore: ObservableObject {
     var firebaseVerificationID: String?
     var firebaseAuthHandle: AuthStateDidChangeListenerHandle?
     var firebaseConversationListeners: [ListenerRegistration] = []
+    var firebasePresenceListeners: [ListenerRegistration] = []
+    var firebasePresencePeerIDs: Set<String> = []
     var firebaseMessageListener: ListenerRegistration?
+    var firebasePresenceTimer: Timer?
     var firebaseDirectConversations: [Conversation] = []
     var firebaseGroupConversations: [Conversation] = []
+    var pushTokenObserver: NSObjectProtocol?
+    var pushOpenObserver: NSObjectProtocol?
+    var pushDeclineCallObserver: NSObjectProtocol?
 
     private let defaults = UserDefaults.standard
     private let encoder = JSONEncoder()
@@ -45,24 +57,10 @@ final class WhappyStore: ObservableObject {
     init() {
         let now = Date()
         conversations = []
-        channels = [
-            WhappyChannel(id: UUID(), name: "Brazzaville Maintenant", description: "Actualités utiles, sorties et opportunités de la ville.", category: "Actualités", ownerName: "WHAPPY Local", owner: false, subscribed: true, memberCount: 12_480, verified: true, posts: [
-                WhappyChannelPost(id: UUID(), text: "Bienvenue dans notre chaîne. Activez les notifications pour ne manquer aucune publication.", authorName: "WHAPPY Local", createdAt: now.addingTimeInterval(-86_400), reactions: ["amina": "❤️", "junior": "👍"], pinned: true),
-                WhappyChannelPost(id: UUID(), text: "Ce week-end : marché des créateurs samedi à Poto-Poto, de 10 h à 18 h.", authorName: "WHAPPY Local", createdAt: now.addingTimeInterval(-240), reactions: ["amina": "🔥"])
-            ]),
-            WhappyChannel(id: UUID(), name: "Bons plans WHAPPY", description: "Promotions vérifiées et nouvelles offres du Marché WHAPPY.", category: "Shopping", ownerName: "WHAPPY Marché", owner: false, subscribed: false, memberCount: 8_205, verified: true, posts: []),
-            WhappyChannel(id: UUID(), name: whappyFounderChannelName, description: whappyFounderChannelTagline, category: "Créateurs", ownerName: whappyFounderName, owner: true, subscribed: true, memberCount: 1, verified: false, posts: [])
-        ]
-        listings = [
-            Listing(id: UUID(), title: "MacBook Air M3 · Comme neuf", price: "750 000 FCFA", place: "Poto-Poto", seller: "Junior K.", icon: "laptopcomputer", acceptsTrade: false),
-            Listing(id: UUID(), title: "Canapé modulable en velours", price: "Échange accepté", place: "Bacongo", seller: "Maison Noki", icon: "sofa.fill", acceptsTrade: true),
-            Listing(id: UUID(), title: "Sneakers édition limitée", price: "85 000 FCFA", place: "Centre-ville", seller: "Mokabi Store", icon: "shoe.fill", acceptsTrade: false)
-        ]
+        channels = []
+        listings = []
         liveRooms = []
-        calls = [
-            CallRecord(id: UUID(), name: "Amina M.", phoneNumber: "+242065550101", mode: .audio, date: now.addingTimeInterval(-3_600), outgoing: false, missed: false),
-            CallRecord(id: UUID(), name: "Junior K.", phoneNumber: "+242058842160", mode: .video, date: now.addingTimeInterval(-90_000), outgoing: true, missed: false)
-        ]
+        calls = []
         cart = []
         orders = []
         walletBalance = 0
@@ -73,11 +71,25 @@ final class WhappyStore: ObservableObject {
         notificationsEnabled = true
         privacyMode = "contacts"
         dataSaverEnabled = false
+        interfaceLanguage = .automatic
         pendingContactPhone = nil
         pendingChannelID = nil
         pendingSearch = nil
+        pendingGroupCall = nil
+        pendingDirectCall = nil
         restore()
         restoring = false
+        pushTokenObserver = NotificationCenter.default.addObserver(forName: wapiPushTokenDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.registerFirebasePushDevice() }
+        }
+        pushOpenObserver = NotificationCenter.default.addObserver(forName: wapiPushDidOpen, object: nil, queue: .main) { [weak self] notification in
+            guard let value = notification.object as? String, let url = URL(string: value) else { return }
+            Task { @MainActor in self?.handleWhappyURL(url) }
+        }
+        pushDeclineCallObserver = NotificationCenter.default.addObserver(forName: wapiPushDidDeclineCall, object: nil, queue: .main) { [weak self] notification in
+            guard let value = notification.object as? String, let url = URL(string: value) else { return }
+            Task { @MainActor in self?.declineDirectCall(from: url) }
+        }
         configureFirebaseMessaging()
     }
 
@@ -90,14 +102,32 @@ final class WhappyStore: ObservableObject {
         switch link {
         case .contact(let phone): pendingContactPhone = phone
         case .channel(let id): pendingChannelID = id
+        case .groupCall(let id): pendingGroupCall = WapiGroupCallRoute(callID: id, groupID: nil, groupName: "Appel de groupe", video: false)
+        case .directCall(let id): pendingDirectCall = WapiDirectCallRoute(callID: id, peerID: nil, peerName: "Appel WAPI", peerPhotoURL: "", video: false)
         case .search(let query): pendingSearch = query
         }
+    }
+
+    private func declineDirectCall(from url: URL) {
+        guard case .directCall(let callID) = WhappyDeepLink.parse(url) else { return }
+        guard firebaseUserID != nil else { return }
+        Functions.functions(region: "europe-west1").httpsCallable("closeDirectCallSession").call(["callId": callID, "action": "decline"]) { _, error in
+            guard error == nil else { return }
+            UserDefaults.standard.removeObject(forKey: wapiPendingDeclineCallKey)
+        }
+    }
+
+    func drainPendingDirectCallDecline() {
+        guard let value = UserDefaults.standard.string(forKey: wapiPendingDeclineCallKey),
+              let url = URL(string: value) else { return }
+        declineDirectCall(from: url)
     }
 
     func markRead(_ conversation: Conversation) {
         guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
         conversations[index].unread = false
         conversations[index].readAt = Date()
+        UIApplication.shared.applicationIconBadgeNumber = unreadCount
     }
 
     func toggleUnread(_ conversation: Conversation) {
@@ -164,16 +194,21 @@ final class WhappyStore: ObservableObject {
         if message == conversations[conversation].messages.count - 1 { conversations[conversation].lastMessage = value }
     }
 
-    func sendMedia(kind: String, path: String, to conversationID: UUID) {
+    func sendMedia(kind: String, path: String, to conversationID: UUID, mediaName: String? = nil, viewOnce: Bool = false) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
         if conversations[index].remoteID != nil {
-            sendFirebaseMedia(kind: kind, path: path, conversation: conversations[index])
+            sendFirebaseMedia(kind: kind, path: path, mediaName: mediaName, viewOnce: viewOnce, conversation: conversations[index])
             return
         }
-        let label = kind == "image" ? "📷 Photo" : "🎤 Note vocale"
+        let label = switch kind {
+        case "audio": "🎤 Note vocale"
+        case "video": "🎬 Vidéo"
+        case "document": "Waphsare · Document"
+        default: "📷 Photo"
+        }
         let messageID = UUID()
         let now = Date()
-        conversations[index].messages.append(Message(id: messageID, text: label, mine: true, sentAt: now, kind: kind, mediaPath: path, status: "sending"))
+        conversations[index].messages.append(Message(id: messageID, text: label, mine: true, sentAt: now, kind: kind, mediaPath: path, mediaName: mediaName, viewOnce: viewOnce, status: "sending"))
         conversations[index].lastMessage = label
         Task {
             try? await Task.sleep(nanoseconds: 650_000_000)
@@ -183,6 +218,20 @@ final class WhappyStore: ObservableObject {
             let currentStatus = conversations[conversationIndex].messages[messageIndex].status
             guard currentStatus == "sending" else { return }
             conversations[conversationIndex].messages[messageIndex].status = "sent"
+        }
+    }
+
+    func consumeViewOnce(_ messageID: UUID, in conversationID: UUID) {
+        guard let conversationIndex = conversations.firstIndex(where: { $0.id == conversationID }),
+              let messageIndex = conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageID }) else { return }
+        let viewerID = firebaseUserID ?? "local"
+        guard conversations[conversationIndex].messages[messageIndex].viewOnce,
+              !conversations[conversationIndex].messages[messageIndex].mine,
+              !conversations[conversationIndex].messages[messageIndex].viewedByIDs.contains(viewerID) else { return }
+        conversations[conversationIndex].messages[messageIndex].viewedByIDs.append(viewerID)
+        if conversations[conversationIndex].remoteID != nil,
+           conversations[conversationIndex].messages[messageIndex].remoteID != nil {
+            markFirebaseViewOnce(conversation: conversations[conversationIndex], message: conversations[conversationIndex].messages[messageIndex])
         }
     }
 
@@ -307,8 +356,8 @@ final class WhappyStore: ObservableObject {
         serviceRequests.insert(WhappyServiceRequest(id: UUID(), type: type, details: value, createdAt: Date(), status: "Demandé"), at: 0)
     }
 
-    func saveBusiness(name: String, category: String, bio: String, city: String) {
-        business = WhappyBusiness(id: business?.id ?? UUID(), name: name, category: category, bio: bio, city: city)
+    func saveBusiness(name: String, category: String, bio: String, city: String, phone: String, website: String) {
+        business = WhappyBusiness(id: business?.id ?? UUID(), name: name, category: category, bio: bio, city: city, phone: phone, website: website)
     }
 
     private func restore() {
@@ -327,6 +376,7 @@ final class WhappyStore: ObservableObject {
         notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? notificationsEnabled
         privacyMode = defaults.string(forKey: "privacyMode") ?? privacyMode
         dataSaverEnabled = defaults.object(forKey: "dataSaverEnabled") as? Bool ?? dataSaverEnabled
+        interfaceLanguage = WapiInterfaceLanguage(rawValue: defaults.string(forKey: "interfaceLanguage") ?? "") ?? interfaceLanguage
     }
 
     private func decode<T: Decodable>(_ key: String) -> T? {
@@ -351,6 +401,7 @@ final class WhappyStore: ObservableObject {
         defaults.set(notificationsEnabled, forKey: "notificationsEnabled")
         defaults.set(privacyMode, forKey: "privacyMode")
         defaults.set(dataSaverEnabled, forKey: "dataSaverEnabled")
+        defaults.set(interfaceLanguage.rawValue, forKey: "interfaceLanguage")
     }
 
     private func encode<T: Encodable>(_ value: T, _ key: String) {

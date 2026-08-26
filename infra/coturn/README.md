@@ -24,3 +24,19 @@ firebase functions:secrets:set WAPI_TURN_SHARED_SECRET
 4. Déployer ensuite uniquement les fonctions Firebase. Chaque appareil reçoit un identifiant TURN signé, associé à son compte WAPI et valable une heure.
 
 Ne réutilisez pas les identifiants statiques dans l’APK. La fonction `getWebRtcIceServers` calcule le mot de passe TURN via HMAC-SHA1 selon le mécanisme d’authentification partagée coturn.
+
+## Exécution gratuite sur un Mac WAPI
+
+Le fichier `docker-compose.macos.yml` permet d'exécuter le relais sur une machine
+WAPI existante, sans abonnement média. Il limite volontairement la plage relais à
+`49160-49200/udp` et expose uniquement `3478/tcp`, `3478/udp` et cette plage.
+
+1. Copier `macos.env.example` vers `.env.macos`, un fichier local non versionné.
+2. Remplacer l'IP d'exemple par l'IP publique de la connexion.
+3. Générer un secret aléatoire d'au moins 64 caractères.
+4. Lancer le service avec le fichier macOS.
+5. Autoriser explicitement les mêmes ports dans le pare-feu macOS et le routeur.
+
+Cette option exige que le Mac reste allumé et que son IP publique reste stable.
+Sans redirection des ports du routeur, le relais fonctionne seulement sur le réseau
+local et ne peut pas fiabiliser les appels entre deux réseaux mobiles.

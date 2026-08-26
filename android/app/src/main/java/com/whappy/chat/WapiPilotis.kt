@@ -2,13 +2,17 @@ package com.whappy.chat
 
 data class WapiWepiSettings(
     val ownerId: String,
-    val enabled: Boolean = false,
+    val enabled: Boolean = true,
     val autoReply: Boolean = true,
-    val assistantName: String = "WEPI",
+    val assistantName: String = "Assistant WAPI",
     val businessName: String = "",
     val tone: String = "chaleureux",
     val welcomeMessage: String = "Bonjour et merci pour votre message.",
     val instructions: String = "Répondre clairement aux questions commerciales et proposer un échange humain si nécessaire.",
+    val salesAutomation: Boolean = false,
+    val captureOrderRequests: Boolean = true,
+    val humanHandoff: Boolean = true,
+    val deliveryPolicy: String = "Confirmer la zone, le délai et les frais avec le client avant toute commande.",
 )
 
 enum class WapiPilotisIntent {
@@ -73,7 +77,7 @@ object WapiPilotis {
         val firstName = customerName.trim().substringBefore(' ').takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
         val business = settings.businessName.trim().ifBlank { "notre activité" }
         val greeting = settings.welcomeMessage.trim().ifBlank { "Bonjour et merci pour votre message." }
-        val assistant = settings.assistantName.trim().ifBlank { "WEPI" }
+        val assistant = settings.assistantName.trim().ifBlank { "Assistant WAPI" }
         val instructions = settings.instructions.trim().ifBlank { "Je transmets votre demande à l’équipe." }
         val tone = when (settings.tone) {
             "direct" -> "Je vais à l’essentiel."

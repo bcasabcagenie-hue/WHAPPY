@@ -1,32 +1,52 @@
 import AVFoundation
+import AVKit
+import AudioToolbox
 import CoreImage.CIFilterBuiltins
+import FirebaseAuth
+import FirebaseFirestore
+import FirebaseFunctions
 import PhotosUI
+import SceneKit
+import Speech
 import SwiftUI
+import UniformTypeIdentifiers
 import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: WhappyStore
 
+    private func ui(_ french: String, _ english: String, _ lingala: String) -> String {
+        store.interfaceLanguage.text(french, english, lingala)
+    }
+
     var body: some View {
         TabView(selection: $store.selectedTab) {
-            NavigationStack { HomeView() }
-                .tabItem { Label("Accueil", systemImage: "house.fill") }.tag(WhappyTab.home)
             NavigationStack { MessagesView() }
-                .tabItem { Label("Messages", systemImage: "message.fill") }.badge(store.unreadCount).tag(WhappyTab.messages)
+                .tabItem { Label(ui("Messages", "Messages", "Nsango"), systemImage: "message.fill") }.badge(store.unreadCount).tag(WhappyTab.messages)
             NavigationStack { CallsView() }
-                .tabItem { Label("Appels", systemImage: "phone.fill") }.tag(WhappyTab.calls)
+                .tabItem { Label(ui("Appels", "Calls", "Mabéle"), systemImage: "phone.fill") }.tag(WhappyTab.calls)
+            NavigationStack { UpdatesView() }
+                .tabItem { Label(ui("Actus", "Updates", "Sango"), systemImage: "sparkles") }.tag(WhappyTab.actus)
+            NavigationStack { HomeView() }
+                .tabItem { Label(ui("Accueil", "Home", "Ndako"), systemImage: "house.fill") }.tag(WhappyTab.home)
             NavigationStack { MarketView() }
-                .tabItem { Label("Marché", systemImage: "storefront.fill") }.badge(store.cartCount).tag(WhappyTab.market)
+                .tabItem { Label(ui("Marché", "Market", "Zando"), systemImage: "storefront.fill") }.badge(store.cartCount).tag(WhappyTab.market)
             NavigationStack { LiveView() }
                 .tabItem { Label("Live", systemImage: "video.fill") }.tag(WhappyTab.live)
             NavigationStack { GamesView() }
-                .tabItem { Label("Jeux", systemImage: "bolt.fill") }.tag(WhappyTab.games)
+                .tabItem { Label(ui("Jeux", "Games", "Masano"), systemImage: "bolt.fill") }.tag(WhappyTab.games)
             NavigationStack { ServicesView() }
-                .tabItem { Label("Services", systemImage: "wallet.pass.fill") }.tag(WhappyTab.services)
+                .tabItem { Label(ui("Services", "Services", "Misala"), systemImage: "wallet.pass.fill") }.tag(WhappyTab.services)
             NavigationStack { ProfileView() }
-                .tabItem { Label("Profil", systemImage: "person.crop.circle.fill") }.tag(WhappyTab.profile)
+                .tabItem { Label(ui("Profil", "Profile", "Profil"), systemImage: "person.crop.circle.fill") }.tag(WhappyTab.profile)
         }
         .tint(.whappyBlue)
+        .fullScreenCover(item: $store.pendingGroupCall) { route in
+            WapiGroupCallRoom(route: route) { store.pendingGroupCall = nil }
+        }
+        .fullScreenCover(item: $store.pendingDirectCall) { route in
+            WapiDirectCallRoom(route: route) { store.pendingDirectCall = nil }
+        }
     }
 }
 
@@ -35,16 +55,27 @@ private struct BrandHeader: View {
     @State private var showActivity = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image("WhappyMark").resizable().scaledToFit().frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 13))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("WHAPPY").font(.title2.bold()).foregroundStyle(Color.whappyInk)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.deepBlue], startPoint: .leading, endPoint: .trailing)
+                .frame(height: 3)
+            HStack(spacing: 12) {
+                Image("WhappyMark").resizable().scaledToFit().frame(width: 38, height: 38).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 7) {
+                        Text("WAPI").font(.title2.bold()).foregroundStyle(Color.whappyInk)
+                        Text("PRIVÉ").font(.system(size: 8, weight: .black)).tracking(0.6).foregroundStyle(Color.whappyBlue).padding(.horizontal, 7).padding(.vertical, 4).background(WapiColor.blueMist).clipShape(Capsule())
+                    }
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { showActivity = true } label: { Image(systemName: "bell.fill") }
+                    .buttonStyle(.bordered).clipShape(Circle())
             }
-            Spacer()
-            Button { showActivity = true } label: { Image(systemName: "bell.fill") }
-                .buttonStyle(.bordered).clipShape(Circle())
+            .padding(.horizontal, WapiSpacing.screen)
+            .padding(.vertical, 10)
         }
+        .background(WapiColor.canvas)
+        .overlay(alignment: .bottom) { Rectangle().fill(WapiColor.line).frame(height: 1) }
         .sheet(isPresented: $showActivity) { ActivityCenterView() }
     }
 }
@@ -62,7 +93,7 @@ struct HomeView: View {
                     LinearGradient(colors: [.whappyBlue, .whappyBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Circle().fill(.white.opacity(0.12)).frame(width: 170).offset(x: 220, y: -50)
                     VStack(alignment: .leading, spacing: 9) {
-                        Label("WHAPPY PULSE", systemImage: "waveform.path.ecg").font(.caption.bold()).foregroundStyle(.white.opacity(0.85))
+                        Label("WAPI PULSE", systemImage: "waveform.path.ecg").font(.caption.bold()).foregroundStyle(.white.opacity(0.85))
                         Text("Tout ce qui bouge\nautour de vous.").font(.system(size: 30, weight: .black, design: .rounded)).foregroundStyle(.white)
                         Text("Explorez, échangez, payez et discutez.").font(.subheadline).foregroundStyle(.white.opacity(0.82))
                     }.padding(24)
@@ -84,6 +115,12 @@ struct HomeView: View {
                 Text("Tendances près de vous").font(.title3.bold()).foregroundStyle(Color.whappyInk)
                 ForEach(store.listings.prefix(2)) { listing in
                     NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(.plain)
+                }
+                Text("Vos activités WAPI").font(.title3.bold()).foregroundStyle(Color.whappyInk)
+                VStack(spacing: 9) {
+                    ActionCard(title: "Radio & podcasts", subtitle: "Émissions, chaînes et écoute continue", icon: "dot.radiowaves.left.and.right", color: .whappyBlue) { store.selectedTab = .actus }
+                    ActionCard(title: "Jumeau numérique", subtitle: "Votre identité, vos consentements et vos créations", icon: "sparkles", color: .purple) { store.selectedTab = .profile }
+                    ActionCard(title: "Lives en cours", subtitle: store.liveRooms.filter(\.live).isEmpty ? "Soyez le premier à démarrer" : "\(store.liveRooms.filter(\.live).count) direct(s) à rejoindre", icon: "video.fill", color: .red) { store.selectedTab = .live }
                 }
             }.padding()
         }
@@ -127,6 +164,135 @@ private struct ActionCard: View {
     }
 }
 
+private struct UpdatesView: View {
+    @EnvironmentObject private var store: WhappyStore
+
+    private var activeLives: [LiveRoom] { store.liveRooms.filter(\.live) }
+    private var followedChannels: [WhappyChannel] {
+        store.channels.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Actus")
+                            .font(.system(size: 30, weight: .black, design: .rounded))
+                            .foregroundStyle(Color.whappyInk)
+                        Text("Directs, chaînes et découvertes WAPI")
+                            .font(.caption)
+                            .foregroundStyle(WapiColor.secondaryText)
+                    }
+                    Spacer()
+                    Button { store.selectedTab = .live } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.whappyBlue)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Créer un direct")
+                }
+
+                updatesSectionTitle("En direct", subtitle: activeLives.isEmpty ? "Aucun direct pour le moment" : "\(activeLives.count) diffusion\(activeLives.count > 1 ? "s" : "") maintenant")
+                if activeLives.isEmpty {
+                    Button { store.selectedTab = .live } label: {
+                        updatesRow(icon: "video.fill", title: "Démarrer un direct", subtitle: "Entrez en direct en un geste", accent: .red)
+                    }.buttonStyle(.plain)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(activeLives) { room in
+                                Button { store.selectedTab = .live } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack {
+                                            Text("● EN DIRECT").font(.caption2.weight(.black)).foregroundStyle(.red)
+                                            Spacer()
+                                            Text("\(room.viewers)").font(.caption2.weight(.bold)).foregroundStyle(WapiColor.secondaryText)
+                                        }
+                                        Image(systemName: room.icon).font(.title2).foregroundStyle(Color.whappyBlue)
+                                        Text(room.title).font(.headline).foregroundStyle(Color.whappyInk).lineLimit(2)
+                                        Text("\(room.host) · \(room.category)").font(.caption2).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
+                                    }
+                                    .padding(14)
+                                    .frame(width: 214, height: 142, alignment: .leading)
+                                    .wapiPanel(radius: 18)
+                                }.buttonStyle(.plain)
+                            }
+                        }.padding(.vertical, 4)
+                    }
+                }
+
+                updatesSectionTitle("Chaînes", subtitle: "Les publications qui comptent")
+                VStack(spacing: 2) {
+                    ForEach(followedChannels.prefix(4)) { channel in
+                        NavigationLink(value: channel) {
+                            updatesRow(
+                                icon: channel.subscribed ? "dot.radiowaves.left.and.right" : "megaphone.fill",
+                                title: channel.name,
+                                subtitle: channel.posts.last?.text ?? channel.description,
+                                accent: .whappyBlue
+                            )
+                        }.buttonStyle(.plain)
+                    }
+                    if followedChannels.isEmpty {
+                        Button { store.selectedTab = .messages; store.pendingSearch = "" } label: {
+                            updatesRow(icon: "dot.radiowaves.left.and.right", title: "Découvrir les chaînes", subtitle: "Suivez uniquement ce qui vous intéresse", accent: .whappyBlue)
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(5)
+                .wapiPanel()
+
+                updatesSectionTitle("Explorer", subtitle: "Ouvrez directement un espace WAPI")
+                VStack(spacing: 2) {
+                    Button { store.selectedTab = .live } label: { updatesRow(icon: "video.fill", title: "Lives", subtitle: "Voir et créer des directs", accent: .red) }.buttonStyle(.plain)
+                    Button { store.selectedTab = .games } label: { updatesRow(icon: "gamecontroller.fill", title: "Jeux", subtitle: "Parties, défis et tournois", accent: .indigo) }.buttonStyle(.plain)
+                    Button { store.selectedTab = .market } label: { updatesRow(icon: "storefront.fill", title: "Près de vous", subtitle: "Boutiques et offres locales", accent: .green) }.buttonStyle(.plain)
+                }
+                .padding(5)
+                .wapiPanel()
+            }
+            .padding(.horizontal, WapiSpacing.screen)
+            .padding(.top, 12)
+            .padding(.bottom, 28)
+        }
+        .background(Color.whappyBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
+    }
+
+    private func updatesSectionTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
+            Text(subtitle).font(.caption2).foregroundStyle(WapiColor.secondaryText)
+        }.padding(.top, 4)
+    }
+
+    private func updatesRow(icon: String, title: String, subtitle: String, accent: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(accent)
+                .frame(width: 43, height: 43)
+                .background(accent.opacity(0.11))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(accent.opacity(0.75))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+}
+
 struct MessagesView: View {
     @EnvironmentObject private var store: WhappyStore
     @State private var composing = false
@@ -140,32 +306,114 @@ struct MessagesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Espace Messages", selection: $section) { Text("Discussions").tag(0); Text("Chaînes").tag(1) }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section == 0 ? "Messages" : "Chaînes")
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.whappyInk)
+                    Text(section == 0 ? "Vos échanges, sans distraction" : "Les publications que vous choisissez")
+                        .font(.caption)
+                        .foregroundStyle(WapiColor.secondaryText)
+                }
+                Spacer()
+                Button {
+                    if section == 0 { composing = true } else { creatingChannel = true }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.whappyBlue)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(section == 0 ? "Nouvelle discussion" : "Nouvelle chaîne")
+            }
+            .padding(.horizontal, WapiSpacing.screen)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
+
+            HStack(spacing: 4) {
+                messageSectionButton("Discussions", value: 0)
+                messageSectionButton("Chaînes", value: 1)
+            }
+            .padding(4)
+            .background(WapiColor.secondarySurface)
+            .clipShape(RoundedRectangle(cornerRadius: WapiRadius.control, style: .continuous))
+            .padding(.horizontal, WapiSpacing.screen)
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(WapiColor.secondaryText)
+                TextField(section == 0 ? "Rechercher dans les messages" : "Rechercher une chaîne", text: $search)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(WapiColor.secondaryText)
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 50)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: WapiRadius.control, style: .continuous))
+            .padding(.horizontal, WapiSpacing.screen)
+            .padding(.vertical, 10)
+
             if section == 0 {
-                List(filtered) { conversation in
-                    NavigationLink(value: conversation) {
-                        HStack(spacing: 13) {
-                            ConversationAvatar(conversation: conversation)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(conversation.name).font(.headline)
-                                Text(conversation.lastMessage).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                if filtered.isEmpty {
+                    ContentUnavailableView(
+                        search.isEmpty ? "Aucune conversation" : "Aucun résultat",
+                        systemImage: "message",
+                        description: Text(search.isEmpty ? "Ajoutez un contact pour commencer à discuter sur WAPI." : "Essayez un autre nom ou contenu récent.")
+                    )
+                    .frame(maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Conversations").font(.headline).foregroundStyle(Color.whappyInk)
+                                    Text("\(filtered.count) échange\(filtered.count > 1 ? "s" : "")")
+                                        .font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                                }
+                                Spacer()
+                                Text("WAPI PRIVÉ")
+                                    .font(.caption2.weight(.black))
+                                    .foregroundStyle(Color.whappyBlue)
                             }
-                            Spacer()
-                            if conversation.unread { Circle().fill(Color.whappyBlue).frame(width: 10, height: 10) }
-                        }.padding(.vertical, 5)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 5)
+
+                            ForEach(filtered) { conversation in
+                                NavigationLink(value: conversation) {
+                                    WapiConversationRow(conversation: conversation)
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button { store.toggleUnread(conversation) } label: {
+                                        Label(conversation.unread ? "Marquer comme lu" : "Marquer non lu", systemImage: conversation.unread ? "envelope.open" : "envelope.badge")
+                                    }
+                                    Button(role: .destructive) { store.deleteConversation(conversation) } label: {
+                                        Label("Supprimer", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, WapiSpacing.screen)
+                        .padding(.bottom, 24)
                     }
-                    .swipeActions(edge: .leading) { Button { store.toggleUnread(conversation) } label: { Label(conversation.unread ? "Marquer lu" : "Non lu", systemImage: conversation.unread ? "envelope.open" : "envelope.badge") }.tint(.whappyBlue) }
-                    .swipeActions(edge: .trailing) { Button(role: .destructive) { store.deleteConversation(conversation) } label: { Label("Supprimer", systemImage: "trash") } }
-                }.listStyle(.plain)
+                    .scrollIndicators(.hidden)
+                }
             } else {
                 ChannelDirectoryView(channels: filteredChannels)
             }
         }
-        .navigationTitle(section == 0 ? "Messages" : "Chaînes")
-        .searchable(text: $search, prompt: section == 0 ? "Nom ou contenu récent" : "Chaîne ou catégorie")
+        .background(Color.whappyBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: Conversation.self) { conversation in ConversationView(conversationID: conversation.id).onAppear { store.markRead(conversation) } }
         .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { if section == 0 { composing = true } else { creatingChannel = true } } label: { Label(section == 0 ? "Nouveau" : "Créer", systemImage: section == 0 ? "square.and.pencil" : "plus.circle.fill") } } }
         .sheet(isPresented: $composing) { NewConversationView(initialPhone: linkedPhone) }
         .sheet(isPresented: $creatingChannel) { NewChannelView() }
         .sheet(item: $linkedChannel) { channel in NavigationStack { ChannelView(channelID: channel.id) } }
@@ -175,10 +423,76 @@ struct MessagesView: View {
         .onChange(of: store.pendingSearch) { _, _ in consumePendingLinks() }
     }
 
+    @ViewBuilder
+    private func messageSectionButton(_ title: String, value: Int) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { section = value; search = "" }
+        } label: {
+            Text(title)
+                .font(.footnote.weight(section == value ? .bold : .semibold))
+                .foregroundStyle(section == value ? Color.whappyInk : WapiColor.secondaryText)
+                .frame(maxWidth: .infinity)
+                .frame(height: 38)
+                .background(section == value ? Color.white : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func consumePendingLinks() {
         if let phone = store.pendingContactPhone { linkedPhone = phone; composing = true; section = 0; store.pendingContactPhone = nil }
         if let id = store.pendingChannelID, let channel = store.channels.first(where: { $0.id == id }) { linkedChannel = channel; section = 1; store.pendingChannelID = nil }
         if let query = store.pendingSearch { search = query; section = 1; store.pendingSearch = nil }
+    }
+}
+
+private struct WapiConversationRow: View {
+    let conversation: Conversation
+
+    private var lastDate: Date? { conversation.messages.last?.sentAt }
+
+    private var moment: String {
+        guard let lastDate else { return "" }
+        if Calendar.current.isDateInToday(lastDate) {
+            return lastDate.formatted(date: .omitted, time: .shortened)
+        }
+        if Calendar.current.isDateInYesterday(lastDate) { return "Hier" }
+        return lastDate.formatted(.dateTime.day().month(.twoDigits))
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ConversationAvatar(conversation: conversation)
+                .overlay(alignment: .bottomTrailing) {
+                    if conversation.peerIsOnline == true {
+                        Circle().fill(Color.green).frame(width: 12, height: 12).overlay(Circle().stroke(.white, lineWidth: 2))
+                    }
+                }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(conversation.name)
+                        .font(.headline.weight(conversation.unread ? .bold : .semibold))
+                        .foregroundStyle(Color.whappyInk)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(moment)
+                        .font(.caption2.weight(conversation.unread ? .bold : .regular))
+                        .foregroundStyle(conversation.unread ? Color.whappyBlue : WapiColor.secondaryText)
+                }
+                HStack(spacing: 8) {
+                    Text(conversation.lastMessage)
+                        .font(.subheadline.weight(conversation.unread ? .semibold : .regular))
+                        .foregroundStyle(conversation.unread ? Color.whappyInk : WapiColor.secondaryText)
+                        .lineLimit(1)
+                    Spacer()
+                    if conversation.unread { Circle().fill(Color.whappyBlue).frame(width: 9, height: 9) }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(conversation.unread ? WapiColor.unreadSurface : Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -187,11 +501,11 @@ private struct ChannelDirectoryView: View {
     let channels: [WhappyChannel]
 
     var body: some View {
-        if channels.isEmpty { ContentUnavailableView("Aucune chaîne", systemImage: "dot.radiowaves.left.and.right", description: Text("Créez la première chaîne WHAPPY.")) }
+        if channels.isEmpty { ContentUnavailableView("Aucune chaîne", systemImage: "dot.radiowaves.left.and.right", description: Text("Créez la première chaîne WAPI.")) }
         else {
             List {
                 Section {
-                    HStack(spacing: 13) { Image(systemName: "dot.radiowaves.left.and.right").font(.title2.bold()).foregroundStyle(.white).frame(width: 48, height: 48).background(Color.whappyBlue).clipShape(RoundedRectangle(cornerRadius: 15)); VStack(alignment: .leading) { Text("CHAÎNES WHAPPY").font(.caption2.bold()).foregroundStyle(Color.whappyBlue); Text("Des publications utiles, sans bruit").font(.headline).foregroundStyle(.white); Text("\(store.channels.count) chaînes à découvrir").font(.caption).foregroundStyle(.white.opacity(0.65)) } }.padding(.vertical, 7).listRowBackground(Color.whappyInk)
+                    HStack(spacing: 13) { Image(systemName: "dot.radiowaves.left.and.right").font(.title2.bold()).foregroundStyle(.white).frame(width: 48, height: 48).background(Color.whappyBlue).clipShape(RoundedRectangle(cornerRadius: 15)); VStack(alignment: .leading) { Text("CHAÎNES WAPI").font(.caption2.bold()).foregroundStyle(Color.whappyBlue); Text("Des publications utiles, sans bruit").font(.headline).foregroundStyle(.white); Text("\(store.channels.count) chaînes à découvrir").font(.caption).foregroundStyle(.white.opacity(0.65)) } }.padding(.vertical, 7).listRowBackground(Color.whappyInk)
                 }
                 Section("Découvrir") {
                     ForEach(channels) { channel in
@@ -249,7 +563,7 @@ private struct ChannelView: View {
         VStack(spacing: 0) {
             if let channel {
                 VStack(alignment: .leading, spacing: 9) {
-                    HStack { Image(systemName: "dot.radiowaves.left.and.right").font(.title2).foregroundStyle(Color.whappyBlue); VStack(alignment: .leading) { HStack { Text(channel.name).font(.title3.bold()); if channel.verified { Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.whappyBlue) } }; Text("\(channel.memberCount.formatted(.number.notation(.compactName))) abonnés · \(channel.posts.count) publications").font(.caption).foregroundStyle(.secondary) }; Spacer(); ShareLink(item: "Découvrez la chaîne \(channel.name) sur WHAPPY\nwhappy://channel/\(channel.id.uuidString)\nhttps://whappy.chat/channel/\(channel.id.uuidString)") { Image(systemName: "square.and.arrow.up") } }
+                    HStack { Image(systemName: "dot.radiowaves.left.and.right").font(.title2).foregroundStyle(Color.whappyBlue); VStack(alignment: .leading) { HStack { Text(channel.name).font(.title3.bold()); if channel.verified { Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.whappyBlue) } }; Text("\(channel.memberCount.formatted(.number.notation(.compactName))) abonnés · \(channel.posts.count) publications").font(.caption).foregroundStyle(.secondary) }; Spacer(); ShareLink(item: "Découvrez la chaîne \(channel.name) sur WAPI\nwhappy://channel/\(channel.id.uuidString)\nhttps://whappy.chat/channel/\(channel.id.uuidString)") { Image(systemName: "square.and.arrow.up") } }
                     Text(channel.description).font(.subheadline)
                     HStack { Label("Par \(channel.ownerName)", systemImage: "person.crop.circle").font(.caption).foregroundStyle(.secondary); Spacer(); if !channel.owner { Button(channel.subscribed ? "Abonné ✓" : "S’abonner") { store.toggleChannelSubscription(channel) }.buttonStyle(.borderedProminent).controlSize(.small) } else { Label("Propriétaire", systemImage: "crown.fill").font(.caption.bold()).foregroundStyle(Color.whappyBlue) } }
                 }.padding().background(Color(.secondarySystemBackground))
@@ -292,8 +606,9 @@ private struct NewConversationView: View {
     @State private var scanError: String?
 
     init(initialPhone: String = "+242") {
-        _phone = State(initialValue: initialPhone)
-        _countryCode = State(initialValue: WhappyPhoneCountry.supported.first(where: { initialPhone.hasPrefix($0.code) })?.code ?? "+242")
+        let parts = Self.phoneEditorParts(initialPhone, fallback: "+242")
+        _phone = State(initialValue: parts.number)
+        _countryCode = State(initialValue: parts.code)
     }
 
     private var normalizedPhone: String? { WhappyPhoneCountry.normalize(phone, selectedCode: countryCode) }
@@ -304,19 +619,19 @@ private struct NewConversationView: View {
                 Section("Contact") {
                     TextField("Nom", text: $name)
                     Picker("Pays", selection: $countryCode) { ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) } }
-                    TextField("Téléphone ou lien WHAPPY", text: $phone)
+                    TextField("Téléphone ou lien WAPI", text: $phone)
                         .keyboardType(.phonePad)
                         .onChange(of: phone) { _, value in
                             if case .contact(let scannedPhone) = WhappyDeepLink.parse(value) {
-                                phone = scannedPhone
-                            } else if let normalized = WhappyPhoneCountry.normalize(value, selectedCode: countryCode) {
-                                phone = normalized
+                                applyPhoneForEditing(scannedPhone)
+                                return
                             }
-                            countryCode = WhappyPhoneCountry.supported.first(where: { phone.hasPrefix($0.code) })?.code ?? countryCode
+                            let clean = String(value.filter(\.isNumber).prefix(15))
+                            if clean != value { phone = clean }
                         }
                     if let normalizedPhone { Label(normalizedPhone, systemImage: "checkmark.circle.fill").font(.footnote.bold()).foregroundStyle(Color.whappyBlue) }
                     else if !phone.isEmpty { Label("Vérifiez l’indicatif et la longueur du numéro", systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.orange) }
-                    Button { scanning = true } label: { Label("Scanner un code WHAPPY", systemImage: "qrcode.viewfinder") }
+                    Button { scanning = true } label: { Label("Numériser un code WAPI", systemImage: "qrcode.viewfinder") }
                 }
                 Section { Text("Le contact reste enregistré sur cet appareil et la conversation peut être utilisée immédiatement.").font(.footnote).foregroundStyle(.secondary) }
             }
@@ -326,23 +641,41 @@ private struct NewConversationView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Créer") { if let normalizedPhone { store.createConversation(name: name, phone: normalizedPhone); dismiss() } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 || normalizedPhone == nil) }
             }
             .sheet(isPresented: $scanning) { WhappyScannerSheet { value in handleScannedValue(value) } }
-            .alert("Scanner WHAPPY", isPresented: Binding(get: { scanError != nil }, set: { if !$0 { scanError = nil } })) { Button("Compris") { scanError = nil } } message: { Text(scanError ?? "") }
+            .alert("Code WAPI", isPresented: Binding(get: { scanError != nil }, set: { if !$0 { scanError = nil } })) { Button("Compris") { scanError = nil } } message: { Text(scanError ?? "") }
         }
     }
 
     private func handleScannedValue(_ value: String) {
         scanning = false
         if let directPhone = WhappyPhoneCountry.normalize(value) {
-            phone = directPhone
-            countryCode = WhappyPhoneCountry.supported.first(where: { directPhone.hasPrefix($0.code) })?.code ?? "+242"
+            applyPhoneForEditing(directPhone)
             return
         }
-        guard let link = WhappyDeepLink.parse(value) else { scanError = "Ce QR n’est pas un code WHAPPY valide."; return }
+        guard let link = WhappyDeepLink.parse(value) else { scanError = "Ce QR n’est pas un code WAPI valide."; return }
         switch link {
-        case .contact(let value): phone = value; countryCode = WhappyPhoneCountry.supported.first(where: { value.hasPrefix($0.code) })?.code ?? "+242"
+        case .contact(let value): applyPhoneForEditing(value)
         case .channel(let id): store.selectedTab = .messages; store.pendingChannelID = id; dismiss()
+        case .groupCall(let id): store.pendingGroupCall = WapiGroupCallRoute(callID: id, groupID: nil, groupName: "Appel de groupe", video: false); dismiss()
+        case .directCall(let id): store.pendingDirectCall = WapiDirectCallRoute(callID: id, peerID: nil, peerName: "Appel WAPI", peerPhotoURL: "", video: false); dismiss()
         case .search(let query): store.selectedTab = .messages; store.pendingSearch = query; dismiss()
         }
+    }
+
+    private func applyPhoneForEditing(_ value: String) {
+        let parts = Self.phoneEditorParts(value, fallback: countryCode)
+        countryCode = parts.code
+        phone = parts.number
+    }
+
+    private static func phoneEditorParts(_ raw: String, fallback: String) -> (code: String, number: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = trimmed.filter(\.isNumber)
+        let international: Substring? = trimmed.hasPrefix("+") ? digits[...] : (trimmed.hasPrefix("00") ? digits.dropFirst(2) : nil)
+        if let international,
+           let country = WhappyPhoneCountry.supported.sorted(by: { $0.code.count > $1.code.count }).first(where: { international.hasPrefix($0.code.dropFirst()) }) {
+            return (country.code, String(international.dropFirst(country.code.count - 1).prefix(15)))
+        }
+        return (fallback, String(digits.prefix(15)))
     }
 }
 
@@ -354,11 +687,15 @@ private struct WhappyScannerSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if authorized == true { WhappyQRCodeScanner { value in onCode(value); dismiss() }.ignoresSafeArea(edges: .bottom).overlay(alignment: .bottom) { Label("Cadrez un QR contact, chaîne ou recherche WHAPPY", systemImage: "qrcode.viewfinder").font(.footnote.bold()).padding().background(.ultraThinMaterial).clipShape(Capsule()).padding(.bottom, 28) } }
-                else if authorized == false { ContentUnavailableView("Caméra indisponible", systemImage: "camera.fill", description: Text("Autorisez la caméra dans Réglages pour scanner un code WHAPPY.")) }
-                else { ProgressView("Ouverture du scanner…") }
+                if authorized == true {
+                    WhappyQRCodeScanner { value in onCode(value); dismiss() }
+                        .ignoresSafeArea(edges: .bottom)
+                        .overlay { WapiScannerOverlay() }
+                }
+                else if authorized == false { ContentUnavailableView("Caméra indisponible", systemImage: "camera.fill", description: Text("Autorisez la caméra dans Réglages pour numériser un code WAPI.")) }
+                else { ProgressView("Ouverture de la caméra…") }
             }
-            .navigationTitle("Scanner WHAPPY").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Numériser").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } } }
         }
         .task {
@@ -368,6 +705,38 @@ private struct WhappyScannerSheet: View {
             default: authorized = false
             }
         }
+    }
+}
+
+private struct WapiScannerOverlay: View {
+    @State private var scanAtBottom = false
+
+    var body: some View {
+        VStack {
+            Spacer()
+            ZStack {
+                RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.36), lineWidth: 1).frame(width: 286, height: 286)
+                RoundedRectangle(cornerRadius: 28).trim(from: 0.01, to: 0.10).stroke(Color.whappyBlue, style: StrokeStyle(lineWidth: 5, lineCap: .round)).frame(width: 286, height: 286)
+                RoundedRectangle(cornerRadius: 28).trim(from: 0.26, to: 0.35).stroke(Color.whappyBlue, style: StrokeStyle(lineWidth: 5, lineCap: .round)).frame(width: 286, height: 286)
+                RoundedRectangle(cornerRadius: 28).trim(from: 0.51, to: 0.60).stroke(Color.whappyBlue, style: StrokeStyle(lineWidth: 5, lineCap: .round)).frame(width: 286, height: 286)
+                RoundedRectangle(cornerRadius: 28).trim(from: 0.76, to: 0.85).stroke(Color.whappyBlue, style: StrokeStyle(lineWidth: 5, lineCap: .round)).frame(width: 286, height: 286)
+                Rectangle().fill(Color.whappyBlue).frame(width: 242, height: 2.5)
+                    .shadow(color: Color.whappyBlue.opacity(0.9), radius: 7)
+                    .offset(y: scanAtBottom ? 112 : -112)
+                    .animation(.easeInOut(duration: 1.55).repeatForever(autoreverses: true), value: scanAtBottom)
+            }
+            Spacer()
+            VStack(spacing: 5) {
+                Text("Cadrez le code WAPI").font(.headline)
+                Text("Détection locale · aucune photo conservée").font(.caption).opacity(0.72)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 22).padding(.vertical, 14)
+            .background(.black.opacity(0.58), in: Capsule())
+            .padding(.bottom, 28)
+        }
+        .allowsHitTesting(false)
+        .onAppear { scanAtBottom = true }
     }
 }
 
@@ -422,6 +791,41 @@ private struct WhappyQRCodeScanner: UIViewControllerRepresentable {
     }
 }
 
+private struct WapiEmojiPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let onPick: (String) -> Void
+    @State private var category = "🙂"
+    private let groups: [(String, [String])] = [
+        ("🙂", "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😍 🥰 😘 😎 🤩 🥳 🤔 😮 😢 😭 😡 🤯 😴 🤗 🤭 🫡 🫠 🫣 👀".split(separator: " ").map(String.init)),
+        ("👋", "👋 🤚 ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 👏 🙌 👐 🤲 🙏 💪 🫶 🤝".split(separator: " ").map(String.init)),
+        ("❤️", "❤️ 🩷 🩵 💙 💚 💛 🧡 💜 🖤 🩶 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 🔥 ✨ ⭐ 🌟 🎉 🎊 ✅".split(separator: " ").map(String.init)),
+        ("🐾", "🐶 🐱 🐭 🐰 🦊 🐻 🐼 🐯 🦁 🦍 🐧 🐦 🦋 🐝 🐢 🐍 🐙 🐟 🐬 🐳 🐘 🦒 🦓 🐆 🌿 🌺 🌻 🌴 🍀 🌊".split(separator: " ").map(String.init)),
+        ("🍜", "🍎 🍌 🍉 🍇 🍓 🥭 🍍 🥑 🍅 🥕 🍞 🧀 🍔 🍟 🍕 🌮 🍜 🍝 🍣 🍤 🍰 🧁 🍫 ☕ 🍵 🥤 🍾".split(separator: " ").map(String.init)),
+        ("⚽", "⚽ 🏀 🏈 ⚾ 🎾 🏐 🏉 🎱 🏓 🏸 🥊 🥋 🛹 🎿 🏆 🥇 🥈 🥉 🎮 🕹️ 🎲 ♟️ 🃏 🎯 🎳 🎸 🎤 🎧 🎬 📸".split(separator: " ").map(String.init)),
+        ("🚘", "🚗 🚕 🚌 🚎 🏎️ 🚓 🚑 🚒 🚚 🚜 🛵 🚲 ✈️ 🚀 🚁 ⛵ 🚤 🚢 🚉 🗺️ 🏠 🏖️ 🏙️ 📍".split(separator: " ").map(String.init)),
+        ("💼", "📱 💻 ⌨️ 🖥️ 💼 📞 🎥 📹 🎙️ 💬 📎 📄 📁 🧾 💳 💰 💸 🛍️ 🎁 🔒 🔑 🔔 ⚙️ 📈 📊 💡".split(separator: " ").map(String.init)),
+        ("🔣", "✅ ❌ ⭕ ❗ ❓ ‼️ ⁉️ ♻️ ⚠️ 🚫 🔞 🔜 🔝 🔙 🔚 ©️ ®️ ™️ #️⃣ *️⃣ 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣".split(separator: " ").map(String.init)),
+        ("🌍", "🇨🇬 🇨🇩 🇫🇷 🇬🇦 🇨🇲 🇳🇬 🇿🇦 🇺🇸 🇨🇦 🇧🇷 🇦🇪 🇸🇦 🇨🇳 🇯🇵 🇰🇷 🇮🇳 🇹🇷 🇮🇹 🇪🇸 🇵🇹 🇩🇪 🇳🇱 🇬🇧 🇲🇦 🇪🇬 🇰🇪 🇸🇳 🇦🇴".split(separator: " ").map(String.init)),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 12) {
+                Text("Le clavier emoji iOS donne accès à tous les emoji Unicode. Cette sélection classe les plus utilisés dans WAPI.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) { ForEach(groups.map { $0.0 }, id: \.self) { icon in Button(icon) { category = icon }.font(.title2).padding(7).background(category == icon ? Color.whappyBlue.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10)) } }.padding(.horizontal)
+                }
+                let emojis = groups.first(where: { $0.0 == category })?.1 ?? []
+                ScrollView { LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 12) { ForEach(emojis, id: \.self) { emoji in Button(emoji) { onPick(emoji); UIImpactFeedbackGenerator(style: .light).impactOccurred() }.font(.system(size: 28)) } }.padding() }
+            }
+            .navigationTitle("Emojis")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
 private struct MessageActionChip: View {
     let title: String
     let url: URL
@@ -444,12 +848,23 @@ private struct ConversationView: View {
     @EnvironmentObject private var store: WhappyStore
     let conversationID: UUID
     @State private var draft = ""
-    @State private var callMode: CallMode?
+    @State private var directCallRoute: WapiDirectCallRoute?
+    @State private var groupCallRoute: WapiGroupCallRoute?
+    @State private var profileConversation: Conversation?
+    @State private var groupSettingsConversation: Conversation?
     @State private var photoItem: PhotosPickerItem?
+    @State private var importingDocument = false
+    @State private var nextMediaIsViewOnce = false
+    @State private var viewOncePreview: Message?
     @State private var zoomedPhoto: ZoomPhoto?
+    @State private var translationMessage: Message?
+    @State private var showingEmojiPicker = false
     @State private var recorder: AVAudioRecorder?
     @State private var player: AVAudioPlayer?
+    @State private var remotePlayer: AVPlayer?
     @State private var recording = false
+    @State private var recordingPaused = false
+    @State private var voiceDraftURL: URL?
     @State private var searchOpen = false
     @State private var search = ""
     @State private var replyTo: Message?
@@ -578,17 +993,25 @@ private struct ConversationView: View {
                                         .foregroundStyle(.secondary)
                                     }
                                     if message.deleted { Text("Message supprimé").italic().opacity(0.7) }
-                                    else if message.kind == "image", let path = message.mediaPath, let image = UIImage(contentsOfFile: path) {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 190, height: 150)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                            .contentShape(RoundedRectangle(cornerRadius: 12))
-                                            .onTapGesture { zoomedPhoto = ZoomPhoto(image: image) }
+                                    else if message.viewOnce, !message.mine, message.viewedByIDs.contains(store.firebaseUserID ?? "local") {
+                                        Label("Média à vue unique consulté", systemImage: "eye.slash.fill").font(.callout)
+                                    } else if message.viewOnce, !message.mine {
+                                        Button { viewOncePreview = message } label: {
+                                            Label("Ouvrir le média · 1 vue", systemImage: "eye.fill")
+                                                .font(.callout.weight(.semibold))
+                                                .padding(.vertical, 8)
+                                        }.buttonStyle(.plain)
+                                    } else if message.kind == "image", let path = message.mediaPath {
+                                        imageMessage(path)
                                     } else if message.kind == "audio", let path = message.mediaPath {
                                         Button { playAudio(path) } label: { Label(player?.isPlaying == true ? "Lecture…" : "Lire la note vocale", systemImage: "waveform.circle.fill") }.buttonStyle(.plain)
+                                    } else if message.kind == "video", let path = message.mediaPath, let url = mediaURL(path) {
+                                        VideoPlayer(player: AVPlayer(url: url)).frame(width: 220, height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
+                                    } else if message.kind == "document", let path = message.mediaPath, let url = mediaURL(path) {
+                                        Link(destination: url) { Label(message.mediaName ?? "Document Waphsare", systemImage: "doc.richtext.fill") }.buttonStyle(.plain)
+                                        if let size = message.mediaSizeBytes { Text("Original préservé · \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))").font(.caption2).opacity(0.72) }
                                     } else { Text(message.text) }
+                                    if message.viewOnce, message.mine { Label("Média à vue unique", systemImage: "eye.fill").font(.caption2).opacity(0.72) }
                                     let actions = detectMessageActions(message.text)
                                     if !actions.isEmpty && !message.deleted {
                                         VStack(alignment: .leading, spacing: 5) {
@@ -611,6 +1034,7 @@ private struct ConversationView: View {
                                         }
                                         Menu("Réagir") { ForEach(["❤️", "👍", "😂", "😮", "🙏"], id: \.self) { emoji in Button(emoji) { store.react(to: message.id, in: conversationID, emoji: emoji) } } }
                                         if !message.text.isEmpty { Button { UIPasteboard.general.string = message.text } label: { Label("Copier", systemImage: "doc.on.doc") } }
+                                        if !message.text.isEmpty { Button { translationMessage = message } label: { Label("Traduire avec Lingwap", systemImage: "character.bubble") } }
                                         if message.mine && message.kind == "text" { Button { editingMessage = message; replyTo = nil; draft = message.text } label: { Label("Modifier", systemImage: "pencil") } }
                                         if message.mine { Button(role: .destructive) { store.deleteMessage(message.id, in: conversationID) } label: { Label("Supprimer pour tous", systemImage: "trash") } }
                                     }
@@ -625,26 +1049,89 @@ private struct ConversationView: View {
             }
             if let replyTo { HStack { Image(systemName: "arrowshape.turn.up.left.fill").foregroundStyle(Color.whappyBlue); VStack(alignment: .leading) { Text("Répondre").font(.caption.bold()).foregroundStyle(Color.whappyBlue); Text(replyTo.text).font(.caption).lineLimit(1) }; Spacer(); Button { self.replyTo = nil } label: { Image(systemName: "xmark.circle.fill") } }.padding(.horizontal).padding(.vertical, 8).background(Color.whappyBlue.opacity(0.08)) }
             if let editingMessage { HStack { Image(systemName: "pencil.circle.fill").foregroundStyle(.orange); VStack(alignment: .leading) { Text("Modifier le message").font(.caption.bold()).foregroundStyle(.orange); Text(editingMessage.text).font(.caption).lineLimit(1) }; Spacer(); Button { self.editingMessage = nil; draft = "" } label: { Image(systemName: "xmark.circle.fill") } }.padding(.horizontal).padding(.vertical, 8).background(Color.orange.opacity(0.08)) }
+            if let voiceDraftURL {
+                HStack(spacing: 12) {
+                    Image(systemName: "waveform.circle.fill").font(.title2).foregroundStyle(Color.whappyBlue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Note vocale prête").font(.subheadline.bold())
+                        Text("Écoutez-la avant de l’envoyer").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { playAudio(voiceDraftURL.path) } label: { Image(systemName: player?.isPlaying == true ? "pause.circle.fill" : "play.circle.fill").font(.title2) }.buttonStyle(.plain)
+                    Button(role: .destructive) { try? FileManager.default.removeItem(at: voiceDraftURL); self.voiceDraftURL = nil } label: { Image(systemName: "trash.circle.fill").font(.title2) }.buttonStyle(.plain)
+                    Button { sendVoiceDraft() } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }.buttonStyle(.plain)
+                }.padding(.horizontal).padding(.vertical, 9).background(Color.whappyBlue.opacity(0.08))
+            }
             HStack(spacing: 10) {
-                PhotosPicker(selection: $photoItem, matching: .images) { Image(systemName: "photo.circle.fill").font(.title2) }.disabled(recording)
-                Button { toggleRecording() } label: { Image(systemName: recording ? "stop.circle.fill" : "mic.circle.fill").font(.title2).foregroundStyle(recording ? .red : Color.whappyBlue) }
+                PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) { Image(systemName: "photo.circle.fill").font(.title2) }.disabled(recording)
+                Button { importingDocument = true } label: { Image(systemName: "paperclip.circle.fill").font(.title2) }.disabled(recording)
+                Button { showingEmojiPicker = true } label: { Image(systemName: "face.smiling.inverse").font(.title2).foregroundStyle(Color.whappyBlue) }.disabled(recording)
+                if recording {
+                    Button { toggleRecordingPause() } label: { Image(systemName: recordingPaused ? "play.circle.fill" : "pause.circle.fill").font(.title2).foregroundStyle(Color.whappyBlue) }
+                }
+                Button { toggleRecording() } label: { Image(systemName: recording ? "stop.circle.fill" : "mic.circle.fill").font(.title2).foregroundStyle(recording ? .red : Color.whappyBlue) }.disabled(voiceDraftURL != nil)
                 TextField("Votre message", text: $draft, axis: .vertical).textFieldStyle(.roundedBorder)
                 Button { submitDraft() } label: { Image(systemName: editingMessage == nil ? "arrow.up.circle.fill" : "checkmark.circle.fill").font(.system(size: 34)) }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }.padding().background(.bar)
+            }.padding(.horizontal).padding(.vertical, 10).background(.bar)
+            HStack {
+                Button { nextMediaIsViewOnce.toggle() } label: {
+                    Label(nextMediaIsViewOnce ? "1 vue activée" : "Média", systemImage: nextMediaIsViewOnce ? "eye.fill" : "plus.circle")
+                        .font(.caption.weight(.semibold))
+                }.buttonStyle(.plain).foregroundStyle(nextMediaIsViewOnce ? Color.whappyBlue : .secondary)
+                Spacer()
+                if recording { Text(recordingPaused ? "Note vocale en pause" : "Enregistrement… touchez Stop pour écouter").font(.caption).foregroundStyle(recordingPaused ? Color.whappyBlue : .red) }
+            }.padding(.horizontal).padding(.bottom, 8).background(.bar)
         }
-        .navigationTitle(conversation?.name ?? "Discussion").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { Button { searchOpen.toggle(); if !searchOpen { search = "" } } label: { Image(systemName: "magnifyingglass") }; Button { callMode = .audio } label: { Image(systemName: "phone.fill") }; Button { callMode = .video } label: { Image(systemName: "video.fill") } } }
-        .sheet(item: $callMode) { mode in if let conversation { SystemCallView(name: conversation.name, phone: conversation.phoneNumber, mode: mode) } }
+        .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if let conversation {
+                    WapiConversationToolbarTitle(conversation: conversation) {
+                        if conversation.groupOwnerID != nil {
+                            groupSettingsConversation = conversation
+                        } else {
+                            profileConversation = conversation
+                        }
+                    }
+                }
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { searchOpen.toggle(); if !searchOpen { search = "" } } label: { Image(systemName: "magnifyingglass") }
+                if let conversation, conversation.groupOwnerID != nil, let groupID = conversation.remoteID {
+                    Button { groupCallRoute = WapiGroupCallRoute(callID: nil, groupID: groupID, groupName: conversation.name, video: false, groupSource: conversation.source ?? "groups") } label: { Image(systemName: "phone.fill") }
+                    Button { groupCallRoute = WapiGroupCallRoute(callID: nil, groupID: groupID, groupName: conversation.name, video: true, groupSource: conversation.source ?? "groups") } label: { Image(systemName: "video.fill") }
+                    Button { groupSettingsConversation = conversation } label: { Image(systemName: "info.circle") }
+                } else if let conversation {
+                    Button {
+                        directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: false)
+                    } label: { Image(systemName: "phone.fill") }
+                    Button {
+                        directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: true)
+                    } label: { Image(systemName: "video.fill") }
+                    Button { profileConversation = conversation } label: { Image(systemName: "person.crop.circle") }
+                }
+            }
+        }
+        .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
+        .fullScreenCover(item: $groupCallRoute) { route in WapiGroupCallRoom(route: route) { groupCallRoute = nil } }
+        .sheet(item: $profileConversation) { WapiContactProfileView(conversation: $0) }
+        .sheet(item: $groupSettingsConversation) { WapiGroupSettingsView(conversation: $0) }
+        .sheet(item: $translationMessage) { WapiTranslationSheet(message: $0) }
+        .sheet(isPresented: $showingEmojiPicker) { WapiEmojiPicker { emoji in draft.append(emoji) } }
         .fullScreenCover(item: $zoomedPhoto) { photo in
             ZoomablePhotoViewer(image: photo.image, onDismiss: { zoomedPhoto = nil })
         }
-        .onChange(of: photoItem) { _, item in guard let item else { return }; Task { await attachPhoto(item) } }
+        .onChange(of: photoItem) { _, item in guard let item else { return }; Task { await attachMedia(item) } }
+        .fileImporter(isPresented: $importingDocument, allowedContentTypes: [.pdf, .plainText, .rtf, .data]) { attachDocument($0) }
+        .sheet(item: $viewOncePreview) { message in
+            WapiViewOncePreview(message: message) { store.consumeViewOnce(message.id, in: conversationID); viewOncePreview = nil }
+        }
         .onAppear {
             if draft.isEmpty { draft = UserDefaults.standard.string(forKey: draftKey) ?? "" }
             if let conversation { store.openFirebaseConversation(conversation) }
         }
-        .onDisappear { store.closeFirebaseConversation() }
+        .onDisappear { recorder?.stop(); recorder = nil; recording = false; recordingPaused = false; store.closeFirebaseConversation() }
         .onChange(of: draft) { _, value in if editingMessage == nil { UserDefaults.standard.set(value, forKey: draftKey) } }
     }
 
@@ -662,18 +1149,65 @@ private struct ConversationView: View {
         return date.formatted(.dateTime.weekday(.wide).day().month(.wide).locale(Locale(identifier: "fr_FR"))).capitalized
     }
 
-    private func attachPhoto(_ item: PhotosPickerItem) async {
+    @ViewBuilder
+    private func imageMessage(_ path: String) -> some View {
+        if let image = UIImage(contentsOfFile: path) {
+            Image(uiImage: image)
+                .resizable().scaledToFill().frame(width: 190, height: 150)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+                .onTapGesture { zoomedPhoto = ZoomPhoto(image: image) }
+        } else if let url = mediaURL(path) {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase { image.resizable().scaledToFill() }
+                else if case .failure = phase { Label("Photo indisponible", systemImage: "exclamationmark.triangle") }
+                else { ProgressView() }
+            }
+            .frame(width: 190, height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
+        } else {
+            Label("Photo indisponible", systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    private func mediaURL(_ value: String) -> URL? {
+        if value.hasPrefix("http://") || value.hasPrefix("https://") { return URL(string: value) }
+        return URL(fileURLWithPath: value)
+    }
+
+    private func attachMedia(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self), let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        let url = directory.appendingPathComponent("whappy-photo-\(UUID().uuidString).jpg")
+        let type = item.supportedContentTypes.first
+        let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) || $0.conforms(to: .video) }
+        let fallback = isVideo ? "mp4" : "jpg"
+        let ext = type?.preferredFilenameExtension ?? fallback
+        let url = directory.appendingPathComponent("wapi-media-\(UUID().uuidString).\(ext)")
         guard (try? data.write(to: url, options: .atomic)) != nil else { return }
-        store.sendMedia(kind: "image", path: url.path, to: conversationID)
+        store.sendMedia(kind: isVideo ? "video" : "image", path: url.path, to: conversationID, mediaName: "wapi-media.\(ext)", viewOnce: nextMediaIsViewOnce)
+        nextMediaIsViewOnce = false
         photoItem = nil
+    }
+
+    private func attachDocument(_ result: Result<URL, Error>) {
+        guard case .success(let source) = result else { return }
+        let accessing = source.startAccessingSecurityScopedResource()
+        defer { if accessing { source.stopAccessingSecurityScopedResource() } }
+        guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let name = source.lastPathComponent.isEmpty ? "document" : source.lastPathComponent
+        let target = directory.appendingPathComponent("wapi-document-\(UUID().uuidString)-\(name)")
+        do {
+            try FileManager.default.copyItem(at: source, to: target)
+            store.sendMedia(kind: "document", path: target.path, to: conversationID, mediaName: name)
+        } catch {
+            store.firebaseMessage = "WAPI n’a pas pu préparer ce document."
+        }
     }
 
     private func toggleRecording() {
         if let recorder {
             recorder.stop(); self.recorder = nil; recording = false
-            store.sendMedia(kind: "audio", path: recorder.url.path, to: conversationID)
+            recordingPaused = false
+            if (try? recorder.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 > 0 { voiceDraftURL = recorder.url }
+            else { try? FileManager.default.removeItem(at: recorder.url) }
             return
         }
         AVAudioApplication.requestRecordPermission { granted in
@@ -684,17 +1218,387 @@ private struct ConversationView: View {
                 do {
                     try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
                     try AVAudioSession.sharedInstance().setActive(true)
-                    let audio = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: Int(kAudioFormatMPEG4AAC), AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1, AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue])
-                    audio.record(); recorder = audio; recording = true
+                    let audio = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: Int(kAudioFormatMPEG4AAC), AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 128_000, AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue])
+                    audio.record(); recorder = audio; recording = true; recordingPaused = false
                 } catch { recording = false }
             }
         }
     }
 
+    private func toggleRecordingPause() {
+        guard let recorder else { return }
+        if recordingPaused {
+            recorder.record()
+            recordingPaused = false
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } else {
+            recorder.pause()
+            recordingPaused = true
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        }
+    }
+
+    private func sendVoiceDraft() {
+        guard let voiceDraftURL else { return }
+        store.sendMedia(kind: "audio", path: voiceDraftURL.path, to: conversationID, mediaName: voiceDraftURL.lastPathComponent, viewOnce: nextMediaIsViewOnce)
+        self.voiceDraftURL = nil
+        nextMediaIsViewOnce = false
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
     private func playAudio(_ path: String) {
         if player?.isPlaying == true { player?.stop(); player = nil; return }
+        if let remote = URL(string: path), remote.scheme == "https" || remote.scheme == "http" {
+            remotePlayer?.pause()
+            let next = AVPlayer(url: remote)
+            remotePlayer = next
+            next.play()
+            return
+        }
         guard let audio = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: path)) else { return }
         audio.play(); player = audio
+    }
+}
+
+private struct WapiViewOncePreview: View {
+    let message: Message
+    let onClose: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer?
+
+    private var url: URL? {
+        guard let path = message.mediaPath else { return nil }
+        if path.hasPrefix("https://") || path.hasPrefix("http://") { return URL(string: path) }
+        return URL(fileURLWithPath: path)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if message.kind == "image", let url {
+                    AsyncImage(url: url) { phase in
+                        if case .success(let image) = phase { image.resizable().scaledToFit() }
+                        else if case .failure = phase { ContentUnavailableView("Média indisponible", systemImage: "exclamationmark.triangle") }
+                        else { ProgressView() }
+                    }.padding()
+                } else if message.kind == "video", let url {
+                    VideoPlayer(player: AVPlayer(url: url)).ignoresSafeArea(edges: .bottom)
+                } else if message.kind == "audio", let url {
+                    VStack(spacing: 18) {
+                        Image(systemName: "waveform.circle.fill").font(.system(size: 72)).foregroundStyle(Color.whappyBlue)
+                        Button("Lire la note vocale") { let value = AVPlayer(url: url); player = value; value.play() }.buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    ContentUnavailableView("Média indisponible", systemImage: "eye.slash")
+                }
+            }
+            .navigationTitle("Vue unique").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { player?.pause(); onClose(); dismiss() } } }
+            .onDisappear { onClose() }
+        }
+    }
+    }
+
+private struct WapiConversationToolbarTitle: View {
+    let conversation: Conversation
+    let onOpen: () -> Void
+
+    private var presenceLabel: String {
+        if conversation.source == "groups" {
+            return "\(conversation.groupMembers.count) membre(s)"
+        }
+        if conversation.peerIsOnline == true { return "En ligne" }
+        if let lastSeen = conversation.peerLastSeenAt {
+            let relative = RelativeDateTimeFormatter()
+            relative.locale = Locale.autoupdatingCurrent
+            relative.unitsStyle = .abbreviated
+            return "Vu \(relative.localizedString(for: lastSeen, relativeTo: Date()))"
+        }
+        return conversation.phoneNumber.isEmpty ? "Contact WAPI" : conversation.phoneNumber
+    }
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 7) {
+                ConversationAvatar(conversation: conversation)
+                    .scaleEffect(0.76)
+                    .frame(width: 35, height: 35)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(conversation.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.whappyInk)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        if conversation.peerIsOnline == true {
+                            Circle().fill(Color.whappyBlue).frame(width: 6, height: 6)
+                        }
+                        Text(presenceLabel)
+                            .font(.caption2)
+                            .foregroundStyle(conversation.peerIsOnline == true ? Color.whappyBlue : .secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .frame(maxWidth: 185)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(conversation.name), \(presenceLabel)")
+    }
+}
+
+private struct WapiTranslationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WhappyStore
+    let message: Message
+    @State private var targetLanguage = "en"
+    @State private var result: WapiTranslationResult?
+    @State private var errorMessage: String?
+    @State private var translating = false
+
+    private var selectedLanguage: WapiTranslationLanguage {
+        WapiTranslationLanguage.language(for: targetLanguage)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Message d’origine") {
+                    Text(message.text)
+                        .textSelection(.enabled)
+                        .lineLimit(8)
+                }
+                Section("Traduire vers") {
+                    Picker("Langue", selection: $targetLanguage) {
+                        ForEach(WapiTranslationLanguage.supported) { language in
+                            Text(language.displayName).tag(language.code)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    Text("\(WapiTranslationLanguage.supported.count) langues disponibles")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Section {
+                    Button {
+                        Task { await translate() }
+                    } label: {
+                        HStack {
+                            Label("Traduire en \(selectedLanguage.nativeName)", systemImage: "character.bubble.fill")
+                            Spacer()
+                            if translating { ProgressView() }
+                        }
+                    }
+                    .disabled(translating)
+                }
+                if let result {
+                    Section("Traduction") {
+                        Text(result.text)
+                            .textSelection(.enabled)
+                        Text("Langue détectée : \(result.detectedLanguage.uppercased())")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+                Section {
+                    Text("Le texte est envoyé uniquement au relais Lingwap auto-hébergé configuré par WAPI. Les clés de traduction ne sont jamais présentes dans l’application.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Lingwap")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fermer") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func translate() async {
+        translating = true
+        errorMessage = nil
+        result = nil
+        do {
+            result = try await store.translateWithLingwap(message.text, targetLanguage: targetLanguage)
+        } catch {
+            errorMessage = error.localizedDescription.isEmpty
+                ? "Lingwap est indisponible. Vérifiez la connexion et le relais de traduction."
+                : error.localizedDescription
+        }
+        translating = false
+    }
+}
+
+private struct WapiContactProfileView: View {
+    let conversation: Conversation
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                ConversationAvatar(conversation: conversation).frame(width: 96, height: 96)
+                VStack(spacing: 5) {
+                    Text(conversation.name).font(.title2.bold()).foregroundStyle(Color.whappyInk)
+                    if !conversation.phoneNumber.isEmpty { Text(conversation.phoneNumber).font(.callout).foregroundStyle(.secondary) }
+                    Text("Profil WAPI").font(.caption.weight(.semibold)).foregroundStyle(Color.wapiVerified)
+                    if conversation.peerIsOnline == true {
+                        Label("En ligne maintenant", systemImage: "circle.fill")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color.whappyBlue)
+                    } else if let lastSeen = conversation.peerLastSeenAt {
+                        Text("Dernière activité : \(lastSeen.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let phoneURL = URL(string: "tel:\(conversation.phoneNumber.filter { $0.isNumber || $0 == "+" })"), !conversation.phoneNumber.isEmpty {
+                    Link(destination: phoneURL) {
+                        Label("Appeler avec l’appareil", systemImage: "phone.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).tint(Color.whappyBlue)
+                }
+                Text("Les informations affichées ici respectent les réglages de confidentialité de ce compte.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Spacer()
+            }
+            .padding(28).background(Color.whappyBackground)
+            .navigationTitle("Profil").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+        }
+    }
+}
+
+private struct WapiGroupSettingsView: View {
+    @EnvironmentObject private var store: WhappyStore
+    @Environment(\.dismiss) private var dismiss
+    let conversation: Conversation
+    @State private var name: String
+    @State private var photoItem: PhotosPickerItem?
+    @State private var selectedImage: UIImage?
+    @State private var removePhoto = false
+
+    init(conversation: Conversation) {
+        self.conversation = conversation
+        _name = State(initialValue: conversation.name)
+    }
+
+    private var currentUserID: String { store.firebaseUserID ?? "" }
+    private var canEdit: Bool { conversation.groupOwnerID == currentUserID || conversation.groupAdminIDs.contains(currentUserID) }
+    private var canManageAdministrators: Bool { conversation.groupOwnerID == currentUserID }
+    private var hasChanges: Bool { name.trimmingCharacters(in: .whitespacesAndNewlines) != conversation.name || selectedImage != nil || removePhoto }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: 14) {
+                        Group {
+                            if let selectedImage { Image(uiImage: selectedImage).resizable().scaledToFill() }
+                            else { ConversationAvatar(conversation: conversation) }
+                        }.frame(width: 74, height: 74).clipShape(Circle())
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(conversation.name).font(.headline)
+                            Text("\(conversation.groupMembers.count) membre(s)").font(.caption).foregroundStyle(.secondary)
+                            Text(canEdit ? "Administration du groupe" : "Membre du groupe").font(.caption.weight(.semibold)).foregroundStyle(canEdit ? Color.whappyBlue : .secondary)
+                        }
+                    }.padding(.vertical, 5)
+                }
+                if canEdit {
+                    Section("Identité du groupe") {
+                        PhotosPicker(selection: $photoItem, matching: .images) {
+                            Label(selectedImage == nil ? "Changer la photo" : "Nouvelle photo sélectionnée", systemImage: "photo.on.rectangle.angled")
+                        }
+                        Toggle("Retirer la photo", isOn: $removePhoto).disabled((conversation.photoURL ?? "").isEmpty)
+                        TextField("Nom du groupe", text: $name).textInputAutocapitalization(.words)
+                        Text("Chaque modification est enregistrée dans la conversation pour informer les membres.").font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section { Label("Seuls les administrateurs peuvent modifier le nom ou la photo du groupe.", systemImage: "lock.fill").font(.footnote) }
+                }
+                Section("Membres") {
+                    if conversation.groupMembers.isEmpty {
+                        ContentUnavailableView("Membres en cours de synchronisation", systemImage: "person.2")
+                    } else {
+                        ForEach(conversation.groupMembers) { member in
+                            HStack(spacing: 12) {
+                                WapiMemberAvatar(member: member)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(member.displayName).font(.body.weight(.medium))
+                                    Text(memberRole(member)).font(.caption).foregroundStyle(member.uid == conversation.groupOwnerID || conversation.groupAdminIDs.contains(member.uid) ? Color.whappyBlue : .secondary)
+                                }
+                                Spacer()
+                                if canManageAdministrators, member.uid != conversation.groupOwnerID {
+                                    Button(conversation.groupAdminIDs.contains(member.uid) ? "Retirer" : "Nommer admin") {
+                                        store.setFirebaseGroupAdministrator(conversation: conversation, memberID: member.uid, administrator: !conversation.groupAdminIDs.contains(member.uid))
+                                    }.font(.caption.weight(.semibold)).disabled(store.firebaseBusy)
+                                }
+                            }.padding(.vertical, 3)
+                        }
+                    }
+                }
+            }
+            .background(Color.whappyBackground)
+            .navigationTitle("Infos du groupe").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } }
+                if canEdit {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(store.firebaseBusy ? "Enregistrement…" : "Enregistrer") { save() }
+                            .disabled(!hasChanges || !(2...80).contains(name.trimmingCharacters(in: .whitespacesAndNewlines).count) || store.firebaseBusy)
+                    }
+                }
+            }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                        selectedImage = image
+                        removePhoto = false
+                    }
+                    photoItem = nil
+                }
+            }
+        }
+    }
+
+    private func memberRole(_ member: WapiGroupMember) -> String {
+        if member.uid == conversation.groupOwnerID { return "Créateur · administrateur permanent" }
+        if conversation.groupAdminIDs.contains(member.uid) { return "Administrateur" }
+        return member.phoneNumber.isEmpty ? "Membre" : member.phoneNumber
+    }
+
+    private func save() {
+        store.updateFirebaseGroup(
+            conversation: conversation,
+            name: name,
+            photoData: selectedImage?.jpegData(compressionQuality: 0.92),
+            removePhoto: removePhoto
+        )
+    }
+}
+
+private struct WapiMemberAvatar: View {
+    let member: WapiGroupMember
+
+    var body: some View {
+        Group {
+            if let url = URL(string: member.photoURL), !member.photoURL.isEmpty {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase { image.resizable().scaledToFill() }
+                    else { InitialsAvatar(text: member.displayName, size: 42) }
+                }
+            } else {
+                InitialsAvatar(text: member.displayName, size: 42)
+            }
+        }.frame(width: 42, height: 42).clipShape(Circle())
     }
 }
 
@@ -792,8 +1696,8 @@ private struct ZoomablePhotoViewer: View {
 
 struct CallsView: View {
     @EnvironmentObject private var store: WhappyStore
-    @State private var selected: CallRecord?
-    @State private var mode: CallMode = .audio
+    @State private var directCallRoute: WapiDirectCallRoute?
+    @State private var unavailableMessage: String?
 
     var body: some View {
         List {
@@ -803,52 +1707,23 @@ struct CallsView: View {
                         Image(systemName: call.mode.systemImage).foregroundStyle(call.missed ? .red : Color.whappyBlue).frame(width: 32)
                         VStack(alignment: .leading) { Text(call.name).font(.headline); Text(call.date, style: .relative).font(.caption).foregroundStyle(.secondary) }
                         Spacer()
-                        Button { mode = .audio; selected = call } label: { Image(systemName: "phone.circle.fill").font(.title2) }.buttonStyle(.plain)
-                        Button { mode = .video; selected = call } label: { Image(systemName: "video.circle.fill").font(.title2) }.buttonStyle(.plain)
+                        Button { start(call, video: false) } label: { Image(systemName: "phone.circle.fill").font(.title2) }.buttonStyle(.plain)
+                        Button { start(call, video: true) } label: { Image(systemName: "video.circle.fill").font(.title2) }.buttonStyle(.plain)
                     }.padding(.vertical, 4)
                 }
             }
         }
         .navigationTitle("Appels")
-        .sheet(item: $selected) { call in SystemCallView(name: call.name, phone: call.phoneNumber, mode: mode) }
-    }
-}
-
-private struct SystemCallView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var store: WhappyStore
-    let name: String
-    let phone: String
-    let mode: CallMode
-    @State private var error: String?
-
-    private var destination: URL? {
-        let number = phone.replacingOccurrences(of: " ", with: "")
-        return URL(string: (mode == .audio ? "tel://" : "facetime://") + number)
+        .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
+        .alert("Appel WAPI indisponible", isPresented: Binding(get: { unavailableMessage != nil }, set: { if !$0 { unavailableMessage = nil } })) { Button("Fermer", role: .cancel) {} } message: { Text(unavailableMessage ?? "") }
     }
 
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 22) {
-                Spacer()
-                ZStack { Circle().fill(Color.whappyBlue.opacity(0.14)).frame(width: 122, height: 122); Image(systemName: mode.systemImage).font(.system(size: 44, weight: .semibold)).foregroundStyle(Color.whappyBlue) }
-                Text(name).font(.title.bold()).foregroundStyle(Color.whappyInk)
-                Text(phone).font(.callout).foregroundStyle(.secondary)
-                Button { startCall() } label: { Label(mode == .audio ? "Appeler" : "Démarrer FaceTime", systemImage: mode.systemImage).frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).tint(mode == .audio ? .green : .whappyBlue).controlSize(.large)
-                Text(mode == .audio ? "L’appel s’ouvre dans Téléphone." : "L’appel vidéo s’ouvre dans FaceTime.").font(.footnote).foregroundStyle(.secondary)
-                if let error { Text(error).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center) }
-                Spacer()
-            }
-            .padding(28).background(Color.whappyBackground).navigationTitle(mode.title).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+    private func start(_ call: CallRecord, video: Bool) {
+        guard let conversation = store.conversations.first(where: { $0.phoneNumber == call.phoneNumber && $0.peerUID != nil }) else {
+            unavailableMessage = "Ce contact doit avoir un compte WAPI actif pour un appel WAPI."
+            return
         }
-    }
-
-    private func startCall() {
-        store.recordCall(name: name, phone: phone, mode: mode)
-        guard let destination, UIApplication.shared.canOpenURL(destination) else { error = "Utilisez un iPhone configuré pour Téléphone ou FaceTime."; return }
-        UIApplication.shared.open(destination)
+        directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: video)
     }
 }
 
@@ -860,7 +1735,7 @@ struct MarketView: View {
     private var filtered: [Listing] { store.listings.filter { "\($0.title) \($0.place) \($0.seller)".matchesWhappySearch(search) } }
 
     var body: some View {
-        ScrollView { LazyVStack(spacing: 12) { ForEach(filtered) { listing in NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(.plain) } }.padding() }
+        ScrollView { LazyVStack(spacing: 12) { BusinessSaleRoomsIOSRail(); ForEach(filtered) { listing in NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(.plain) } }.padding() }
             .background(Color.whappyBackground).navigationTitle("Marché").searchable(text: $search, prompt: "Produit, service ou quartier")
             .navigationDestination(for: Listing.self) { ListingDetailView(listingID: $0.id) }
             .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { Button { showingCart = true } label: { Label("Panier", systemImage: "cart.fill").badge(store.cartCount) }; Button { selling = true } label: { Label("Vendre", systemImage: "plus") } } }
@@ -988,13 +1863,17 @@ private struct LiveStudioView: View {
     }
 }
 
+private struct WapiIOSGameLaunch: Identifiable {
+    let name: String
+    let subtitle: String
+    var id: String { name }
+}
+
 struct GamesView: View {
-    @State private var selected = "Défi du jour"
     @State private var score = 0
     @State private var streak = 1
-    @State private var answer: String?
-    @State private var round = 1
-    private let games = [("Défi du jour", "Quiz rapide · 60 secondes", "bolt.fill"), ("Duel WHAPPY", "Affrontez un ami en direct", "person.2.fill"), ("Mots & idées", "Trouvez la solution ensemble", "sparkles")]
+    @State private var launchedGame: WapiIOSGameLaunch?
+    private let games = [("King QI", "Quiz vocal · duels · trophées · direct", "crown.fill"), ("Ludo WAPI", "Plateau 3D · dés animés · amis", "dice.fill"), ("Billard WAPI", "Table 3D · visée tactile · tournoi", "circle.grid.cross.fill"), ("Échecs WAPI", "Échiquier 3D · IA et duels", "checkerboard.rectangle"), ("Jeu de dames", "Pions 3D · dames couronnées · IA", "circle.hexagongrid.fill"), ("Cartes WAPI", "Tables privées · amis · tournoi", "suit.club.fill"), ("Poker WAPI", "Salon privé · jetons non monétaires", "suit.spade.fill"), ("Défi du jour", "Quiz rapide · 60 secondes", "bolt.fill"), ("Mots & idées", "Trouvez la solution ensemble", "sparkles")]
 
     var body: some View {
         ScrollView {
@@ -1007,23 +1886,416 @@ struct GamesView: View {
                 }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [.whappyInk, .whappyBlue.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 26))
                 Text("Choisir un jeu").font(.title3.bold()).foregroundStyle(Color.whappyInk)
                 ForEach(games, id: \.0) { game in
-                    Button { selected = game.0 } label: {
-                        HStack(spacing: 13) { Image(systemName: game.2).font(.title2).foregroundStyle(selected == game.0 ? .white : Color.whappyBlue).frame(width: 48, height: 48).background(selected == game.0 ? Color.whappyBlue : Color.whappyBlue.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14)); VStack(alignment: .leading) { Text(game.0).font(.headline).foregroundStyle(Color.whappyInk); Text(game.1).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(selected == game.0 ? "PRÊT" : "JOUER ›").font(.caption.bold()).foregroundStyle(Color.whappyBlue) }.padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
+                    Button { launchedGame = WapiIOSGameLaunch(name: game.0, subtitle: game.1); UIImpactFeedbackGenerator(style: .medium).impactOccurred() } label: {
+                        HStack(spacing: 13) { Image(systemName: game.2).font(.title2).foregroundStyle(Color.whappyBlue).frame(width: 48, height: 48).background(Color.whappyBlue.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14)); VStack(alignment: .leading) { Text(game.0).font(.headline).foregroundStyle(Color.whappyInk); Text(game.1).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text("JOUER  ›").font(.caption.bold()).foregroundStyle(Color.whappyBlue) }.padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18))
                     }.buttonStyle(.plain)
                 }
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(selected.uppercased()).font(.caption.bold()).foregroundStyle(Color.whappyBlue)
-                    Text("Manche \(round) · question 1/3").font(.caption).foregroundStyle(.secondary)
-                    Text("Quel espace WHAPPY permet de diffuser en direct?").font(.title3.bold()).foregroundStyle(Color.whappyInk)
-                    ForEach(["Le Live", "Le Marché", "Les Services"], id: \.self) { option in
-                        Button { answer = option; if option == "Le Live" { score += 25; streak += 1 } } label: { HStack { Text(option); Spacer(); if answer == option { Image(systemName: "checkmark.circle.fill") } }.foregroundStyle(answer == option ? Color.whappyBlue : Color.whappyInk).padding(.vertical, 9).padding(.horizontal, 11).background(answer == option ? Color.whappyBlue.opacity(0.1) : Color.whappyBackground).clipShape(RoundedRectangle(cornerRadius: 11)) }.buttonStyle(.plain)
-                    }
-                    if let answer { Text(answer == "Le Live" ? "Bonne réponse · +25 XP" : "Pas grave. Rejouez pour progresser.").font(.caption.bold()).foregroundStyle(answer == "Le Live" ? .green : .orange) }
-                    Button { round += 1; answer = nil } label: { Label("Question suivante", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.whappyBlue).disabled(answer == nil)
-                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.white).clipShape(RoundedRectangle(cornerRadius: 20))
             }.padding()
         }.background(Color.whappyBackground).navigationTitle("Jeux")
+            .fullScreenCover(item: $launchedGame) { game in
+                if game.name == "King QI" { KingQiIOSView() }
+                else if ["Ludo WAPI", "Billard WAPI", "Échecs WAPI", "Jeu de dames", "Cartes WAPI", "Poker WAPI"].contains(game.name) { WapiIOSTabletopGame(game: game, score: $score, streak: $streak) }
+                else { WapiIOSArcadeGame(game: game, score: $score, streak: $streak) }
+            }
     }
+}
+
+private struct WapiIOSTabletopGame: View {
+    @Environment(\.dismiss) private var dismiss
+    let game: WapiIOSGameLaunch
+    @Binding var score: Int
+    @Binding var streak: Int
+    @State private var turn = 1
+    @State private var dieValue = 1
+    @State private var status = "Touchez la table pour déplacer la caméra."
+
+    private var primaryAction: String {
+        switch game.name {
+        case "Ludo WAPI": return "Lancer le dé"
+        case "Billard WAPI": return "Frapper"
+        case "Échecs WAPI", "Jeu de dames": return "Jouer le coup"
+        default: return "Distribuer"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color.whappyInk, Color.whappyBlue.opacity(0.78), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+            VStack(spacing: 14) {
+                HStack {
+                    Button { dismiss() } label: { Label("Quitter", systemImage: "chevron.left") }.buttonStyle(.bordered).tint(.white)
+                    Spacer()
+                    VStack(spacing: 1) { Text(game.name.uppercased()).font(.caption.bold()).foregroundStyle(.cyan); Text("MANCHE \(turn)").font(.headline.bold()).foregroundStyle(.white) }
+                    Spacer()
+                    Text("\(score) XP").font(.headline.bold()).foregroundStyle(.white)
+                }.padding(.horizontal)
+                WapiIOS3DTabletop(scene: game.name, dieValue: dieValue).frame(maxWidth: .infinity).frame(height: 380).clipShape(RoundedRectangle(cornerRadius: 26)).padding(.horizontal)
+                Text(status).font(.footnote).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center).padding(.horizontal)
+                HStack(spacing: 12) {
+                    Button { status = "Mode entraînement avec IA sélectionné."; UIImpactFeedbackGenerator(style: .medium).impactOccurred() } label: { Label("IA", systemImage: "brain.head.profile") }.buttonStyle(.bordered).tint(.white)
+                    Button {
+                        turn += 1; dieValue = Int.random(in: 1...6); score += 10; streak += 1
+                        status = game.name == "Ludo WAPI" ? "Dé : \(dieValue). Choisissez un pion à déplacer." : game.name == "Billard WAPI" ? "Coup joué : ajustez la visée avec un glissement sur la table." : "Coup validé. À l’adversaire."
+                        UINotificationFeedbackGenerator().notificationOccurred(.success); AudioServicesPlaySystemSound(1104)
+                    } label: { Label(primaryAction, systemImage: game.name == "Ludo WAPI" ? "dice.fill" : "play.fill").frame(minWidth: 150) }.buttonStyle(.borderedProminent).tint(Color.whappyBlue)
+                    Button { status = "Salon en ligne prêt : invitez vos contacts WAPI avec le bouton Partager." } label: { Image(systemName: "person.2.fill") }.buttonStyle(.bordered).tint(.white)
+                }
+                Text("Rendu 3D natif · contrôles tactiles · sons et vibrations du système. Les tournois et classements se synchronisent avec le service King QI/WAPI Play.").font(.caption2).foregroundStyle(.white.opacity(0.55)).multilineTextAlignment(.center).padding(.horizontal)
+                Spacer(minLength: 8)
+            }.padding(.top, 10)
+        }
+    }
+}
+
+private struct WapiIOS3DTabletop: UIViewRepresentable {
+    let scene: String
+    let dieValue: Int
+
+    func makeUIView(context: Context) -> SCNView {
+        let view = SCNView()
+        view.scene = makeScene()
+        view.allowsCameraControl = true
+        view.autoenablesDefaultLighting = true
+        view.backgroundColor = UIColor(red: 0.015, green: 0.05, blue: 0.11, alpha: 1)
+        view.antialiasingMode = .multisampling4X
+        return view
+    }
+
+    func updateUIView(_ view: SCNView, context: Context) {
+        view.scene = makeScene()
+    }
+
+    private func makeScene() -> SCNScene {
+        let sceneGraph = SCNScene()
+        let camera = SCNNode(); camera.camera = SCNCamera(); camera.camera?.fieldOfView = 48; camera.position = SCNVector3(0, 6.7, 8.7); camera.eulerAngles = SCNVector3(-0.58, 0, 0); sceneGraph.rootNode.addChildNode(camera)
+        let light = SCNNode(); light.light = SCNLight(); light.light?.type = .omni; light.light?.intensity = 1_250; light.position = SCNVector3(0, 6, 3); sceneGraph.rootNode.addChildNode(light)
+        let floor = SCNFloor(); floor.reflectivity = 0.2; floor.firstMaterial?.diffuse.contents = UIColor.black; let floorNode = SCNNode(geometry: floor); floorNode.position.y = -0.42; sceneGraph.rootNode.addChildNode(floorNode)
+        let board = SCNBox(width: 6.4, height: 0.35, length: 6.4, chamferRadius: 0.18); board.firstMaterial?.diffuse.contents = UIColor(red: 0.30, green: 0.16, blue: 0.06, alpha: 1); let boardNode = SCNNode(geometry: board); boardNode.position.y = -0.15; sceneGraph.rootNode.addChildNode(boardNode)
+        if scene == "Billard WAPI" { addPool(to: sceneGraph); return sceneGraph }
+        if scene == "Ludo WAPI" { addLudo(to: sceneGraph); return sceneGraph }
+        if scene == "Échecs WAPI" || scene == "Jeu de dames" { addCheckerboard(to: sceneGraph, chess: scene == "Échecs WAPI"); return sceneGraph }
+        addCards(to: sceneGraph)
+        return sceneGraph
+    }
+
+    private func addCheckerboard(to sceneGraph: SCNScene, chess: Bool) {
+        for row in 0..<8 { for column in 0..<8 {
+            let tile = SCNBox(width: 0.72, height: 0.08, length: 0.72, chamferRadius: 0.02); tile.firstMaterial?.diffuse.contents = (row + column).isMultiple(of: 2) ? UIColor(red: 0.89, green: 0.72, blue: 0.48, alpha: 1) : UIColor(red: 0.20, green: 0.10, blue: 0.06, alpha: 1); let node = SCNNode(geometry: tile); node.position = SCNVector3(Float(column - 3) * 0.72, 0.08, Float(row - 3) * 0.72); sceneGraph.rootNode.addChildNode(node) } }
+        for index in 0..<16 { let piece = SCNCylinder(radius: chess ? 0.20 : 0.24, height: chess ? 0.54 : 0.18); piece.firstMaterial?.diffuse.contents = index < 8 ? UIColor(white: 0.08, alpha: 1) : UIColor(white: 0.92, alpha: 1); let node = SCNNode(geometry: piece); let row = index < 8 ? index / 4 : 6 + index / 4; node.position = SCNVector3(Float((index % 4) * 2 - 3) * 0.72, chess ? 0.39 : 0.21, Float(row - 3) * 0.72); sceneGraph.rootNode.addChildNode(node) }
+    }
+
+    private func addLudo(to sceneGraph: SCNScene) {
+        let colors: [UIColor] = [.systemRed, .systemGreen, .systemBlue, .systemYellow]
+        for index in 0..<16 { let pawn = SCNCapsule(capRadius: 0.16, height: 0.52); pawn.firstMaterial?.diffuse.contents = colors[index / 4]; let node = SCNNode(geometry: pawn); let x: Float = (index % 4 < 2 ? -1.65 : 1.65) + Float(index % 2) * 0.45; let z: Float = index / 4 < 2 ? -1.65 : 1.65; node.position = SCNVector3(x, 0.35, z); sceneGraph.rootNode.addChildNode(node) }
+        let die = SCNBox(width: 0.72, height: 0.72, length: 0.72, chamferRadius: 0.10); die.firstMaterial?.diffuse.contents = UIColor.white; let dieNode = SCNNode(geometry: die); dieNode.position = SCNVector3(0, 0.6, 0); dieNode.eulerAngles = SCNVector3(Float(dieValue) * 0.18, Float(dieValue) * 0.29, 0); sceneGraph.rootNode.addChildNode(dieNode)
+    }
+
+    private func addPool(to sceneGraph: SCNScene) {
+        let cloth = SCNBox(width: 5.8, height: 0.16, length: 3.3, chamferRadius: 0.08); cloth.firstMaterial?.diffuse.contents = UIColor(red: 0.02, green: 0.33, blue: 0.24, alpha: 1); let clothNode = SCNNode(geometry: cloth); clothNode.position.y = 0.1; sceneGraph.rootNode.addChildNode(clothNode)
+        for index in 0..<12 { let ball = SCNSphere(radius: 0.14); ball.firstMaterial?.diffuse.contents = index == 0 ? UIColor.white : [UIColor.systemRed, .systemYellow, .systemBlue, .systemOrange][index % 4]; let node = SCNNode(geometry: ball); node.position = SCNVector3(Float(index % 4 - 1) * 0.38, 0.34, Float(index / 4 - 1) * 0.36); sceneGraph.rootNode.addChildNode(node) }
+    }
+
+    private func addCards(to sceneGraph: SCNScene) { for index in 0..<5 { let card = SCNBox(width: 0.82, height: 0.05, length: 1.18, chamferRadius: 0.05); card.firstMaterial?.diffuse.contents = UIColor.white; let node = SCNNode(geometry: card); node.position = SCNVector3(Float(index - 2) * 0.92, 0.16, 0); node.eulerAngles.y = Float(index - 2) * 0.13; sceneGraph.rootNode.addChildNode(node) } }
+}
+
+private struct WapiIOSArcadeGame: View {
+    @Environment(\.dismiss) private var dismiss
+    let game: WapiIOSGameLaunch
+    @Binding var score: Int
+    @Binding var streak: Int
+    @State private var answer: String?
+    @State private var round = 1
+
+    private var prompt: String {
+        switch game.name {
+        case "Duel WAPI": return "Quel outil WAPI permet de parler immédiatement avec un contact ?"
+        case "Mots & idées": return "Quel espace rassemble vos émissions et podcasts ?"
+        default: return "Quel espace WAPI permet de diffuser en direct ?"
+        }
+    }
+    private var options: [String] {
+        switch game.name {
+        case "Duel WAPI": return ["Messages", "Marché", "Profil"]
+        case "Mots & idées": return ["Actus", "Radio", "Business"]
+        default: return ["Le Live", "Le Marché", "Les Services"]
+        }
+    }
+    private var correct: String {
+        switch game.name {
+        case "Duel WAPI": return "Messages"
+        case "Mots & idées": return "Radio"
+        default: return "Le Live"
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(colors: [Color.whappyInk, Color.whappyBlue.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+                VStack(spacing: 18) {
+                    HStack { Text("MANCHE \(round)").font(.caption.bold()).foregroundStyle(.white.opacity(0.7)); Spacer(); Text("\(score) XP").font(.headline.bold()).foregroundStyle(.white) }
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text(game.name.uppercased()).font(.caption.bold()).foregroundStyle(.cyan)
+                        Text(prompt).font(.system(size: 27, weight: .black, design: .rounded)).foregroundStyle(.white)
+                        Text(game.subtitle).font(.footnote).foregroundStyle(.white.opacity(0.66))
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(options, id: \.self) { option in
+                        Button {
+                            guard answer == nil else { return }
+                            answer = option
+                            if option == correct { score += 25; streak += 1; UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                            else { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+                        } label: {
+                            HStack { Text(option).font(.headline); Spacer(); if answer == option { Image(systemName: option == correct ? "checkmark.circle.fill" : "xmark.circle.fill") } }
+                                .foregroundStyle(answer == option ? .white : Color.whappyInk)
+                                .padding(17)
+                                .background(answer == option ? (option == correct ? Color.green : Color.red) : Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 17))
+                        }.buttonStyle(.plain)
+                    }
+                    if let answer {
+                        Text(answer == correct ? "Bonne réponse · +25 XP" : "La bonne réponse était : \(correct)").font(.headline).foregroundStyle(.white)
+                        Button { round += 1; self.answer = nil; UIImpactFeedbackGenerator(style: .light).impactOccurred() } label: { Label("Manche suivante", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.white).foregroundStyle(Color.whappyBlue)
+                    }
+                    Spacer()
+                }.padding(20)
+            }
+            .navigationTitle(game.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Label("Quitter", systemImage: "chevron.left") }.foregroundStyle(.white) } }
+            .toolbarBackground(Color.whappyInk, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+        }
+    }
+}
+
+private struct KingQiIOSQuestion {
+    let category: String
+    let difficulty: String
+    let prompt: String
+    let options: [String]
+    let answer: Int
+}
+
+private let kingQiIOSQuestions = [
+    KingQiIOSQuestion(category: "GÉOGRAPHIE", difficulty: "FACILE", prompt: "Quelle est la capitale du Japon ?", options: ["Séoul", "Tokyo", "Pékin", "Bangkok"], answer: 1),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "FACILE", prompt: "Quelle est la formule chimique de l'eau ?", options: ["CO2", "O2", "H2O", "NaCl"], answer: 2),
+    KingQiIOSQuestion(category: "LOGIQUE", difficulty: "FACILE", prompt: "Quel est le premier nombre premier ?", options: ["0", "1", "2", "3"], answer: 2),
+    KingQiIOSQuestion(category: "GÉOGRAPHIE", difficulty: "MOYEN", prompt: "Quel est le plus grand océan du monde ?", options: ["Atlantique", "Indien", "Arctique", "Pacifique"], answer: 3),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "MOYEN", prompt: "Quel processus permet aux plantes de transformer la lumière en énergie ?", options: ["Respiration", "Photosynthèse", "Fermentation", "Osmose"], answer: 1),
+    KingQiIOSQuestion(category: "TECHNOLOGIE", difficulty: "EXPERT", prompt: "Que signifie l'acronyme GPS ?", options: ["Global Positioning System", "General Public Signal", "Geo Personal Service", "Global Phone Sync"], answer: 0),
+    KingQiIOSQuestion(category: "HISTOIRE", difficulty: "EXPERT", prompt: "Dans quelle civilisation les pyramides de Gizeh ont-elles été construites ?", options: ["Romaine", "Maya", "Égyptienne", "Perse"], answer: 2),
+    KingQiIOSQuestion(category: "GÉOGRAPHIE", difficulty: "EXPERT", prompt: "Quel fleuve traverse Brazzaville et Kinshasa ?", options: ["Nil", "Congo", "Niger", "Zambèze"], answer: 1),
+    KingQiIOSQuestion(category: "HISTOIRE", difficulty: "FACILE", prompt: "Quel mur historique se trouve en Chine ?", options: ["Mur d'Hadrien", "Grande Muraille", "Mur des Lamentations", "Mur de Berlin"], answer: 1),
+    KingQiIOSQuestion(category: "LANGUES", difficulty: "FACILE", prompt: "Quel mot signifie « bonjour » en espagnol ?", options: ["Ciao", "Hello", "Hola", "Olá"], answer: 2),
+    KingQiIOSQuestion(category: "NATURE", difficulty: "FACILE", prompt: "Quel animal est le plus grand mammifère du monde ?", options: ["Éléphant", "Baleine bleue", "Girafe", "Requin-baleine"], answer: 1),
+    KingQiIOSQuestion(category: "SPORT", difficulty: "FACILE", prompt: "Combien de joueurs une équipe de football aligne-t-elle sur le terrain ?", options: ["9", "10", "11", "12"], answer: 2),
+    KingQiIOSQuestion(category: "LOGIQUE", difficulty: "MOYEN", prompt: "Quel nombre complète la suite : 3, 6, 12, 24, ... ?", options: ["36", "42", "48", "54"], answer: 2),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "MOYEN", prompt: "Quelle planète est connue comme la planète rouge ?", options: ["Mars", "Vénus", "Jupiter", "Mercure"], answer: 0),
+    KingQiIOSQuestion(category: "GÉOGRAPHIE", difficulty: "MOYEN", prompt: "Sur quel continent se trouve le Congo ?", options: ["Asie", "Afrique", "Europe", "Amérique du Sud"], answer: 1),
+    KingQiIOSQuestion(category: "CULTURE", difficulty: "MOYEN", prompt: "Combien de cordes possède une guitare classique ?", options: ["4", "5", "6", "7"], answer: 2),
+    KingQiIOSQuestion(category: "TECHNOLOGIE", difficulty: "MOYEN", prompt: "Quel composant stocke temporairement les données d'un téléphone ?", options: ["RAM", "Écran", "Micro", "Haut-parleur"], answer: 0),
+    KingQiIOSQuestion(category: "LANGUES", difficulty: "MOYEN", prompt: "Quelle langue est majoritaire au Brésil ?", options: ["Espagnol", "Portugais", "Français", "Anglais"], answer: 1),
+    KingQiIOSQuestion(category: "HISTOIRE", difficulty: "MOYEN", prompt: "Quelle ville était ensevelie par le Vésuve en 79 ?", options: ["Pompéi", "Athènes", "Carthage", "Rome"], answer: 0),
+    KingQiIOSQuestion(category: "SPORT", difficulty: "MOYEN", prompt: "Combien de cases compte un échiquier ?", options: ["36", "49", "64", "81"], answer: 2),
+    KingQiIOSQuestion(category: "NATURE", difficulty: "MOYEN", prompt: "Quel gaz les plantes absorbent-elles principalement ?", options: ["Oxygène", "Dioxyde de carbone", "Hélium", "Azote"], answer: 1),
+    KingQiIOSQuestion(category: "LOGIQUE", difficulty: "EXPERT", prompt: "Si 5 machines produisent 5 pièces en 5 minutes, combien de minutes faut-il à 100 machines pour produire 100 pièces ?", options: ["5", "20", "100", "500"], answer: 0),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "EXPERT", prompt: "Quelle unité mesure une fréquence ?", options: ["Watt", "Pascal", "Hertz", "Joule"], answer: 2),
+    KingQiIOSQuestion(category: "GÉOGRAPHIE", difficulty: "EXPERT", prompt: "Quel détroit sépare l'Europe et l'Afrique ?", options: ["Béring", "Gibraltar", "Malacca", "Ormuz"], answer: 1),
+    KingQiIOSQuestion(category: "TECHNOLOGIE", difficulty: "EXPERT", prompt: "Quelle pratique chiffre des données sans pouvoir les modifier ?", options: ["Hachage", "Compression", "Indexation", "Cache"], answer: 0),
+    KingQiIOSQuestion(category: "CULTURE", difficulty: "EXPERT", prompt: "Qui a écrit « Le Petit Prince » ?", options: ["Victor Hugo", "Albert Camus", "Antoine de Saint-Exupéry", "Jules Verne"], answer: 2),
+    KingQiIOSQuestion(category: "AFRIQUE", difficulty: "EXPERT", prompt: "Quel fleuve est le deuxième plus long d'Afrique après le Nil ?", options: ["Congo", "Niger", "Zambèze", "Orange"], answer: 0),
+]
+
+private enum KingQiIOSSection { case home, solo, online }
+
+private struct KingQiIOSView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WhappyStore
+    @State private var section: KingQiIOSSection = .home
+    @State private var credits = 0
+    @State private var trophies = 0
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch section {
+                case .home: home
+                case .solo: KingQiIOSSoloView { section = .home }
+                case .online: KingQiIOSOnlineView(onExit: { section = .home }, onStartLive: { store.selectedTab = .live; dismiss() })
+                }
+            }
+            .background(Color.whappyBackground.ignoresSafeArea())
+            .toolbar { ToolbarItem(placement: .topBarLeading) { if section == .home { Button("Fermer") { dismiss() } } } }
+        }
+        .task { loadProfile() }
+    }
+
+    private var home: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 15) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack { Text("♛").font(.system(size: 40)).frame(width: 58, height: 58).background(Color.yellow).clipShape(Circle()); VStack(alignment: .leading) { Text("KING QI").font(.system(size: 31, weight: .black)); Text("La connaissance devient un spectacle.").font(.caption).foregroundStyle(.white.opacity(0.7)) } }
+                    HStack { kingStat("CRÉDITS", "\(credits)"); kingStat("TROPHÉES", "\(trophies)"); kingStat("NIVEAU", "National") }
+                }.foregroundStyle(.white).padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
+                Text("Choisissez votre arène").font(.title2.bold())
+                KingQiIOSMode(title: "SOLO IA", subtitle: "La voix King QI pose les questions. Répondez au micro ou touchez une barre.", icon: "mic.fill", color: .orange) { section = .solo }
+                KingQiIOSMode(title: "TOURNOI AVEC CONTACTS", subtitle: "Créez un code, invitez 2 à 8 proches et gagnez des trophées.", icon: "person.3.fill", color: .whappyBlue) { section = .online }
+                KingQiIOSMode(title: "KING QI EN DIRECT", subtitle: "Créez l'arène puis associez-la à votre direct WAPI.", icon: "video.fill", color: .red) { section = .online }
+                Text("Les crédits King QI sont promotionnels, non achetables et non convertibles en argent. Les mises réelles restent verrouillées jusqu’aux autorisations légales et au KYC.").font(.footnote).foregroundStyle(.secondary).padding().background(Color.yellow.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 18))
+            }.padding()
+        }
+    }
+
+    private func kingStat(_ title: String, _ value: String) -> some View { VStack(alignment: .leading) { Text(title).font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.55)); Text(value).font(.subheadline.bold()).lineLimit(1) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.09)).clipShape(RoundedRectangle(cornerRadius: 13)) }
+
+    private func loadProfile() {
+        guard Auth.auth().currentUser != nil else { return }
+        Functions.functions(region: "europe-west1").httpsCallable("kingQiGetProfile").call { result, _ in
+            guard let data = result?.data as? [String: Any] else { return }
+            credits = data["credits"] as? Int ?? (data["credits"] as? NSNumber)?.intValue ?? 0
+            trophies = data["trophies"] as? Int ?? (data["trophies"] as? NSNumber)?.intValue ?? 0
+        }
+    }
+}
+
+private struct KingQiIOSMode: View {
+    let title: String; let subtitle: String; let icon: String; let color: Color; let action: () -> Void
+    var body: some View { Button(action: action) { HStack(spacing: 13) { Image(systemName: icon).font(.title2).foregroundStyle(color).frame(width: 54, height: 54).background(color.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 17)); VStack(alignment: .leading, spacing: 4) { Text(title).font(.headline).foregroundStyle(Color.whappyInk); Text(subtitle).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(color) }.padding(15).background(.white).clipShape(RoundedRectangle(cornerRadius: 20)) }.buttonStyle(.plain) }
+}
+
+@MainActor
+private final class KingQiSpeechController: ObservableObject {
+    @Published var transcript = ""
+    @Published var listening = false
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "fr-FR"))
+    private let engine = AVAudioEngine()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+
+    func start() {
+        SFSpeechRecognizer.requestAuthorization { status in
+            DispatchQueue.main.async { if status == .authorized { self.begin() } }
+        }
+    }
+
+    private func begin() {
+        stop(); transcript = ""
+        let request = SFSpeechAudioBufferRecognitionRequest(); request.shouldReportPartialResults = true; self.request = request
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.record, mode: .measurement, options: .duckOthers)
+        try? session.setActive(true, options: .notifyOthersOnDeactivation)
+        let node = engine.inputNode; let format = node.outputFormat(forBus: 0)
+        node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }
+        engine.prepare(); try? engine.start(); listening = true
+        task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+            if let result { self.transcript = result.bestTranscription.formattedString }
+            if error != nil || result?.isFinal == true { self.stop() }
+        }
+    }
+
+    func stop() {
+        if engine.isRunning { engine.stop(); engine.inputNode.removeTap(onBus: 0) }
+        request?.endAudio(); task?.cancel(); request = nil; task = nil; listening = false
+    }
+}
+
+private struct KingQiIOSSoloView: View {
+    let onExit: () -> Void
+    @StateObject private var speech = KingQiSpeechController()
+    @State private var questions = kingQiIOSQuestions.shuffled()
+    @State private var index = 0
+    @State private var selected: Int?
+    @State private var score = 0
+    @State private var seconds = 15
+    @State private var finished = false
+    private let voice = AVSpeechSynthesizer()
+    private var question: KingQiIOSQuestion { questions[min(index, questions.count - 1)] }
+
+    var body: some View {
+        Group {
+            if finished { result }
+            else { ScrollView { VStack(spacing: 14) {
+                HStack { Button("Quitter", action: onExit).buttonStyle(.bordered); Spacer(); Text("\(index + 1)/\(questions.count)").bold(); Text("\(seconds)").font(.headline.bold()).frame(width: 48, height: 48).background(seconds <= 5 ? Color.red : Color.yellow).clipShape(Circle()).foregroundStyle(seconds <= 5 ? .white : Color.whappyInk) }
+                VStack(alignment: .leading, spacing: 14) { HStack { Text(question.category).font(.caption.bold()).foregroundStyle(.yellow); Spacer(); Text(question.difficulty).font(.caption.bold()).foregroundStyle(.white.opacity(0.6)) }; Text(question.prompt).font(.system(size: 25, weight: .black)).foregroundStyle(.white); Text("SCORE  \(score)").font(.caption.bold()).foregroundStyle(.white.opacity(0.65)) }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
+                ForEach(question.options.indices, id: \.self) { option in kingAnswer(option) }
+                Button { speech.start() } label: { Label(speech.listening ? "Je vous écoute…" : "Répondre avec ma voix", systemImage: "mic.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(speech.listening ? .red : .whappyBlue).disabled(selected != nil)
+                if let selected { Text(selected == question.answer ? "Bonne réponse" : "Réponse : \(question.options[question.answer])").font(.headline).foregroundStyle(selected == question.answer ? .green : .red); Button(index == questions.count - 1 ? "Voir mon résultat" : "Question suivante") { if index == questions.count - 1 { finished = true } else { index += 1 } }.buttonStyle(.borderedProminent).tint(Color.whappyInk).frame(maxWidth: .infinity) }
+            }.padding() } }
+        }
+        .onAppear { beginQuestion() }
+        .onChange(of: index) { _, _ in beginQuestion() }
+        .onChange(of: speech.transcript) { _, value in matchVoice(value) }
+        .onDisappear { speech.stop(); voice.stopSpeaking(at: .immediate) }
+    }
+
+    private func kingAnswer(_ option: Int) -> some View {
+        let revealed = selected != nil
+        let color: Color = revealed && option == question.answer ? .green : (selected == option ? .red : Color.gray.opacity(0.22))
+        return Button { choose(option) } label: { HStack { Text(["A", "B", "C", "D"][option]).font(.headline.bold()).foregroundStyle(.white).frame(width: 38, height: 38).background(revealed ? color : Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 11)); Text(question.options[option]).font(.headline).foregroundStyle(Color.whappyInk); Spacer() }.padding(13).background(revealed && option == question.answer ? Color.green.opacity(0.1) : .white).overlay(RoundedRectangle(cornerRadius: 17).stroke(color, lineWidth: 1.5)).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain).disabled(revealed)
+    }
+
+    private var result: some View { ZStack { Color(red: 0.03, green: 0.11, blue: 0.25).ignoresSafeArea(); VStack(spacing: 14) { Text("🏆").font(.system(size: 86)); Text("GRAND CHAMPION").font(.largeTitle).fontWeight(.black).foregroundStyle(.yellow); Text("\(score) points").foregroundStyle(.white.opacity(0.75)); Button("Rejouer") { questions.shuffle(); index = 0; score = 0; finished = false; beginQuestion() }.buttonStyle(.borderedProminent).tint(.yellow).foregroundStyle(Color.whappyInk); Button("Retour aux jeux", action: onExit).foregroundStyle(.white) } } }
+
+    private func beginQuestion() {
+        selected = nil; seconds = 15; speech.transcript = ""
+        voice.stopSpeaking(at: .immediate); let utterance = AVSpeechUtterance(string: question.prompt); utterance.voice = AVSpeechSynthesisVoice(language: "fr-FR"); voice.speak(utterance)
+        Task { while seconds > 0 && selected == nil && !finished { try? await Task.sleep(for: .seconds(1)); if selected == nil { seconds -= 1 } }; if seconds == 0 && selected == nil { selected = -1 } }
+    }
+
+    private func choose(_ option: Int) { guard selected == nil else { return }; selected = option; speech.stop(); if option == question.answer { score += 500 + seconds * 25 } }
+    private func matchVoice(_ value: String) { let heard = normalized(value); guard selected == nil, !heard.isEmpty else { return }; if let option = question.options.firstIndex(where: { let candidate = normalized($0); return heard.contains(candidate) || candidate.contains(heard) }) { choose(option) } }
+    private func normalized(_ value: String) -> String { value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ") }
+}
+
+private struct KingQiIOSOnlineView: View {
+    let onExit: () -> Void
+    let onStartLive: () -> Void
+    @State private var code = ""
+    @State private var entry = 10
+    @State private var maxPlayers = 2
+    @State private var visibility = "private"
+    @State private var roomID = ""
+    @State private var room: [String: Any] = [:]
+    @State private var busy = false
+    @State private var error: String?
+    @State private var listener: ListenerRegistration?
+    private let functions = Functions.functions(region: "europe-west1")
+
+    var body: some View { ScrollView { VStack(spacing: 14) {
+        HStack { Button("Retour", action: onExit).buttonStyle(.bordered); Spacer(); Text("KING QI SOCIAL").font(.headline.bold()) }
+        if roomID.isEmpty { setup } else { roomView }
+        if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+    }.padding() }.onDisappear { listener?.remove() } }
+
+    private var setup: some View { Group {
+        VStack(alignment: .leading, spacing: 10) { Text(maxPlayers == 2 ? "Créer un duel" : "Créer un tournoi").font(.title2.bold()); Text(maxPlayers == 2 ? "Affrontez un contact dans une arène à deux joueurs." : "Crédits promotionnels par joueur · jusqu’à huit joueurs.").font(.caption).foregroundStyle(.secondary); Picker("Format", selection: $maxPlayers) { Text("Duel · 2 joueurs").tag(2); Text("Tournoi · 8 joueurs").tag(8) }.pickerStyle(.segmented); HStack { ForEach([0, 10, 25, 50], id: \.self) { value in Button("\(value)") { entry = value }.buttonStyle(.borderedProminent).tint(entry == value ? .yellow : .gray) } }; Picker("Diffusion", selection: $visibility) { Text("Contacts").tag("private"); Text("Direct WAPI").tag("live") }.pickerStyle(.segmented); Button { call("kingQiCreateTournament", ["entryCredits": entry, "maxPlayers": maxPlayers, "visibility": visibility]) { watch($0["roomId"] as? String ?? "") } } label: { Label(maxPlayers == 2 ? "Créer le duel" : "Créer le tournoi", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(Color.whappyInk) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 22))
+        Text("OU REJOINDRE").font(.caption.bold()).foregroundStyle(.secondary)
+        TextField("Code à 6 caractères", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled().padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 15)).onChange(of: code) { _, value in code = String(value.filter { $0.isLetter || $0.isNumber }.prefix(6)).uppercased() }
+        Button("Rejoindre l'arène") { call("kingQiJoinTournament", ["code": code]) { watch($0["roomId"] as? String ?? "") } }.buttonStyle(.borderedProminent).disabled(code.count != 6 || busy)
+    } }
+
+    private var roomView: some View {
+        let status = room["status"] as? String ?? "waiting"
+        let playerIDs = room["playerIds"] as? [String] ?? []
+        let names = room["playerNames"] as? [String: String] ?? [:]
+        let scores = room["scores"] as? [String: NSNumber] ?? [:]
+        let uid = Auth.auth().currentUser?.uid ?? ""
+        return VStack(spacing: 12) {
+            Text("CODE  \(room["code"] as? String ?? "")").font(.title2.bold())
+            let capacity = room["maxPlayers"] as? Int ?? maxPlayers
+            Text(status == "waiting" ? "\(playerIDs.count)/\(capacity) joueurs dans l’arène" : status == "finished" ? (capacity == 2 ? "Duel terminé" : "Tournoi terminé") : "King QI en cours").font(.title.bold()).foregroundStyle(.white).padding().frame(maxWidth: .infinity).background(Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 22))
+            ForEach(playerIDs.sorted { (scores[$0]?.intValue ?? 0) > (scores[$1]?.intValue ?? 0) }, id: \.self) { player in HStack { Text(names[player] ?? "Joueur WAPI").bold(); Spacer(); Text("\(scores[player]?.intValue ?? 0) pts") }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 14)) }
+            if status == "waiting", room["hostId"] as? String == uid { Button("Démarrer King QI") { call("kingQiStartTournament", ["roomId": roomID]) }.buttonStyle(.borderedProminent).disabled(playerIDs.count < 2 || busy) }
+            if status == "waiting", room["hostId"] as? String == uid, room["visibility"] as? String == "live" { Button { call("kingQiPrepareLive", ["roomId": roomID]) { _ in onStartLive() } } label: { Label("Ouvrir mon direct WAPI", systemImage: "video.fill") }.buttonStyle(.bordered) }
+            if status == "playing", let question = room["currentQuestion"] as? [String: Any], let options = question["options"] as? [String] { Text(question["text"] as? String ?? "Question").font(.title2.bold()); ForEach(options.indices, id: \.self) { option in Button(options[option]) { call("kingQiSubmitAnswer", ["roomId": roomID, "optionIndex": option]) }.buttonStyle(.bordered).frame(maxWidth: .infinity) }; Button("Manche suivante") { call("kingQiAdvanceTournament", ["roomId": roomID]) }.buttonStyle(.borderedProminent) }
+            if status == "finished" { Text(((room["winners"] as? [String])?.contains(uid) == true) ? "🏆 GRAND CHAMPION" : "Tournoi terminé").font(.largeTitle).fontWeight(.black).foregroundStyle(.orange) }
+        }
+    }
+
+    private func watch(_ id: String) { guard !id.isEmpty else { return }; roomID = id; listener?.remove(); listener = Firestore.firestore().collection("kingQiRooms").document(id).addSnapshotListener { snapshot, failure in if let failure { error = wapiUserFacingError(failure, action: "La synchronisation King QI") } else { room = snapshot?.data() ?? [:] } } }
+    private func call(_ name: String, _ data: [String: Any], completion: @escaping ([String: Any]) -> Void = { _ in }) { guard !busy else { return }; busy = true; error = nil; functions.httpsCallable(name).call(data) { result, failure in busy = false; if let failure { error = wapiUserFacingError(failure, action: "King QI") } else { completion(result?.data as? [String: Any] ?? [:]) } } }
 }
 
 private struct StatPill: View {
@@ -1090,10 +2362,205 @@ private struct OrdersView: View {
 
 private struct BusinessEditorView: View {
     @EnvironmentObject private var store: WhappyStore
-    @State private var name = ""; @State private var category = "Commerce"; @State private var bio = ""; @State private var city = "Brazzaville"; @State private var saved = false
+    @State private var name = ""; @State private var category = "Commerce"; @State private var bio = ""; @State private var city = "Brazzaville"; @State private var phone = ""; @State private var website = ""; @State private var saved = false
     var body: some View {
-        Form { Section("Identité") { TextField("Nom", text: $name); TextField("Catégorie", text: $category); TextField("Ville", text: $city) }; Section("Présentation") { TextField("Bio", text: $bio, axis: .vertical).lineLimit(3...6) }; Section { Button(saved ? "Enregistré" : "Enregistrer l’espace Business") { store.saveBusiness(name: name, category: category, bio: bio, city: city); saved = true }.disabled(name.count < 2).frame(maxWidth: .infinity) } }.navigationTitle("Business").onAppear { if let business = store.business { name = business.name; category = business.category; bio = business.bio; city = business.city } }
+        Form { Section("Identité professionnelle") { Text("Ce profil Business est séparé de votre compte personnel, même si vous gardez le même numéro WAPI.").font(.footnote).foregroundStyle(.secondary); TextField("Nom de l’entreprise", text: $name); TextField("Activité", text: $category); TextField("Ville ou région", text: $city); TextField("Numéro Business", text: $phone).keyboardType(.phonePad); TextField("Site ou catalogue", text: $website).keyboardType(.URL) }; Section("Présentation") { TextField("Que proposez-vous aux clients ?", text: $bio, axis: .vertical).lineLimit(3...6) }; Section("Commerce social") { NavigationLink { BusinessSaleRoomManagerIOS() } label: { Label("Salons de vente", systemImage: "person.3.sequence.fill") }; Text("WEPI peut préparer vos réponses clients, vos descriptions et vos relances. Les campagnes sont pilotées depuis Business Ads.").font(.footnote).foregroundStyle(.secondary) }; Section { Button(saved ? "Enregistré" : "Créer le profil Business") { store.saveBusiness(name: name, category: category, bio: bio, city: city, phone: phone, website: website); saved = true }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2).frame(maxWidth: .infinity) } }.navigationTitle("Business").onAppear { if let business = store.business { name = business.name; category = business.category; bio = business.bio; city = business.city; phone = business.phone; website = business.website } }
     }
+}
+
+private struct BusinessSaleProductIOS: Identifiable {
+    let id: String; let title: String; let description: String; let price: Int; let originalPrice: Int; let stock: Int; let sold: Int; let status: String
+}
+
+private struct BusinessSaleRoomIOS: Identifiable {
+    let id: String; let ownerID: String; let pageID: String; let pageName: String; let pageCity: String; let title: String; let description: String; let visibility: String; let status: String; let code: String; let viewers: Int; let reservations: Int; let products: [BusinessSaleProductIOS]
+}
+
+@MainActor
+private final class BusinessSaleRoomsIOSStore: ObservableObject {
+    @Published var rooms: [BusinessSaleRoomIOS] = []
+    @Published var loading = false
+    @Published var message: String?
+    private let functions = Functions.functions(region: "europe-west1")
+    private let firestore = Firestore.firestore()
+
+    func load() async {
+        loading = true; defer { loading = false }
+        do {
+            let result = try await call("listVisibleBusinessSaleRooms", [:])
+            rooms = Self.parse(result)
+            message = nil
+        } catch where Self.canReadDirectly(error) {
+            do {
+                rooms = try await loadFromFirestore()
+                message = nil
+            } catch {
+                message = Self.failureMessage(error)
+            }
+        } catch {
+            message = Self.failureMessage(error)
+        }
+    }
+
+    func join(_ room: BusinessSaleRoomIOS) async { guard room.status == "live" else { return }; do { _ = try await call("joinBusinessSaleRoom", ["roomId": room.id]) } catch { message = Self.failureMessage(error) } }
+    func reserve(_ room: BusinessSaleRoomIOS, product: BusinessSaleProductIOS) async -> Bool { do { _ = try await call("reserveBusinessSaleProduct", ["roomId": room.id, "dealId": product.id, "quantity": 1]); message = "Réservation confirmée. La boutique a reçu votre commande."; await load(); return true } catch { message = Self.failureMessage(error); return false } }
+    func end(_ room: BusinessSaleRoomIOS) async { do { _ = try await call("endBusinessSaleRoom", ["roomId": room.id]); await load() } catch { message = Self.failureMessage(error) } }
+    func create(pageID: String, title: String, description: String, worldwide: Bool, duration: Int, dealIDs: [String]) async -> Bool { do { _ = try await call("createBusinessSaleRoom", ["pageId": pageID, "title": title, "description": description, "visibility": worldwide ? "public" : "contacts", "durationMinutes": duration, "dealIds": dealIDs, "startNow": true]); message = "Salon publié dans le Marché WAPI."; await load(); return true } catch { message = Self.failureMessage(error); return false } }
+
+    private func call(_ name: String, _ data: [String: Any]) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in functions.httpsCallable(name).call(data) { result, error in if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: result?.data as? [String: Any] ?? [:]) } } }
+    }
+
+    private func loadFromFirestore() async throws -> [BusinessSaleRoomIOS] {
+        var documents: [String: QueryDocumentSnapshot] = [:]
+        let publicSnapshot = try await firestore.collection("businessSaleRooms")
+            .whereField("visibility", isEqualTo: "public")
+            .limit(to: 100)
+            .getDocuments()
+        publicSnapshot.documents.forEach { documents[$0.documentID] = $0 }
+        if let userID = Auth.auth().currentUser?.uid, !userID.isEmpty {
+            let ownSnapshot = try await firestore.collection("businessSaleRooms")
+                .whereField("ownerId", isEqualTo: userID)
+                .limit(to: 100)
+                .getDocuments()
+            ownSnapshot.documents.forEach { documents[$0.documentID] = $0 }
+        }
+        let now = Date()
+        let visible = documents.values.filter { document in
+            guard ["scheduled", "live"].contains(document.get("status") as? String ?? "") else { return false }
+            return ((document.get("endsAt") as? Timestamp)?.dateValue() ?? .distantFuture) > now
+        }
+        let dealIDs = Array(Set(visible.flatMap { $0.get("dealIds") as? [String] ?? [] }))
+        var deals: [String: QueryDocumentSnapshot] = [:]
+        for offset in stride(from: 0, to: dealIDs.count, by: 30) {
+            let end = min(offset + 30, dealIDs.count)
+            let chunk = Array(dealIDs[offset..<end])
+            guard !chunk.isEmpty else { continue }
+            let snapshot = try await firestore.collection("businessDeals")
+                .whereField(FieldPath.documentID(), in: chunk)
+                .getDocuments()
+            snapshot.documents.forEach { deals[$0.documentID] = $0 }
+        }
+        return visible.map { document in
+            let products = (document.get("dealIds") as? [String] ?? []).compactMap { dealID -> BusinessSaleProductIOS? in
+                guard let deal = deals[dealID] else { return nil }
+                return BusinessSaleProductIOS(
+                    id: deal.documentID,
+                    title: deal.get("title") as? String ?? "Produit WAPI",
+                    description: deal.get("description") as? String ?? "",
+                    price: (deal.get("dealPrice") as? NSNumber)?.intValue ?? 0,
+                    originalPrice: (deal.get("originalPrice") as? NSNumber)?.intValue ?? 0,
+                    stock: (deal.get("stock") as? NSNumber)?.intValue ?? 0,
+                    sold: (deal.get("sold") as? NSNumber)?.intValue ?? 0,
+                    status: deal.get("status") as? String ?? "active"
+                )
+            }
+            return BusinessSaleRoomIOS(
+                id: document.documentID,
+                ownerID: document.get("ownerId") as? String ?? "",
+                pageID: document.get("pageId") as? String ?? "",
+                pageName: document.get("pageName") as? String ?? "WAPI Business",
+                pageCity: document.get("pageCity") as? String ?? "",
+                title: document.get("title") as? String ?? "Vente privée WAPI",
+                description: document.get("description") as? String ?? "",
+                visibility: document.get("visibility") as? String ?? "public",
+                status: document.get("status") as? String ?? "scheduled",
+                code: document.get("code") as? String ?? "",
+                viewers: (document.get("viewerCount") as? NSNumber)?.intValue ?? 0,
+                reservations: (document.get("reservationCount") as? NSNumber)?.intValue ?? 0,
+                products: products
+            )
+        }.sorted { left, right in
+            if left.status != right.status { return left.status == "live" }
+            return left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+        }
+    }
+
+    private static func canReadDirectly(_ error: Error) -> Bool {
+        guard let code = FunctionsErrorCode(rawValue: (error as NSError).code) else { return false }
+        return [.notFound, .unavailable, .deadlineExceeded].contains(code)
+    }
+
+    private static func failureMessage(_ error: Error) -> String {
+        guard let code = FunctionsErrorCode(rawValue: (error as NSError).code) else {
+            return "Les ventes privées sont momentanément indisponibles. Touchez Actualiser."
+        }
+        switch code {
+        case .notFound:
+            return "La mise à jour Ventes privées n’est pas encore active sur le serveur WAPI."
+        case .unauthenticated:
+            return "Reconnectez-vous à WAPI pour accéder aux ventes privées."
+        case .permissionDenied:
+            return "Votre compte n’est pas autorisé à effectuer cette opération."
+        case .failedPrecondition:
+            return "Cette vente n’est plus disponible."
+        case .unavailable, .deadlineExceeded:
+            return "Connexion momentanément indisponible. Touchez Actualiser."
+        default:
+            return "Les ventes privées sont momentanément indisponibles. Touchez Actualiser."
+        }
+    }
+
+    private static func parse(_ root: [String: Any]) -> [BusinessSaleRoomIOS] {
+        (root["rooms"] as? [[String: Any]] ?? []).compactMap { value in
+            guard let id = value["id"] as? String else { return nil }
+            let products = (value["products"] as? [[String: Any]] ?? []).compactMap { product -> BusinessSaleProductIOS? in guard let productID = product["id"] as? String else { return nil }; return BusinessSaleProductIOS(id: productID, title: product["title"] as? String ?? "Produit WAPI", description: product["description"] as? String ?? "", price: (product["price"] as? NSNumber)?.intValue ?? 0, originalPrice: (product["originalPrice"] as? NSNumber)?.intValue ?? 0, stock: (product["stock"] as? NSNumber)?.intValue ?? 0, sold: (product["sold"] as? NSNumber)?.intValue ?? 0, status: product["status"] as? String ?? "active") }
+            return BusinessSaleRoomIOS(id: id, ownerID: value["ownerId"] as? String ?? "", pageID: value["pageId"] as? String ?? "", pageName: value["pageName"] as? String ?? "WAPI Business", pageCity: value["pageCity"] as? String ?? "", title: value["title"] as? String ?? "Vente privée WAPI", description: value["description"] as? String ?? "", visibility: value["visibility"] as? String ?? "public", status: value["status"] as? String ?? "scheduled", code: value["code"] as? String ?? "", viewers: (value["viewerCount"] as? NSNumber)?.intValue ?? 0, reservations: (value["reservationCount"] as? NSNumber)?.intValue ?? 0, products: products)
+        }
+    }
+}
+
+private struct BusinessSaleRoomsIOSRail: View {
+    @StateObject private var model = BusinessSaleRoomsIOSStore()
+    @State private var selected: BusinessSaleRoomIOS?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack { Image(systemName: "globe.europe.africa.fill").foregroundStyle(Color.whappyBlue).frame(width: 42, height: 42).background(Color.whappyBlue.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 13)); VStack(alignment: .leading) { Text("Ventes privées en direct").font(.headline); Text("Visibles dans tout WAPI · aucun numéro requis").font(.caption2).foregroundStyle(.secondary) }; Spacer(); if model.loading { ProgressView() } else { Button { Task { await model.load() } } label: { Image(systemName: "arrow.clockwise") } } }
+            if !model.loading, model.rooms.isEmpty { Text("Aucune vente ouverte pour le moment.").font(.footnote).foregroundStyle(.secondary) }
+            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 10) { ForEach(model.rooms.prefix(12)) { room in Button { selected = room } label: { VStack(alignment: .leading, spacing: 6) { HStack { Text(room.status == "live" ? "● EN COURS" : "BIENTÔT").font(.caption2.bold()).foregroundStyle(room.status == "live" ? .red : .yellow); Spacer(); Text(room.visibility == "public" ? "MONDIAL" : "CONTACTS").font(.caption2.bold()).foregroundStyle(.white.opacity(0.65)) }; Text(room.title).font(.headline).foregroundStyle(.white).lineLimit(2); Text("\(room.pageName) · \(room.products.count) produit(s)").font(.caption).foregroundStyle(.white.opacity(0.65)); Text("\(room.viewers) visiteurs").font(.caption2).foregroundStyle(.cyan) }.padding().frame(width: 238, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 19)) }.buttonStyle(.plain) } } }
+            if let message = model.message { Text(message).font(.caption).foregroundStyle(message.hasPrefix("Réservation") ? .green : .red) }
+        }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 22)).task { await model.load() }.sheet(item: $selected) { BusinessSaleRoomDetailIOS(room: $0, model: model) }
+    }
+}
+
+private struct BusinessSaleRoomDetailIOS: View {
+    @Environment(\.dismiss) private var dismiss
+    let room: BusinessSaleRoomIOS
+    @ObservedObject var model: BusinessSaleRoomsIOSStore
+    @State private var busyID: String?
+    var body: some View { NavigationStack { ScrollView { VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) { Text(room.status == "live" ? "● EN COURS" : "PROGRAMMÉE").font(.caption.bold()).foregroundStyle(.yellow); Text(room.title).font(.largeTitle.bold()).foregroundStyle(.white); if !room.description.isEmpty { Text(room.description).foregroundStyle(.white.opacity(0.72)) }; Text("\(room.viewers) visiteurs · \(room.reservations) réservations").font(.caption).foregroundStyle(.white.opacity(0.65)) }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 26))
+        Text("Sélection de \(room.pageName)").font(.title2.bold())
+        ForEach(room.products) { product in VStack(alignment: .leading, spacing: 8) { Text(product.title).font(.headline); if !product.description.isEmpty { Text(product.description).font(.caption).foregroundStyle(.secondary) }; HStack { Text("\(product.price.formatted()) FCFA").font(.title3.bold()).foregroundStyle(Color.whappyBlue); Spacer(); Text("\(max(0, product.stock - product.sold)) restant(s)").font(.caption).foregroundStyle(.secondary) }; Button { busyID = product.id; Task { _ = await model.reserve(room, product: product); busyID = nil } } label: { if busyID == product.id { ProgressView().frame(maxWidth: .infinity) } else { Label("Réserver maintenant", systemImage: "bag.badge.plus").frame(maxWidth: .infinity) } }.buttonStyle(.borderedProminent).disabled(room.status != "live" || product.status != "active" || product.sold >= product.stock || busyID != nil) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 18)) }
+    }.padding() }.background(Color.whappyBackground).navigationTitle(room.pageName).toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Fermer") { dismiss() } } }.task { await model.join(room) } } }
+}
+
+private struct BusinessSalePageIOS: Identifiable { let id: String; let name: String }
+private struct BusinessSaleDealIOS: Identifiable { let id: String; let pageID: String; let title: String; let price: Int; let available: Int }
+
+private struct BusinessSaleRoomManagerIOS: View {
+    @StateObject private var model = BusinessSaleRoomsIOSStore()
+    @State private var pages: [BusinessSalePageIOS] = []
+    @State private var deals: [BusinessSaleDealIOS] = []
+    @State private var creating = false
+    private var mine: [BusinessSaleRoomIOS] { model.rooms.filter { $0.ownerID == Auth.auth().currentUser?.uid } }
+    var body: some View { List {
+        Section { Text("Une vente privée est un événement commercial limité dans le temps. En mode mondial, tous les comptes WAPI peuvent la découvrir sans connaître votre numéro.").font(.footnote).foregroundStyle(.secondary); Button { creating = true } label: { Label("Créer un salon de vente", systemImage: "plus.circle.fill") }.disabled(pages.isEmpty || deals.isEmpty) }
+        Section("Mes salons") { if model.loading { ProgressView() } else if mine.isEmpty { ContentUnavailableView("Aucun salon", systemImage: "storefront", description: Text("Ajoutez des produits puis ouvrez votre première vente.")) } else { ForEach(mine) { room in VStack(alignment: .leading, spacing: 6) { HStack { Text(room.status == "live" ? "● EN COURS" : room.status.uppercased()).font(.caption.bold()).foregroundStyle(room.status == "live" ? .red : .secondary); Spacer(); Text(room.visibility == "public" ? "MONDIAL" : "CONTACTS").font(.caption2.bold()).foregroundStyle(Color.whappyBlue) }; Text(room.title).font(.headline); Text("\(room.viewers) visiteurs · \(room.reservations) réservations · \(room.code)").font(.caption).foregroundStyle(.secondary); if room.status != "ended" { Button("Terminer") { Task { await model.end(room) } }.buttonStyle(.bordered) } } } } }
+        if let message = model.message { Section { Text(message).foregroundStyle(.secondary) } }
+    }.navigationTitle("Salons de vente").task { await loadAssets(); await model.load() }.sheet(isPresented: $creating) { BusinessCreateSaleRoomIOS(model: model, pages: pages, deals: deals) { creating = false } } }
+
+    private func loadAssets() async {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        do { let pageDocs = try await Firestore.firestore().collection("businessPages").whereField("ownerId", isEqualTo: uid).getDocuments(); pages = pageDocs.documents.map { BusinessSalePageIOS(id: $0.documentID, name: $0.get("name") as? String ?? "WAPI Business") }; let dealDocs = try await Firestore.firestore().collection("businessDeals").whereField("ownerId", isEqualTo: uid).getDocuments(); deals = dealDocs.documents.compactMap { doc in let status = doc.get("status") as? String ?? ""; guard ["active", "paused"].contains(status) else { return nil }; let stock = (doc.get("stock") as? NSNumber)?.intValue ?? 0; let sold = (doc.get("sold") as? NSNumber)?.intValue ?? 0; return BusinessSaleDealIOS(id: doc.documentID, pageID: doc.get("pageId") as? String ?? "", title: doc.get("title") as? String ?? "Produit WAPI", price: (doc.get("dealPrice") as? NSNumber)?.intValue ?? 0, available: max(0, stock - sold)) } } catch { model.message = wapiUserFacingError(error, action: "Le chargement de votre catalogue Business") }
+    }
+}
+
+private struct BusinessCreateSaleRoomIOS: View {
+    @ObservedObject var model: BusinessSaleRoomsIOSStore
+    let pages: [BusinessSalePageIOS]; let deals: [BusinessSaleDealIOS]; let onClosed: () -> Void
+    @State private var pageID = ""; @State private var title = ""; @State private var description = ""; @State private var duration = 60; @State private var worldwide = true; @State private var selected: Set<String> = []; @State private var busy = false
+    var body: some View { NavigationStack { Form { Section("Page Business") { Picker("Page", selection: $pageID) { ForEach(pages) { Text($0.name).tag($0.id) } }; TextField("Nom de la vente", text: $title); TextField("Présentation", text: $description, axis: .vertical).lineLimit(2...5); Stepper("Durée : \(duration) minutes", value: $duration, in: 15...10_080, step: 15); Toggle("Visible dans tout WAPI", isOn: $worldwide); Text(worldwide ? "Aucun numéro de téléphone nécessaire." : "Réservé aux contacts de la boutique.").font(.footnote).foregroundStyle(.secondary) }; Section("Produits") { ForEach(deals.filter { $0.pageID == pageID }) { deal in Button { if selected.contains(deal.id) { selected.remove(deal.id) } else { selected.insert(deal.id) } } label: { HStack { Image(systemName: selected.contains(deal.id) ? "checkmark.circle.fill" : "circle"); VStack(alignment: .leading) { Text(deal.title); Text("\(deal.price.formatted()) FCFA · \(deal.available) disponible(s)").font(.caption).foregroundStyle(.secondary) } } } } } }.navigationTitle("Nouvelle vente").onAppear { if pageID.isEmpty { pageID = pages.first?.id ?? "" } }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler", action: onClosed).disabled(busy) }; ToolbarItem(placement: .confirmationAction) { Button("Ouvrir") { busy = true; Task { if await model.create(pageID: pageID, title: title, description: description, worldwide: worldwide, duration: duration, dealIDs: Array(selected)) { onClosed() }; busy = false } }.disabled(pageID.isEmpty || selected.isEmpty || busy) } } } }
 }
 
 struct ProfileView: View {
@@ -1101,6 +2568,17 @@ struct ProfileView: View {
     @State private var zoomedPhoto: ZoomPhoto?
     @State private var profilePhotoItem: PhotosPickerItem?
     @State private var profilePhoto: UIImage?
+
+    private var signedInPhone: String { Auth.auth().currentUser?.phoneNumber ?? "" }
+    private var founder: Bool { isWhappyFounderPhone(signedInPhone) }
+    private var displayName: String {
+        if founder { return whappyFounderName }
+        let value = Auth.auth().currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "Compte WAPI" : value
+    }
+    private var profileInitials: String {
+        displayName.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
+    }
 
     private static let profilePhotoKey = "whappy-ios-profile-photo-path"
 
@@ -1115,6 +2593,7 @@ struct ProfileView: View {
         try? data.write(to: target, options: .atomic)
         UserDefaults.standard.set(target.path, forKey: Self.profilePhotoKey)
         profilePhoto = image
+        store.uploadFirebaseProfilePhoto(data)
     }
 
     private func loadProfilePhoto() {
@@ -1136,14 +2615,31 @@ struct ProfileView: View {
                 HStack(spacing: 16) {
                     profileHeaderAvatar
                     VStack(alignment: .leading) {
-                        Text(whappyFounderName).font(.title3.bold())
-                        Text(whappyFounderBusinessName + " · " + whappyFounderBadgeLabel).font(.subheadline).foregroundStyle(.secondary)
+                        HStack(spacing: 5) {
+                            Text(displayName).font(.title3.bold())
+                            if store.firebaseProfileVerified || founder {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .foregroundStyle(Color.wapiVerified)
+                                    .accessibilityLabel("Compte certifié")
+                            }
+                        }
+                        Text(founder ? whappyFounderBusinessName + " · " + whappyFounderBadgeLabel : (store.firebaseProfileVerified ? "Compte WAPI vérifié" : "Compte personnel WAPI"))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }.padding(.vertical, 8)
             }
-            Section("Votre activité") { NavigationLink { MyWhappyLinkView() } label: { Label("Mon code et mon lien WHAPPY", systemImage: "qrcode") }; NavigationLink { BusinessEditorView() } label: { Label("Ma boutique", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
-            Section("Réglages") { Toggle(isOn: $store.notificationsEnabled) { Label("Notifications", systemImage: "bell.badge.fill") }; NavigationLink { PrivacySettingsView() } label: { Label("Confidentialité et sécurité", systemImage: "lock.shield.fill") }; NavigationLink { DataSettingsView() } label: { Label("Stockage et données", systemImage: "internaldrive.fill") }; NavigationLink { InfoView(title: "Aide", message: "Utilisez Messages pour discuter, Marché pour acheter ou vendre, Live pour diffuser, et Services pour payer en mode démonstration ou demander une prestation.", icon: "questionmark.circle.fill") } label: { Label("Aide", systemImage: "questionmark.circle.fill") } }
-            Section { Text("WHAPPY iOS · application native").foregroundStyle(.secondary) }
+            Section("Votre activité") { NavigationLink { MyWhappyLinkView() } label: { Label("Mon code et mon lien WAPI", systemImage: "qrcode") }; NavigationLink { BusinessEditorView() } label: { Label("Ma boutique", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
+            Section("Réglages") {
+                Toggle(isOn: $store.notificationsEnabled) { Label("Notifications", systemImage: "bell.badge.fill") }
+                NavigationLink { WapiLanguageSettingsView() } label: {
+                    Label("Langue de l’application", systemImage: "character.bubble")
+                }
+                NavigationLink { PrivacySettingsView() } label: { Label("Confidentialité et sécurité", systemImage: "lock.shield.fill") }
+                NavigationLink { DataSettingsView() } label: { Label("Stockage et données", systemImage: "internaldrive.fill") }
+                NavigationLink { InfoView(title: "Aide", message: "Utilisez Messages pour discuter, Marché pour acheter ou vendre, Live pour diffuser, et Services pour payer en mode démonstration ou demander une prestation.", icon: "questionmark.circle.fill") } label: { Label("Aide", systemImage: "questionmark.circle.fill") }
+            }
+            Section { Text("WAPI iOS · application native").foregroundStyle(.secondary) }
         }.navigationTitle("Profil")
             .onAppear(perform: loadProfilePhoto)
             .onChange(of: profilePhotoItem) { _, item in
@@ -1177,7 +2673,7 @@ private extension ProfileView {
                     .resizable()
                     .scaledToFill()
             } else {
-                InitialsAvatar(text: "CB", size: 62)
+                InitialsAvatar(text: profileInitials.isEmpty ? "WA" : profileInitials, size: 62)
             }
         }
         .frame(width: 62, height: 62)
@@ -1194,24 +2690,73 @@ private extension ProfileView {
 private struct MyWhappyLinkView: View {
     @State private var countryCode = "+242"
     @State private var phone = ""
+    private var displayName: String {
+        let value = Auth.auth().currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "Compte WAPI" : value
+    }
+    private var profilePhoto: UIImage? {
+        guard let path = UserDefaults.standard.string(forKey: "whappy-ios-profile-photo-path") else { return nil }
+        return UIImage(contentsOfFile: path)
+    }
     private var normalized: String? { WhappyPhoneCountry.normalize(phone, selectedCode: countryCode) }
     private var link: URL? { normalized.flatMap { value in URL(string: "https://whappy.chat/contact/\(value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value)") } }
     private var qrImage: UIImage? {
         guard let normalized else { return nil }
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data("whappy://contact/\(normalized)".utf8)
-        filter.correctionLevel = "M"
+        filter.correctionLevel = "H"
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)), let cgImage = CIContext().createCGImage(output, from: output.extent) else { return nil }
         return UIImage(cgImage: cgImage)
     }
 
     var body: some View {
-        Form {
-            Section("Votre numéro") { Picker("Pays", selection: $countryCode) { ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) } }; TextField("Numéro", text: $phone).keyboardType(.phonePad); if let normalized { Label(normalized, systemImage: "checkmark.circle.fill").foregroundStyle(Color.whappyBlue) } }
-            if let qrImage, let link {
-                Section("Code WHAPPY") { Image(uiImage: qrImage).interpolation(.none).resizable().scaledToFit().frame(maxWidth: .infinity).padding(); Text(link.absoluteString).font(.caption).textSelection(.enabled); ShareLink(item: "Ajoutez-moi sur WHAPPY\nwhappy://contact/\(normalized ?? "")\n\(link.absoluteString)") { Label("Partager mon contact", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent) }
+        ScrollView {
+            VStack(spacing: 18) {
+                VStack(spacing: 10) {
+                    if let profilePhoto { Image(uiImage: profilePhoto).resizable().scaledToFill().frame(width: 72, height: 72).clipShape(Circle()) }
+                    else { InitialsAvatar(text: String(displayName.prefix(2)).uppercased(), size: 72) }
+                    Text(displayName).font(.title3.bold()).foregroundStyle(Color.whappyInk)
+                    Text("Identité personnelle WAPI").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity).padding(20)
+                .background(.white, in: RoundedRectangle(cornerRadius: 24))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("NUMÉRO DU COMPTE").font(.caption2.bold()).foregroundStyle(Color.whappyBlue)
+                    Picker("Pays", selection: $countryCode) { ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) } }
+                    TextField("Numéro", text: $phone).keyboardType(.phonePad).textFieldStyle(.roundedBorder)
+                    if let normalized { Label(normalized, systemImage: "checkmark.seal.fill").font(.footnote.bold()).foregroundStyle(Color.whappyBlue) }
+                }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 22))
+
+                if let qrImage, let link {
+                    VStack(spacing: 13) {
+                        Text("Scannez pour m’ajouter").font(.headline).foregroundStyle(Color.whappyInk)
+                        ZStack {
+                            Image(uiImage: qrImage).interpolation(.none).resizable().scaledToFit()
+                            Text("W").font(.system(size: 24, weight: .black)).foregroundStyle(.white)
+                                .frame(width: 52, height: 52).background(Color.whappyBlue, in: RoundedRectangle(cornerRadius: 15))
+                                .padding(5).background(.white, in: RoundedRectangle(cornerRadius: 18))
+                        }
+                        .frame(width: 238, height: 238).padding(14)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 24))
+                        .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.whappyBlue.opacity(0.16), lineWidth: 8))
+                        Text(normalized ?? "").font(.subheadline.bold()).foregroundStyle(Color.whappyInk)
+                        ShareLink(item: "Ajoutez-moi sur WAPI\nwhappy://contact/\(normalized ?? "")\n\(link.absoluteString)") { Label("Partager mon contact", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
+                    }.padding(20).frame(maxWidth: .infinity).background(.white, in: RoundedRectangle(cornerRadius: 26))
+                }
+            }.padding()
+        }
+        .background(Color.whappyBackground)
+        .navigationTitle("Mon code WAPI")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard phone.isEmpty, let current = Auth.auth().currentUser?.phoneNumber else { return }
+            let digits = current.filter(\.isNumber)
+            if let country = WhappyPhoneCountry.supported.sorted(by: { $0.code.count > $1.code.count }).first(where: { digits.hasPrefix($0.code.dropFirst()) }) {
+                countryCode = country.code
+                phone = String(digits.dropFirst(country.code.count - 1))
             }
-        }.navigationTitle("Mon code WHAPPY")
+        }
     }
 }
 
@@ -1223,6 +2768,33 @@ private struct InfoView: View {
 private struct PrivacySettingsView: View {
     @EnvironmentObject private var store: WhappyStore
     var body: some View { Form { Section("Qui peut vous contacter ?") { Picker("Contacts autorisés", selection: $store.privacyMode) { Text("Mes contacts").tag("contacts"); Text("Tous les utilisateurs").tag("everyone"); Text("Personne").tag("nobody") }.pickerStyle(.inline) }; Section("Sécurité") { Label("Les médias restent dans le stockage privé de l’application.", systemImage: "lock.fill"); Label("Téléphone et FaceTime demandent une confirmation avant l’appel.", systemImage: "phone.badge.checkmark") } }.navigationTitle("Confidentialité") }
+}
+
+private struct WapiLanguageSettingsView: View {
+    @EnvironmentObject private var store: WhappyStore
+
+    var body: some View {
+        Form {
+            Section("Langue de WAPI") {
+                Picker("Langue", selection: $store.interfaceLanguage) {
+                    ForEach(WapiInterfaceLanguage.allCases) { language in
+                        Text(language.automaticSummary).tag(language)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+            Section {
+                Text("Automatique utilise la langue et la région de votre iPhone. Une région anglophone ouvre WAPI en anglais ; vous pouvez toujours imposer votre préférence ici.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Contenus") {
+                Label("Les messages se traduisent indépendamment avec Lingwap.", systemImage: "character.bubble")
+                    .font(.footnote)
+            }
+        }
+        .navigationTitle("Langue")
+    }
 }
 
 private struct DataSettingsView: View {

@@ -17,13 +17,15 @@ android {
 
     defaultConfig {
         applicationId "com.whappy.chat"
-        minSdk 26
+        // Android 6.0+ covers older Samsung, Tecno, Infinix and enterprise
+        // devices while keeping the runtime permission and Keystore baseline.
+        minSdk 23
         targetSdk 35
-        // Continuité de mise à jour : les builds Flutter 2.0.7–2.0.9 utilisaient
-        // déjà les versionCode 65–67. Android exige une valeur strictement
-        // supérieure, indépendamment du nom de version affiché.
-        versionCode 70
-        versionName "2.0.12-native"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Continuité de mise à jour avec la branche 2.1.0 déjà distribuée.
+        // Android compare ce code interne avant le nom public de la version.
+        versionCode 2074
+        versionName "2.1.6-native"
     }
 
     signingConfigs {
@@ -99,12 +101,11 @@ dependencies {
     implementation "androidx.work:work-runtime-ktx:2.10.1"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2"
-    implementation "com.google.android.gms:play-services-code-scanner:16.1.0"
     implementation "com.google.zxing:core:3.5.4"
     implementation "io.github.webrtc-sdk:android:144.7559.09"
-    // Client Android natif du SFU WebRTC WAPI auto-hébergé.
-    implementation "io.livekit:livekit-android:2.28.0"
     // Tencent MMKV: fast C++/mmap storage for reliable local persistence.
     implementation "com.tencent:mmkv:2.4.1"
     testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "androidx.test.ext:junit:1.2.1"
 }

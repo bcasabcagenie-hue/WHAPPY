@@ -1,0 +1,21 @@
+services:
+  wapi-turn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    command:
+      - -n
+      - --log-file=stdout
+      - --realm=${WAPI_TURN_REALM}
+      - --use-auth-secret
+      - --static-auth-secret=${WAPI_TURN_SHARED_SECRET}
+      - --fingerprint
+      - --no-cli
+      - --no-multicast-peers
+      - --listening-port=3478
+      - --external-ip=${WAPI_TURN_EXTERNAL_IP}
+      - --min-port=49160
+      - --max-port=49200

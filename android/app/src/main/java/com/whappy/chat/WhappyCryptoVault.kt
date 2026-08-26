@@ -1,5 +1,6 @@
 package com.whappy.chat
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -19,6 +20,7 @@ object WhappyCryptoVault {
     private const val GCM_TAG_BITS = 128
     private const val IV_BYTES = 12
 
+    @SuppressLint("ApplySharedPref") // The bootstrap key must be persisted before it is returned.
     fun mmkvCryptKey(context: Context): String {
         val preferences = context.getSharedPreferences(BOOTSTRAP_PREFERENCES, Context.MODE_PRIVATE)
         preferences.getString(MMKV_KEY, null)?.let { encrypted ->
@@ -26,7 +28,9 @@ object WhappyCryptoVault {
         }
         val raw = ByteArray(8).also(SecureRandom()::nextBytes)
             .joinToString(separator = "") { byte -> "%02x".format(byte) }
-        preferences.edit().putString(MMKV_KEY, encrypt(raw)).commit()
+        check(preferences.edit().putString(MMKV_KEY, encrypt(raw)).commit()) {
+            "Impossible de sécuriser les données locales WAPI"
+        }
         return raw
     }
 

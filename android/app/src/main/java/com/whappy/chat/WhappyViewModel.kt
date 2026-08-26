@@ -84,9 +84,7 @@ class WhappyViewModel(
             onChange = { messages ->
                 remoteConversationMessages = messages
                 _uiState.update { it.copy(messages = messages, loading = false, online = true) }
-                if (conversation.source != "groups") {
-                    refreshPendingMessages(conversation.id, user.uid)
-                }
+                refreshPendingMessages(conversation.id, user.uid)
                 viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid, conversation.source) } }
             },
             onError = {
@@ -148,8 +146,8 @@ class WhappyViewModel(
         val selected = selectedMembers
             .filter { it.uid.isNotBlank() && it.uid != user.uid }
             .distinctBy { it.uid }
-        if (selected.size < 2) {
-            _uiState.update { it.copy(error = "Choisissez au moins deux contacts pour créer le groupe") }
+        if (selected.isEmpty()) {
+            _uiState.update { it.copy(error = "Choisissez au moins un contact pour créer le groupe") }
             return
         }
         _uiState.update { it.copy(actionBusy = true, error = null) }
@@ -179,15 +177,39 @@ class WhappyViewModel(
         val user = _uiState.value.user ?: return
         val conversation = _uiState.value.selectedConversation?.takeIf { it.id == groupId && it.isGroup } ?: return
         if (_uiState.value.actionBusy) return
-        _uiState.update { it.copy(actionBusy = true, error = null) }
+        val cleanName = name.trim()
+        _uiState.update { current ->
+            current.copy(
+                actionBusy = true,
+                error = null,
+                groupUpdate = WapiGroupUpdateState(groupId, "saving", "Enregistrement de la photo…"),
+            )
+        }
         viewModelScope.launch {
-            runCatching { repository.updateGroup(groupId, user.uid, accountName(), name, photoUri, photoContentType, removePhoto) }
+            runCatching { repository.updateGroup(groupId, conversation.source, user.uid, accountName(), cleanName, photoUri, photoContentType, removePhoto) }
                 .onSuccess { updated ->
-                    _uiState.update { current -> current.copy(actionBusy = false, selectedConversation = updated, conversations = current.conversations.map { if (it.id == updated.id) updated else it }, online = true) }
+                    _uiState.update { current ->
+                        current.copy(
+                            actionBusy = false,
+                            groupUpdate = WapiGroupUpdateState(groupId, "saved", "Photo du groupe enregistrée"),
+                            selectedConversation = updated,
+                            conversations = current.conversations.map { if (it.id == updated.id) updated else it },
+                            online = true,
+                        )
+                    }
                 }
                 .onFailure { error ->
-                    val message = if (error is IllegalArgumentException) "Le nom ou la photo du groupe est invalide" else "La modification du groupe n’a pas pu être synchronisée"
-                    _uiState.update { it.copy(actionBusy = false, error = message) }
+                    val message = when {
+                        error is IllegalArgumentException -> "Le nom ou la photo du groupe est invalide."
+                        else -> wapiUserFacingError(error, "La modification du groupe")
+                    }
+                    _uiState.update { current ->
+                        current.copy(
+                            actionBusy = false,
+                            error = message,
+                            groupUpdate = WapiGroupUpdateState(groupId, "failed", message),
+                        )
+                    }
                 }
         }
     }
@@ -199,7 +221,7 @@ class WhappyViewModel(
         if (_uiState.value.actionBusy) return
         _uiState.update { it.copy(actionBusy = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.setGroupAdministrator(groupId, memberId, administrator) }
+            runCatching { repository.setGroupAdministrator(groupId, group.source, memberId, administrator) }
                 .onSuccess {
                     val nextAdmins = if (administrator) (group.groupAdminIds + memberId).distinct() else group.groupAdminIds - memberId
                     _uiState.update { current ->
@@ -216,15 +238,58 @@ class WhappyViewModel(
         }
     }
 
+    fun manageGroupMembers(groupId: String, memberIds: List<String>, action: String) {
+        val group = _uiState.value.selectedConversation?.takeIf { it.id == groupId && it.isGroup } ?: return
+        if (_uiState.value.actionBusy || action !in setOf("add", "remove")) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.manageGroupMembers(groupId, group.source, memberIds, action) }
+                .onSuccess { _uiState.update { it.copy(actionBusy = false, online = true) } }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = if (action == "add") "Les membres n’ont pas pu être ajoutés" else "Les membres n’ont pas pu être retirés") } }
+        }
+    }
+
+    fun updateGroupSettings(groupId: String, description: String, editInfoByMembers: Boolean, onlyAdminsCanSend: Boolean) {
+        val group = _uiState.value.selectedConversation?.takeIf { it.id == groupId && it.isGroup } ?: return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.updateGroupSettings(groupId, group.source, description, editInfoByMembers, onlyAdminsCanSend) }
+                .onSuccess {
+                    _uiState.update { current ->
+                        val updated = group.copy(
+                            groupDescription = description.trim().take(300),
+                            groupEditInfoByMembers = editInfoByMembers,
+                            groupOnlyAdminsCanSend = onlyAdminsCanSend,
+                        )
+                        current.copy(
+                            actionBusy = false,
+                            online = true,
+                            selectedConversation = updated,
+                            conversations = current.conversations.map { if (it.id == groupId) updated else it },
+                        )
+                    }
+                }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "Les paramètres du groupe n’ont pas été enregistrés") } }
+        }
+    }
+
     fun markStoryViewed(storyId: String) {
         val userId = _uiState.value.user?.uid ?: return
         val story = _uiState.value.statuses.firstOrNull { it.id == storyId } ?: return
-        if (story.authorId == userId || story.id.startsWith("pending-story-")) return
+        if (story.id.startsWith("pending-story-")) return
+        repository.rememberStoryViewedLocally(storyId)
+        _uiState.update { current ->
+            current.copy(statuses = current.statuses.map { if (it.id == storyId) it.copy(viewedByCurrentUser = true) else it })
+        }
+        // Opening one's own Story is a local visual state: authors are never
+        // counted as viewers, but the blue unread ring must still disappear.
+        if (story.authorId == userId) return
         viewModelScope.launch {
             runCatching { repository.markStoryViewed(storyId) }
                 .onSuccess { count ->
                     _uiState.update { current ->
-                        current.copy(statuses = current.statuses.map { if (it.id == storyId) it.copy(viewCount = count) else it })
+                        current.copy(statuses = current.statuses.map { if (it.id == storyId) it.copy(viewCount = count, viewedByCurrentUser = true) else it })
                     }
                 }
         }
@@ -309,7 +374,7 @@ class WhappyViewModel(
                     _uiState.update { current ->
                         current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT)
                     }
-                    if (conversation.source != "groups") refreshPendingMessages(conversation.id, user.uid)
+                    refreshPendingMessages(conversation.id, user.uid)
                 }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le message n’a pas été envoyé") } }
         }
@@ -319,7 +384,6 @@ class WhappyViewModel(
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
-        if (conversation.source == "groups") return
         repository.schedulePendingMessageSync()
         viewModelScope.launch {
             val delivered = runCatching { repository.flushPendingMessages() }.getOrDefault(false)
@@ -385,7 +449,7 @@ class WhappyViewModel(
         typingState = false
     }
 
-    fun sendMedia(uri: Uri, kind: String, contentType: String, mediaName: String, durationSeconds: Int) {
+    fun sendMedia(uri: Uri, kind: String, contentType: String, mediaName: String, durationSeconds: Int, viewOnce: Boolean = false) {
         val state = _uiState.value
         val conversation = state.selectedConversation ?: return
         val user = state.user ?: return
@@ -401,14 +465,29 @@ class WhappyViewModel(
                     contentType = contentType,
                     mediaName = mediaName,
                     durationSeconds = durationSeconds,
+                    viewOnce = viewOnce,
                     source = conversation.source,
                     senderName = accountName(),
                     senderPhotoUrl = state.accountPhotoUrl,
                 )
             }.onSuccess { delivery ->
                 _uiState.update { current -> current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT) }
+                // Keep the local bubble visible while an attachment is being
+                // uploaded. The outbox is the source of truth until the
+                // Firestore listener confirms the final download URL.
+                refreshPendingMessages(conversation.id, user.uid)
             }
                 .onFailure { _uiState.update { current -> current.copy(sending = false, online = false, error = "Le média n’a pas été envoyé") } }
+        }
+    }
+
+    fun markViewOnceOpened(messageId: String) {
+        val state = _uiState.value
+        val conversation = state.selectedConversation ?: return
+        val user = state.user ?: return
+        viewModelScope.launch {
+            runCatching { repository.markViewOnceOpened(conversation.id, messageId, user.uid, conversation.source) }
+                .onFailure { _uiState.update { it.copy(error = "Le média à vue unique n’a pas pu être confirmé.") } }
         }
     }
 
@@ -657,12 +736,8 @@ class WhappyViewModel(
         _uiState.update { it.copy(contactBusy = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                val peer = repository.findUserById(page.ownerId) ?: error("not-found")
-                if (peer.uid == user.uid) error("self")
-                repository.ensureDirectConversation(
-                    currentMember(user),
-                    peer,
-                )
+                if (page.ownerId == user.uid) error("self")
+                repository.ensureBusinessConversation(currentMember(user), page)
             }.onSuccess { conversation ->
                 _uiState.update { it.copy(contactBusy = false) }
                 openConversation(conversation)
@@ -695,12 +770,12 @@ class WhappyViewModel(
         }
     }
 
-    fun createBusinessPage(name: String, category: String, bio: String, city: String) {
+    fun createBusinessPage(name: String, category: String, bio: String, city: String, phone: String, website: String) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.actionBusy) return
         _uiState.update { it.copy(actionBusy = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.createBusinessPage(user.uid, name, category, bio, city) }
+            runCatching { repository.createBusinessPage(user.uid, name, category, bio, city, phone, website) }
                 .onSuccess { _uiState.update { it.copy(actionBusy = false) } }
                 .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La page Business n’a pas été créée") } }
         }
@@ -721,9 +796,29 @@ class WhappyViewModel(
         repository.updateBusinessPage(user.uid, page, name, category, bio, city, phone, website)
     }
 
-    fun createLive(title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) = runBusinessAction("Le salon Live n’a pas été créé") { user ->
-        repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
-        refreshVisibleLives()
+    fun updateBusinessPageLogo(page: WhappyBusinessPage, uri: Uri, contentType: String) = runBusinessAction("Le logo Business n’a pas été enregistré") { user ->
+        repository.updateBusinessPageLogo(user.uid, page, uri, contentType)
+    }
+
+    fun createLive(title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String) {
+        val user = _uiState.value.user ?: return
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.createLive(user.uid, accountName(), title, category, productTitle, startNow, hostMode, visibility)
+                refreshVisibleLives()
+            }.onSuccess {
+                _uiState.update { it.copy(actionBusy = false, online = true) }
+            }.onFailure { failure ->
+                _uiState.update {
+                    it.copy(
+                        actionBusy = false,
+                        error = wapiUserFacingError(failure, "Le direct"),
+                    )
+                }
+            }
+        }
     }
 
     fun publishStatus(text: String, tone: String, mediaUri: Uri? = null, mediaContentType: String = "") {
@@ -746,6 +841,7 @@ class WhappyViewModel(
             mediaUrl = mediaUri?.toString().orEmpty(),
             mediaKind = mediaKind,
             mediaName = if (mediaUri == null) "" else "Publication en cours",
+            authorPhotoUrl = _uiState.value.accountPhotoUrl,
         )
         _uiState.update { it.copy(statuses = mergeStories(it.statuses), actionBusy = true, error = null) }
         viewModelScope.launch {
@@ -757,7 +853,7 @@ class WhappyViewModel(
                 }
                 .onFailure { error ->
                     pendingStories.remove(localId)
-                    _uiState.update { current -> current.copy(statuses = mergeStories(current.statuses), actionBusy = false, error = "La Story n’a pas été publiée : ${error.localizedMessage ?: "vérifiez la connexion"}") }
+                    _uiState.update { current -> current.copy(statuses = mergeStories(current.statuses), actionBusy = false, error = wapiUserFacingError(error, "La publication de la Story")) }
                 }
         }
     }
@@ -966,7 +1062,25 @@ class WhappyViewModel(
         resolveAccountProfile(user)
         conversationsListener = repository.observeConversations(
             user.uid,
-            onChange = { conversations -> _uiState.update { current -> current.copy(conversations = conversations, selectedConversation = current.selectedConversation?.let { selected -> conversations.firstOrNull { it.id == selected.id } ?: selected }, loading = false, online = true) } },
+            onChange = { conversations ->
+                _uiState.update { current ->
+                    val previousById = current.conversations.associateBy { it.id }
+                    val stableConversations = conversations.map { conversation ->
+                        val previousPhoto = previousById[conversation.id]?.peer?.photoUrl.orEmpty()
+                        if (conversation.peer.photoUrl.isBlank() && previousPhoto.isNotBlank()) {
+                            conversation.copy(peer = conversation.peer.copy(photoUrl = previousPhoto))
+                        } else conversation
+                    }
+                    current.copy(
+                        conversations = stableConversations,
+                        selectedConversation = current.selectedConversation?.let { selected ->
+                            stableConversations.firstOrNull { it.id == selected.id } ?: selected
+                        },
+                        loading = false,
+                        online = true,
+                    )
+                }
+            },
             onError = { _uiState.update { it.copy(loading = false, online = false, error = "Synchronisation momentanément indisponible") } },
         )
         channelsListener = repository.observeChannels(
@@ -1054,10 +1168,11 @@ class WhappyViewModel(
                 phoneNumber = user.phoneNumber.orEmpty(),
                 creationTimestamp = user.metadata?.creationTimestamp ?: System.currentTimeMillis(),
             )
-            runCatching { repository.syncAccountRecord(user, restoredName) }
+            val verified = runCatching { repository.syncAccountRecord(user, restoredName) }
+                .getOrDefault(false) || WhappyIdentity.isFounder(user.phoneNumber.orEmpty())
             _uiState.update { current ->
                 if (current.user?.uid != user.uid) current
-                else current.copy(accountDisplayName = restoredName, accountPhotoUrl = resolvedPhotoUrl, sessionRestoring = false)
+                else current.copy(accountDisplayName = restoredName, accountPhotoUrl = resolvedPhotoUrl, accountVerified = verified, sessionRestoring = false)
             }
         }
     }
@@ -1073,6 +1188,7 @@ class WhappyViewModel(
         displayName = accountName(),
         phoneNumber = user.phoneNumber.orEmpty(),
         photoUrl = _uiState.value.accountPhotoUrl.ifBlank { user.photoUrl?.toString().orEmpty() },
+        verified = _uiState.value.accountVerified,
     )
 
     override fun onCleared() {

@@ -9,6 +9,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
@@ -18,6 +20,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.IconCompat
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -40,7 +43,12 @@ class WhappyMessagingService : FirebaseMessagingService() {
         val data = message.data
         val title = message.notification?.title ?: data["title"] ?: "WAPI"
         val body = message.notification?.body ?: data["body"] ?: "Vous avez une nouvelle activité."
-        when (data["type"]?.lowercase()) {
+        val type = data["type"]?.lowercase()
+        // While WAPI is open, the Firestore inbox listener below is the live
+        // foreground path. Keeping FCM for background only prevents duplicate
+        // sounds and duplicate message cards while preserving closed-app push.
+        if (WapiPresence.isForeground && type in setOf("message", "chat") && WhappyRealtimeNotifications.isReady) return
+        when (type) {
             "call", "incoming_call" -> WhappyNotifications.showIncomingCall(
                 context = this,
                 callId = data["callId"].orEmpty(),
@@ -67,6 +75,7 @@ class WhappyMessagingService : FirebaseMessagingService() {
                 title = title,
                 body = body,
                 senderName = data["senderName"] ?: title,
+                senderPhotoUrl = data["senderPhotoUrl"].orEmpty(),
                 conversationId = data["conversationId"].orEmpty(),
             )
             else -> WhappyNotifications.showActivity(this, title, body)
@@ -136,13 +145,16 @@ object WhappyNotifications {
     }
 
     @SuppressLint("MissingPermission")
-    fun showMessage(context: Context, title: String, body: String, senderName: String, conversationId: String) {
+    fun showMessage(context: Context, title: String, body: String, senderName: String, senderPhotoUrl: String = "", conversationId: String) {
         if (!preferences(context).getBoolean("notify_messages", true) || !canNotify(context)) return
         ensureChannel(context)
         val safeConversationId = conversationId.ifBlank { "$title:$body" }
         val unreadCount = incrementUnreadBadge(context, safeConversationId)
         val open = openAppIntent(context, safeConversationId.hashCode())
-        val sender = Person.Builder().setName(senderName.ifBlank { title }).build()
+        val senderAvatar = cachedProfileBitmap(context, senderPhotoUrl)
+        val sender = Person.Builder().setName(senderName.ifBlank { title }).apply {
+            senderAvatar?.let { setIcon(IconCompat.createWithAdaptiveBitmap(it)) }
+        }.build()
         val style = NotificationCompat.MessagingStyle(Person.Builder().setName("Vous").build())
             .setConversationTitle(title)
             .addMessage(body, System.currentTimeMillis(), sender)
@@ -163,6 +175,7 @@ object WhappyNotifications {
             .setGroup(MESSAGE_GROUP)
             .setAutoCancel(true)
             .setContentIntent(open)
+            .apply { senderAvatar?.let { avatar -> setLargeIcon(avatar) } }
             .build()
         val manager = NotificationManagerCompat.from(context)
         manager.notify(notificationId(safeConversationId), notification)
@@ -170,6 +183,7 @@ object WhappyNotifications {
     }
 
     /** Clears only the opened thread from the launcher count, not unrelated chats. */
+    @SuppressLint("MissingPermission")
     fun markConversationOpened(context: Context, conversationId: String) {
         if (conversationId.isBlank()) return
         val preferences = preferences(context)
@@ -181,7 +195,9 @@ object WhappyNotifications {
         val manager = NotificationManagerCompat.from(context)
         manager.cancel(notificationId(conversationId))
         if (remaining == 0) manager.cancel(MESSAGE_SUMMARY_ID)
-        else manager.notify(MESSAGE_SUMMARY_ID, messageSummary(context, remaining))
+        else if (canNotify(context)) {
+            runCatching { manager.notify(MESSAGE_SUMMARY_ID, messageSummary(context, remaining)) }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -203,10 +219,13 @@ object WhappyNotifications {
             .setAction(ACTION_DECLINE_CALL)
             .putExtra(EXTRA_CALL_ID, safeCallId)
         val decline = PendingIntent.getBroadcast(context, requestCode + 1, declineIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        // The complete photo is displayed in the native incoming-call screen.
-        // Android's status notification remains monochrome/reliable and never
-        // downloads a remote image while the app is sleeping.
-        val caller = Person.Builder().setName(callerName.ifBlank { "Contact WAPI" }).setImportant(true).build()
+        // Reuse the encrypted media cache: the notification shows the profile
+        // photo when WAPI has already loaded it, without blocking an incoming
+        // call on a network download while the application is sleeping.
+        val callerAvatar = cachedProfileBitmap(context, callerPhotoUrl)
+        val caller = Person.Builder().setName(callerName.ifBlank { "Contact WAPI" }).setImportant(true).apply {
+            callerAvatar?.let { setIcon(IconCompat.createWithAdaptiveBitmap(it)) }
+        }.build()
         val notification = NotificationCompat.Builder(context, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_stat_wapi)
             .setColor(BRAND_COLOR)
@@ -220,6 +239,7 @@ object WhappyNotifications {
             .setFullScreenIntent(open, true)
             .setOngoing(true)
             .setTimeoutAfter(120_000L)
+            .apply { callerAvatar?.let { avatar -> setLargeIcon(avatar) } }
             .build()
         NotificationManagerCompat.from(context).notify(callNotificationId(safeCallId), notification)
         return true
@@ -332,6 +352,17 @@ object WhappyNotifications {
         .setContentIntent(openAppIntent(context, MESSAGE_SUMMARY_ID))
         .build()
 
+    private fun cachedProfileBitmap(context: Context, photoUrl: String): Bitmap? {
+        if (photoUrl.isBlank()) return null
+        val bytes = WapiMediaStore.readCache(context, WapiMediaStore.keyFor(photoUrl), maxBytes = 20L * 1024L * 1024L) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 320) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
     private fun badgeConversationKey(conversationId: String) = BADGE_CONVERSATION_PREFIX + notificationId(conversationId)
 
     private fun openAppIntent(context: Context, requestCode: Int): PendingIntent {
@@ -341,6 +372,77 @@ object WhappyNotifications {
 
     private fun notificationId(key: String): Int = key.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
     private fun callNotificationId(callId: String): Int = CALL_NOTIFICATION_BASE + notificationId(callId) % 1_000_000
+}
+
+/**
+ * Foreground notification path. Calls already have a direct listener; normal
+ * messages use the same low-latency Firestore signal so the app does not wait
+ * for a background FCM delivery while it is visible.
+ */
+object WhappyRealtimeNotifications {
+    private var registration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var boundUserId = ""
+    private val lastUnreadByConversation = mutableMapOf<String, Int>()
+    private var initialized = false
+    @Volatile
+    var isReady: Boolean = false
+        private set
+
+    fun bind(context: Context, userId: String?) {
+        val next = userId.orEmpty()
+        if (next == boundUserId && registration != null) return
+        registration?.remove()
+        registration = null
+        boundUserId = next
+        lastUnreadByConversation.clear()
+        initialized = false
+        isReady = false
+        if (next.isBlank()) return
+        registration = FirebaseFirestore.getInstance()
+            .collection("users").document(next)
+            .collection("notificationState").document("inbox")
+            .collection("conversations")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    isReady = false
+                    return@addSnapshotListener
+                }
+                isReady = true
+                if (!initialized) {
+                    snapshot.documents.forEach { document ->
+                        lastUnreadByConversation[document.id] = document.getLong("unreadMessages")?.toInt()?.coerceAtLeast(0) ?: 0
+                    }
+                    initialized = true
+                    return@addSnapshotListener
+                }
+                snapshot.documentChanges.forEach { change ->
+                    val document = change.document
+                    val unread = document.getLong("unreadMessages")?.toInt()?.coerceAtLeast(0) ?: 0
+                    val previous = lastUnreadByConversation[document.id] ?: 0
+                    lastUnreadByConversation[document.id] = unread
+                    if (unread > previous && WapiPresence.isForeground) {
+                        WhappyNotifications.showMessage(
+                            context = context,
+                            title = "Nouveau message WAPI",
+                            body = if (unread - previous == 1) "Nouveau message" else "${unread - previous} nouveaux messages",
+                            senderName = "WAPI",
+                            conversationId = document.id,
+                        )
+                    }
+                }
+                snapshot.documentChanges.filter { it.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED }
+                    .forEach { lastUnreadByConversation.remove(it.document.id) }
+            }
+    }
+
+    fun clear() {
+        registration?.remove()
+        registration = null
+        boundUserId = ""
+        lastUnreadByConversation.clear()
+        initialized = false
+        isReady = false
+    }
 }
 
 class WhappyCallActionReceiver : BroadcastReceiver() {

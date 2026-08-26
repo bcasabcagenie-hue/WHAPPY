@@ -14,12 +14,17 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import java.io.File
+import java.io.FileInputStream
+import java.security.MessageDigest
+import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 class WhappyRepository(
@@ -31,6 +36,12 @@ class WhappyRepository(
 ) {
     private val messageOutbox = WhappyMessageOutbox(appContext)
     private val messageCache = WhappyMessageCache(appContext)
+    private val storyViewPrefs = appContext.getSharedPreferences("wapi_story_views", Context.MODE_PRIVATE)
+
+    private fun locallyViewedStory(storyId: String): Boolean {
+        val userId = auth.currentUser?.uid.orEmpty()
+        return userId.isNotBlank() && storyViewPrefs.getBoolean("${userId}_$storyId", false)
+    }
 
     fun currentUser() = auth.currentUser
 
@@ -51,6 +62,9 @@ class WhappyRepository(
                     mediaUrl = pending.localMediaPath,
                     mediaName = pending.mediaName,
                     durationSeconds = pending.durationSeconds,
+                    mediaSizeBytes = pending.mediaSizeBytes,
+                    mediaSha256 = pending.mediaSha256,
+                    viewOnce = pending.viewOnce,
                     deliveryState = if (pending.attempts > 1) "retrying" else "queued",
                     senderName = pending.senderName,
                     senderPhotoUrl = pending.senderPhotoUrl,
@@ -61,20 +75,28 @@ class WhappyRepository(
     fun cachedMessages(conversationId: String, source: String = "conversations"): List<WhappyMessage> =
         messageCache.read(conversationId, source)
 
-    suspend fun syncAccountRecord(user: FirebaseUser, displayName: String = user.displayName.orEmpty()) {
+    suspend fun syncAccountRecord(user: FirebaseUser, displayName: String = user.displayName.orEmpty()): Boolean {
         val phone = user.phoneNumber.orEmpty()
         val normalized = PhoneNumberFormatter.normalize("+242", phone).orEmpty()
-        db.collection("users").document(user.uid).set(
-            mapOf(
+        val reference = db.collection("users").document(user.uid)
+        return db.runTransaction { transaction ->
+            val existing = transaction.get(reference)
+            val profile = mutableMapOf<String, Any>(
                 "uid" to user.uid,
                 "displayName" to displayName.trim(),
                 "phoneNumber" to phone,
                 "phoneLookup" to normalized,
                 "phoneDigits" to phone.filter(Char::isDigit),
                 "updatedAt" to FieldValue.serverTimestamp(),
-            ),
-            com.google.firebase.firestore.SetOptions.merge(),
-        ).await()
+            )
+            if (!existing.exists()) {
+                profile["verified"] = false
+                profile["verificationStatus"] = "unverified"
+                profile["createdAt"] = FieldValue.serverTimestamp()
+            }
+            transaction.set(reference, profile, SetOptions.merge())
+            existing.getBoolean("verified") == true
+        }.await()
     }
 
     suspend fun restoreAccountDisplayName(user: FirebaseUser): String {
@@ -180,7 +202,19 @@ class WhappyRepository(
                 return@addSnapshotListener
             }
             conversations = snapshot?.documents.orEmpty()
-                .mapNotNull { it.toConversation(userId) }
+                .mapNotNull { document ->
+                    document.toConversation(userId)?.also { conversation ->
+                        val ownsLegacyGroup = conversation.isGroup &&
+                            document.getString("conversationType") != "group" &&
+                            document.getString("ownerId") == userId
+                        if (ownsLegacyGroup) {
+                            document.reference.set(
+                                mapOf("conversationType" to "group", "kind" to "group", "isGroup" to true),
+                                SetOptions.merge(),
+                            )
+                        }
+                    }
+                }
                 .sortedByDescending { it.updatedAt }
             emit()
 
@@ -248,6 +282,7 @@ class WhappyRepository(
                         displayName = WhappyIdentity.resolveAccountName(name, phone),
                         phoneNumber = phone,
                         photoUrl = value["photoUrl"]?.toString().orEmpty(),
+                        verified = value["verified"] == true,
                     ),
                     addedAt = (value["addedAt"] as? Timestamp)?.toDate()?.time ?: 0L,
                 )
@@ -279,6 +314,10 @@ class WhappyRepository(
                     mediaUrl = document.getString("mediaUrl").orEmpty(),
                     mediaName = document.getString("mediaName").orEmpty(),
                     durationSeconds = document.getLong("duration")?.toInt() ?: 0,
+                    mediaSizeBytes = document.getLong("mediaSizeBytes") ?: 0L,
+                    mediaSha256 = document.getString("mediaSha256").orEmpty(),
+                    viewOnce = document.getBoolean("viewOnce") == true,
+                    viewedByIds = (document.get("viewedBy") as? Map<*, *>)?.keys?.mapNotNull { it?.toString() }?.toSet().orEmpty(),
                     replyToId = document.getString("replyToId") ?: reply?.get("id")?.toString().orEmpty(),
                     replyText = document.getString("replyText") ?: reply?.get("text")?.toString().orEmpty(),
                     reactions = (document.get("reactions") as? Map<*, *>)?.mapNotNull { (key, value) -> if (key != null && value != null) key.toString() to value.toString() else null }?.toMap().orEmpty(),
@@ -405,7 +444,7 @@ class WhappyRepository(
                     title = document.getString("title") ?: "Campagne WAPI",
                     dailyBudget = document.getLong("dailyBudget") ?: 0L,
                     days = document.getLong("days")?.toInt() ?: 1,
-                    status = document.getString("status") ?: "active",
+                    status = document.getString("status") ?: "pending_payment",
                     ownerId = document.getString("ownerId").orEmpty(),
                     placement = document.getString("placement") ?: "profile_story",
                     destination = document.getString("destination") ?: "message",
@@ -460,6 +499,7 @@ class WhappyRepository(
                 audioOnly = value["audioOnly"] == true,
                 allowGiftWearables = value["allowGiftWearables"] == true,
                 giftCount = (value["giftCount"] as? Number)?.toInt() ?: 0,
+                hostPhotoUrl = value["hostPhotoUrl"]?.toString().orEmpty(),
             )
         }.sortedWith(compareByDescending<WhappyLive> { it.status == "live" }.thenByDescending { it.startedAt })
     }
@@ -469,35 +509,61 @@ class WhappyRepository(
         onError: (Throwable) -> Unit,
     ): ListenerRegistration {
         val viewerId = auth.currentUser?.uid.orEmpty()
-        if (viewerId.isBlank()) return db.collection("stories").limit(1).addSnapshotListener { _, _ -> onChange(emptyList()) }
-        return db.collection("stories")
-        .whereArrayContains("audienceIds", viewerId)
-        .whereGreaterThan("expiresAt", com.google.firebase.Timestamp.now())
-        .limit(80)
-        .addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                onError(error)
-                return@addSnapshotListener
-            }
-            onChange(snapshot?.documents.orEmpty().mapNotNull { document ->
-                val authorId = document.getString("authorId").orEmpty()
-                val caption = document.getString("caption").orEmpty()
-                val mediaUrl = document.getString("mediaUrl").orEmpty()
-                if (authorId.isBlank() || (caption.isBlank() && mediaUrl.isBlank())) null else WhappyStatus(
-                    id = document.id,
-                    authorId = authorId,
-                    authorName = document.getString("authorName") ?: WhappyIdentity.fallbackAccountName,
-                    text = caption,
-                    tone = "personal",
-                    createdAt = document.timestampMillis("createdAt"),
-                    mediaUrl = mediaUrl,
-                    mediaKind = document.getString("mediaType").orEmpty(),
-                    mediaName = when (document.getString("mediaType")) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; else -> "Image WAPI" },
-                    expiresAt = document.timestampMillis("expiresAt"),
-                    viewCount = (document.getLong("viewCount") ?: 0L).toInt(),
-                )
-            }.sortedByDescending { it.createdAt })
+        if (viewerId.isBlank()) {
+            onChange(emptyList())
+            return ListenerRegistration { }
         }
+        // Expiration is evaluated by the server. A client Firestore query with
+        // request.time cannot prove that every returned document is still
+        // visible, which caused the old Actus/Stories permission error.
+        functions.getHttpsCallable("listVisibleStories").call()
+            .addOnSuccessListener { result -> onChange(parseVisibleStories(result.data)) }
+            .addOnFailureListener(onError)
+        return ListenerRegistration { }
+    }
+
+    private fun parseVisibleStories(raw: Any?): List<WhappyStatus> {
+        val root = raw as? Map<*, *> ?: return emptyList()
+        val stories = root["stories"] as? List<*> ?: return emptyList()
+        return stories.mapNotNull { item ->
+            val value = item as? Map<*, *> ?: return@mapNotNull null
+            val authorId = value["authorId"]?.toString().orEmpty()
+            val caption = value["caption"]?.toString().orEmpty()
+            val mediaUrl = value["mediaUrl"]?.toString().orEmpty()
+            if (authorId.isBlank() || (caption.isBlank() && mediaUrl.isBlank())) return@mapNotNull null
+            val createdAt = value["createdAt"]?.toString()?.let(::parseIsoEpochMillis) ?: 0L
+            WhappyStatus(
+                id = value["id"]?.toString().orEmpty(),
+                authorId = authorId,
+                authorName = value["authorName"]?.toString() ?: WhappyIdentity.fallbackAccountName,
+                text = caption,
+                tone = "personal",
+                createdAt = createdAt,
+                mediaUrl = mediaUrl,
+                mediaKind = value["mediaType"]?.toString().orEmpty(),
+                mediaName = when (value["mediaType"]?.toString()) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; else -> "Image WAPI" },
+                expiresAt = (value["expiresAtMillis"] as? Number)?.toLong() ?: 0L,
+                viewCount = (value["viewCount"] as? Number)?.toInt() ?: 0,
+                viewedByCurrentUser = value["viewedByCurrentUser"] == true || locallyViewedStory(value["id"]?.toString().orEmpty()),
+                authorPhotoUrl = value["authorPhotoUrl"]?.toString().orEmpty(),
+            )
+        }.filter { it.id.isNotBlank() }.sortedBy { it.createdAt }
+    }
+
+    private fun parseIsoEpochMillis(value: String): Long {
+        val normalized = value.trim()
+        if (normalized.isBlank()) return 0L
+        return listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX",
+        ).firstNotNullOfOrNull { pattern ->
+            runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }.parse(normalized)?.time
+            }.getOrNull()
+        } ?: 0L
     }
 
     fun observeDeals(
@@ -580,6 +646,7 @@ class WhappyRepository(
                     videoUrl = document.getString("videoUrl").orEmpty(),
                     voiceUrl = document.getString("voiceUrl").orEmpty(),
                     movementUrl = document.getString("movementUrl").orEmpty(),
+                    outfitUrl = document.getString("outfitUrl").orEmpty(),
                     voiceStatus = document.getString("voiceStatus") ?: "empty",
                     movementStatus = document.getString("movementStatus") ?: "empty",
                 ),
@@ -602,13 +669,17 @@ class WhappyRepository(
             } else {
                 onChange(WapiWepiSettings(
                     ownerId = userId,
-                    enabled = document.getBoolean("enabled") ?: false,
+                    enabled = document.getBoolean("enabled") ?: true,
                     autoReply = document.getBoolean("autoReply") ?: true,
                     assistantName = document.getString("assistantName") ?: "WEPI",
                     businessName = document.getString("businessName").orEmpty(),
                     tone = document.getString("tone") ?: "chaleureux",
                     welcomeMessage = document.getString("welcomeMessage") ?: "Bonjour et merci pour votre message.",
                     instructions = document.getString("instructions") ?: "Répondre clairement aux questions commerciales et proposer un échange humain si nécessaire.",
+                    salesAutomation = document.getBoolean("salesAutomation") ?: false,
+                    captureOrderRequests = document.getBoolean("captureOrderRequests") ?: true,
+                    humanHandoff = document.getBoolean("humanHandoff") ?: true,
+                    deliveryPolicy = document.getString("deliveryPolicy") ?: "Confirmer la zone, le délai et les frais avec le client avant toute commande.",
                 ))
             }
         }
@@ -670,6 +741,7 @@ class WhappyRepository(
             tone = settings.tone.takeIf { it in setOf("chaleureux", "expert", "direct") } ?: "chaleureux",
             welcomeMessage = settings.welcomeMessage.trim().take(240),
             instructions = settings.instructions.trim().take(600),
+            deliveryPolicy = settings.deliveryPolicy.trim().take(400),
         )
         db.collection("users").document(settings.ownerId).collection("wepi").document("settings").set(
             mapOf(
@@ -681,6 +753,10 @@ class WhappyRepository(
                 "tone" to safe.tone,
                 "welcomeMessage" to safe.welcomeMessage,
                 "instructions" to safe.instructions,
+                "salesAutomation" to safe.salesAutomation,
+                "captureOrderRequests" to safe.captureOrderRequests,
+                "humanHandoff" to safe.humanHandoff,
+                "deliveryPolicy" to safe.deliveryPolicy,
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
             SetOptions.merge(),
@@ -801,7 +877,7 @@ class WhappyRepository(
     private suspend fun deliverPendingMessage(message: WhappyPendingMessage) {
         val root = if (message.source == "groups") "groups" else "conversations"
         val conversation = db.collection(root).document(message.conversationId)
-        val mediaUrl = if (message.kind in setOf("image", "audio", "video")) {
+        val mediaUrl = if (message.kind in setOf("image", "audio", "video", "document")) {
             val file = File(message.localMediaPath)
             require(file.isFile && file.length() > 0L) { "attachment-missing" }
             val extension = message.mediaName.substringAfterLast('.', "bin").take(8)
@@ -826,6 +902,9 @@ class WhappyRepository(
                     put("mediaUrl", mediaUrl)
                     put("mediaName", message.mediaName)
                     put("duration", message.durationSeconds)
+                    put("mediaSizeBytes", message.mediaSizeBytes)
+                    put("mediaSha256", message.mediaSha256)
+                    if (message.viewOnce) put("viewOnce", true)
                 }
                 if (message.replyToId.isNotBlank()) {
                     put("replyToId", message.replyToId)
@@ -841,6 +920,26 @@ class WhappyRepository(
                 put("typingBy.${message.senderId}", false)
             }
         }).await()
+    }
+
+    suspend fun markViewOnceOpened(conversationId: String, messageId: String, userId: String, source: String = "conversations") {
+        require(conversationId.isNotBlank() && messageId.isNotBlank())
+        val root = if (source == "groups") "groups" else "conversations"
+        db.collection(root).document(conversationId).collection("messages").document(messageId)
+            .update("viewedBy.$userId", FieldValue.serverTimestamp())
+            .await()
+    }
+
+    /** Waphsare hashes a private local copy before upload and never recompresses it. */
+    private fun File.sha256(): String = FileInputStream(this).use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+        }
+        digest.digest().joinToString("") { byte -> "%02x".format(byte) }
     }
 
     suspend fun reactToMessage(conversationId: String, messageId: String, userId: String, emoji: String, source: String = "conversations") {
@@ -917,27 +1016,33 @@ class WhappyRepository(
         val members = (listOf(current) + selectedMembers)
             .distinctBy { it.uid }
             .take(64)
-        require(cleanName.length in 2..80 && members.size >= 3)
+        require(cleanName.length in 2..80 && members.size >= 2)
         val reference = db.collection("groups").document()
+        val inviteToken = UUID.randomUUID().toString().replace("-", "")
         var groupPhotoUrl = ""
+        var uploadedPhoto: com.google.firebase.storage.StorageReference? = null
         try {
             reference.set(
-                mapOf(
-                    "name" to cleanName,
-                    "description" to "Groupe WAPI créé depuis l’application mobile",
-                    "mark" to cleanName.split(Regex("\\s+")).mapNotNull { it.firstOrNull()?.uppercaseChar() }.take(2).joinToString("").ifBlank { "WG" },
-                    "ownerId" to current.uid,
-                    "memberIds" to listOf(current.uid),
-                    "memberNames" to selectedMembers.map { it.displayName.take(80) }.distinct(),
-                    "members" to listOf(mapOf("uid" to current.uid, "displayName" to current.displayName.take(80), "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl)),
-                    "adminIds" to listOf(current.uid),
-                    "readBy" to emptyMap<String, Any>(),
-                    "kind" to "community",
-                    "inviteToken" to UUID.randomUUID().toString().replace("-", ""),
-                    "lastMessage" to "Groupe créé",
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
+                buildMap<String, Any> {
+                    put("name", cleanName)
+                    put("description", "Groupe WAPI créé depuis l’application mobile")
+                    put("mark", cleanName.split(Regex("\\s+")).mapNotNull { it.firstOrNull()?.uppercaseChar() }.take(2).joinToString("").ifBlank { "WG" })
+                    put("ownerId", current.uid)
+                    put("memberIds", members.map { it.uid })
+                    put("memberNames", members.map { it.displayName.take(80) })
+                    put("members", members.map { mapOf("uid" to it.uid, "displayName" to it.displayName.take(80), "phoneNumber" to it.phoneNumber.take(40), "photoUrl" to it.photoUrl.take(2_000), "verified" to it.verified) })
+                    put("adminIds", listOf(current.uid))
+                    put("editInfoByMembers", true)
+                    put("onlyAdminsCanSend", false)
+                    put("readBy", emptyMap<String, Any>())
+                    put("conversationType", "group")
+                    put("kind", "group")
+                    put("isGroup", true)
+                    put("inviteToken", inviteToken)
+                    put("lastMessage", "Groupe créé")
+                    put("createdAt", FieldValue.serverTimestamp())
+                    put("updatedAt", FieldValue.serverTimestamp())
+                },
             ).await()
             if (photoUri != null) {
                 val safeContentType = normalizeImageContentType(photoContentType)
@@ -947,21 +1052,24 @@ class WhappyRepository(
                     else -> "jpg"
                 }
                 val photoRef = storage.reference.child("groups/${reference.id}/${current.uid}/cover-${UUID.randomUUID()}.$extension")
+                uploadedPhoto = photoRef
                 val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
-                photoRef.putFile(photoUri, metadata).await()
+                // Gallery providers can revoke a content URI as soon as the
+                // picker closes. Upload a private outbox copy so group
+                // creation is deterministic on Samsung/foldable devices.
+                val localPhoto = WapiMediaStore.copyToOutbox(appContext, photoUri, "group-photo", "cover.$extension")
+                    ?: error("group-photo-unreadable")
+                try {
+                    photoRef.putFile(Uri.fromFile(localPhoto), metadata).await()
+                } finally {
+                    localPhoto.delete()
+                }
                 groupPhotoUrl = photoRef.downloadUrl.await().toString()
+                reference.update("photoUrl", groupPhotoUrl, "updatedAt", FieldValue.serverTimestamp()).await()
             }
-            reference.update(
-                buildMap<String, Any> {
-                    put("memberIds", members.map { it.uid })
-                    put("memberNames", members.map { it.displayName.take(80) })
-                    put("members", members.map { mapOf("uid" to it.uid, "displayName" to it.displayName.take(80), "phoneNumber" to it.phoneNumber.take(40), "photoUrl" to it.photoUrl.take(2_000)) })
-                    put("updatedAt", FieldValue.serverTimestamp())
-                    if (groupPhotoUrl.isNotBlank()) put("photoUrl", groupPhotoUrl)
-                },
-            ).await()
         } catch (error: Throwable) {
             runCatching { reference.delete().await() }
+            runCatching { uploadedPhoto?.delete()?.await() }
             throw error
         }
         return WhappyConversation(
@@ -976,11 +1084,15 @@ class WhappyRepository(
             groupOwnerId = current.uid,
             groupAdminIds = listOf(current.uid),
             groupMembers = members,
+            groupDescription = "Groupe WAPI créé depuis l’application mobile",
+            groupInviteToken = inviteToken,
+            groupEditInfoByMembers = true,
         )
     }
 
     suspend fun updateGroup(
         groupId: String,
+        source: String,
         userId: String,
         actorName: String,
         name: String,
@@ -988,28 +1100,39 @@ class WhappyRepository(
         photoContentType: String = "image/jpeg",
         removePhoto: Boolean = false,
     ): WhappyConversation {
-        val group = db.collection("groups").document(groupId)
+        val root = if (source == "conversations") "conversations" else "groups"
+        val group = db.collection(root).document(groupId)
         val snapshot = group.get().await()
         val ownerId = snapshot.getString("ownerId").orEmpty()
         val memberIds = (snapshot.get("memberIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
         val adminIds = (snapshot.get("adminIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
-        require(userId in memberIds && (userId == ownerId || userId in adminIds))
+        val memberMayEditInfo = snapshot.getBoolean("editInfoByMembers") != false
+        require(userId in memberIds && (memberMayEditInfo || userId == ownerId || userId in adminIds))
         val cleanName = name.trim()
         require(cleanName.length in 2..80)
-        val oldName = snapshot.getString("name").orEmpty()
+        val oldName = snapshot.getString(if (root == "groups") "name" else "title").orEmpty()
         val changed = buildList {
             if (cleanName != oldName) add("nom")
             if (photoUri != null) add("photo")
-            if (removePhoto && snapshot.getString("photoUrl").orEmpty().isNotBlank()) add("photo")
+            if (removePhoto && snapshot.getString(if (root == "groups") "photoUrl" else "groupPhotoUrl").orEmpty().isNotBlank()) add("photo")
         }
         require(changed.isNotEmpty())
-        var photoUrl = snapshot.getString("photoUrl").orEmpty()
+        var photoUrl = snapshot.getString(if (root == "groups") "photoUrl" else "groupPhotoUrl").orEmpty()
         if (photoUri != null) {
             val safeContentType = normalizeImageContentType(photoContentType)
             val extension = when (safeContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
-            val photoRef = storage.reference.child("groups/$groupId/$userId/cover-${UUID.randomUUID()}.$extension")
+            val photoRef = storage.reference.child("$root/$groupId/$userId/cover-${UUID.randomUUID()}.$extension")
             val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
-            photoRef.putFile(photoUri, metadata).await()
+            // Do not upload the transient gallery/crop URI directly. Some
+            // Android document providers return a valid preview but revoke
+            // the stream before Firebase finishes the upload.
+            val localPhoto = WapiMediaStore.copyToOutbox(appContext, photoUri, "group-photo", "cover.$extension")
+                ?: error("group-photo-unreadable")
+            try {
+                photoRef.putFile(Uri.fromFile(localPhoto), metadata).await()
+            } finally {
+                localPhoto.delete()
+            }
             photoUrl = photoRef.downloadUrl.await().toString()
         } else if (removePhoto) photoUrl = ""
         val action = when {
@@ -1019,23 +1142,117 @@ class WhappyRepository(
             else -> "a changé la photo du groupe"
         }
         val eventText = "${actorName.trim().take(80).ifBlank { "Un administrateur" }} $action"
-        val message = group.collection("messages").document()
-        val batch = db.batch()
-        batch.update(group, mapOf("name" to cleanName, "photoUrl" to photoUrl, "lastMessage" to eventText, "updatedAt" to FieldValue.serverTimestamp()))
-        batch.set(message, mapOf("text" to eventText, "senderId" to userId, "senderName" to actorName.trim().take(80).ifBlank { "Administrateur" }, "kind" to "system", "createdAt" to FieldValue.serverTimestamp(), "deleted" to false))
-        batch.commit().await()
+        val payload = mapOf(
+            "groupId" to groupId,
+            "source" to root,
+            "name" to cleanName,
+            "photoUrl" to photoUrl,
+            "removePhoto" to removePhoto,
+        )
+        val response = runCatching {
+            functions.getHttpsCallable("updateGroupIdentity").call(payload).await().data as? Map<*, *>
+        }.recoverCatching { failure ->
+            val code = (failure as? FirebaseFunctionsException)?.code
+            if (code !in setOf(
+                    FirebaseFunctionsException.Code.NOT_FOUND,
+                    FirebaseFunctionsException.Code.UNAVAILABLE,
+                    FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
+                )
+            ) throw failure
+
+            // Compatibility path for installations whose APK was updated
+            // before the matching Cloud Function. Firestore rules still check
+            // membership and edit permissions; this is not an authorization
+            // bypass. The normal callable remains authoritative when present.
+            group.update(
+                mapOf(
+                    (if (root == "groups") "name" else "title") to cleanName,
+                    (if (root == "groups") "photoUrl" else "groupPhotoUrl") to photoUrl,
+                    "lastMessage" to eventText,
+                    "lastSenderId" to userId,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            ).await()
+            mapOf("photoUrl" to photoUrl, "eventText" to eventText, "fallback" to true)
+        }.getOrThrow()
+        photoUrl = response?.get("photoUrl")?.toString() ?: photoUrl
+        // The successful batch commit is authoritative. An immediate SERVER
+        // read used to report a false failure on slow/mobile networks even
+        // though Firestore and Storage had accepted the new group photo.
+        // The active snapshot listener performs the later reconciliation.
         val memberNames = (snapshot.get("memberNames") as? List<*>)?.map { it?.toString().orEmpty() }.orEmpty()
-        val members = memberIds.mapIndexed { index, id -> WhappyMember(id, memberNames.getOrNull(index)?.ifBlank { "Membre WAPI" } ?: "Membre WAPI") }
-        return WhappyConversation(groupId, WhappyMember(groupId, cleanName, photoUrl = photoUrl), eventText, System.currentTimeMillis(), false, isGroup = true, memberCount = memberIds.size, source = "groups", groupOwnerId = ownerId, groupAdminIds = (adminIds + ownerId).distinct(), groupMembers = members)
+        val rawMembers = snapshot.get("members") as? List<*>
+        val membersById = rawMembers.orEmpty().mapNotNull { raw ->
+            val value = raw as? Map<*, *> ?: return@mapNotNull null
+            val id = value["uid"]?.toString().orEmpty()
+            if (id.isBlank()) null else id to WhappyMember(
+                uid = id,
+                displayName = value["displayName"]?.toString()?.takeIf(String::isNotBlank) ?: "Membre WAPI",
+                phoneNumber = value["phoneNumber"]?.toString().orEmpty(),
+                photoUrl = value["photoUrl"]?.toString().orEmpty(),
+                verified = value["verified"] == true,
+            )
+        }.toMap()
+        val members = memberIds.mapIndexed { index, id -> membersById[id] ?: WhappyMember(id, memberNames.getOrNull(index)?.ifBlank { "Membre WAPI" } ?: "Membre WAPI") }
+        return WhappyConversation(
+            groupId,
+            WhappyMember(groupId, cleanName, photoUrl = photoUrl),
+            eventText,
+            System.currentTimeMillis(),
+            false,
+            isGroup = true,
+            memberCount = memberIds.size,
+            source = root,
+            groupOwnerId = ownerId,
+            groupAdminIds = (adminIds + ownerId).distinct(),
+            groupMembers = members,
+            groupDescription = snapshot.getString("description").orEmpty(),
+            groupInviteToken = snapshot.getString("inviteToken").orEmpty(),
+            groupEditInfoByMembers = snapshot.getBoolean("editInfoByMembers") != false,
+            groupOnlyAdminsCanSend = snapshot.getBoolean("onlyAdminsCanSend") == true,
+        )
     }
 
-    suspend fun setGroupAdministrator(groupId: String, memberId: String, administrator: Boolean) {
+    suspend fun setGroupAdministrator(groupId: String, source: String, memberId: String, administrator: Boolean) {
         require(groupId.isNotBlank() && memberId.isNotBlank())
         functions.getHttpsCallable("manageGroupAdministration").call(
             mapOf(
                 "groupId" to groupId,
+                "source" to source,
                 "memberId" to memberId,
                 "administrator" to administrator,
+            ),
+        ).await()
+    }
+
+    suspend fun manageGroupMembers(groupId: String, source: String, memberIds: List<String>, action: String) {
+        require(action in setOf("add", "remove"))
+        val ids = memberIds.filter(String::isNotBlank).distinct().take(20)
+        require(ids.isNotEmpty())
+        functions.getHttpsCallable("manageGroupMembers").call(
+            mapOf(
+                "groupId" to groupId,
+                "source" to source,
+                "memberIds" to ids,
+                "action" to action,
+            ),
+        ).await()
+    }
+
+    suspend fun updateGroupSettings(
+        groupId: String,
+        source: String,
+        description: String,
+        editInfoByMembers: Boolean,
+        onlyAdminsCanSend: Boolean,
+    ) {
+        functions.getHttpsCallable("updateGroupSettings").call(
+            mapOf(
+                "groupId" to groupId,
+                "source" to source,
+                "description" to description.trim().take(300),
+                "editInfoByMembers" to editInfoByMembers,
+                "onlyAdminsCanSend" to onlyAdminsCanSend,
             ),
         ).await()
     }
@@ -1106,28 +1323,41 @@ class WhappyRepository(
         contentType: String,
         mediaName: String,
         durationSeconds: Int = 0,
+        viewOnce: Boolean = false,
         source: String = "conversations",
         senderName: String = "Membre WAPI",
         senderPhotoUrl: String = "",
     ): WhappyDeliveryResult {
-        require(kind in setOf("image", "audio", "video"))
-        require(if (kind == "image") contentType.startsWith("image/") else if (kind == "video") contentType.startsWith("video/") else contentType.startsWith("audio/"))
+        require(kind in setOf("image", "audio", "video", "document"))
+        require(!viewOnce || kind in setOf("image", "audio", "video"))
+        require(
+            when (kind) {
+                "image" -> contentType.startsWith("image/")
+                "video" -> contentType.startsWith("video/")
+                "audio" -> contentType.startsWith("audio/")
+                else -> contentType == "application/pdf" || contentType == "text/plain" || contentType.startsWith("application/vnd.") || contentType == "application/msword"
+            },
+        )
         val mediaSize = runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L)
-        val maximumSize = when (kind) { "image" -> 20L * 1024L * 1024L; "video" -> 60L * 1024L * 1024L; else -> 12L * 1024L * 1024L }
+        val maximumSize = when (kind) { "image" -> 20L * 1024L * 1024L; "video" -> 60L * 1024L * 1024L; "audio" -> 12L * 1024L * 1024L; else -> 25L * 1024L * 1024L }
         require(mediaSize < 0L || mediaSize in 1..maximumSize)
         val extension = when (kind) {
             "audio" -> "m4a"
             "video" -> "mp4"
+            "document" -> mediaName.substringAfterLast('.', "pdf").lowercase().take(8)
             else -> contentType.substringAfter('/', "jpg").substringBefore('+').take(8)
         }
         val safeName = mediaName.trim().take(120).ifBlank { "whappy-${kind}.${extension}" }
         val label = when (kind) {
             "audio" -> "Note vocale"
             "video" -> "Vidéo"
+            "document" -> "Document"
             else -> "Photo"
         }
         val localFile = WapiMediaStore.copyToOutbox(appContext, uri, kind, safeName)
             ?: error("attachment-unreadable")
+        val exactSize = localFile.length()
+        val checksum = localFile.sha256()
         val pending = WhappyPendingMessage(
             id = db.collection(if (source == "groups") "groups" else "conversations")
                 .document(conversationId).collection("messages").document().id,
@@ -1142,6 +1372,9 @@ class WhappyRepository(
             contentType = contentType,
             mediaName = safeName,
             durationSeconds = durationSeconds.coerceIn(0, 600),
+            mediaSizeBytes = exactSize,
+            mediaSha256 = checksum,
+            viewOnce = viewOnce,
             source = source,
             senderName = senderName.trim().take(80).ifBlank { "Membre WAPI" },
             senderPhotoUrl = senderPhotoUrl.takeIf { it.startsWith("https://") }?.take(2_000).orEmpty(),
@@ -1179,7 +1412,7 @@ class WhappyRepository(
         ).await()
     }
 
-    suspend fun createBusinessPage(userId: String, name: String, category: String, bio: String, city: String) {
+    suspend fun createBusinessPage(userId: String, name: String, category: String, bio: String, city: String, phone: String, website: String) {
         val value = name.trim()
         require(value.length in 2..80)
         val reference = db.collection("businessPages").document()
@@ -1197,10 +1430,13 @@ class WhappyRepository(
                 "category" to category.trim(),
                 "bio" to bio.trim().take(400),
                 "city" to city.trim().ifBlank { "Brazzaville" },
-                "phone" to "",
-                "website" to "",
+                "phone" to phone.trim().take(30),
+                "website" to website.trim().take(180),
+                "onboardingComplete" to true,
                 "status" to "active",
                 "followers" to 0,
+                "verified" to false,
+                "verificationStatus" to "unverified",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
@@ -1224,6 +1460,60 @@ class WhappyRepository(
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
+    }
+
+    /** Opens the Business identity inbox, not the owner's personal inbox. */
+    suspend fun ensureBusinessConversation(current: WhappyMember, page: WhappyBusinessPage): WhappyConversation {
+        require(current.uid != page.ownerId)
+        val id = "business-${page.id}-${current.uid}"
+        val reference = db.collection("conversations").document(id)
+        val owner = findUserById(page.ownerId) ?: error("business-owner-not-found")
+        reference.set(
+            mapOf(
+                // Firestore conversation ownership is the creator of this
+                // thread. The Business owner is stored separately so a
+                // customer can create the thread without impersonating it.
+                "ownerId" to current.uid,
+                "memberIds" to listOf(current.uid, page.ownerId).distinct().sorted(),
+                "members" to listOf(
+                    mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl, "verified" to current.verified),
+                    mapOf("uid" to owner.uid, "displayName" to owner.displayName, "phoneNumber" to owner.phoneNumber, "photoUrl" to owner.photoUrl, "verified" to owner.verified),
+                ),
+                "profileType" to "business",
+                "businessPageId" to page.id,
+                "businessPageName" to page.name,
+                "businessPagePhotoUrl" to page.logoUrl,
+                "businessOwnerId" to page.ownerId,
+                "typingBy" to emptyMap<String, Boolean>(),
+                "readBy" to emptyMap<String, Any>(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            com.google.firebase.firestore.SetOptions.merge(),
+        ).await()
+        return WhappyConversation(
+            id = id,
+            peer = WhappyMember(page.id, page.name, page.phone, page.logoUrl, page.verified),
+            lastMessage = "Nouvelle conversation Business",
+            updatedAt = System.currentTimeMillis(),
+            unread = false,
+            profileType = "business",
+            businessPageId = page.id,
+            businessPageName = page.name,
+        )
+    }
+
+    suspend fun updateBusinessPageLogo(userId: String, page: WhappyBusinessPage, uri: Uri, contentType: String): String {
+        require(page.ownerId == userId && auth.currentUser?.uid == userId)
+        val safeContentType = normalizeImageContentType(contentType)
+        val extension = when (safeContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
+        val logoRef = storage.reference.child("business/$userId/${page.id}/logo-${UUID.randomUUID()}.$extension")
+        val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
+        logoRef.putFile(uri, metadata).await()
+        val logoUrl = logoRef.downloadUrl.await().toString()
+        db.collection("businessPages").document(page.id).update(
+            mapOf("logoUrl" to logoUrl, "updatedAt" to FieldValue.serverTimestamp()),
+        ).await()
+        return logoUrl
     }
 
     suspend fun createCampaign(userId: String, draft: WhappyCampaignDraft) {
@@ -1250,7 +1540,7 @@ class WhappyRepository(
                 "days" to draft.days,
                 "totalBudget" to draft.dailyBudget * draft.days,
                 "estimatedReach" to ((draft.dailyBudget / 500L) * draft.days * if (draft.placement == "profile_story") 180L else 120L).coerceAtLeast(120L),
-                "status" to "active",
+                "status" to "pending_payment",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
@@ -1259,18 +1549,21 @@ class WhappyRepository(
 
     suspend fun createLive(userId: String, hostName: String, title: String, category: String, productTitle: String, startNow: Boolean, hostMode: String, visibility: String, audioOnly: Boolean = false) {
         require(auth.currentUser?.uid == userId)
-        require(title.trim().length in 3..120)
+        require(title.trim().length <= 120)
         require(hostMode in setOf("personal", "creator", "business"))
         require(visibility in setOf("public", "contacts", "private"))
         // La salle, le jeton court et les droits de publication sont créés côté
         // serveur. Aucun secret LiveKit n'entre dans l'APK.
         functions.getHttpsCallable("createLiveSession").call(
             mapOf(
+                // The public flow has no title field. A blank value asks the
+                // server to create the internal accessibility/notification label.
                 "title" to title.trim(),
                 "category" to category.trim().ifBlank { "Discussion" }.take(60),
                 "hostMode" to hostMode,
                 "visibility" to visibility,
                 "audioOnly" to audioOnly,
+                "startNow" to startNow,
             ),
         ).await()
     }
@@ -1314,8 +1607,10 @@ class WhappyRepository(
             .flatMap { document -> (document.get("memberIds") as? List<*>)?.filterIsInstance<String>().orEmpty() }
             .filter { it.isNotBlank() }
             .toSet()
+        val authorProfile = db.collection("users").document(userId).get().await()
+        val authorPhotoUrl = authorProfile.getString("photoUrl").orEmpty().take(2_000)
         @Suppress("UNCHECKED_CAST")
-        val savedContactIds = (db.collection("users").document(userId).get().await().get("contacts") as? Map<*, *>)
+        val savedContactIds = (authorProfile.get("contacts") as? Map<*, *>)
             ?.keys
             ?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }
             ?.toSet()
@@ -1336,6 +1631,7 @@ class WhappyRepository(
             mapOf(
                 "authorId" to userId,
                 "authorName" to authorName.trim().take(80),
+                "authorPhotoUrl" to authorPhotoUrl,
                 "caption" to value,
                 "mediaUrl" to mediaUrl,
                 "mediaType" to mediaKind,
@@ -1356,7 +1652,15 @@ class WhappyRepository(
             mediaKind = mediaKind,
             mediaName = when (mediaKind) { "audio" -> "Podcast WAPI"; "video" -> "Vidéo WAPI"; "image" -> "Image WAPI"; else -> "" },
             expiresAt = createdAt + 24L * 60L * 60L * 1000L,
+            authorPhotoUrl = authorPhotoUrl,
         )
+    }
+
+    fun rememberStoryViewedLocally(storyId: String) {
+        val userId = auth.currentUser?.uid.orEmpty()
+        if (userId.isNotBlank() && storyId.isNotBlank()) {
+            storyViewPrefs.edit().putBoolean("${userId}_$storyId", true).apply()
+        }
     }
 
     suspend fun markStoryViewed(storyId: String): Int {
@@ -1365,6 +1669,7 @@ class WhappyRepository(
             .call(mapOf("storyId" to storyId))
             .await()
             .data as? Map<*, *>
+        rememberStoryViewedLocally(storyId)
         return (result?.get("viewCount") as? Number)?.toInt() ?: 0
     }
 
@@ -1477,8 +1782,12 @@ class WhappyRepository(
     }
 
     suspend fun uploadTwinAsset(userId: String, uri: Uri, kind: String, contentType: String) {
-        require(kind in setOf("video", "voice", "movement"))
-        val extension = if (kind == "voice") "m4a" else "mp4"
+        require(kind in setOf("video", "voice", "movement", "outfit"))
+        val extension = when (kind) {
+            "voice" -> "m4a"
+            "outfit" -> "jpg"
+            else -> "mp4"
+        }
         val objectRef = storage.reference.child("twins/$userId/$kind-${System.currentTimeMillis()}.$extension")
         objectRef.putFile(
             uri,
@@ -1492,6 +1801,7 @@ class WhappyRepository(
         val changes = when (kind) {
             "voice" -> mapOf("voiceUrl" to url, "voiceStatus" to "sampled")
             "movement" -> mapOf("movementUrl" to url, "movementStatus" to "sampled")
+            "outfit" -> mapOf("outfitUrl" to url)
             else -> mapOf("videoUrl" to url)
         }
         db.collection("users").document(userId).collection("twinProfiles").document("main")
@@ -1586,6 +1896,7 @@ class WhappyRepository(
                         "displayName" to peer.displayName,
                         "phoneNumber" to peer.phoneNumber,
                         "photoUrl" to peer.photoUrl,
+                        "verified" to peer.verified,
                         "addedAt" to FieldValue.serverTimestamp(),
                     ),
                 ),
@@ -1609,8 +1920,8 @@ class WhappyRepository(
             "ownerId" to current.uid,
             "memberIds" to listOf(current.uid, peer.uid).sorted(),
             "members" to listOf(
-                mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl),
-                mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber, "photoUrl" to peer.photoUrl),
+                mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl, "verified" to current.verified),
+                mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber, "photoUrl" to peer.photoUrl, "verified" to peer.verified),
             ),
             "typingBy" to emptyMap<String, Boolean>(),
             "readBy" to emptyMap<String, Any>(),
@@ -1626,6 +1937,7 @@ class WhappyRepository(
                             "displayName" to peer.displayName,
                             "phoneNumber" to peer.phoneNumber,
                             "photoUrl" to peer.photoUrl,
+                            "verified" to peer.verified,
                             "addedAt" to FieldValue.serverTimestamp(),
                         ),
                     ),
@@ -1670,8 +1982,8 @@ class WhappyRepository(
                 "ownerId" to current.uid,
                 "memberIds" to listOf(current.uid, peer.uid).sorted(),
                 "members" to listOf(
-                    mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl),
-                    mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber, "photoUrl" to peer.photoUrl),
+                    mapOf("uid" to current.uid, "displayName" to current.displayName, "phoneNumber" to current.phoneNumber, "photoUrl" to current.photoUrl, "verified" to current.verified),
+                    mapOf("uid" to peer.uid, "displayName" to peer.displayName, "phoneNumber" to peer.phoneNumber, "photoUrl" to peer.photoUrl, "verified" to peer.verified),
                 ),
                 "typingBy" to emptyMap<String, Boolean>(),
                 "readBy" to emptyMap<String, Any>(),
@@ -1689,13 +2001,39 @@ class WhappyRepository(
         val ids = get("memberIds") as? List<String> ?: return null
         if (userId !in ids) return null
         val rawMembers = get("members") as? List<Map<String, Any?>>
-        val isGroup = getString("conversationType") == "group" || ids.size > 2
+        val isGroup = WapiGroupClassifier.isLegacyGroup(
+            conversationType = getString("conversationType"),
+            kind = getString("kind"),
+            explicitGroup = getBoolean("isGroup"),
+            memberCount = ids.size,
+            hasAdminField = contains("adminIds"),
+            title = getString("title"),
+            groupPhotoUrl = getString("groupPhotoUrl"),
+        )
+        val groupMembers = if (isGroup) rawMembers.orEmpty().mapNotNull { member ->
+            val uid = member["uid"]?.toString().orEmpty()
+            if (uid.isBlank()) null else WhappyMember(
+                uid = uid,
+                displayName = member["displayName"]?.toString()?.takeIf(String::isNotBlank) ?: "Membre WAPI",
+                phoneNumber = member["phoneNumber"]?.toString().orEmpty(),
+                photoUrl = member["photoUrl"]?.toString().orEmpty(),
+                verified = member["verified"] == true,
+            )
+        } else emptyList()
         val peerMap = rawMembers?.firstOrNull { it["uid"] != userId }
+        val businessPageId = getString("businessPageId").orEmpty()
+        val businessPageName = getString("businessPageName").orEmpty()
         val peer = if (isGroup) {
             WhappyMember(
                 uid = id,
                 displayName = getString("title")?.trim()?.ifBlank { "Groupe WAPI" } ?: "Groupe WAPI",
-                photoUrl = rawMembers?.firstNotNullOfOrNull { it["groupPhotoUrl"]?.toString()?.takeIf(String::isNotBlank) }.orEmpty(),
+                photoUrl = getString("groupPhotoUrl").orEmpty(),
+            )
+        } else if (businessPageId.isNotBlank() && userId != getString("businessOwnerId")) {
+            WhappyMember(
+                uid = businessPageId,
+                displayName = businessPageName.ifBlank { "Business WAPI" },
+                photoUrl = getString("businessPagePhotoUrl").orEmpty(),
             )
         } else if (peerMap != null) {
             val phone = peerMap["phoneNumber"]?.toString().orEmpty()
@@ -1704,6 +2042,7 @@ class WhappyRepository(
                 displayName = WhappyIdentity.resolveAccountName(peerMap["displayName"]?.toString().orEmpty(), phone),
                 phoneNumber = phone,
                 photoUrl = peerMap["photoUrl"]?.toString().orEmpty(),
+                verified = peerMap["verified"] == true,
             )
         } else {
             WhappyMember(
@@ -1727,6 +2066,16 @@ class WhappyRepository(
             isGroup = isGroup,
             memberCount = ids.size,
             source = "conversations",
+            groupOwnerId = if (isGroup) getString("ownerId").orEmpty() else "",
+            groupAdminIds = if (isGroup) (((get("adminIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty() + getString("ownerId").orEmpty()).filter(String::isNotBlank).distinct()) else emptyList(),
+            groupMembers = groupMembers,
+            groupDescription = if (isGroup) getString("description").orEmpty() else "",
+            groupInviteToken = if (isGroup) getString("inviteToken").orEmpty() else "",
+            groupEditInfoByMembers = !isGroup || getBoolean("editInfoByMembers") != false,
+            groupOnlyAdminsCanSend = isGroup && getBoolean("onlyAdminsCanSend") == true,
+            profileType = getString("profileType") ?: "personal",
+            businessPageId = getString("businessPageId").orEmpty(),
+            businessPageName = getString("businessPageName").orEmpty(),
         )
     }
 
@@ -1747,6 +2096,7 @@ class WhappyRepository(
                 displayName = value["displayName"]?.toString()?.takeIf(String::isNotBlank) ?: "Membre WAPI",
                 phoneNumber = value["phoneNumber"]?.toString().orEmpty(),
                 photoUrl = value["photoUrl"]?.toString().orEmpty(),
+                verified = value["verified"] == true,
             )
         }.toMap()
         val members = ids.mapIndexed { index, id -> membersById[id] ?: WhappyMember(id, names.getOrNull(index)?.ifBlank { "Membre WAPI" } ?: "Membre WAPI") }
@@ -1771,6 +2121,10 @@ class WhappyRepository(
             groupAdminIds = adminIds,
             groupMembers = members,
             groupReadAt = readBy,
+            groupDescription = getString("description").orEmpty(),
+            groupInviteToken = getString("inviteToken").orEmpty(),
+            groupEditInfoByMembers = getBoolean("editInfoByMembers") != false,
+            groupOnlyAdminsCanSend = getBoolean("onlyAdminsCanSend") == true,
         )
     }
 
@@ -1788,6 +2142,7 @@ class WhappyRepository(
             displayName = WhappyIdentity.resolveAccountName(getString("displayName").orEmpty(), phone),
             phoneNumber = phone,
             photoUrl = getString("photoUrl").orEmpty(),
+            verified = getBoolean("verified") == true,
             isOnline = isOnline,
             lastSeenAt = lastSeenAt,
         )
@@ -1803,6 +2158,9 @@ class WhappyRepository(
         ownerId = getString("ownerId").orEmpty(),
         phone = getString("phone").orEmpty(),
         website = getString("website").orEmpty(),
+        logoUrl = getString("logoUrl").orEmpty(),
+        verified = getBoolean("verified") == true,
+        onboardingComplete = getBoolean("onboardingComplete") != false,
     )
 
     private fun normalizePhone(value: String): String {

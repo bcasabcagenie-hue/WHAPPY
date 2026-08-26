@@ -29,14 +29,29 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn();
-      allow create, update, delete: if ownsProfile(userId);
+      // A newly-created account is always unverified. Verification is a
+      // server/admin decision: the profile owner cannot grant, alter or copy
+      // a badge by writing protected fields from the mobile application.
+      allow create: if ownsProfile(userId)
+        && request.resource.data.verified == false
+        && request.resource.data.verificationStatus == "unverified"
+        && !request.resource.data.keys().hasAny(["verifiedAt", "verifiedBy", "verificationLevel"]);
+      allow update: if ownsProfile(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "verified",
+          "verificationStatus",
+          "verifiedAt",
+          "verifiedBy",
+          "verificationLevel"
+        ]);
+      allow delete: if ownsProfile(userId);
 
       match /devices/{deviceId} {
         allow read, delete: if ownsProfile(userId);
         allow create, update: if ownsProfile(userId)
           && request.resource.data.token is string
           && request.resource.data.token.size() >= 20
-          && request.resource.data.platform == "android"
+          && request.resource.data.platform in ["android", "ios"]
           && request.resource.data.enabled is bool;
       }
 
@@ -135,7 +150,7 @@ service cloud.firestore {
     match /conversations/{conversationId} {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
-        && request.resource.data.keys().hasOnly(["ownerId", "conversationType", "title", "groupPhotoUrl", "memberIds", "members", "typingBy", "readBy", "contactId", "contactName", "lastMessage", "lastSenderId", "createdAt", "updatedAt", "ephemeralSeconds"])
+        && request.resource.data.keys().hasOnly(["ownerId", "conversationType", "title", "groupPhotoUrl", "memberIds", "members", "typingBy", "readBy", "contactId", "contactName", "lastMessage", "lastSenderId", "createdAt", "updatedAt", "ephemeralSeconds", "profileType", "businessPageId", "businessPageName", "businessPagePhotoUrl", "businessOwnerId"])
         && request.auth.uid in request.resource.data.memberIds
         && request.resource.data.memberIds is list
         && request.resource.data.memberIds.size() >= 1
@@ -182,7 +197,7 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
         allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.keys().hasOnly(["text", "senderId", "clientMessageId", "encryptionNonce", "encryptionVersion", "kind", "mediaUrl", "mediaName", "duration", "effect", "caption", "replyToId", "replyText", "replyTo", "forwarded", "createdAt", "expiresAt", "viewOnce", "viewedBy"])
+          && request.resource.data.keys().hasOnly(["text", "senderId", "clientMessageId", "encryptionNonce", "encryptionVersion", "kind", "mediaUrl", "mediaName", "duration", "mediaSizeBytes", "mediaSha256", "effect", "caption", "replyToId", "replyText", "replyTo", "forwarded", "createdAt", "expiresAt", "viewOnce", "viewedBy"])
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 4000
@@ -196,7 +211,7 @@ service cloud.firestore {
               && request.resource.data.replyText is string
               && request.resource.data.replyText.size() <= 240))
           && (!request.resource.data.keys().hasAny(["kind"])
-            || (request.resource.data.kind in ["image", "audio", "video"]
+            || (request.resource.data.kind in ["image", "audio", "video", "document"]
               && request.resource.data.mediaUrl is string
               && request.resource.data.mediaUrl.matches('https://firebasestorage.googleapis.com/.*')
               && request.resource.data.mediaName is string
@@ -204,6 +219,11 @@ service cloud.firestore {
               && request.resource.data.duration is number
               && request.resource.data.duration >= 0
               && request.resource.data.duration <= 600
+              && request.resource.data.mediaSizeBytes is number
+              && request.resource.data.mediaSizeBytes > 0
+              && request.resource.data.mediaSizeBytes <= 60 * 1024 * 1024
+              && request.resource.data.mediaSha256 is string
+              && request.resource.data.mediaSha256.matches('^[0-9a-f]{64}$')
               && (request.resource.data.kind != "video"
                 || (request.resource.data.effect in ["comic", "neon", "ink", "pop"]
                   && request.resource.data.caption is string
@@ -215,7 +235,11 @@ service cloud.firestore {
               && request.resource.data.expiresAt <= request.time + duration.value(7, 'd')))
           && (!request.resource.data.keys().hasAny(["viewOnce"]) || request.resource.data.viewOnce is bool)
           && (!request.resource.data.keys().hasAny(["viewedBy"]) || request.resource.data.viewedBy is map)
-          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds
+          && (get(/databases/$(database)/documents/conversations/$(conversationId)).data.get("onlyAdminsCanSend", false) != true
+            || get(/databases/$(database)/documents/conversations/$(conversationId)).data.get("conversationType", "direct") != "group"
+            || request.auth.uid == get(/databases/$(database)/documents/conversations/$(conversationId)).data.ownerId
+            || request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.get("adminIds", []));
         allow update: if signedIn()
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds
           && (
@@ -355,16 +379,19 @@ service cloud.firestore {
     match /groups/{groupId} {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
-        && request.resource.data.memberIds == [request.auth.uid]
+        && request.resource.data.memberIds is list
+        && request.auth.uid in request.resource.data.memberIds
+        && request.resource.data.memberIds.size() >= 2
+        && request.resource.data.memberIds.size() <= 64
         && request.resource.data.adminIds == [request.auth.uid]
         && request.resource.data.readBy is map
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 2
         && request.resource.data.name.size() <= 80
         && request.resource.data.memberNames is list
-        && request.resource.data.memberNames.size() <= 999
+        && request.resource.data.memberNames.size() == request.resource.data.memberIds.size()
         && request.resource.data.members is list
-        && request.resource.data.members.size() == 1
+        && request.resource.data.members.size() == request.resource.data.memberIds.size()
         && (!request.resource.data.keys().hasAny(["inviteToken"])
           || (request.resource.data.inviteToken is string
             && request.resource.data.inviteToken.size() == 32));
@@ -381,7 +408,8 @@ service cloud.firestore {
               || (request.resource.data.readBy is map
                 && request.resource.data.readBy.diff(resource.data.get("readBy", {})).affectedKeys().hasOnly([request.auth.uid]))))
           || ((request.auth.uid == resource.data.ownerId
-              || request.auth.uid in resource.data.get("adminIds", [resource.data.ownerId]))
+              || request.auth.uid in resource.data.get("adminIds", [resource.data.ownerId])
+              || resource.data.get("editInfoByMembers", true) == true)
             && request.resource.data.ownerId == resource.data.ownerId
             && request.resource.data.get("adminIds", [resource.data.ownerId]) == resource.data.get("adminIds", [resource.data.ownerId])
             && request.resource.data.memberIds.size() <= 999
@@ -411,7 +439,10 @@ service cloud.firestore {
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 4000
-          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+          && (get(/databases/$(database)/documents/groups/$(groupId)).data.get("onlyAdminsCanSend", false) != true
+            || request.auth.uid == get(/databases/$(database)/documents/groups/$(groupId)).data.ownerId
+            || request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.get("adminIds", []));
         allow update: if signedIn()
           && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
           && request.resource.data.senderId == resource.data.senderId
@@ -521,6 +552,8 @@ service cloud.firestore {
         && request.resource.data.authorName is string
         && request.resource.data.authorName.size() >= 2
         && request.resource.data.authorName.size() <= 80
+        && request.resource.data.authorPhotoUrl is string
+        && request.resource.data.authorPhotoUrl.size() <= 2000
         && request.resource.data.mediaUrl is string
         && request.resource.data.mediaType in ["text", "image", "video", "audio"]
         && request.resource.data.caption is string
@@ -539,7 +572,7 @@ service cloud.firestore {
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt <= request.time + duration.value(25, 'h')
-        && request.resource.data.keys().hasOnly(["authorId", "authorName", "mediaUrl", "mediaType", "caption", "storagePath", "audienceIds", "createdAt", "expiresAt"]);
+        && request.resource.data.keys().hasOnly(["authorId", "authorName", "authorPhotoUrl", "mediaUrl", "mediaType", "caption", "storagePath", "audienceIds", "createdAt", "expiresAt"]);
       allow update: if false;
       allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
 
@@ -568,6 +601,27 @@ service cloud.firestore {
         && request.resource.data.playerIds.size() <= 4
         && request.resource.data.playerNames.size() == request.resource.data.playerIds.size();
       allow delete: if signedIn() && resource.data.hostId == request.auth.uid;
+    }
+
+    // King QI is server-authoritative: mobile clients can observe their room,
+    // but cannot forge scores, trophies, answers or promotional credits.
+    match /kingQiRooms/{roomId} {
+      allow read: if signedIn()
+        && (request.auth.uid in resource.data.playerIds || resource.data.visibility == "live");
+      allow write: if false;
+      match /answers/{answerId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /kingQiWallets/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    match /kingQiProfiles/{userId} {
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     match /radioEpisodes/{episodeId} {
@@ -638,6 +692,14 @@ service cloud.firestore {
       }
     }
 
+    // Direct-call sessions are issued and closed exclusively by trusted Cloud
+    // Functions. Clients can observe only calls in which they participate; no
+    // device can mint a room, alter a recipient, or forge a call state.
+    match /directCallSessions/{callId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow create, update, delete: if false;
+    }
+
     // Multi-party calls are provisioned by trusted Cloud Functions. Clients
     // may observe only rooms belonging to one of their groups.
     match /groupCallSessions/{callId} {
@@ -648,6 +710,31 @@ service cloud.firestore {
         allow read: if signedIn()
           && request.auth.uid in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds;
         allow write: if false;
+      }
+
+      // Native WebRTC mesh signaling. A member can negotiate only a pair in
+      // which their own UID appears; SDP and ICE never become public data.
+      match /peers/{peerId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds;
+        allow create, update: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds
+          && request.resource.data.participantIds is list
+          && request.resource.data.participantIds.size() == 2
+          && request.auth.uid in request.resource.data.participantIds
+          && request.resource.data.participantIds[0] in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds
+          && request.resource.data.participantIds[1] in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds;
+        allow delete: if false;
+
+        match /{candidateCollection}/{candidateId} {
+          allow read: if signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds;
+          allow create: if signedIn()
+            && candidateCollection in ["aCandidates", "bCandidates"]
+            && request.resource.data.ownerId == request.auth.uid
+            && request.auth.uid in get(/databases/$(database)/documents/groupCallSessions/$(callId)).data.memberIds;
+          allow update, delete: if false;
+        }
       }
     }
 
@@ -666,7 +753,9 @@ service cloud.firestore {
         && request.resource.data.bio is string
         && request.resource.data.bio.size() <= 400
         && request.resource.data.status == "active"
-        && request.resource.data.followers == 0;
+        && request.resource.data.followers == 0
+        && request.resource.data.verified == false
+        && request.resource.data.verificationStatus == "unverified";
       allow update: if signedIn()
         && resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId == resource.data.ownerId
@@ -779,6 +868,40 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      // Signalisation WebRTC native : un spectateur ne voit que son propre
+      // échange SDP/ICE ; l'animateur voit les pairs de son direct. Aucun média
+      // ne traverse Firestore.
+      match /peers/{viewerId} {
+        allow read: if signedIn()
+          && (request.auth.uid == viewerId
+            || get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid);
+        allow create, delete: if false;
+        allow update: if signedIn()
+          && request.resource.data.viewerId == resource.data.viewerId
+          && request.resource.data.hostId == resource.data.hostId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["offer", "answer", "status", "updatedAt"])
+          && ((request.auth.uid == viewerId
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["answer", "status", "updatedAt"]))
+            || (get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["offer", "status", "updatedAt"])));
+
+        match /hostCandidates/{candidateId} {
+          allow read: if signedIn() && request.auth.uid == viewerId;
+          allow create: if signedIn()
+            && get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid
+            && request.resource.data.keys().hasOnly(["candidate", "sdpMid", "sdpMLineIndex"]);
+          allow update, delete: if false;
+        }
+
+        match /viewerCandidates/{candidateId} {
+          allow read: if signedIn()
+            && get(/databases/$(database)/documents/liveSessions/$(liveId)).data.hostId == request.auth.uid;
+          allow create: if signedIn() && request.auth.uid == viewerId
+            && request.resource.data.keys().hasOnly(["candidate", "sdpMid", "sdpMLineIndex"]);
+          allow update, delete: if false;
+        }
+      }
+
       match /blockedViewers/{viewerId} {
         allow read: if signedIn()
           && (request.auth.uid == viewerId
@@ -794,6 +917,24 @@ service cloud.firestore {
 
     match /liveReports/{reportId} {
       allow read: if whappyFounder();
+      allow create, update, delete: if false;
+    }
+
+    match /businessSaleRooms/{roomId} {
+      allow read: if signedIn()
+        && (resource.data.visibility == "public" || resource.data.ownerId == request.auth.uid);
+      allow create, update, delete: if false;
+      match /viewers/{viewerId} {
+        allow read: if signedIn()
+          && (request.auth.uid == viewerId
+            || get(/databases/$(database)/documents/businessSaleRooms/$(roomId)).data.ownerId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /businessSaleOrders/{orderId} {
+      allow read: if signedIn()
+        && (resource.data.buyerId == request.auth.uid || resource.data.ownerId == request.auth.uid);
       allow create, update, delete: if false;
     }
 
@@ -870,11 +1011,11 @@ service cloud.firestore {
         && request.resource.data.days >= 1
         && request.resource.data.days <= 90
         && request.resource.data.totalBudget == request.resource.data.dailyBudget * request.resource.data.days
-        && request.resource.data.status == "active";
+        && request.resource.data.status == "pending_payment";
       allow update: if signedIn()
         && resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.status in ["active", "paused", "completed"]
+        && request.resource.data.status in ["pending_payment", "active", "paused", "completed"]
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]);
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
     }
