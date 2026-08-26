@@ -124,9 +124,11 @@ struct WiaAssistantView: View {
             header
             Divider()
             conversation
-            composer
         }
         .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            composer
+        }
         .navigationBarHidden(true)
         .task { await model.loadHistory() }
     }
@@ -190,16 +192,24 @@ struct WiaAssistantView: View {
                         }
                         .id("wia-waiting")
                     }
+                    Color.clear
+                        .frame(height: 1)
+                        .id("wia-bottom")
                 }
                 .padding(14)
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: model.messages.count) { _, _ in
-                guard let identifier = model.messages.last?.id else { return }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(identifier, anchor: .bottom) }
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("wia-bottom", anchor: .bottom) }
             }
             .onChange(of: model.waitingForReply) { _, waiting in
-                if waiting { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("wia-waiting", anchor: .bottom) } }
+                if waiting { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("wia-bottom", anchor: .bottom) } }
+            }
+            .onChange(of: composerFocused) { _, focused in
+                guard focused else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("wia-bottom", anchor: .bottom) }
+                }
             }
         }
     }
@@ -246,7 +256,8 @@ struct WiaAssistantView: View {
             .opacity(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.waitingForReply ? 0.45 : 1)
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(.ultraThinMaterial)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) { Divider() }
     }
 
     private func submit() {

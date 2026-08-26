@@ -542,20 +542,6 @@ final class WhappyStore: ObservableObject {
         liveRooms[index].live = false
     }
 
-    func activateDemoWallet() {
-        guard walletBalance == 0 && walletTransactions.isEmpty else { return }
-        walletBalance = 25_000
-        walletTransactions.insert(WalletTransaction(id: UUID(), label: "Solde de démonstration", amount: 25_000, date: Date()), at: 0)
-    }
-
-    func pay(recipient: String, amount: Int) -> Bool {
-        let name = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, amount > 0, amount <= walletBalance else { return false }
-        walletBalance -= amount
-        walletTransactions.insert(WalletTransaction(id: UUID(), label: "Paiement test · \(name)", amount: -amount, date: Date()), at: 0)
-        return true
-    }
-
     func createServiceRequest(type: String, details: String) {
         let value = details.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.count >= 5 else { return }
@@ -672,6 +658,12 @@ final class WhappyStore: ObservableObject {
         cart = decode("cart") ?? cart
         orders = decode("orders") ?? orders
         walletTransactions = decode("walletTransactions") ?? walletTransactions
+        // Remove legacy local-only wallet samples. A visible WAPI balance must
+        // now come exclusively from confirmed provider transactions.
+        walletTransactions.removeAll { transaction in
+            let label = transaction.label.lowercased()
+            return label.contains("démonstration") || label.contains("paiement test")
+        }
         serviceRequests = decode("serviceRequests") ?? serviceRequests
         moments = decode("moments") ?? moments
         stories = decode("stories") ?? stories
@@ -679,6 +671,7 @@ final class WhappyStore: ObservableObject {
         activeBusinessMode = defaults.object(forKey: "activeBusinessMode") as? Bool ?? activeBusinessMode
         activeBusinessRemoteID = defaults.string(forKey: "activeBusinessRemoteID") ?? activeBusinessRemoteID
         walletBalance = defaults.object(forKey: "walletBalance") as? Int ?? walletBalance
+        if walletTransactions.isEmpty { walletBalance = 0 }
         notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? notificationsEnabled
         privacyMode = defaults.string(forKey: "privacyMode") ?? privacyMode
         dataSaverEnabled = defaults.object(forKey: "dataSaverEnabled") as? Bool ?? dataSaverEnabled

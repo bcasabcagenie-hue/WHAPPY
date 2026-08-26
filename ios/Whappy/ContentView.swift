@@ -359,10 +359,7 @@ private struct WapiStoryCircle: View {
                     .shadow(color: hasUnseen ? Color.whappyBlue.opacity(0.24) : .clear, radius: 7, y: 3)
                 Group {
                     if let url = story.flatMap({ URL(string: $0.authorPhotoURL) }), !url.absoluteString.isEmpty {
-                        AsyncImage(url: url) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() }
-                            else { InitialsAvatar(text: String(title.prefix(2)).uppercased(), size: 62) }
-                        }
+                        WapiCachedRemoteImage(url: url) { InitialsAvatar(text: String(title.prefix(2)).uppercased(), size: 62) }
                     } else {
                         InitialsAvatar(text: isOwn ? "MOI" : String(title.prefix(2)).uppercased(), size: 62)
                     }
@@ -550,9 +547,7 @@ private struct WapiStoryViewer: View {
             VStack {
                 HStack(spacing: 10) {
                     if let url = URL(string: story.authorPhotoURL), !story.authorPhotoURL.isEmpty {
-                        AsyncImage(url: url) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() } else { InitialsAvatar(text: String(story.authorName.prefix(2)), size: 38) }
-                        }.frame(width: 38, height: 38).clipShape(Circle())
+                        WapiCachedRemoteImage(url: url) { InitialsAvatar(text: String(story.authorName.prefix(2)), size: 38) }.frame(width: 38, height: 38).clipShape(Circle())
                     } else { InitialsAvatar(text: String(story.authorName.prefix(2)), size: 38) }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(story.authorName).font(.headline)
@@ -630,10 +625,7 @@ struct MessagesView: View {
                 NavigationLink { BusinessWorkspaceView() } label: {
                     HStack(spacing: 11) {
                         if let business = store.business, let url = URL(string: business.logoURL), !business.logoURL.isEmpty {
-                            AsyncImage(url: url) { phase in
-                                if let image = phase.image { image.resizable().scaledToFill() }
-                                else { InitialsAvatar(text: business.name, size: 42) }
-                            }
+                            WapiCachedRemoteImage(url: url) { InitialsAvatar(text: business.name, size: 42) }
                             .frame(width: 42, height: 42)
                             .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                         } else {
@@ -1483,10 +1475,7 @@ private struct ConversationView: View {
                                 if !message.mine {
                                     Group {
                                         if let photoURL = conversation?.photoURL, let url = URL(string: photoURL), !photoURL.isEmpty {
-                                            AsyncImage(url: url) { phase in
-                                                if let image = phase.image { image.resizable().scaledToFill() }
-                                                else { InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30) }
-                                            }
+                                            WapiCachedRemoteImage(url: url) { InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30) }
                                         } else {
                                             InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30)
                                         }
@@ -2149,10 +2138,7 @@ private struct WapiMemberAvatar: View {
     var body: some View {
         Group {
             if let url = URL(string: member.photoURL), !member.photoURL.isEmpty {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase { image.resizable().scaledToFill() }
-                    else { InitialsAvatar(text: member.displayName, size: 42) }
-                }
+                WapiCachedRemoteImage(url: url) { InitialsAvatar(text: member.displayName, size: 42) }
             } else {
                 InitialsAvatar(text: member.displayName, size: 42)
             }
@@ -2731,9 +2717,7 @@ private struct KingQiIOSPlayerProfileCard: View {
     var body: some View {
         HStack(spacing: 12) {
             if let photoURL {
-                AsyncImage(url: photoURL) { phase in
-                    if let image = phase.image { image.resizable().scaledToFill() } else { InitialsAvatar(text: displayName, size: 48) }
-                }.frame(width: 48, height: 48).clipShape(Circle())
+                WapiCachedRemoteImage(url: photoURL) { InitialsAvatar(text: displayName, size: 48) }.frame(width: 48, height: 48).clipShape(Circle())
             } else {
                 InitialsAvatar(text: displayName.isEmpty ? "W" : displayName, size: 48)
             }
@@ -2917,9 +2901,7 @@ private struct KingQiIOSPlayerStage: View {
                     let answered = player.map { answeredIDs.contains($0) } ?? false
                     HStack(spacing: 8) {
                         if let player, let photo = photos[player], !photo.isEmpty {
-                            AsyncImage(url: URL(string: photo)) { phase in
-                                if let image = phase.image { image.resizable().scaledToFill() } else { InitialsAvatar(text: name, size: 40) }
-                            }.frame(width: 40, height: 40).clipShape(Circle())
+                            WapiCachedRemoteImage(url: URL(string: photo)) { InitialsAvatar(text: name, size: 40) }.frame(width: 40, height: 40).clipShape(Circle())
                         } else {
                             InitialsAvatar(text: name, size: 40)
                         }
@@ -2951,16 +2933,17 @@ private struct StatPill: View {
 
 struct ServicesView: View {
     @EnvironmentObject private var store: WhappyStore
-    @State private var paying = false; @State private var requestType: ServiceKind?; @State private var message: String?
+    @State private var requestType: ServiceKind?; @State private var message: String?
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("WHAPPY WALLET").font(.caption.bold()).foregroundStyle(Color.whappyBlue)
-                    Text(store.walletTransactions.isEmpty ? "Portefeuille non activé" : "\(store.walletBalance.formatted()) FCFA").font(.largeTitle.bold()).foregroundStyle(.white)
-                    Text("Mode démonstration · aucun débit bancaire réel").font(.caption).foregroundStyle(.white.opacity(0.72))
-                    if store.walletTransactions.isEmpty { Button("Activer avec 25 000 FCFA test") { store.activateDemoWallet(); message = "Portefeuille de démonstration activé." }.buttonStyle(.borderedProminent) }
-                    else { HStack { Button("Payer") { paying = true }.buttonStyle(.borderedProminent); ShareLink(item: URL(string: "https://whappy.chat/pay/\(whappyFounderPaySlug)")!) { Label("Recevoir", systemImage: "qrcode") }.buttonStyle(.bordered) } }
+                    Text("PAIEMENTS WAPI").font(.caption.bold()).foregroundStyle(Color.whappyBlue)
+                    Text(store.walletTransactions.isEmpty ? "Fournisseur à connecter" : "\(store.walletBalance.formatted()) FCFA").font(.largeTitle.bold()).foregroundStyle(.white)
+                    Text(store.walletTransactions.isEmpty ? "Aucun solde fictif : les paiements apparaîtront uniquement après confirmation d’un fournisseur sécurisé." : "Solde calculé à partir des transactions confirmées.").font(.caption).foregroundStyle(.white.opacity(0.72))
+                    if !store.walletTransactions.isEmpty {
+                        ShareLink(item: URL(string: "https://whappy.chat/pay/\(whappyFounderPaySlug)")!) { Label("Partager mon lien", systemImage: "qrcode") }.buttonStyle(.bordered)
+                    }
                 }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 26))
                 if let message { Label(message, systemImage: "checkmark.circle.fill").foregroundStyle(.green).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.white).clipShape(RoundedRectangle(cornerRadius: 14)) }
                 Text("Services à la demande").font(.title3.bold())
@@ -2972,7 +2955,6 @@ struct ServicesView: View {
             }.padding()
         }
         .background(Color.whappyBackground).navigationTitle("Services")
-        .sheet(isPresented: $paying) { PaymentView { message = $0 } }
         .sheet(item: $requestType) { type in ServiceRequestView(type: type.rawValue) { message = $0 } }
     }
 }
@@ -2987,13 +2969,6 @@ private enum ServiceKind: String, Identifiable {
 private struct ServiceButton: View {
     let title: String; let icon: String; let action: () -> Void
     var body: some View { Button(action: action) { VStack(spacing: 9) { Image(systemName: icon).font(.title2); Text(title).font(.caption.bold()) }.frame(maxWidth: .infinity).padding(.vertical, 18).background(.white).clipShape(RoundedRectangle(cornerRadius: 16)) }.buttonStyle(.plain) }
-}
-
-private struct PaymentView: View {
-    @Environment(\.dismiss) private var dismiss; @EnvironmentObject private var store: WhappyStore
-    @State private var recipient = ""; @State private var amount = ""; @State private var error: String?
-    let onResult: (String) -> Void
-    var body: some View { NavigationStack { Form { Section("Paiement test") { TextField("Bénéficiaire", text: $recipient); TextField("Montant FCFA", text: $amount).keyboardType(.numberPad) }; if let error { Section { Text(error).foregroundStyle(.red) } } }.navigationTitle("Payer").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Envoyer") { let value = Int(amount) ?? 0; if store.pay(recipient: recipient, amount: value) { onResult("Paiement test envoyé à \(recipient)."); dismiss() } else { error = "Vérifiez le bénéficiaire, le montant et le solde." } } } } } }
 }
 
 private struct ServiceRequestView: View {
@@ -3078,10 +3053,7 @@ private struct BusinessWorkspaceView: View {
                 HStack(spacing: 12) {
                     Group {
                         if let business = store.business, let url = URL(string: business.logoURL), !business.logoURL.isEmpty {
-                            AsyncImage(url: url) { phase in
-                                if let image = phase.image { image.resizable().scaledToFill() }
-                                else { InitialsAvatar(text: business.name, size: 58) }
-                            }
+                            WapiCachedRemoteImage(url: url) { InitialsAvatar(text: business.name, size: 58) }
                         } else { InitialsAvatar(text: store.business?.name ?? "Business", size: 58) }
                     }
                     .frame(width: 58, height: 58)
@@ -3294,10 +3266,7 @@ private struct BusinessEditorView: View {
         if let selectedLogo {
             Image(uiImage: selectedLogo).resizable().scaledToFill()
         } else if let url = URL(string: store.business?.logoURL ?? ""), !url.absoluteString.isEmpty {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image { image.resizable().scaledToFill() }
-                else { InitialsAvatar(text: String(name.prefix(2)).uppercased(), size: 64) }
-            }
+            WapiCachedRemoteImage(url: url) { InitialsAvatar(text: String(name.prefix(2)).uppercased(), size: 64) }
         } else {
             InitialsAvatar(text: String(name.prefix(2)).uppercased(), size: 64)
         }
@@ -3613,10 +3582,7 @@ private extension ProfileView {
     var profileHeaderAvatar: some View {
         Group {
             if store.activeBusinessMode, let url = URL(string: store.business?.logoURL ?? ""), !url.absoluteString.isEmpty {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image { image.resizable().scaledToFill() }
-                    else { InitialsAvatar(text: profileInitials.isEmpty ? "WA" : profileInitials, size: 62) }
-                }
+                WapiCachedRemoteImage(url: url) { InitialsAvatar(text: profileInitials.isEmpty ? "WA" : profileInitials, size: 62) }
             } else if let photo = profilePhoto {
                 Image(uiImage: photo)
                     .resizable()
@@ -3688,10 +3654,7 @@ private struct AccountSwitcherIOSRow: View {
         HStack(spacing: 12) {
             Group {
                 if let url = URL(string: photoURL), !photoURL.isEmpty {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image { image.resizable().scaledToFill() }
-                        else { accountIcon }
-                    }
+                    WapiCachedRemoteImage(url: url) { accountIcon }
                 } else {
                     accountIcon
                 }
@@ -3978,6 +3941,49 @@ private struct DataSettingsView: View {
 private struct ActivityCenterView: View {
     @Environment(\.dismiss) private var dismiss; @EnvironmentObject private var store: WhappyStore
     var body: some View { NavigationStack { List { if store.unreadCount > 0 { Button { store.selectedTab = .messages; dismiss() } label: { Label("\(store.unreadCount) message(s) non lu(s)", systemImage: "message.badge.fill") } }; if !store.orders.isEmpty { Button { store.selectedTab = .services; dismiss() } label: { Label("\(store.orders.count) commande(s) à suivre", systemImage: "shippingbox.fill") } }; ForEach(store.liveRooms.filter(\.live)) { room in Button { store.selectedTab = .live; dismiss() } label: { Label("En direct : \(room.title)", systemImage: "dot.radiowaves.left.and.right") } }; if store.unreadCount == 0 && store.orders.isEmpty && store.liveRooms.filter(\.live).isEmpty { ContentUnavailableView("Tout est à jour", systemImage: "checkmark.circle", description: Text("Les nouvelles activités apparaîtront ici.")) } }.navigationTitle("Activité").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { dismiss() } } } } }
+}
+
+final class WapiImageMemoryCache {
+    static let shared = WapiImageMemoryCache()
+    private let images = NSCache<NSURL, UIImage>()
+    private init() { images.totalCostLimit = 48 * 1024 * 1024 }
+    func image(for url: URL) -> UIImage? { images.object(forKey: url as NSURL) }
+    func insert(_ image: UIImage, for url: URL, byteCount: Int) { images.setObject(image, forKey: url as NSURL, cost: max(byteCount, 1)) }
+}
+
+/// Keeps the last valid frame while Firestore refreshes a profile URL and
+/// shares decoded avatars between Messages, Calls, Stories and Business.
+struct WapiCachedRemoteImage<Placeholder: View>: View {
+    let url: URL?
+    var contentMode: ContentMode = .fill
+    @ViewBuilder let placeholder: () -> Placeholder
+    @State private var image: UIImage?
+
+    init(url: URL?, contentMode: ContentMode = .fill, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+        self.url = url
+        self.contentMode = contentMode
+        self.placeholder = placeholder
+        _image = State(initialValue: url.flatMap(WapiImageMemoryCache.shared.image(for:)))
+    }
+
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode) }
+            else { placeholder() }
+        }
+        .task(id: url?.absoluteString) {
+            guard let url else { return }
+            if let cached = WapiImageMemoryCache.shared.image(for: url) { image = cached; return }
+            var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
+            request.setValue("image/*", forHTTPHeaderField: "Accept")
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  data.count <= 20 * 1024 * 1024,
+                  ((response as? HTTPURLResponse)?.statusCode ?? 200) < 400,
+                  let decoded = UIImage(data: data) else { return }
+            WapiImageMemoryCache.shared.insert(decoded, for: url, byteCount: data.count)
+            image = decoded
+        }
+    }
 }
 
 struct InitialsAvatar: View {

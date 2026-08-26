@@ -523,7 +523,7 @@ struct WapiDirectCallRoom: View {
                 Spacer()
                 if session.videoTrack == nil {
                     VStack(spacing: 12) {
-                        AsyncImage(url: URL(string: session.peerPhotoURL)) { image in image.resizable().scaledToFill() } placeholder: { Text(session.peerName.prefix(1).uppercased()).font(.system(size: 45, weight: .bold)) }
+                        WapiCachedRemoteImage(url: URL(string: session.peerPhotoURL)) { Text(session.peerName.prefix(1).uppercased()).font(.system(size: 45, weight: .bold)) }
                             .frame(width: 136, height: 136).background(.white.opacity(0.16)).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.52), lineWidth: 3)).shadow(color: .black.opacity(0.28), radius: 18, y: 8)
                         Text(session.peerName).font(.title.bold())
                         HStack(spacing: 11) {

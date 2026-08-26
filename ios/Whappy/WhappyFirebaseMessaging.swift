@@ -534,6 +534,12 @@ extension WhappyStore {
         guard let user = Auth.auth().currentUser, let normalized = WhappyPhoneCountry.normalize(phone) else { return }
         let profileType = activeBusinessMode ? "business" : "personal"
         let businessPageID = activeBusinessMode ? activeBusinessRemoteID : ""
+        // Freeze the selected identity before Firestore starts its async work.
+        // Switching accounts while the request is running must not rename the
+        // sender or attach the conversation to another Business page.
+        let senderName = currentFirebaseSenderName
+        let senderPhotoURL = user.photoURL?.absoluteString ?? ""
+        let businessPageName = activeBusinessMode ? (business?.name ?? "Business WAPI") : ""
         guard !activeBusinessMode || !businessPageID.isEmpty else {
             firebaseMessage = "Créez ou sélectionnez votre page Business avant d’ouvrir sa messagerie."
             return
@@ -574,7 +580,7 @@ extension WhappyStore {
                 let contextSuffix = profileType == "business" ? "-business-\(businessPageID)" : ""
                 let directID = "direct-" + [user.uid, peer.documentID].sorted().joined(separator: "-") + contextSuffix
                 let members: [[String: Any]] = [
-                    ["uid": user.uid, "displayName": self.currentFirebaseSenderName, "phoneNumber": currentPhone, "photoUrl": user.photoURL?.absoluteString ?? ""],
+                    ["uid": user.uid, "displayName": senderName, "phoneNumber": currentPhone, "photoUrl": senderPhotoURL],
                     ["uid": peer.documentID, "displayName": peerData["displayName"] as? String ?? name, "phoneNumber": peerData["phoneNumber"] as? String ?? normalized, "photoUrl": peerData["photoUrl"] as? String ?? ""]
                 ]
                 database.collection("conversations").document(directID).setData([
@@ -589,7 +595,7 @@ extension WhappyStore {
                     "lastSenderId": "",
                     "profileType": profileType,
                     "businessPageId": businessPageID,
-                    "businessPageName": self.activeBusinessMode ? (self.business?.name ?? "Business WAPI") : "",
+                    "businessPageName": businessPageName,
                     "createdAt": FieldValue.serverTimestamp(),
                     "updatedAt": FieldValue.serverTimestamp()
                 ]) { creationError in
@@ -921,10 +927,7 @@ struct ConversationAvatar: View {
     var body: some View {
         Group {
             if let value = conversation.photoURL, let url = URL(string: value), !value.isEmpty {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase { image.resizable().scaledToFill() }
-                    else { InitialsAvatar(text: conversation.initials) }
-                }
+                WapiCachedRemoteImage(url: url) { InitialsAvatar(text: conversation.initials) }
             } else {
                 InitialsAvatar(text: conversation.initials)
             }
