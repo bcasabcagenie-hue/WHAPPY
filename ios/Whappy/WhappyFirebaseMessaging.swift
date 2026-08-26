@@ -737,6 +737,10 @@ extension WhappyStore {
 
     private func friendlyFirebaseError(_ error: Error) -> String {
         let code = (error as NSError).code
+        let detail = error.localizedDescription.lowercased()
+        if detail.contains("captcha") || detail.contains("recaptcha") || detail.contains("robot") || detail.contains("play integrity") || detail.contains("firebase") {
+            return "La vérification WAPI n’a pas abouti. Réessayez dans quelques instants."
+        }
         switch code {
         case AuthErrorCode.invalidPhoneNumber.rawValue: return "Ce numéro de téléphone n’est pas valide."
         case AuthErrorCode.invalidVerificationCode.rawValue: return "Le code SMS est incorrect."

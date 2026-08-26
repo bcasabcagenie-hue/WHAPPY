@@ -277,7 +277,7 @@ class PhoneAuthController(private val activity: Activity) {
             return
         }
         preferences.edit().putString("country_code", countryCode).putString("phone_number", formatted).apply()
-        state = PhoneAuthUiState(stage = AuthStage.PHONE, busy = true, status = "Envoi sécurisé du code…", phoneNumber = formatted)
+        state = PhoneAuthUiState(stage = AuthStage.PHONE, busy = true, status = "Vérification sécurisée…", phoneNumber = formatted)
         requestVerification(formatted, null)
     }
 
@@ -307,7 +307,7 @@ class PhoneAuthController(private val activity: Activity) {
             state = state.copy(error = "Entrez le code SMS à 6 chiffres.")
             return
         }
-        state = state.copy(busy = true, error = "", status = "Vérification…")
+        state = state.copy(busy = true, error = "", status = "Vérification sécurisée…")
         signIn(PhoneAuthProvider.getCredential(verificationId, code))
     }
 
