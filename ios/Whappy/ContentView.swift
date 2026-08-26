@@ -15,6 +15,10 @@ import UIKit
 struct ContentView: View {
     @EnvironmentObject private var store: WhappyStore
 
+    init() {
+        WapiChrome.install()
+    }
+
     private func ui(_ french: String, _ english: String, _ lingala: String) -> String {
         store.interfaceLanguage.text(french, english, lingala)
     }
@@ -62,26 +66,41 @@ private struct BrandHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.deepBlue], startPoint: .leading, endPoint: .trailing)
-                .frame(height: 3)
+            LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .leading, endPoint: .trailing)
+                .frame(height: 4)
             HStack(spacing: 12) {
-                Image("WhappyMark").resizable().scaledToFit().frame(width: 38, height: 38).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                Image("WhappyMark")
+                    .resizable().scaledToFit()
+                    .frame(width: 43, height: 43)
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .shadow(color: WapiColor.deepBlue.opacity(0.22), radius: 7, y: 4)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
-                        Text("WAPI").font(.title2.bold()).foregroundStyle(Color.whappyInk)
+                        Text("WAPI").font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(Color.whappyInk)
                         Text("PRIVÉ").font(.system(size: 8, weight: .bold)).tracking(0.6).foregroundStyle(Color.whappyBlue).padding(.horizontal, 7).padding(.vertical, 4).background(WapiColor.blueMist).clipShape(Capsule())
                     }
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { showActivity = true } label: { Image(systemName: "bell.fill") }
-                    .buttonStyle(.bordered).clipShape(Circle())
+                Button { showActivity = true } label: {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(WapiColor.deepBlue)
+                        .frame(width: 43, height: 43)
+                        .background(Color.white.opacity(0.88))
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .shadow(color: WapiColor.deepBlue.opacity(0.10), radius: 6, y: 3)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, WapiSpacing.screen)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
         }
-        .background(WapiColor.canvas)
-        .overlay(alignment: .bottom) { Rectangle().fill(WapiColor.line).frame(height: 1) }
+        .background(
+            LinearGradient(colors: [Color.white, WapiColor.blueMist.opacity(0.48), WapiColor.violet.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: WapiColor.deepBlue.opacity(0.10), radius: 12, y: 6)
         .sheet(isPresented: $showActivity) { ActivityCenterView() }
     }
 }
@@ -98,10 +117,10 @@ struct HomeView: View {
                 Button { store.selectedTab = .messages } label: {
                     HStack(spacing: 13) {
                         Image(systemName: "message.fill")
-                            .foregroundStyle(Color.whappyBlue)
+                            .foregroundStyle(.white)
                             .frame(width: 46, height: 46)
-                            .background(WapiColor.blueMist)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .background(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Messages").font(.headline).foregroundStyle(Color.whappyInk)
                             Text("Toutes vos discussions").font(.caption).foregroundStyle(WapiColor.secondaryText)
@@ -109,8 +128,8 @@ struct HomeView: View {
                         Spacer()
                         Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
                     }
-                    .padding(14)
-                    .background(.white)
+                    .padding(15)
+                    .wapiFlowSurface()
                 }.buttonStyle(.plain)
 
                 Text("Découvrir").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk)
@@ -168,11 +187,24 @@ private struct ActionCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: icon).font(.title2).foregroundStyle(color)
-                Text(title).font(.headline).foregroundStyle(Color.whappyInk)
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(color)
+                        .frame(width: 40, height: 40)
+                        .background(color.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(WapiColor.secondaryText)
+                }
+                Text(title).font(.system(.headline, design: .rounded).weight(.semibold)).foregroundStyle(Color.whappyInk)
                 Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white).clipShape(RoundedRectangle(cornerRadius: WapiRadius.panel))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .wapiFlowSurface()
         }.buttonStyle(.plain)
     }
 }
@@ -320,10 +352,15 @@ private struct UpdatesView: View {
     }
 
     private func updatesSectionTitle(_ title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk)
-            Text(subtitle).font(.caption2).foregroundStyle(WapiColor.secondaryText)
-        }.padding(.top, 4)
+        HStack(spacing: 10) {
+            Capsule()
+                .fill(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .top, endPoint: .bottom))
+                .frame(width: 4, height: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(.headline, design: .rounded).weight(.semibold)).foregroundStyle(Color.whappyInk)
+                Text(subtitle).font(.caption2).foregroundStyle(WapiColor.secondaryText)
+            }
+        }.padding(.top, 5)
     }
 
     private func updatesRow(icon: String, title: String, subtitle: String, accent: Color) -> some View {
@@ -332,14 +369,19 @@ private struct UpdatesView: View {
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(accent)
                 .frame(width: 43, height: 43)
-                .background(accent.opacity(0.11))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(LinearGradient(colors: [accent.opacity(0.16), WapiColor.blueMist], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
                 Text(subtitle).font(.caption).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(accent.opacity(0.75))
+            Image(systemName: "arrow.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(accent.opacity(0.78))
+                .frame(width: 30, height: 30)
+                .background(accent.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 8)
@@ -721,7 +763,7 @@ struct MessagesView: View {
                     .scrollBounceBehavior(.always)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 6) {
+                        LazyVStack(spacing: 9) {
                             recentPullReader
                             if recentAppsExpanded {
                                 WapiInlineRecentAppsIOS { withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { recentAppsExpanded = false } }
@@ -1084,12 +1126,18 @@ private struct WapiConversationRow: View {
                 }
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 13)
         .padding(.vertical, 12)
-        .background(conversation.unread ? WapiColor.unreadSurface : Color.white)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(WapiColor.line.opacity(0.72)).frame(height: 1).padding(.leading, 66)
-        }
+        .background(
+            LinearGradient(
+                colors: conversation.unread ? [WapiColor.unreadSurface, Color.white] : [Color.white, WapiColor.canvas.opacity(0.46)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(conversation.unread ? WapiColor.blue.opacity(0.18) : WapiColor.line.opacity(0.62), lineWidth: 0.8))
+        .shadow(color: WapiColor.deepBlue.opacity(conversation.unread ? 0.08 : 0.035), radius: 8, y: 3)
     }
 }
 

@@ -95,6 +95,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -1572,28 +1573,28 @@ private fun WhappyMain(
 private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", photoUrl: String = "", unread: Int = 0, founder: Boolean = false, onActivity: () -> Unit = {}, onProfile: () -> Unit = {}) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = WapiCanvas,
-        shadowElevation = 2.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .42f)),
+        shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomEnd = 24.dp, bottomStart = 24.dp),
+        color = Color.White,
+        shadowElevation = 9.dp,
     ) {
-        Column {
-            Box(Modifier.fillMaxWidth().height(3.dp).background(WhappyAurora))
+        Column(Modifier.background(WhappyAuroraSoft)) {
+            Box(Modifier.fillMaxWidth().height(4.dp).background(WhappyAurora))
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(shape = RoundedCornerShape(12.dp), color = WhappyBlue, shadowElevation = 3.dp) {
+                Surface(shape = RoundedCornerShape(15.dp), color = WhappyBlue, shadowElevation = 7.dp) {
                     Image(
                         painterResource(R.drawable.wapi_identity),
                         "Logo WAPI",
-                        Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).padding(2.dp),
+                        Modifier.size(43.dp).clip(RoundedCornerShape(15.dp)).padding(2.dp),
                         contentScale = ContentScale.Crop,
                     )
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("WAPI", color = WhappyDark, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp)
+                        Text("WAPI", color = WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.2).sp)
                         Box(Modifier.padding(start = 7.dp).clip(CircleShape).background(WapiSoftBlue).padding(horizontal = 6.dp, vertical = 3.dp)) { Text("PRIVÉ", color = WhappyBlue, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp) }
                         if (founder) {
                             Box(Modifier.padding(start = 5.dp).clip(CircleShape).background(WapiVerifiedGray.copy(alpha = .13f)).padding(horizontal = 6.dp, vertical = 3.dp)) {
@@ -1604,12 +1605,12 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
                     Text(subtitle, color = WhappyMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (avatar) {
-                    Surface(shape = CircleShape, color = WapiElevated, border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine)) {
-                        IconButton(onClick = onActivity) {
+                    Surface(shape = RoundedCornerShape(15.dp), color = Color.White.copy(alpha = .88f), shadowElevation = 3.dp) {
+                        IconButton(onClick = onActivity, modifier = Modifier.size(43.dp)) {
                             Box(contentAlignment = Alignment.TopEnd) {
-                                Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = WhappyDark)
+                                Icon(Icons.Rounded.Notifications, "Centre d’activité", tint = WhappyDeepBlue, modifier = Modifier.size(22.dp))
                                 if (unread > 0) {
-                                    Box(Modifier.size(18.dp).clip(CircleShape).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(18.dp).clip(CircleShape).background(WapiViolet), contentAlignment = Alignment.Center) {
                                         Text(if (unread > 99) "99+" else unread.toString(), color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -1617,7 +1618,9 @@ private fun BrandHeader(subtitle: String, avatar: Boolean, name: String = "", ph
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    UserAvatar(photoUrl, name, 38.dp, Modifier.clickable(onClick = onProfile), RoundedCornerShape(10.dp))
+                    Surface(shape = RoundedCornerShape(15.dp), color = Color.Transparent, border = androidx.compose.foundation.BorderStroke(2.dp, WhappyBlue.copy(alpha = .28f)), shadowElevation = 4.dp) {
+                        UserAvatar(photoUrl, name, 41.dp, Modifier.clickable(onClick = onProfile), RoundedCornerShape(13.dp))
+                    }
                 }
             }
         }
@@ -1690,30 +1693,30 @@ private fun WhappyBottomBar(selected: WhappyTab, onTab: (WhappyTab) -> Unit, onM
     )
     val visibleTabs = listOf(WhappyTab.MESSAGES, WhappyTab.CALLS, WhappyTab.STORIES, WhappyTab.WEPI)
     Surface(
-        modifier = Modifier.fillMaxWidth().background(WapiCanvas).padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(),
+        modifier = Modifier.fillMaxWidth().background(Color.Transparent).padding(horizontal = 14.dp, vertical = 10.dp).navigationBarsPadding(),
         shape = RoundedCornerShape(WapiMobile.dockRadius),
         color = WapiElevated,
-        shadowElevation = 12.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .75f)),
+        shadowElevation = 18.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, WhappySky.copy(alpha = .20f)),
     ) {
     Column {
-        Box(Modifier.align(Alignment.CenterHorizontally).width(34.dp).height(3.dp).clip(CircleShape).background(WhappyAurora))
-        NavigationBar(modifier = Modifier.height(68.dp), containerColor = Color.Transparent, tonalElevation = 0.dp) {
+        Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 5.dp).width(42.dp).height(3.dp).clip(CircleShape).background(WhappyAurora))
+        NavigationBar(modifier = Modifier.height(70.dp), containerColor = Color.Transparent, tonalElevation = 0.dp) {
         visibleTabs.forEach { tab ->
             NavigationBarItem(
                 selected = selected == tab,
                 onClick = { WhappySounds.haptic(context); onTab(tab) },
-                icon = { Icon(icons.getValue(tab), mobileTabLabel(tab, LocalWhappyLanguage.current)) },
+                icon = { Icon(icons.getValue(tab), mobileTabLabel(tab, LocalWhappyLanguage.current), modifier = Modifier.size(22.dp)) },
                 label = { Text(mobileTabLabel(tab, LocalWhappyLanguage.current), fontSize = 10.sp, maxLines = 1) },
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WapiSoftBlue),
+                colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyDeepBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WapiSoftBlue.copy(alpha = .82f)),
             )
         }
         NavigationBarItem(
             selected = selected !in visibleTabs,
             onClick = { WhappySounds.haptic(context); onMore() },
-            icon = { Icon(Icons.Rounded.GridView, whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso")) },
+            icon = { Icon(Icons.Rounded.GridView, whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso"), modifier = Modifier.size(22.dp)) },
             label = { Text(whappyText(LocalWhappyLanguage.current, "Tout", "All", "Nyonso"), fontSize = 10.sp, maxLines = 1) },
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WapiSoftBlue),
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = WhappyDeepBlue, selectedTextColor = WhappyDark, unselectedIconColor = WhappyMuted, unselectedTextColor = WhappyMuted, indicatorColor = WapiSoftBlue.copy(alpha = .82f)),
         )
         }
     }
@@ -1747,7 +1750,7 @@ private fun WhappyFeatureHubDialog(recentTabs: List<WhappyTab>, onOpen: (WhappyT
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = WapiSheet, dragHandle = { Box(Modifier.padding(top = 12.dp).width(42.dp).height(4.dp).clip(CircleShape).background(WhappyMuted.copy(alpha = .28f))) }) {
             Column(Modifier.padding(horizontal = WapiMobile.screen, vertical = 8.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(WhappyBlue), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(17.dp)).background(WhappyAurora), contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Schedule, null, tint = Color.White)
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -1760,13 +1763,13 @@ private fun WhappyFeatureHubDialog(recentTabs: List<WhappyTab>, onOpen: (WhappyT
                     recentShortcuts.forEach { item ->
                         Surface(
                             modifier = Modifier.width(104.dp).height(88.dp).clickable { item.tab?.let(onOpen) ?: onOpenTwin() },
-                            color = Color.White,
-                            shape = RoundedCornerShape(18.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .72f)),
+                            color = WapiBlueMist,
+                            shape = RoundedCornerShape(20.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, WhappySky.copy(alpha = .24f)),
                         ) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
                                 Row(verticalAlignment = Alignment.Top) {
-                                    Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(22.dp))
+                                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Color.White), contentAlignment = Alignment.Center) { Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(20.dp)) }
                                     Spacer(Modifier.weight(1f))
                                     Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF1FA971)))
                                 }
@@ -1782,11 +1785,11 @@ private fun WhappyFeatureHubDialog(recentTabs: List<WhappyTab>, onOpen: (WhappyT
                             Surface(
                                 modifier = Modifier.weight(1f).height(88.dp).clickable { item.tab?.let(onOpen) ?: onOpenTwin() },
                                 color = WapiElevated,
-                                shape = RoundedCornerShape(WapiMobile.compactRadius),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .86f)),
+                                shape = RoundedCornerShape(19.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .68f)),
                             ) {
                                 Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                    Icon(item.icon, null, tint = WhappyBlue, modifier = Modifier.size(21.dp))
+                                    Box(Modifier.size(35.dp).clip(RoundedCornerShape(12.dp)).background(WapiSoftBlue), contentAlignment = Alignment.Center) { Icon(item.icon, null, tint = WhappyDeepBlue, modifier = Modifier.size(20.dp)) }
                                     Text(item.title, color = WhappyDark, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                 }
                             }
@@ -2321,8 +2324,9 @@ private fun storyGradient(tone: String): List<Color> = when (tone.lowercase(Loca
 
 @Composable
 private fun ActusSectionTitle(title: String, subtitle: String) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { Text(title, color = WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.Bold); Text(subtitle, color = WhappyMuted, fontSize = 11.sp) }
+    Row(Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(4.dp).height(34.dp).clip(CircleShape).background(WhappyAurora))
+        Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(title, color = WhappyDark, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.15).sp); Text(subtitle, color = WhappyMuted, fontSize = 11.sp) }
     }
 }
 
@@ -2338,9 +2342,10 @@ private data class ActusShortcut(
 private fun ActusQuickRow(items: List<ActusShortcut>, onOpen: (WhappyTab) -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = WapiMobile.screen),
-        color = Color.White,
+        color = WapiElevated,
         shape = RoundedCornerShape(WapiMobile.panelRadius),
-        shadowElevation = 2.dp,
+        shadowElevation = 7.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .62f)),
     ) {
         Column(Modifier.padding(vertical = 5.dp)) {
             items.forEach { item ->
@@ -2348,15 +2353,15 @@ private fun ActusQuickRow(items: List<ActusShortcut>, onOpen: (WhappyTab) -> Uni
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onOpen(item.destination) }.padding(horizontal = 13.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.size(43.dp).clip(RoundedCornerShape(14.dp)).background(item.accent.copy(alpha = .11f)), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(item.accent.copy(alpha = .18f), WapiSoftBlue))), contentAlignment = Alignment.Center) {
                         Icon(item.icon, null, tint = item.accent, modifier = Modifier.size(22.dp))
                     }
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Text(item.title, color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(item.subtitle, Modifier.padding(top = 2.dp), color = WhappyMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(item.accent.copy(alpha = .09f)), contentAlignment = Alignment.Center) {
-                        Text("›", color = item.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Box(Modifier.size(31.dp).clip(RoundedCornerShape(11.dp)).background(item.accent.copy(alpha = .09f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = item.accent, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -5139,11 +5144,11 @@ private fun CaptureAssetCard(
 
 @Composable
 private fun SpaceCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, width: Dp, onClick: () -> Unit) {
-    Card(Modifier.width(width).height(104.dp).clickable(onClick = onClick), shape = RoundedCornerShape(WapiMobile.compactRadius), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+    Card(Modifier.width(width).height(112.dp).clickable(onClick = onClick), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, WhappySky.copy(alpha = .18f)), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Icon(icon, null, tint = WhappyBlue)
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(WhappyAuroraSoft), contentAlignment = Alignment.Center) { Icon(icon, null, tint = WhappyDeepBlue, modifier = Modifier.size(21.dp)) }
             Spacer(Modifier.weight(1f))
-            Text(title, fontWeight = FontWeight.Bold, color = WhappyDark)
+            Text(title, fontWeight = FontWeight.SemiBold, color = WhappyDark)
             Text(subtitle, fontSize = 11.sp, color = WhappyMuted)
         }
     }
@@ -5151,10 +5156,10 @@ private fun SpaceCard(title: String, subtitle: String, icon: androidx.compose.ui
 
 @Composable
 private fun MomentCard(author: String, badge: String, title: String, body: String) {
-    Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
+    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .65f)), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) { Text(initials(author), color = WhappyDark, fontWeight = FontWeight.Bold) }
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(WhappyAuroraSoft), contentAlignment = Alignment.Center) { Text(initials(author), color = WhappyDeepBlue, fontWeight = FontWeight.Bold) }
                 Column(Modifier.padding(start = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) { Text(author, fontWeight = FontWeight.Bold); Icon(Icons.Rounded.Verified, null, tint = WapiVerifiedGray, modifier = Modifier.padding(start = 4.dp).size(15.dp)) }
                     Text(badge, color = WapiVerifiedGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
