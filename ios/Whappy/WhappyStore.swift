@@ -567,7 +567,7 @@ final class WhappyStore: ObservableObject {
         guard cleanName.count >= 2 else { return }
         let existingRemoteID = business?.remoteID ?? ""
         let remoteID = existingRemoteID.isEmpty ? UUID().uuidString.lowercased() : existingRemoteID
-        let next = WhappyBusiness(id: business?.id ?? UUID(), remoteID: remoteID, name: cleanName, category: category.trimmingCharacters(in: .whitespacesAndNewlines), bio: bio.trimmingCharacters(in: .whitespacesAndNewlines), city: city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Brazzaville" : city.trimmingCharacters(in: .whitespacesAndNewlines), phone: phone.trimmingCharacters(in: .whitespacesAndNewlines), website: website.trimmingCharacters(in: .whitespacesAndNewlines))
+        let next = WhappyBusiness(id: business?.id ?? UUID(), remoteID: remoteID, name: cleanName, category: category.trimmingCharacters(in: .whitespacesAndNewlines), bio: bio.trimmingCharacters(in: .whitespacesAndNewlines), city: city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Brazzaville" : city.trimmingCharacters(in: .whitespacesAndNewlines), phone: phone.trimmingCharacters(in: .whitespacesAndNewlines), website: website.trimmingCharacters(in: .whitespacesAndNewlines), logoURL: business?.logoURL ?? "")
         business = next
         switchAccount(business: true)
         guard let uid = firebaseUserID else { return }
@@ -587,6 +587,7 @@ final class WhappyStore: ObservableObject {
             "status": "active",
             "updatedAt": FieldValue.serverTimestamp(),
         ]
+        if !next.logoURL.isEmpty { payload["logoUrl"] = next.logoURL }
         // Firestore intentionally keeps the public handle immutable after creation.
         // This lets a business rename itself without breaking existing links.
         if existingRemoteID.isEmpty {
@@ -600,6 +601,51 @@ final class WhappyStore: ObservableObject {
                 guard let self else { return }
                 self.firebaseBusy = false
                 self.firebaseMessage = error.map { wapiUserFacingError($0, action: "La synchronisation du compte Business") } ?? "Compte Business synchronisé dans WAPI."
+            }
+        }
+    }
+
+    /// Uploads a normalized logo to the business-owned Storage path.  The
+    /// active profile updates immediately after Firestore accepts the URL, so
+    /// a Business account never falls back to the personal avatar.
+    func uploadBusinessLogo(_ data: Data) {
+        guard let userID = firebaseUserID,
+              var currentBusiness = business,
+              !currentBusiness.remoteID.isEmpty,
+              !data.isEmpty,
+              data.count <= 5 * 1_024 * 1_024 else {
+            firebaseMessage = "Créez d’abord le compte Business puis choisissez une image de moins de 5 Mo."
+            return
+        }
+        let reference = Storage.storage().reference().child("business/\(userID)/\(currentBusiness.remoteID)/logo-\(UUID().uuidString).jpg")
+        let metadata = StorageMetadata(); metadata.contentType = "image/jpeg"
+        firebaseBusy = true
+        reference.putData(data, metadata: metadata) { [weak self] _, error in
+            guard let self else { return }
+            if let error {
+                Task { @MainActor in self.firebaseBusy = false; self.firebaseMessage = self.friendlyFirebaseError(error) }
+                return
+            }
+            reference.downloadURL { url, error in
+                guard let url, error == nil else {
+                    Task { @MainActor in self.firebaseBusy = false; self.firebaseMessage = error.map(self.friendlyFirebaseError) ?? "Le logo Business n’a pas pu être envoyé." }
+                    return
+                }
+                Firestore.firestore().collection("businessPages").document(currentBusiness.remoteID).setData([
+                    "logoUrl": url.absoluteString,
+                    "updatedAt": FieldValue.serverTimestamp(),
+                ], merge: true) { writeError in
+                    Task { @MainActor in
+                        self.firebaseBusy = false
+                        guard writeError == nil else {
+                            self.firebaseMessage = self.friendlyFirebaseError(writeError!)
+                            return
+                        }
+                        currentBusiness.logoURL = url.absoluteString
+                        self.business = currentBusiness
+                        self.firebaseMessage = "Logo Business enregistré dans WAPI."
+                    }
+                }
             }
         }
     }

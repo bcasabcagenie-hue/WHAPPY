@@ -864,7 +864,10 @@ extension WhappyStore {
         return UUID(uuidString: formatted) ?? UUID()
     }
 
-    private func friendlyFirebaseError(_ error: Error) -> String {
+    /// Shared Firebase errors must remain brand-safe in every feature,
+    /// including Business media. Never expose Firebase, CAPTCHA or provider
+    /// implementation details to the member.
+    func friendlyFirebaseError(_ error: Error) -> String {
         let code = (error as NSError).code
         let detail = error.localizedDescription.lowercased()
         if detail.contains("captcha") || detail.contains("recaptcha") || detail.contains("robot") || detail.contains("play integrity") || detail.contains("firebase") {

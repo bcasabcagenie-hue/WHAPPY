@@ -723,12 +723,14 @@ struct WhappyBusiness: Identifiable, Hashable, Codable {
     var city: String
     var phone: String = ""
     var website: String = ""
+    /// Public logo for the separate Business identity.
+    var logoURL: String = ""
 
-    init(id: UUID, remoteID: String = "", name: String, category: String, bio: String, city: String, phone: String = "", website: String = "") {
-        self.id = id; self.remoteID = remoteID; self.name = name; self.category = category; self.bio = bio; self.city = city; self.phone = phone; self.website = website
+    init(id: UUID, remoteID: String = "", name: String, category: String, bio: String, city: String, phone: String = "", website: String = "", logoURL: String = "") {
+        self.id = id; self.remoteID = remoteID; self.name = name; self.category = category; self.bio = bio; self.city = city; self.phone = phone; self.website = website; self.logoURL = logoURL
     }
 
-    private enum CodingKeys: String, CodingKey { case id, remoteID, name, category, bio, city, phone, website }
+    private enum CodingKeys: String, CodingKey { case id, remoteID, name, category, bio, city, phone, website, logoURL }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -740,11 +742,12 @@ struct WhappyBusiness: Identifiable, Hashable, Codable {
         city = try values.decode(String.self, forKey: .city)
         phone = try values.decodeIfPresent(String.self, forKey: .phone) ?? ""
         website = try values.decodeIfPresent(String.self, forKey: .website) ?? ""
+        logoURL = try values.decodeIfPresent(String.self, forKey: .logoURL) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(id, forKey: .id); try values.encode(remoteID, forKey: .remoteID); try values.encode(name, forKey: .name); try values.encode(category, forKey: .category); try values.encode(bio, forKey: .bio); try values.encode(city, forKey: .city); try values.encode(phone, forKey: .phone); try values.encode(website, forKey: .website)
+        try values.encode(id, forKey: .id); try values.encode(remoteID, forKey: .remoteID); try values.encode(name, forKey: .name); try values.encode(category, forKey: .category); try values.encode(bio, forKey: .bio); try values.encode(city, forKey: .city); try values.encode(phone, forKey: .phone); try values.encode(website, forKey: .website); try values.encode(logoURL, forKey: .logoURL)
     }
 }
 

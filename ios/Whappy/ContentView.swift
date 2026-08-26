@@ -2962,9 +2962,98 @@ private struct OrdersView: View {
 
 private struct BusinessEditorView: View {
     @EnvironmentObject private var store: WhappyStore
-    @State private var name = ""; @State private var category = "Commerce"; @State private var bio = ""; @State private var city = "Brazzaville"; @State private var phone = ""; @State private var website = ""; @State private var saved = false
+    @State private var name = ""
+    @State private var category = "Commerce"
+    @State private var bio = ""
+    @State private var city = "Brazzaville"
+    @State private var phone = ""
+    @State private var website = ""
+    @State private var saved = false
+    @State private var logoItem: PhotosPickerItem?
+    @State private var selectedLogo: UIImage?
+
     var body: some View {
-        Form { Section("Identité professionnelle") { Text("Ce profil Business est séparé de votre compte personnel, même si vous gardez le même numéro WAPI.").font(.footnote).foregroundStyle(.secondary); TextField("Nom de l’entreprise", text: $name); TextField("Activité", text: $category); TextField("Ville ou région", text: $city); TextField("Numéro Business", text: $phone).keyboardType(.phonePad); TextField("Site ou catalogue", text: $website).keyboardType(.URL) }; Section("Présentation") { TextField("Que proposez-vous aux clients ?", text: $bio, axis: .vertical).lineLimit(3...6) }; Section("Commerce social") { NavigationLink { BusinessSaleRoomManagerIOS() } label: { Label("Salons de vente", systemImage: "person.3.sequence.fill") }; Text("WEPI peut préparer vos réponses clients, vos descriptions et vos relances. Les campagnes sont pilotées depuis Business Ads.").font(.footnote).foregroundStyle(.secondary) }; Section { Button(saved ? "Enregistré" : "Créer le profil Business") { store.saveBusiness(name: name, category: category, bio: bio, city: city, phone: phone, website: website); saved = true }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2).frame(maxWidth: .infinity) } }.navigationTitle("Business").onAppear { if let business = store.business { name = business.name; category = business.category; bio = business.bio; city = business.city; phone = business.phone; website = business.website } }
+        Form {
+            Section("Identité professionnelle") {
+                Text("Ce profil Business est distinct de votre compte personnel. Il peut utiliser le même numéro WAPI, mais possède ses propres messages, catalogue et statistiques.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 13) {
+                    businessLogo
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(store.business == nil ? "Créez votre page puis choisissez son logo." : "Le logo est public et propre à votre page Business.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        PhotosPicker(selection: $logoItem, matching: .images) {
+                            Label("Changer le logo", systemImage: "photo.on.rectangle.angled")
+                        }
+                        .disabled(store.business == nil || store.firebaseBusy)
+                    }
+                }
+                .padding(.vertical, 4)
+                TextField("Nom de l’entreprise", text: $name)
+                TextField("Activité", text: $category)
+                TextField("Ville ou région", text: $city)
+                TextField("Numéro Business", text: $phone).keyboardType(.phonePad)
+                TextField("Site ou catalogue", text: $website).keyboardType(.URL)
+            }
+            Section("Présentation") {
+                TextField("Que proposez-vous aux clients ?", text: $bio, axis: .vertical).lineLimit(3...6)
+            }
+            Section("Commerce social") {
+                NavigationLink { BusinessSaleRoomManagerIOS() } label: {
+                    Label("Salons de vente", systemImage: "person.3.sequence.fill")
+                }
+                Text("WEPI peut préparer vos réponses clients, vos descriptions et vos relances. Les campagnes sont gérées dans Business Ads.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Button(saved ? "Enregistré" : (store.business == nil ? "Créer le profil Business" : "Enregistrer les modifications")) {
+                    store.saveBusiness(name: name, category: category, bio: bio, city: city, phone: phone, website: website)
+                    saved = true
+                }
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 || store.firebaseBusy)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("Business")
+        .onAppear {
+            if let business = store.business {
+                name = business.name; category = business.category; bio = business.bio
+                city = business.city; phone = business.phone; website = business.website
+            }
+        }
+        .onChange(of: logoItem) { _, item in
+            guard let item else { return }
+            Task {
+                defer { logoItem = nil }
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data),
+                      let normalized = makeWapiGroupPhotoData(image) else {
+                    store.firebaseMessage = "Cette image ne peut pas être utilisée comme logo Business."
+                    return
+                }
+                selectedLogo = image
+                store.uploadBusinessLogo(normalized)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var businessLogo: some View {
+        if let selectedLogo {
+            Image(uiImage: selectedLogo).resizable().scaledToFill()
+        } else if let url = URL(string: store.business?.logoURL ?? ""), !url.absoluteString.isEmpty {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image { image.resizable().scaledToFill() }
+                else { InitialsAvatar(text: String(name.prefix(2)).uppercased(), size: 64) }
+            }
+        } else {
+            InitialsAvatar(text: String(name.prefix(2)).uppercased(), size: 64)
+        }
     }
 }
 
@@ -3276,7 +3365,12 @@ struct ProfileView: View {
 private extension ProfileView {
     var profileHeaderAvatar: some View {
         Group {
-            if let photo = profilePhoto {
+            if store.activeBusinessMode, let url = URL(string: store.business?.logoURL ?? ""), !url.absoluteString.isEmpty {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image { image.resizable().scaledToFill() }
+                    else { InitialsAvatar(text: profileInitials.isEmpty ? "WA" : profileInitials, size: 62) }
+                }
+            } else if let photo = profilePhoto {
                 Image(uiImage: photo)
                     .resizable()
                     .scaledToFill()
@@ -3285,8 +3379,8 @@ private extension ProfileView {
             }
         }
         .frame(width: 62, height: 62)
-        .clipShape(Circle())
-        .overlay(Circle().stroke(Color.whappyBlue.opacity(0.14), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.whappyBlue.opacity(0.14), lineWidth: 1))
         .onTapGesture {
             if let photo = profilePhoto {
                 zoomedPhoto = ZoomPhoto(image: photo)
@@ -3319,7 +3413,7 @@ private struct AccountSwitcherIOSView: View {
                             store.switchAccount(business: true)
                             dismiss()
                         } label: {
-                            AccountSwitcherIOSRow(title: business.name, subtitle: "Business · (business.category)", icon: "briefcase.fill", active: store.activeBusinessMode)
+                            AccountSwitcherIOSRow(title: business.name, subtitle: "Business · \(business.category)", icon: "briefcase.fill", active: store.activeBusinessMode)
                         }.buttonStyle(.plain)
                     }
                 }

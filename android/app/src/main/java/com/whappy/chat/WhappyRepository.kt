@@ -1540,7 +1540,17 @@ class WhappyRepository(
         val extension = when (safeContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
         val logoRef = storage.reference.child("business/$userId/${page.id}/logo-${UUID.randomUUID()}.$extension")
         val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
-        logoRef.putFile(uri, metadata).await()
+        // Gallery providers can revoke the source URI while a slow mobile
+        // upload is running.  Business logos use the same durable private
+        // outbox policy as group photos and Stories.
+        val localLogo = WapiMediaStore.copyToOutbox(appContext, uri, "business-logo", "logo.$extension")
+            ?: error("business-logo-unreadable")
+        try {
+            require(localLogo.length() in 1..(5L * 1024L * 1024L))
+            logoRef.putBytes(localLogo.readBytes(), metadata).await()
+        } finally {
+            localLogo.delete()
+        }
         val logoUrl = logoRef.downloadUrl.await().toString()
         db.collection("businessPages").document(page.id).update(
             mapOf("logoUrl" to logoUrl, "updatedAt" to FieldValue.serverTimestamp()),
