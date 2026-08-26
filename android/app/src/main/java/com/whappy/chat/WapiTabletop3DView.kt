@@ -182,6 +182,10 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         private var glossHandle = 0
         private var materialHandle = 0
         private var textureHandle = 0
+        private var eyeHandle = 0
+        private var eyeX = 0f
+        private var eyeY = 8f
+        private var eyeZ = 8f
         private var woodTexture = 0
         private var feltTexture = 0
         private val projection = FloatArray(16)
@@ -295,6 +299,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 uniform float uGloss;
                 uniform float uMaterial;
                 uniform sampler2D uTexture;
+                uniform vec3 uEye;
                 varying vec3 vNormal;
                 varying vec3 vWorld;
                 float hash(vec2 p) {
@@ -340,7 +345,10 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                     vec3 fillLight = normalize(vec3(0.68, 0.42, -0.58));
                     float diffuse = max(dot(n, light), 0.0);
                     float fill = max(dot(n, fillLight), 0.0) * 0.31;
-                    vec3 viewDir = normalize(vec3(0.0, 7.5, 8.0) - vWorld);
+                    // Specular highlights follow the real orbiting camera.
+                    // A fixed eye position made glossy pieces look painted on
+                    // as soon as the player rotated the board.
+                    vec3 viewDir = normalize(uEye - vWorld);
                     vec3 reflected = reflect(-light, n);
                     float specular = pow(max(dot(viewDir, reflected), 0.0), mix(12.0, 72.0, uGloss)) * uGloss;
                     float rim = pow(1.0 - max(dot(viewDir, n), 0.0), 2.4) * 0.10;
@@ -359,6 +367,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             glossHandle = GLES20.glGetUniformLocation(program, "uGloss")
             materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
             textureHandle = GLES20.glGetUniformLocation(program, "uTexture")
+            eyeHandle = GLES20.glGetUniformLocation(program, "uEye")
             woodTexture = loadTexture(R.drawable.wapi_game_walnut_texture)
             feltTexture = loadTexture(R.drawable.wapi_game_felt_texture)
         }
@@ -382,9 +391,9 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             val radius = (when (scene) { Scene.LUDO -> 13.8f; Scene.POOL -> 12.5f; else -> 13.0f }) * zoom
             val yawRadians = Math.toRadians(yaw.toDouble())
             val pitchRadians = Math.toRadians(pitch.toDouble())
-            val eyeX = (sin(yawRadians) * cos(pitchRadians) * radius).toFloat()
-            val eyeY = (sin(pitchRadians) * radius).toFloat()
-            val eyeZ = (cos(yawRadians) * cos(pitchRadians) * radius).toFloat()
+            eyeX = (sin(yawRadians) * cos(pitchRadians) * radius).toFloat()
+            eyeY = (sin(pitchRadians) * radius).toFloat()
+            eyeZ = (cos(yawRadians) * cos(pitchRadians) * radius).toFloat()
             Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, 0f, 0f, 0f, 0f, 1f, 0f)
             Matrix.multiplyMM(vp, 0, projection, 0, view, 0)
             Matrix.invertM(inverseVp, 0, vp, 0)
@@ -792,6 +801,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             GLES20.glUniform4fv(colorHandle, 1, color, 0)
             GLES20.glUniform1f(glossHandle, gloss)
             GLES20.glUniform1f(materialHandle, material)
+            GLES20.glUniform3f(eyeHandle, eyeX, eyeY, eyeZ)
             val boundTexture = when {
                 material > .5f && material < 1.5f -> woodTexture
                 material > 1.5f && material < 2.5f -> feltTexture

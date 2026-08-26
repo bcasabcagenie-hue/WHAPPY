@@ -1,5 +1,6 @@
 import FirebaseCore
 import FirebaseMessaging
+import AVFoundation
 import AudioToolbox
 import SwiftUI
 import UIKit
@@ -15,6 +16,7 @@ private let wapiDeclineCallAction = "WAPI_DECLINE_CALL"
 
 enum WapiSounds {
     private static var lastTypingAt = Date.distantPast
+    private static var gamePlayers: [String: AVAudioPlayer] = [:]
 
     private static var enabled: Bool {
         UserDefaults.standard.object(forKey: "wapi.sounds.enabled") as? Bool ?? true
@@ -27,6 +29,23 @@ enum WapiSounds {
     private static func play(_ id: SystemSoundID) {
         guard enabled else { return }
         AudioServicesPlaySystemSound(id)
+    }
+
+    private static func playGameSample(_ name: String, volume: Float, fallback: SystemSoundID) {
+        guard enabled else { return }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else {
+            play(fallback)
+            return
+        }
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.volume = volume
+            player.prepareToPlay()
+            gamePlayers[name] = player
+            player.play()
+        } catch {
+            play(fallback)
+        }
     }
 
     static func typing() {
@@ -46,8 +65,12 @@ enum WapiSounds {
     static func callStarted() { play(1057) }
     static func callEnded() { play(1001) }
     static func storyPublished() { play(1025) }
-    static func gameMove() { play(1104) }
-    static func gameReward() { play(1025) }
+    static func gameMove() { playGameSample("wapi_piece_move", volume: 0.66, fallback: 1104) }
+    static func gameCapture() { playGameSample("wapi_piece_capture", volume: 0.82, fallback: 1057) }
+    static func gameDice() { playGameSample("wapi_dice_roll", volume: 0.76, fallback: 1104) }
+    static func gamePool() { playGameSample("wapi_pool_hit", volume: 0.86, fallback: 1104) }
+    static func gameCard() { playGameSample("wapi_card_flip", volume: 0.70, fallback: 1104) }
+    static func gameReward() { playGameSample("wapi_victory", volume: 0.88, fallback: 1025) }
 
     static func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
         guard enabled else { return }

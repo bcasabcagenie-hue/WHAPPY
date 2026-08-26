@@ -2523,27 +2523,35 @@ private struct WapiIOSTabletopGame: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color.whappyInk, Color.whappyBlue.opacity(0.78), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
-            VStack(spacing: 14) {
+            WapiIOS3DTabletop(scene: game.name, dieValue: dieValue).ignoresSafeArea()
+            LinearGradient(colors: [Color.black.opacity(0.72), .clear, .clear, Color.black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            VStack(spacing: 12) {
                 HStack {
-                    Button { dismiss() } label: { Label("Quitter", systemImage: "chevron.left") }.buttonStyle(.bordered).tint(.white)
+                    Button { dismiss() } label: { Label("Quitter", systemImage: "chevron.left").font(.subheadline.bold()) }
+                        .buttonStyle(.borderedProminent).tint(.black.opacity(0.58))
                     Spacer()
                     VStack(spacing: 1) { Text(game.name.uppercased()).font(.caption.bold()).foregroundStyle(.cyan); Text("MANCHE \(turn)").font(.headline.bold()).foregroundStyle(.white) }
                     Spacer()
-                    Text("\(score) XP").font(.headline.bold()).foregroundStyle(.white)
+                    Text("\(score) XP").font(.headline.bold()).foregroundStyle(.white).padding(.horizontal, 12).padding(.vertical, 8).background(.black.opacity(0.46)).clipShape(Capsule())
                 }.padding(.horizontal)
-                WapiIOS3DTabletop(scene: game.name, dieValue: dieValue).frame(maxWidth: .infinity).frame(height: 380).clipShape(RoundedRectangle(cornerRadius: 26)).padding(.horizontal)
-                Text(status).font(.footnote).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center).padding(.horizontal)
+                Spacer()
+                Text(status).font(.footnote.weight(.semibold)).foregroundStyle(.white).multilineTextAlignment(.center).padding(.horizontal, 14).padding(.vertical, 9).background(.black.opacity(0.52)).clipShape(Capsule()).padding(.horizontal)
                 HStack(spacing: 12) {
                     Button { status = "Mode entraînement avec IA sélectionné."; WapiSounds.gameMove(); WapiSounds.haptic(.medium) } label: { Label("IA", systemImage: "brain.head.profile") }.buttonStyle(.bordered).tint(.white)
                     Button {
                         turn += 1; dieValue = Int.random(in: 1...6); score += 10; streak += 1
                         status = game.name == "Ludo WAPI" ? "Dé : \(dieValue). Choisissez un pion à déplacer." : game.name == "Billard WAPI" ? "Coup joué : ajustez la visée avec un glissement sur la table." : "Coup validé. À l’adversaire."
-                        UINotificationFeedbackGenerator().notificationOccurred(.success); WapiSounds.gameMove()
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        if game.name == "Ludo WAPI" { WapiSounds.gameDice() }
+                        else if game.name == "Billard WAPI" { WapiSounds.gamePool() }
+                        else if game.name == "Cartes WAPI" || game.name == "Poker WAPI" { WapiSounds.gameCard() }
+                        else { WapiSounds.gameMove() }
                     } label: { Label(primaryAction, systemImage: game.name == "Ludo WAPI" ? "dice.fill" : "play.fill").frame(minWidth: 150) }.buttonStyle(.borderedProminent).tint(Color.whappyBlue)
                     Button { status = "Salon en ligne prêt : invitez vos contacts WAPI avec le bouton Partager." } label: { Image(systemName: "person.2.fill") }.buttonStyle(.bordered).tint(.white)
                 }
-                Text("Rendu 3D natif · contrôles tactiles · sons et vibrations du système. Les tournois et classements se synchronisent avec le service King QI/WAPI Play.").font(.caption2).foregroundStyle(.white.opacity(0.55)).multilineTextAlignment(.center).padding(.horizontal)
-                Spacer(minLength: 8)
+                Text("MOTEUR 3D NATIF · 60 IPS · AUDIO DE JEU").font(.caption2.bold()).tracking(0.8).foregroundStyle(.white.opacity(0.62)).padding(.bottom, 8)
             }.padding(.top, 10)
         }
     }
@@ -2553,51 +2561,38 @@ private struct WapiIOS3DTabletop: UIViewRepresentable {
     let scene: String
     let dieValue: Int
 
+    final class Coordinator {
+        var currentScene = ""
+        var currentDieValue = 1
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
-        view.scene = makeScene()
+        view.scene = WapiGameSceneKit.makeScene(named: scene, dieValue: dieValue)
         view.allowsCameraControl = true
-        view.autoenablesDefaultLighting = true
+        view.autoenablesDefaultLighting = false
         view.backgroundColor = UIColor(red: 0.015, green: 0.05, blue: 0.11, alpha: 1)
         view.antialiasingMode = .multisampling4X
+        view.preferredFramesPerSecond = 60
+        view.rendersContinuously = true
+        view.isJitteringEnabled = true
+        context.coordinator.currentScene = scene
+        context.coordinator.currentDieValue = dieValue
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
-        view.scene = makeScene()
+        if context.coordinator.currentScene != scene {
+            view.scene = WapiGameSceneKit.makeScene(named: scene, dieValue: dieValue)
+            context.coordinator.currentScene = scene
+            context.coordinator.currentDieValue = dieValue
+        } else if context.coordinator.currentDieValue != dieValue {
+            WapiGameSceneKit.animateDie(in: view.scene, value: dieValue)
+            context.coordinator.currentDieValue = dieValue
+        }
     }
-
-    private func makeScene() -> SCNScene {
-        let sceneGraph = SCNScene()
-        let camera = SCNNode(); camera.camera = SCNCamera(); camera.camera?.fieldOfView = 48; camera.position = SCNVector3(0, 6.7, 8.7); camera.eulerAngles = SCNVector3(-0.58, 0, 0); sceneGraph.rootNode.addChildNode(camera)
-        let light = SCNNode(); light.light = SCNLight(); light.light?.type = .omni; light.light?.intensity = 1_250; light.position = SCNVector3(0, 6, 3); sceneGraph.rootNode.addChildNode(light)
-        let floor = SCNFloor(); floor.reflectivity = 0.2; floor.firstMaterial?.diffuse.contents = UIColor.black; let floorNode = SCNNode(geometry: floor); floorNode.position.y = -0.42; sceneGraph.rootNode.addChildNode(floorNode)
-        let board = SCNBox(width: 6.4, height: 0.35, length: 6.4, chamferRadius: 0.18); board.firstMaterial?.diffuse.contents = UIColor(red: 0.30, green: 0.16, blue: 0.06, alpha: 1); let boardNode = SCNNode(geometry: board); boardNode.position.y = -0.15; sceneGraph.rootNode.addChildNode(boardNode)
-        if scene == "Billard WAPI" { addPool(to: sceneGraph); return sceneGraph }
-        if scene == "Ludo WAPI" { addLudo(to: sceneGraph); return sceneGraph }
-        if scene == "Échecs WAPI" || scene == "Jeu de dames" { addCheckerboard(to: sceneGraph, chess: scene == "Échecs WAPI"); return sceneGraph }
-        addCards(to: sceneGraph)
-        return sceneGraph
-    }
-
-    private func addCheckerboard(to sceneGraph: SCNScene, chess: Bool) {
-        for row in 0..<8 { for column in 0..<8 {
-            let tile = SCNBox(width: 0.72, height: 0.08, length: 0.72, chamferRadius: 0.02); tile.firstMaterial?.diffuse.contents = (row + column).isMultiple(of: 2) ? UIColor(red: 0.89, green: 0.72, blue: 0.48, alpha: 1) : UIColor(red: 0.20, green: 0.10, blue: 0.06, alpha: 1); let node = SCNNode(geometry: tile); node.position = SCNVector3(Float(column - 3) * 0.72, 0.08, Float(row - 3) * 0.72); sceneGraph.rootNode.addChildNode(node) } }
-        for index in 0..<16 { let piece = SCNCylinder(radius: chess ? 0.20 : 0.24, height: chess ? 0.54 : 0.18); piece.firstMaterial?.diffuse.contents = index < 8 ? UIColor(white: 0.08, alpha: 1) : UIColor(white: 0.92, alpha: 1); let node = SCNNode(geometry: piece); let row = index < 8 ? index / 4 : 6 + index / 4; node.position = SCNVector3(Float((index % 4) * 2 - 3) * 0.72, chess ? 0.39 : 0.21, Float(row - 3) * 0.72); sceneGraph.rootNode.addChildNode(node) }
-    }
-
-    private func addLudo(to sceneGraph: SCNScene) {
-        let colors: [UIColor] = [.systemRed, .systemGreen, .systemBlue, .systemYellow]
-        for index in 0..<16 { let pawn = SCNCapsule(capRadius: 0.16, height: 0.52); pawn.firstMaterial?.diffuse.contents = colors[index / 4]; let node = SCNNode(geometry: pawn); let x: Float = (index % 4 < 2 ? -1.65 : 1.65) + Float(index % 2) * 0.45; let z: Float = index / 4 < 2 ? -1.65 : 1.65; node.position = SCNVector3(x, 0.35, z); sceneGraph.rootNode.addChildNode(node) }
-        let die = SCNBox(width: 0.72, height: 0.72, length: 0.72, chamferRadius: 0.10); die.firstMaterial?.diffuse.contents = UIColor.white; let dieNode = SCNNode(geometry: die); dieNode.position = SCNVector3(0, 0.6, 0); dieNode.eulerAngles = SCNVector3(Float(dieValue) * 0.18, Float(dieValue) * 0.29, 0); sceneGraph.rootNode.addChildNode(dieNode)
-    }
-
-    private func addPool(to sceneGraph: SCNScene) {
-        let cloth = SCNBox(width: 5.8, height: 0.16, length: 3.3, chamferRadius: 0.08); cloth.firstMaterial?.diffuse.contents = UIColor(red: 0.02, green: 0.33, blue: 0.24, alpha: 1); let clothNode = SCNNode(geometry: cloth); clothNode.position.y = 0.1; sceneGraph.rootNode.addChildNode(clothNode)
-        for index in 0..<12 { let ball = SCNSphere(radius: 0.14); ball.firstMaterial?.diffuse.contents = index == 0 ? UIColor.white : [UIColor.systemRed, .systemYellow, .systemBlue, .systemOrange][index % 4]; let node = SCNNode(geometry: ball); node.position = SCNVector3(Float(index % 4 - 1) * 0.38, 0.34, Float(index / 4 - 1) * 0.36); sceneGraph.rootNode.addChildNode(node) }
-    }
-
-    private func addCards(to sceneGraph: SCNScene) { for index in 0..<5 { let card = SCNBox(width: 0.82, height: 0.05, length: 1.18, chamferRadius: 0.05); card.firstMaterial?.diffuse.contents = UIColor.white; let node = SCNNode(geometry: card); node.position = SCNVector3(Float(index - 2) * 0.92, 0.16, 0); node.eulerAngles.y = Float(index - 2) * 0.13; sceneGraph.rootNode.addChildNode(node) } }
 }
 
 private struct WapiIOSArcadeGame: View {

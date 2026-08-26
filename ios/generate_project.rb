@@ -15,7 +15,7 @@ target = project.new_target(:application, "Whappy", :ios, "17.0")
 target.product_name = "Whappy"
 
 group = project.main_group.new_group("Whappy", "Whappy")
-sources = %w[WapiDesignSystem.swift WapiNativeLive.swift WhappyApp.swift Models.swift WhappyStore.swift WhappyFirebaseMessaging.swift ContentView.swift]
+sources = %w[WapiDesignSystem.swift WapiNativeLive.swift WapiDirectCall.swift WiaAssistantView.swift WapiGameSceneKit.swift WhappyApp.swift Models.swift WhappyStore.swift WhappyFirebaseMessaging.swift ContentView.swift]
 source_refs = sources.map { |name| group.new_file(name) }
 target.add_file_references(source_refs)
 
@@ -39,10 +39,44 @@ livekit_build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
 livekit_build_file.product_ref = livekit_product
 target.frameworks_build_phase.files << livekit_build_file
 
+# Direct one-to-one calls use the WebRTC framework without going through the
+# LiveKit room API. Keep the exact version aligned with LiveKit's dependency.
+webrtc_package = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+webrtc_package.repositoryURL = "https://github.com/livekit/webrtc-xcframework.git"
+webrtc_package.requirement = {
+  "kind" => "exactVersion",
+  "version" => "144.7559.11"
+}
+project.root_object.package_references << webrtc_package
+
+webrtc_product = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+webrtc_product.package = webrtc_package
+webrtc_product.product_name = "LiveKitWebRTC"
+target.package_product_dependencies << webrtc_product
+
+webrtc_build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+webrtc_build_file.product_ref = webrtc_product
+target.frameworks_build_phase.files << webrtc_build_file
+
 assets = group.new_file("Assets.xcassets")
 target.resources_build_phase.add_file_reference(assets)
 firebase_config = group.new_file("GoogleService-Info.plist")
 target.resources_build_phase.add_file_reference(firebase_config)
+
+audio_group = group.new_group("GameAudio", "GameAudio")
+audio_names = %w[
+  wapi_dice_roll.wav
+  wapi_piece_select.wav
+  wapi_piece_move.wav
+  wapi_piece_capture.wav
+  wapi_piece_crown.wav
+  wapi_pool_hit.wav
+  wapi_pool_pocket.wav
+  wapi_card_flip.wav
+  wapi_victory.wav
+]
+audio_refs = audio_names.map { |name| audio_group.new_file(name) }
+audio_refs.each { |reference| target.resources_build_phase.add_file_reference(reference) }
 
 target.build_configurations.each do |config|
   config.build_settings.merge!({
