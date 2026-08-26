@@ -41,6 +41,9 @@ struct ContentView: View {
                 .tabItem { Label(ui("Profil", "Profile", "Profil"), systemImage: "person.crop.circle.fill") }.tag(WhappyTab.profile)
         }
         .tint(.whappyBlue)
+        .onChange(of: store.selectedTab) { _, tab in
+            if tab == .actus { store.refreshStories() }
+        }
         .fullScreenCover(item: $store.pendingGroupCall) { route in
             WapiGroupCallRoom(route: route) { store.pendingGroupCall = nil }
         }

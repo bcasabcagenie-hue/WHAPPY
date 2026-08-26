@@ -8,10 +8,13 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.storage.StorageException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class WhappyViewModel(
@@ -42,6 +45,7 @@ class WhappyViewModel(
     private var remoteConversationMessages: List<WhappyMessage> = emptyList()
     private val pendingStories = linkedMapOf<String, WhappyStatus>()
     private val confirmedStories = linkedMapOf<String, WhappyStatus>()
+    private var storyRefreshJob: Job? = null
     private var typingState = false
     private val authListener = FirebaseAuth.AuthStateListener { refreshSession(it.currentUser) }
 
@@ -51,12 +55,15 @@ class WhappyViewModel(
 
     fun selectTab(tab: WhappyTab) {
         stopTyping()
+        storyRefreshJob?.cancel()
+        storyRefreshJob = null
         _uiState.update { it.copy(tab = tab, selectedConversation = null, messages = emptyList(), selectedChannel = null, channelPosts = emptyList(), error = null) }
         messagesListener?.remove()
         messagesListener = null
         remoteConversationMessages = emptyList()
         channelPostsListener?.remove()
         channelPostsListener = null
+        if (tab == WhappyTab.STORIES) startStoryRefresh()
     }
 
     fun selectAccountProfile(businessPageId: String) {
@@ -873,6 +880,9 @@ class WhappyViewModel(
                     pendingStories.remove(localId)
                     confirmedStories[story.id] = story
                     _uiState.update { current -> current.copy(statuses = mergeStories(current.statuses), actionBusy = false, online = true) }
+                    // Do not wait for a new login to obtain the canonical
+                    // 24-hour Story record and its final Storage URL.
+                    refreshVisibleStories()
                 }
                 .onFailure { error ->
                     pendingStories.remove(localId)
@@ -887,6 +897,28 @@ class WhappyViewModel(
         return (pendingStories.values + confirmedStories.values + remote)
             .distinctBy { it.id }
             .sortedByDescending { it.createdAt }
+    }
+
+    private fun startStoryRefresh() {
+        storyRefreshJob?.cancel()
+        storyRefreshJob = viewModelScope.launch {
+            while (isActive && _uiState.value.tab == WhappyTab.STORIES) {
+                refreshVisibleStories()
+                delay(30_000)
+            }
+        }
+    }
+
+    private suspend fun refreshVisibleStories() {
+        runCatching { repository.listVisibleStories() }
+            .onSuccess { stories ->
+                _uiState.update { current -> current.copy(statuses = mergeStories(stories), online = true) }
+            }
+            .onFailure {
+                // Keep the last good rail on screen. A transient refresh error
+                // should never remove a Story that has already been published.
+                _uiState.update { current -> current.copy(online = false) }
+            }
     }
 
     fun deleteStatus(statusId: String) = runBusinessAction("La Story n’a pas été supprimée") { user ->
@@ -1042,6 +1074,8 @@ class WhappyViewModel(
     }
 
     private fun refreshSession(user: com.google.firebase.auth.FirebaseUser?) {
+        storyRefreshJob?.cancel()
+        storyRefreshJob = null
         conversationsListener?.remove()
         contactsListener?.remove()
         messagesListener?.remove()
@@ -1233,6 +1267,7 @@ class WhappyViewModel(
     )
 
     override fun onCleared() {
+        storyRefreshJob?.cancel()
         FirebaseAuth.getInstance().removeAuthStateListener(authListener)
         conversationsListener?.remove()
         contactsListener?.remove()

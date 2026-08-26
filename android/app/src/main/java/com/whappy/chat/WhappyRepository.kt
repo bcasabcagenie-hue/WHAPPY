@@ -539,6 +539,12 @@ class WhappyRepository(
         return ListenerRegistration { }
     }
 
+    /** Server-authoritative refresh used when the Actus rail is visible. */
+    suspend fun listVisibleStories(): List<WhappyStatus> {
+        val result = functions.getHttpsCallable("listVisibleStories").call().await()
+        return parseVisibleStories(result.data)
+    }
+
     private fun parseVisibleStories(raw: Any?): List<WhappyStatus> {
         val root = raw as? Map<*, *> ?: return emptyList()
         val stories = root["stories"] as? List<*> ?: return emptyList()
@@ -548,7 +554,9 @@ class WhappyRepository(
             val caption = value["caption"]?.toString().orEmpty()
             val mediaUrl = value["mediaUrl"]?.toString().orEmpty()
             if (authorId.isBlank() || (caption.isBlank() && mediaUrl.isBlank())) return@mapNotNull null
-            val createdAt = value["createdAt"]?.toString()?.let(::parseIsoEpochMillis) ?: 0L
+            val createdAt = (value["createdAtMillis"] as? Number)?.toLong()
+                ?: value["createdAt"]?.toString()?.let(::parseIsoEpochMillis)
+                ?: 0L
             WhappyStatus(
                 id = value["id"]?.toString().orEmpty(),
                 authorId = authorId,
@@ -1607,16 +1615,23 @@ class WhappyRepository(
             mediaContentType.startsWith("audio/") -> "audio"
             else -> error("invalid-status-media")
         }
-        val mediaSize = mediaUri?.let { uri -> runCatching { appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L }.getOrDefault(-1L) } ?: 0L
         val maximumSize = when (mediaKind) { "video" -> 50L * 1024L * 1024L; "audio" -> 25L * 1024L * 1024L; else -> 12L * 1024L * 1024L }
-        require(mediaUri == null || mediaSize < 0L || mediaSize in 1..maximumSize)
         var storagePath = ""
         val mediaUrl = if (mediaUri == null) "" else {
             val extension = mediaContentType.substringAfter('/', when (mediaKind) { "video" -> "mp4"; "audio" -> "m4a"; else -> "jpg" }).substringBefore('+').replace("quicktime", "mov").take(8)
             storagePath = "stories/$userId/${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
             val mediaRef = storage.reference.child(storagePath)
-            mediaRef.putFile(mediaUri, com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()
-            mediaRef.downloadUrl.await().toString()
+            // Gallery providers can revoke their URI shortly after selection.
+            // Copy first into WAPI's private outbox so the upload remains stable.
+            val localMedia = WapiMediaStore.copyToOutbox(appContext, mediaUri, "story", "story.$extension")
+                ?: error("story-media-unreadable")
+            try {
+                require(localMedia.length() in 1..maximumSize)
+                mediaRef.putFile(Uri.fromFile(localMedia), com.google.firebase.storage.StorageMetadata.Builder().setContentType(mediaContentType).build()).await()
+                mediaRef.downloadUrl.await().toString()
+            } finally {
+                localMedia.delete()
+            }
         }
         val createdAt = System.currentTimeMillis()
         val result = functions.getHttpsCallable("publishStory").call(

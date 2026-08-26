@@ -276,7 +276,9 @@ final class WhappyStore: ObservableObject {
                 let now = Date()
                 self.stories = rawStories.compactMap { value in
                     guard let id = value["id"] as? String, !id.isEmpty else { return nil }
-                    let created = Self.storyDate(value["createdAt"] as? String) ?? now
+                    let created = (value["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) }
+                        ?? Self.storyDate(value["createdAt"] as? String)
+                        ?? now
                     let expiry = (value["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
                     return WapiStory(id: id, authorID: value["authorId"] as? String ?? "", authorName: value["authorName"] as? String ?? "Contact WAPI", authorPhotoURL: value["authorPhotoUrl"] as? String ?? "", caption: value["caption"] as? String ?? "", mediaURL: value["mediaUrl"] as? String ?? "", mediaType: value["mediaType"] as? String ?? "text", createdAt: created, expiresAt: expiry, viewCount: (value["viewCount"] as? NSNumber)?.intValue ?? 0, viewed: value["viewedByCurrentUser"] as? Bool ?? false)
                 }.filter { $0.expiresAt > now }.sorted { $0.createdAt > $1.createdAt }
@@ -308,6 +310,10 @@ final class WhappyStore: ObservableObject {
         var storagePath = ""
         if let mediaData {
             guard ["image", "video", "audio"].contains(mediaType) else { throw NSError(domain: "WAPI", code: 400, userInfo: [NSLocalizedDescriptionKey: "Type de média non pris en charge."]) }
+            let maximumBytes = mediaType == "video" ? 50 * 1_024 * 1_024 : mediaType == "audio" ? 25 * 1_024 * 1_024 : 12 * 1_024 * 1_024
+            guard !mediaData.isEmpty, mediaData.count <= maximumBytes else {
+                throw NSError(domain: "WAPI", code: 413, userInfo: [NSLocalizedDescriptionKey: "Ce média dépasse la taille autorisée pour une Story WAPI."])
+            }
             let ext = mediaType == "image" ? "jpg" : mediaType == "video" ? "mp4" : "m4a"
             storagePath = "stories/\(userID)/\(UUID().uuidString).\(ext)"
             let reference = Storage.storage().reference().child(storagePath)
@@ -328,7 +334,11 @@ final class WhappyStore: ObservableObject {
         let now = Date()
         let created = (result["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? now
         let expiry = (result["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
+        stories.removeAll { $0.id == id }
         stories.insert(WapiStory(id: id, authorID: userID, authorName: result["authorName"] as? String ?? "Membre WAPI", authorPhotoURL: result["authorPhotoUrl"] as? String ?? "", caption: cleanCaption, mediaURL: mediaURL, mediaType: mediaType, createdAt: created, expiresAt: expiry, viewCount: 0, viewed: true), at: 0)
+        // The local Story appears immediately; refresh afterwards to reconcile
+        // audience and expiry with the server-owned record.
+        refreshStories()
     }
 
     private static func storyDate(_ value: String?) -> Date? {

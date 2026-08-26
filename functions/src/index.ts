@@ -1628,6 +1628,11 @@ export const publishStory = onCall(async (request) => {
     storagePath,
     audienceIds: await storyAudienceIds(userId),
     viewCount: 0,
+    // Keep a concrete millisecond value in addition to the server timestamp.
+    // A just-created Firestore serverTimestamp can be unresolved in the first
+    // response read; the mobile clients use this value to keep the Story in
+    // the rail immediately after publication.
+    createdAtMillis: createdAt,
     createdAt: FieldValue.serverTimestamp(),
     expiresAt: new Date(createdAt + 24 * 60 * 60 * 1_000),
   });
@@ -1670,6 +1675,7 @@ export const listVisibleStories = onCall(async (request) => {
       createdAt: createdAt && typeof createdAt.toDate === "function"
         ? createdAt.toDate().toISOString()
         : null,
+      createdAtMillis: Number(value.createdAtMillis || (createdAt && typeof createdAt.toMillis === "function" ? createdAt.toMillis() : 0)),
       expiresAtMillis: value.expiresAt && typeof value.expiresAt.toMillis === "function"
         ? value.expiresAt.toMillis()
         : 0,
