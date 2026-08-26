@@ -2,6 +2,7 @@ package com.whappy.chat
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import com.google.firebase.FirebaseApp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -1187,25 +1188,18 @@ class WhappyRepository(
         }
         require(changed.isNotEmpty())
         var photoUrl = snapshot.getString(if (root == "groups") "photoUrl" else "groupPhotoUrl").orEmpty()
+        var preparedPhotoBytes: ByteArray? = null
+        var safePhotoContentType = "image/jpeg"
         if (photoUri != null) {
-            val safeContentType = normalizeImageContentType(photoContentType)
-            val extension = when (safeContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
-            val photoRef = storage.reference.child("$root/$groupId/$userId/cover-${UUID.randomUUID()}.$extension")
-            val metadata = com.google.firebase.storage.StorageMetadata.Builder().setContentType(safeContentType).build()
-            // Do not upload the transient gallery/crop URI directly. Some
-            // Android document providers return a valid preview but revoke
-            // the stream before Firebase finishes the upload.
+            safePhotoContentType = normalizeImageContentType(photoContentType)
+            val extension = when (safePhotoContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
             val localPhoto = WapiMediaStore.copyToOutbox(appContext, photoUri, "group-photo", "cover.$extension")
                 ?: error("group-photo-unreadable")
             try {
-                // The local outbox copy is the source of truth for this upload.
-                // putBytes avoids provider/URI revocation during a slow upload
-                // and makes the save path deterministic on Android 13+.
-                photoRef.putBytes(localPhoto.readBytes(), metadata).await()
+                preparedPhotoBytes = localPhoto.readBytes().also { require(it.size in 32..(5 * 1024 * 1024)) }
             } finally {
                 localPhoto.delete()
             }
-            photoUrl = photoRef.downloadUrl.await().toString()
         } else if (removePhoto) photoUrl = ""
         val action = when {
             changed.contains("nom") && changed.contains("photo") -> "a modifié le nom et la photo du groupe"
@@ -1214,13 +1208,16 @@ class WhappyRepository(
             else -> "a changé la photo du groupe"
         }
         val eventText = "${actorName.trim().take(80).ifBlank { "Un administrateur" }} $action"
-        val payload = mapOf(
+        val payload = mutableMapOf<String, Any>(
             "groupId" to groupId,
             "source" to root,
             "name" to cleanName,
-            "photoUrl" to photoUrl,
             "removePhoto" to removePhoto,
         )
+        preparedPhotoBytes?.let { bytes ->
+            payload["photoDataBase64"] = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            payload["photoContentType"] = safePhotoContentType
+        } ?: run { payload["photoUrl"] = photoUrl }
         val response = runCatching {
             functions.getHttpsCallable("updateGroupIdentity").call(payload).await().data as? Map<*, *>
         }.recoverCatching { failure ->
@@ -1236,6 +1233,13 @@ class WhappyRepository(
             // before the matching Cloud Function. Firestore rules still check
             // membership and edit permissions; this is not an authorization
             // bypass. The normal callable remains authoritative when present.
+            preparedPhotoBytes?.let { bytes ->
+                val extension = when (safePhotoContentType) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
+                val photoRef = storage.reference.child("$root/$groupId/$userId/cover-${UUID.randomUUID()}.$extension")
+                val metadata = StorageMetadata.Builder().setContentType(safePhotoContentType).build()
+                photoRef.putBytes(bytes, metadata).await()
+                photoUrl = photoRef.downloadUrl.await().toString()
+            }
             group.update(
                 mapOf(
                     (if (root == "groups") "name" else "title") to cleanName,

@@ -1,10 +1,12 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore, type DocumentSnapshot } from "firebase-admin/firestore";
 import { getMessaging, type MulticastMessage } from "firebase-admin/messaging";
+import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret, defineString } from "firebase-functions/params";
+import { randomUUID } from "node:crypto";
 import { connect as connectTcp } from "node:net";
 import {
   AccessToken,
@@ -12,6 +14,7 @@ import {
   WebhookReceiver,
 } from "livekit-server-sdk";
 import { createTurnIcePayload, selectTurnUrls, turnTcpEndpoint } from "./webrtcTurn";
+import { decodeGroupPhotoBase64 } from "./groupPhoto";
 
 if (!getApps().length) initializeApp();
 setGlobalOptions({ region: "europe-west1", maxInstances: 20, memory: "256MiB" });
@@ -1898,12 +1901,22 @@ export const updateGroupIdentity = onCall(async (request) => {
   const source = request.data?.source === "conversations" ? "conversations" : "groups";
   const name = String(request.data?.name || "").trim();
   const photoUrl = String(request.data?.photoUrl || "").trim();
+  const photoDataBase64 = request.data?.photoDataBase64;
   const removePhoto = request.data?.removePhoto === true;
   if (!groupId || name.length < 2 || name.length > 80) {
     throw new HttpsError("invalid-argument", "Le nom du groupe doit contenir entre 2 et 80 caractères.");
   }
   if (photoUrl.length > 2_000 || (photoUrl && !photoUrl.startsWith("https://firebasestorage.googleapis.com/"))) {
     throw new HttpsError("invalid-argument", "La photo du groupe n’est pas un média WAPI valide.");
+  }
+  let uploadedPhoto: ReturnType<typeof decodeGroupPhotoBase64>;
+  try {
+    uploadedPhoto = decodeGroupPhotoBase64(photoDataBase64);
+  } catch {
+    throw new HttpsError("invalid-argument", "La photo du groupe est invalide ou trop volumineuse.");
+  }
+  if (removePhoto && uploadedPhoto) {
+    throw new HttpsError("invalid-argument", "Choisissez soit une nouvelle photo, soit sa suppression.");
   }
 
   const reference = db.collection(source).doc(groupId);
@@ -1923,7 +1936,23 @@ export const updateGroupIdentity = onCall(async (request) => {
 
   const previousName = String(source === "groups" ? value.name || "" : value.title || "").trim();
   const previousPhoto = String(source === "groups" ? value.photoUrl || "" : value.groupPhotoUrl || "").trim();
-  const nextPhoto = removePhoto ? "" : (photoUrl || previousPhoto);
+  let uploadedFilePath = "";
+  let uploadedPhotoUrl = "";
+  if (uploadedPhoto) {
+    const bucket = getStorage().bucket();
+    const downloadToken = randomUUID();
+    uploadedFilePath = `${source}/${groupId}/${request.auth.uid}/cover-${randomUUID()}.${uploadedPhoto.extension}`;
+    await bucket.file(uploadedFilePath).save(uploadedPhoto.bytes, {
+      resumable: false,
+      metadata: {
+        contentType: uploadedPhoto.contentType,
+        cacheControl: "public,max-age=31536000,immutable",
+        metadata: { firebaseStorageDownloadTokens: downloadToken },
+      },
+    });
+    uploadedPhotoUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(uploadedFilePath)}?alt=media&token=${downloadToken}`;
+  }
+  const nextPhoto = removePhoto ? "" : (uploadedPhotoUrl || photoUrl || previousPhoto);
   const changedName = name !== previousName;
   const changedPhoto = nextPhoto !== previousPhoto;
   if (!changedName && !changedPhoto) return { ok: true, name, photoUrl: nextPhoto, unchanged: true };
@@ -1956,7 +1985,12 @@ export const updateGroupIdentity = onCall(async (request) => {
     clientMessageId: event.id,
     createdAt: FieldValue.serverTimestamp(),
   });
-  await batch.commit();
+  try {
+    await batch.commit();
+  } catch (error) {
+    if (uploadedFilePath) await getStorage().bucket().file(uploadedFilePath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    throw error;
+  }
   return { ok: true, name, photoUrl: nextPhoto, eventText };
 });
 

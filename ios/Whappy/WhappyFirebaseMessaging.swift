@@ -321,15 +321,15 @@ extension WhappyStore {
             firebaseMessage = "Seuls les administrateurs peuvent modifier ce groupe."
             return
         }
-        if let photoData, photoData.count > 20 * 1024 * 1024 {
+        if let photoData, photoData.count > 5 * 1024 * 1024 {
             firebaseMessage = "La photo de groupe est trop volumineuse."
             return
         }
         firebaseBusy = true
-        let save: (String) -> Void = { [weak self] photoURL in
+        let save: (String?) -> Void = { [weak self] photoPayload in
             guard let self else { return }
             let changedName = name != conversation.name
-            let changedPhoto = removePhoto || !photoURL.isEmpty
+            let changedPhoto = removePhoto || photoPayload != nil
             guard changedName || changedPhoto else { self.firebaseBusy = false; return }
             let action: String = changedName && changedPhoto
                 ? "a modifié le nom et la photo du groupe"
@@ -342,7 +342,7 @@ extension WhappyStore {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let actor = accountDisplayName.isEmpty ? "Un administrateur" : accountDisplayName
             let eventText = "\(actor) \(action)"
-            let persistFallback: () -> Void = {
+            let persistFallback: (String) -> Void = { photoURL in
                 let groupReference = Firestore.firestore().collection(source).document(groupID)
                 let photoField = source == "groups" ? "photoUrl" : "groupPhotoUrl"
                 let nameField = source == "groups" ? "name" : "title"
@@ -387,16 +387,22 @@ extension WhappyStore {
                     }
                 }
             }
-            Functions.functions(region: "europe-west1").httpsCallable("updateGroupIdentity").call([
+            var request: [String: Any] = [
                 "groupId": groupID,
                 "source": source,
                 "name": name,
-                "photoUrl": removePhoto ? "" : photoURL,
                 "removePhoto": removePhoto
-            ]) { result, error in
+            ]
+            if let photoPayload {
+                request["photoDataBase64"] = photoPayload
+                request["photoContentType"] = "image/jpeg"
+            } else {
+                request["photoUrl"] = removePhoto ? "" : (conversation.photoURL ?? "")
+            }
+            Functions.functions(region: "europe-west1").httpsCallable("updateGroupIdentity").call(request) { result, error in
                 Task { @MainActor in
                     guard let error else {
-                        let persistedPhoto = (result?.data as? [String: Any])?["photoUrl"] as? String ?? (removePhoto ? "" : photoURL)
+                        let persistedPhoto = (result?.data as? [String: Any])?["photoUrl"] as? String ?? (removePhoto ? "" : (conversation.photoURL ?? ""))
                         self.applyFirebaseGroupIdentity(conversation: conversation, name: name, photoURL: persistedPhoto, eventText: eventText)
                         self.firebaseBusy = false
                         self.firebaseMessage = "Photo du groupe enregistrée dans WAPI."
@@ -408,10 +414,32 @@ extension WhappyStore {
                         || description.contains("deadline")
                         || description.contains("network")
                     if canUseCompatibilityPath {
-                        // Keep older iOS installations usable while the callable
-                        // is being rolled out. Firestore rules still enforce the
-                        // owner/admin permission on this compatibility path.
-                        persistFallback()
+                        guard let photoData else {
+                            persistFallback(removePhoto ? "" : (conversation.photoURL ?? ""))
+                            return
+                        }
+                        let storage = Storage.storage().reference().child("\(source)/\(groupID)/\(userID)/group-\(UUID().uuidString).jpg")
+                        let metadata = StorageMetadata()
+                        metadata.contentType = "image/jpeg"
+                        storage.putData(photoData, metadata: metadata) { _, uploadError in
+                            guard uploadError == nil else {
+                                Task { @MainActor in
+                                    self.firebaseBusy = false
+                                    self.firebaseMessage = uploadError.map(self.friendlyFirebaseError) ?? "La photo du groupe n’a pas pu être envoyée."
+                                }
+                                return
+                            }
+                            storage.downloadURL { url, downloadError in
+                                Task { @MainActor in
+                                    guard let url, downloadError == nil else {
+                                        self.firebaseBusy = false
+                                        self.firebaseMessage = downloadError.map(self.friendlyFirebaseError) ?? "La photo du groupe n’a pas pu être envoyée."
+                                        return
+                                    }
+                                    persistFallback(url.absoluteString)
+                                }
+                            }
+                        }
                     } else {
                         self.firebaseBusy = false
                         self.firebaseMessage = self.friendlyFirebaseError(error)
@@ -419,24 +447,7 @@ extension WhappyStore {
                 }
             }
         }
-        guard let photoData else { save(""); return }
-        let storage = Storage.storage().reference().child("\(source)/\(groupID)/\(userID)/group-\(UUID().uuidString).jpg")
-        let metadata = StorageMetadata()
-        metadata.contentType = "image/jpeg"
-        storage.putData(photoData, metadata: metadata) { [weak self] _, error in
-            guard let self else { return }
-            if let error {
-                Task { @MainActor in self.firebaseBusy = false; self.firebaseMessage = self.friendlyFirebaseError(error) }
-                return
-            }
-            storage.downloadURL { url, error in
-                guard let url, error == nil else {
-                    Task { @MainActor in self.firebaseBusy = false; self.firebaseMessage = error.map(self.friendlyFirebaseError) ?? "La photo du groupe n’a pas pu être envoyée." }
-                    return
-                }
-                save(url.absoluteString)
-            }
-        }
+        save(photoData?.base64EncodedString())
     }
 
     /// The remote snapshot can be delayed on mobile data. Reflect the
