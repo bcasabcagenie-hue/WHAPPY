@@ -648,6 +648,13 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
     }
 
+    // Runtime media endpoints are written only by WAPI's authenticated host
+    // supervisor and consumed by Cloud Functions. Mobile clients never read
+    // or alter infrastructure coordinates directly.
+    match /systemConfig/{configId} {
+      allow read, write: if false;
+    }
+
     match /calls/{callId} {
       allow create: if signedIn()
         && request.resource.data.callerId == request.auth.uid

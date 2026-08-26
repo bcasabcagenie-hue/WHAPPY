@@ -40,3 +40,31 @@ WAPI existante, sans abonnement média. Il limite volontairement la plage relais
 Cette option exige que le Mac reste allumé et que son IP publique reste stable.
 Sans redirection des ports du routeur, le relais fonctionne seulement sur le réseau
 local et ne peut pas fiabiliser les appels entre deux réseaux mobiles.
+
+### Service natif recommandé sur ce Mac
+
+Docker/Colima peut publier le port TCP tout en perdant le trafic UDP TURN. Le
+service natif évite cette couche et gère aussi les changements d’IP publique :
+
+```sh
+chmod +x wapi-turn-supervisor.sh install-macos-relay.sh
+./install-macos-relay.sh
+```
+
+Le superviseur :
+
+- récupère le secret partagé depuis Firebase Secret Manager sans l’afficher ;
+- redémarre coturn lorsque l’adresse LAN ou publique change ;
+- publie toutes les quatre minutes un heartbeat privé dans
+  `systemConfig/webrtcRelay` ;
+- fait expirer automatiquement l’adresse annoncée aux applications après douze
+  minutes sans heartbeat ;
+- laisse la fonction Firebase tester le port TURN TCP depuis Internet avant de
+  remettre le relais aux téléphones, afin d’éviter les attentes sur une adresse
+  locale active mais non joignable ;
+- limite le relais aux ports UDP `49160-49200` et bloque les destinations
+  privées afin d’éviter qu’il serve de proxy vers le réseau local.
+
+Le routeur doit rediriger vers le Mac les ports `3478/TCP`, `3478/UDP` et la
+plage `49160-49200/UDP`. Cette opération est indispensable : aucun code WebRTC
+ne peut traverser un NAT opérateur si le routeur refuse le trafic entrant.

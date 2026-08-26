@@ -5,12 +5,13 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret, defineString } from "firebase-functions/params";
+import { connect as connectTcp } from "node:net";
 import {
   AccessToken,
   RoomServiceClient,
   WebhookReceiver,
 } from "livekit-server-sdk";
-import { createTurnIcePayload } from "./webrtcTurn";
+import { createTurnIcePayload, selectTurnUrls, turnTcpEndpoint } from "./webrtcTurn";
 
 if (!getApps().length) initializeApp();
 setGlobalOptions({ region: "europe-west1", maxInstances: 20, memory: "256MiB" });
@@ -523,10 +524,64 @@ export const notifyIncomingCall = onDocumentCreated("calls/{callId}", async (eve
   });
 });
 
+let cachedTurnUrls: { value: string; expiresAt: number } | null = null;
+
+async function publiclyReachableTurnUrls(urls: string) {
+  if (!urls) return "";
+  const endpoint = turnTcpEndpoint(urls);
+  if (!endpoint) return "";
+  const reachable = await new Promise<boolean>((resolve) => {
+    const socket = connectTcp({ host: endpoint.host, port: endpoint.port });
+    let completed = false;
+    const finish = (result: boolean) => {
+      if (completed) return;
+      completed = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(1_500);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+  if (!reachable) {
+    logger.warn("Relais TURN actif localement mais inaccessible depuis Internet", {
+      host: endpoint.host,
+      port: endpoint.port,
+    });
+  }
+  return reachable ? urls : "";
+}
+
+async function activeWebRtcTurnUrls() {
+  const nowMs = Date.now();
+  if (cachedTurnUrls && cachedTurnUrls.expiresAt > nowMs) return cachedTurnUrls.value;
+  const secretFallback = webRtcTurnUrls.value();
+  try {
+    const snapshot = await db.collection("systemConfig").doc("webrtcRelay").get();
+    const value = snapshot.data();
+    const timestamp = value?.updatedAt as { toMillis?: () => number } | undefined;
+    const selected = await publiclyReachableTurnUrls(selectTurnUrls(
+      secretFallback,
+      snapshot.exists ? {
+        active: value?.active === true,
+        urls: value?.urls,
+        updatedAtMs: typeof timestamp?.toMillis === "function" ? timestamp.toMillis() : Number.NaN,
+      } : null,
+      nowMs,
+    ));
+    cachedTurnUrls = { value: selected, expiresAt: nowMs + 30_000 };
+    return selected;
+  } catch (error) {
+    logger.warn("Lecture du heartbeat TURN impossible; utilisation du secours Secret Manager", { error });
+    return publiclyReachableTurnUrls(secretFallback);
+  }
+}
+
 export const getWebRtcIceServers = onCall({ secrets: [webRtcTurnUrls, webRtcTurnSharedSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   return createTurnIcePayload(
-    webRtcTurnUrls.value(),
+    await activeWebRtcTurnUrls(),
     webRtcTurnSharedSecret.value(),
     request.auth.uid,
   );
