@@ -709,12 +709,37 @@ struct WhappyServiceRequest: Identifiable, Hashable, Codable {
 
 struct WhappyBusiness: Identifiable, Hashable, Codable {
     let id: UUID
+    /// Firestore document id. The local UUID remains stable for older installs.
+    var remoteID: String = ""
     var name: String
     var category: String
     var bio: String
     var city: String
     var phone: String = ""
     var website: String = ""
+
+    init(id: UUID, remoteID: String = "", name: String, category: String, bio: String, city: String, phone: String = "", website: String = "") {
+        self.id = id; self.remoteID = remoteID; self.name = name; self.category = category; self.bio = bio; self.city = city; self.phone = phone; self.website = website
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, remoteID, name, category, bio, city, phone, website }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        remoteID = try values.decodeIfPresent(String.self, forKey: .remoteID) ?? ""
+        name = try values.decode(String.self, forKey: .name)
+        category = try values.decode(String.self, forKey: .category)
+        bio = try values.decode(String.self, forKey: .bio)
+        city = try values.decode(String.self, forKey: .city)
+        phone = try values.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        website = try values.decodeIfPresent(String.self, forKey: .website) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id); try values.encode(remoteID, forKey: .remoteID); try values.encode(name, forKey: .name); try values.encode(category, forKey: .category); try values.encode(bio, forKey: .bio); try values.encode(city, forKey: .city); try values.encode(phone, forKey: .phone); try values.encode(website, forKey: .website)
+    }
 }
 
 enum WhappyTab: Hashable {

@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                     preview = preview,
                     phoneAuth = phoneAuth,
                     onTab = model::selectTab,
+                    onSelectAccountProfile = model::selectAccountProfile,
                     onOpenConversation = model::openConversation,
                     onCloseConversation = model::closeConversation,
                     onSendMessage = model::sendMessage,

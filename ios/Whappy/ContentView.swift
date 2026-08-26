@@ -589,10 +589,10 @@ struct MessagesView: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(section == 0 ? "Messages" : "Chaînes")
+                    Text(section == 0 ? (store.activeBusinessMode ? "Messages Business" : "Messages") : "Chaînes")
                         .font(.system(size: 30, weight: .black, design: .rounded))
                         .foregroundStyle(Color.whappyInk)
-                    Text(section == 0 ? "Vos échanges, sans distraction" : "Les publications que vous choisissez")
+                    Text(section == 0 ? (store.activeBusinessMode ? "Votre relation client, au nom de votre entreprise" : "Vos échanges, sans distraction") : "Les publications que vous choisissez")
                         .font(.caption)
                         .foregroundStyle(WapiColor.secondaryText)
                 }
@@ -2155,7 +2155,7 @@ struct CallsView: View {
                 }
             }
         }
-        .navigationTitle("Appels")
+        .navigationTitle(store.activeBusinessMode ? "Appels Business" : "Appels")
         .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
         .alert("Appel WAPI indisponible", isPresented: Binding(get: { unavailableMessage != nil }, set: { if !$0 { unavailableMessage = nil } })) { Button("Fermer", role: .cancel) {} } message: { Text(unavailableMessage ?? "") }
     }
@@ -3098,6 +3098,7 @@ struct ProfileView: View {
     @State private var zoomedPhoto: ZoomPhoto?
     @State private var profilePhotoItem: PhotosPickerItem?
     @State private var profilePhoto: UIImage?
+    @State private var showAccountSwitcher = false
 
     private var signedInPhone: String { Auth.auth().currentUser?.phoneNumber ?? "" }
     private var founder: Bool { isWhappyFounderPhone(signedInPhone) }
@@ -3106,6 +3107,7 @@ struct ProfileView: View {
         let value = Auth.auth().currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? "Compte WAPI" : value
     }
+    private var activeDisplayName: String { store.activeBusinessMode ? (store.business?.name ?? displayName) : displayName }
     private var profileInitials: String {
         displayName.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
     }
@@ -3143,31 +3145,36 @@ struct ProfileView: View {
         List {
             Section {
                 HStack(spacing: 16) {
-                    profileHeaderAvatar
+                    Button { showAccountSwitcher = true } label: { profileHeaderAvatar }.buttonStyle(.plain)
                     VStack(alignment: .leading) {
                         HStack(spacing: 5) {
-                            Text(displayName).font(.title3.bold())
+                            Text(activeDisplayName).font(.title3.bold())
                             if store.firebaseProfileVerified || founder {
                                 Image(systemName: "checkmark.seal.fill")
                                     .foregroundStyle(Color.wapiVerified)
                                     .accessibilityLabel("Compte certifié")
                             }
                         }
-                        Text(founder ? whappyFounderBusinessName + " · " + whappyFounderBadgeLabel : (store.firebaseProfileVerified ? "Compte WAPI vérifié" : "Compte personnel WAPI"))
+                        Text(founder ? whappyFounderBusinessName + " · " + whappyFounderBadgeLabel : (store.activeBusinessMode ? "Compte Business · espace professionnel" : (store.firebaseProfileVerified ? "Compte WAPI vérifié" : "Compte personnel WAPI")))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                 }.padding(.vertical, 8)
             }
+            Section("Identité active") {
+                Button { showAccountSwitcher = true } label: {
+                    Label(store.activeBusinessMode ? "Gérer le compte Business" : "Choisir un compte Business", systemImage: store.activeBusinessMode ? "briefcase.fill" : "person.2.badge.plus")
+                }
+                Text("Le compte personnel et le compte Business partagent le numéro, mais gardent des profils, messages, appels et outils séparés.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if founder {
+                    NavigationLink { FounderDashboardIOSView() } label: { Label("Tableau Fondateur", systemImage: "chart.xyaxis.line") }
+                }
+            }
             Section("Votre activité") { NavigationLink { MyWhappyLinkView() } label: { Label("Mon code et mon lien WAPI", systemImage: "qrcode") }; NavigationLink { BusinessEditorView() } label: { Label("Ma boutique", systemImage: "storefront.fill") }; NavigationLink { OrdersView() } label: { Label("Mes commandes", systemImage: "shippingbox.fill") }; Button { store.selectedTab = .services } label: { Label("Mon portefeuille", systemImage: "wallet.pass.fill") } }
             Section("Réglages") {
-                Toggle(isOn: $store.notificationsEnabled) { Label("Notifications", systemImage: "bell.badge.fill") }
-                NavigationLink { WapiLanguageSettingsView() } label: {
-                    Label("Langue de l’application", systemImage: "character.bubble")
-                }
-                NavigationLink { PrivacySettingsView() } label: { Label("Confidentialité et sécurité", systemImage: "lock.shield.fill") }
-                NavigationLink { DataSettingsView() } label: { Label("Stockage et données", systemImage: "internaldrive.fill") }
-                NavigationLink { InfoView(title: "Aide", message: "Utilisez Messages pour discuter, Marché pour acheter ou vendre, Live pour diffuser, et Services pour payer en mode démonstration ou demander une prestation.", icon: "questionmark.circle.fill") } label: { Label("Aide", systemImage: "questionmark.circle.fill") }
+                NavigationLink { WapiSettingsHubView() } label: { Label("Centre des réglages WAPI", systemImage: "slider.horizontal.3") }
+                Text("Notifications, langue, confidentialité, stockage et aide dans un espace unique.").font(.footnote).foregroundStyle(.secondary)
             }
             Section { Text("WAPI iOS · application native").foregroundStyle(.secondary) }
         }.navigationTitle("Profil")
@@ -3192,6 +3199,7 @@ struct ProfileView: View {
             .fullScreenCover(item: $zoomedPhoto) { photo in
                 ZoomablePhotoViewer(image: photo.image) { zoomedPhoto = nil }
             }
+            .sheet(isPresented: $showAccountSwitcher) { AccountSwitcherIOSView() }
     }
 }
 
@@ -3214,6 +3222,137 @@ private extension ProfileView {
                 zoomedPhoto = ZoomPhoto(image: photo)
             }
         }
+    }
+}
+
+private struct AccountSwitcherIOSView: View {
+    @EnvironmentObject private var store: WhappyStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Comptes WAPI") {
+                    Button {
+                        store.switchAccount(business: false)
+                        dismiss()
+                    } label: {
+                        AccountSwitcherIOSRow(
+                            title: Auth.auth().currentUser?.displayName?.isEmpty == false ? Auth.auth().currentUser?.displayName ?? "Compte personnel" : "Compte personnel",
+                            subtitle: Auth.auth().currentUser?.phoneNumber ?? "Identité personnelle",
+                            icon: "person.crop.circle.fill",
+                            active: !store.activeBusinessMode,
+                        )
+                    }.buttonStyle(.plain)
+                    if let business = store.business {
+                        Button {
+                            store.switchAccount(business: true)
+                            dismiss()
+                        } label: {
+                            AccountSwitcherIOSRow(title: business.name, subtitle: "Business · (business.category)", icon: "briefcase.fill", active: store.activeBusinessMode)
+                        }.buttonStyle(.plain)
+                    }
+                }
+                Section {
+                    NavigationLink { BusinessEditorView() } label: { Label(store.business == nil ? "Créer mon compte Business" : "Modifier mon compte Business", systemImage: "plus.circle.fill") }
+                } footer: {
+                    Text("Chaque contexte possède sa propre identité publique. Les actions commerciales sont publiées au nom de la page Business, jamais au nom du profil personnel.")
+                }
+            }
+            .navigationTitle("Changer de compte")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+        }
+    }
+}
+
+private struct AccountSwitcherIOSRow: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let active: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.title2).foregroundStyle(Color.whappyBlue).frame(width: 42, height: 42).background(Color.whappyBlue.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
+            VStack(alignment: .leading, spacing: 3) { Text(title).font(.headline); Text(subtitle).font(.caption).foregroundStyle(.secondary) }
+            Spacer()
+            if active { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.whappyBlue) }
+        }.padding(.vertical, 5)
+    }
+}
+
+private struct FounderDashboardIOSView: View {
+    @State private var loading = true
+    @State private var error: String?
+    @State private var values: [String: String] = [:]
+
+    var body: some View {
+        List {
+            Section {
+                if loading { ProgressView("Chargement des agrégats Firebase…") }
+                else if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                else {
+                    FounderIOSMetric(title: "Utilisateurs WAPI", value: values["users"] ?? "0", detail: "Comptes enregistrés dans Firebase")
+                    FounderIOSMetric(title: "CA encaissé", value: values["paidRevenue"] ?? "0 XAF", detail: "Notifications de paiement marquées payées")
+                    FounderIOSMetric(title: "Installations actives", value: values["activeInstallations"] ?? "0", detail: "Appareils WAPI avec jeton actif")
+                    FounderIOSMetric(title: "Pages Business", value: values["businessPages"] ?? "0", detail: "Pages réellement créées")
+                    FounderIOSMetric(title: "Stories publiées", value: values["stories"] ?? "0", detail: "Stories présentes dans le cloud")
+                    FounderIOSMetric(title: "Lives actifs", value: values["activeLives"] ?? "0", detail: "Sessions actuellement en direct")
+                }
+            } header: { Text("Données opérationnelles") }
+            Section("Stores") {
+                Label(values["playStore"] == "true" ? "Google Play connecté" : "Google Play non connecté", systemImage: "play.rectangle.fill")
+                Label(values["appStore"] == "true" ? "App Store connecté" : "App Store non connecté", systemImage: "apple.logo")
+                Text("Les téléchargements de store restent à zéro tant que les consoles officielles ne sont pas reliées. Aucun chiffre local n’est présenté comme réel.").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Tableau Fondateur")
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        loading = true; error = nil
+        do {
+            let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
+                Functions.functions(region: "europe-west1").httpsCallable("getFounderDashboard").call { result, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: result?.data as? [String: Any] ?? [:]) }
+                }
+            }
+            let stores = result["storeIntegrations"] as? [String: Any] ?? [:]
+            values = [
+                "users": Self.count(result["users"]),
+                "paidRevenue": "\(Self.count(result["paidRevenue"])) XAF",
+                "activeInstallations": Self.count(result["activeInstallations"]),
+                "businessPages": Self.count(result["businessPages"]),
+                "stories": Self.count(result["stories"]),
+                "activeLives": Self.count(result["activeLives"]),
+                "playStore": String(describing: stores["playStore"] as? Bool ?? false),
+                "appStore": String(describing: stores["appStore"] as? Bool ?? false),
+            ]
+        } catch let failure { error = wapiUserFacingError(failure, action: "Le chargement du tableau fondateur") }
+        loading = false
+    }
+
+    private static func count(_ value: Any?) -> String {
+        if let value = value as? NSNumber { return value.intValue.formatted() }
+        if let value = value as? Int { return value.formatted() }
+        if let value = value as? Int64 { return value.formatted() }
+        return "0"
+    }
+}
+
+private struct FounderIOSMetric: View {
+    let title: String
+    let value: String
+    let detail: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.headline)
+            Text(value).font(.system(size: 27, weight: .black, design: .rounded)).foregroundStyle(Color.whappyBlue)
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 4)
     }
 }
 
@@ -3298,6 +3437,55 @@ private struct InfoView: View {
 private struct PrivacySettingsView: View {
     @EnvironmentObject private var store: WhappyStore
     var body: some View { Form { Section("Qui peut vous contacter ?") { Picker("Contacts autorisés", selection: $store.privacyMode) { Text("Mes contacts").tag("contacts"); Text("Tous les utilisateurs").tag("everyone"); Text("Personne").tag("nobody") }.pickerStyle(.inline) }; Section("Sécurité") { Label("Les médias restent dans le stockage privé de l’application.", systemImage: "lock.fill"); Label("Téléphone et FaceTime demandent une confirmation avant l’appel.", systemImage: "phone.badge.checkmark") } }.navigationTitle("Confidentialité") }
+}
+
+private struct WapiSettingsHubView: View {
+    @EnvironmentObject private var store: WhappyStore
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CENTRE WAPI").font(.caption.weight(.black)).tracking(1).foregroundStyle(Color.whappyBlue)
+                    Text("Réglages clairs, contrôle réel.").font(.title2.weight(.black)).foregroundStyle(Color.whappyInk)
+                    Text("Chaque réglage agit sur l’application native et reste lié à votre compte ou à cet appareil selon sa nature.").font(.footnote).foregroundStyle(.secondary)
+                }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [Color.whappyInk, Color.whappyInk.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
+                    .foregroundStyle(.white)
+                WapiSettingsCard(title: "Notifications", subtitle: "Messages et appels même lorsque WAPI est fermé", icon: "bell.badge.fill") {
+                    Toggle("Autoriser les notifications", isOn: $store.notificationsEnabled).tint(Color.whappyBlue)
+                }
+                WapiSettingsCard(title: "Langue et région", subtitle: "Détection automatique ou choix manuel", icon: "globe") {
+                    NavigationLink { WapiLanguageSettingsView() } label: { Label(store.interfaceLanguage.label, systemImage: "character.bubble") }
+                }
+                WapiSettingsCard(title: "Confidentialité", subtitle: "Contrôler les contacts et les protections", icon: "lock.shield.fill") {
+                    NavigationLink { PrivacySettingsView() } label: { Label("Ouvrir la confidentialité", systemImage: "arrow.up.right") }
+                }
+                WapiSettingsCard(title: "Stockage et données", subtitle: "Médias, cache et économie réseau", icon: "internaldrive.fill") {
+                    NavigationLink { DataSettingsView() } label: { Label("Gérer le stockage", systemImage: "arrow.up.right") }
+                }
+                WapiSettingsCard(title: "Assistance", subtitle: "Aide et diagnostic WAPI", icon: "questionmark.circle.fill") {
+                    NavigationLink { InfoView(title: "Aide", message: "Utilisez Messages pour discuter, Marché pour acheter ou vendre, Live pour diffuser, et Services pour demander une prestation.", icon: "questionmark.circle.fill") } label: { Label("Ouvrir l’aide", systemImage: "arrow.up.right") }
+                }
+            }.padding()
+        }.background(Color.whappyBackground).navigationTitle("Réglages WAPI").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct WapiSettingsCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 11) {
+                Image(systemName: icon).foregroundStyle(Color.whappyBlue).frame(width: 38, height: 38).background(Color.whappyBlue.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 2) { Text(title).font(.headline); Text(subtitle).font(.caption).foregroundStyle(.secondary) }
+            }
+            content.padding(.top, 2)
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(.white, in: RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.black.opacity(0.05)))
+    }
 }
 
 private struct WapiLanguageSettingsView: View {

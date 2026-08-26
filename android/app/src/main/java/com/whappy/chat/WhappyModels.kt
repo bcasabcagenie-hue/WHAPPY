@@ -315,6 +315,9 @@ data class WhappyUiState(
     val accountDisplayName: String = "",
     val accountPhotoUrl: String = "",
     val accountVerified: Boolean = false,
+    /** Identity currently used by the visible inbox and outgoing messages. */
+    val activeProfileType: String = "personal",
+    val activeBusinessPageId: String = "",
     val sessionRestoring: Boolean = true,
     val tab: WhappyTab = WhappyTab.MESSAGES,
     val conversations: List<WhappyConversation> = emptyList(),

@@ -99,6 +99,23 @@ class WhappyRepository(
         }.await()
     }
 
+    suspend fun restoreActiveAccountProfile(user: FirebaseUser): String = runCatching {
+        db.collection("users").document(user.uid).get().await()
+            .getString("activeBusinessPageId").orEmpty().trim()
+    }.getOrDefault("")
+
+    suspend fun saveActiveAccountProfile(userId: String, businessPageId: String) {
+        require(auth.currentUser?.uid == userId)
+        db.collection("users").document(userId).set(
+            mapOf(
+                "activeProfileType" to if (businessPageId.isBlank()) "personal" else "business",
+                "activeBusinessPageId" to businessPageId.trim(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            SetOptions.merge(),
+        ).await()
+    }
+
     suspend fun restoreAccountDisplayName(user: FirebaseUser): String {
         val reference = db.collection("users").document(user.uid)
         val storedName = runCatching { reference.get().await().getString("displayName").orEmpty().trim() }

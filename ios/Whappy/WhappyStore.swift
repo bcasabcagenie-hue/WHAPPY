@@ -23,6 +23,8 @@ final class WhappyStore: ObservableObject {
     @Published var moments: [WhappyMoment] { didSet { save() } }
     @Published var stories: [WapiStory] { didSet { save() } }
     @Published var business: WhappyBusiness? { didSet { save() } }
+    @Published var activeBusinessMode: Bool { didSet { save() } }
+    @Published var activeBusinessRemoteID: String { didSet { save() } }
     @Published var notificationsEnabled: Bool { didSet { save() } }
     @Published var privacyMode: String { didSet { save() } }
     @Published var dataSaverEnabled: Bool { didSet { save() } }
@@ -72,6 +74,8 @@ final class WhappyStore: ObservableObject {
         moments = []
         stories = []
         business = nil
+        activeBusinessMode = false
+        activeBusinessRemoteID = ""
         notificationsEnabled = true
         privacyMode = "contacts"
         dataSaverEnabled = false
@@ -435,7 +439,58 @@ final class WhappyStore: ObservableObject {
     }
 
     func saveBusiness(name: String, category: String, bio: String, city: String, phone: String, website: String) {
-        business = WhappyBusiness(id: business?.id ?? UUID(), name: name, category: category, bio: bio, city: city, phone: phone, website: website)
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanName.count >= 2 else { return }
+        let existingRemoteID = business?.remoteID ?? ""
+        let remoteID = existingRemoteID.isEmpty ? UUID().uuidString.lowercased() : existingRemoteID
+        let next = WhappyBusiness(id: business?.id ?? UUID(), remoteID: remoteID, name: cleanName, category: category.trimmingCharacters(in: .whitespacesAndNewlines), bio: bio.trimmingCharacters(in: .whitespacesAndNewlines), city: city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Brazzaville" : city.trimmingCharacters(in: .whitespacesAndNewlines), phone: phone.trimmingCharacters(in: .whitespacesAndNewlines), website: website.trimmingCharacters(in: .whitespacesAndNewlines))
+        business = next
+        switchAccount(business: true)
+        guard let uid = firebaseUserID else { return }
+        let handle = cleanName.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: "-")) + "-" + String(remoteID.prefix(5))
+        firebaseBusy = true
+        var payload: [String: Any] = [
+            "ownerId": uid,
+            "name": next.name,
+            "searchName": next.name.lowercased(),
+            "type": "business",
+            "category": next.category,
+            "bio": String(next.bio.prefix(400)),
+            "city": next.city,
+            "phone": String(next.phone.prefix(30)),
+            "website": String(next.website.prefix(180)),
+            "onboardingComplete": true,
+            "status": "active",
+            "updatedAt": FieldValue.serverTimestamp(),
+        ]
+        // Firestore intentionally keeps the public handle immutable after creation.
+        // This lets a business rename itself without breaking existing links.
+        if existingRemoteID.isEmpty {
+            payload["handle"] = handle
+            payload["followers"] = 0
+            payload["verified"] = false
+            payload["verificationStatus"] = "unverified"
+        }
+        Firestore.firestore().collection("businessPages").document(remoteID).setData(payload, merge: true) { [weak self] error in
+            Task { @MainActor in
+                guard let self else { return }
+                self.firebaseBusy = false
+                self.firebaseMessage = error.map { wapiUserFacingError($0, action: "La synchronisation du compte Business") } ?? "Compte Business synchronisé dans WAPI."
+            }
+        }
+    }
+
+    func switchAccount(business: Bool) {
+        guard !business || self.business != nil else { return }
+        activeBusinessMode = business
+        activeBusinessRemoteID = business ? (self.business?.remoteID ?? "") : ""
+        if let uid = firebaseUserID {
+            Firestore.firestore().collection("users").document(uid).setData([
+                "activeProfileType": business ? "business" : "personal",
+                "activeBusinessPageId": business ? activeBusinessRemoteID : "",
+                "updatedAt": FieldValue.serverTimestamp(),
+            ], merge: true)
+        }
     }
 
     private func restore() {
@@ -451,6 +506,8 @@ final class WhappyStore: ObservableObject {
         moments = decode("moments") ?? moments
         stories = decode("stories") ?? stories
         business = decode("business") ?? business
+        activeBusinessMode = defaults.object(forKey: "activeBusinessMode") as? Bool ?? activeBusinessMode
+        activeBusinessRemoteID = defaults.string(forKey: "activeBusinessRemoteID") ?? activeBusinessRemoteID
         walletBalance = defaults.object(forKey: "walletBalance") as? Int ?? walletBalance
         notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? notificationsEnabled
         privacyMode = defaults.string(forKey: "privacyMode") ?? privacyMode
@@ -477,6 +534,8 @@ final class WhappyStore: ObservableObject {
         encode(moments, "moments")
         encode(stories, "stories")
         encode(business, "business")
+        defaults.set(activeBusinessMode, forKey: "activeBusinessMode")
+        defaults.set(activeBusinessRemoteID, forKey: "activeBusinessRemoteID")
         defaults.set(walletBalance, forKey: "walletBalance")
         defaults.set(notificationsEnabled, forKey: "notificationsEnabled")
         defaults.set(privacyMode, forKey: "privacyMode")

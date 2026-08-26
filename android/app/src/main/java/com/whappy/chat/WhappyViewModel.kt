@@ -59,6 +59,29 @@ class WhappyViewModel(
         channelPostsListener = null
     }
 
+    fun selectAccountProfile(businessPageId: String) {
+        val state = _uiState.value
+        val user = state.user ?: return
+        val page = state.businessPages.firstOrNull { it.id == businessPageId }
+        if (businessPageId.isNotBlank() && page == null) return
+        stopTyping()
+        messagesListener?.remove()
+        messagesListener = null
+        _uiState.update {
+            it.copy(
+                activeProfileType = if (page == null) "personal" else "business",
+                activeBusinessPageId = page?.id.orEmpty(),
+                selectedConversation = null,
+                messages = emptyList(),
+                tab = WhappyTab.MESSAGES,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { repository.saveActiveAccountProfile(user.uid, page?.id.orEmpty()) }
+                .onFailure { _uiState.update { it.copy(error = "Le contexte du compte n’a pas pu être enregistré") } }
+        }
+    }
+
     fun openConversation(conversation: WhappyConversation) {
         val user = _uiState.value.user ?: return
         stopTyping()
@@ -369,7 +392,7 @@ class WhappyViewModel(
         if (text.isBlank()) return
         _uiState.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
-            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText, conversation.source, accountName(), state.accountPhotoUrl) }
+            runCatching { repository.sendMessage(conversation.id, user.uid, text, replyToId, replyText, conversation.source, accountName(), activeAccountPhotoUrl()) }
                 .onSuccess { delivery ->
                     _uiState.update { current ->
                         current.copy(sending = false, online = delivery == WhappyDeliveryResult.SENT)
@@ -1170,24 +1193,42 @@ class WhappyViewModel(
             )
             val verified = runCatching { repository.syncAccountRecord(user, restoredName) }
                 .getOrDefault(false) || WhappyIdentity.isFounder(user.phoneNumber.orEmpty())
+            val activeBusinessPageId = repository.restoreActiveAccountProfile(user)
             _uiState.update { current ->
                 if (current.user?.uid != user.uid) current
-                else current.copy(accountDisplayName = restoredName, accountPhotoUrl = resolvedPhotoUrl, accountVerified = verified, sessionRestoring = false)
+                else current.copy(
+                    accountDisplayName = restoredName,
+                    accountPhotoUrl = resolvedPhotoUrl,
+                    accountVerified = verified,
+                    activeProfileType = if (activeBusinessPageId.isBlank()) "personal" else "business",
+                    activeBusinessPageId = activeBusinessPageId,
+                    sessionRestoring = false,
+                )
             }
         }
     }
 
     private fun accountName(): String {
+        val state = _uiState.value
+        val activePage = state.businessPages.firstOrNull { it.id == state.activeBusinessPageId }
+        if (state.activeProfileType == "business" && activePage != null) return activePage.name
         val phone = _uiState.value.user?.phoneNumber.orEmpty()
         return if (WhappyIdentity.isFounder(phone)) WhappyIdentity.founderName
         else _uiState.value.accountDisplayName.ifBlank { WhappyIdentity.fallbackAccountName }
+    }
+
+    private fun activeAccountPhotoUrl(): String {
+        val state = _uiState.value
+        return if (state.activeProfileType == "business") {
+            state.businessPages.firstOrNull { it.id == state.activeBusinessPageId }?.logoUrl.orEmpty()
+        } else state.accountPhotoUrl
     }
 
     private fun currentMember(user: com.google.firebase.auth.FirebaseUser): WhappyMember = WhappyMember(
         uid = user.uid,
         displayName = accountName(),
         phoneNumber = user.phoneNumber.orEmpty(),
-        photoUrl = _uiState.value.accountPhotoUrl.ifBlank { user.photoUrl?.toString().orEmpty() },
+        photoUrl = activeAccountPhotoUrl().ifBlank { user.photoUrl?.toString().orEmpty() },
         verified = _uiState.value.accountVerified,
     )
 

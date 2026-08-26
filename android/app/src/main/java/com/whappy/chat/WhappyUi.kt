@@ -439,6 +439,7 @@ fun WhappyRoot(
     preview: Boolean,
     phoneAuth: PhoneAuthController,
     onTab: (WhappyTab) -> Unit,
+    onSelectAccountProfile: (String) -> Unit,
     onOpenConversation: (WhappyConversation) -> Unit,
     onCloseConversation: () -> Unit,
     onSendMessage: (String, String, String) -> Unit,
@@ -520,6 +521,7 @@ fun WhappyRoot(
         state = if (preview) state.copy(user = null, loading = false, online = true) else state,
         preview = preview,
         onTab = onTab,
+        onSelectAccountProfile = onSelectAccountProfile,
         onOpenConversation = onOpenConversation,
         onCloseConversation = onCloseConversation,
         onSendMessage = onSendMessage,
@@ -1010,6 +1012,7 @@ private fun WhappyMain(
     state: WhappyUiState,
     preview: Boolean,
     onTab: (WhappyTab) -> Unit,
+    onSelectAccountProfile: (String) -> Unit,
     onOpenConversation: (WhappyConversation) -> Unit,
     onCloseConversation: () -> Unit,
     onSendMessage: (String, String, String) -> Unit,
@@ -1080,6 +1083,7 @@ private fun WhappyMain(
     var showTwinStudio by remember { mutableStateOf(false) }
     var showActivityCenter by remember { mutableStateOf(false) }
     var showAppHub by remember { mutableStateOf(false) }
+    var showAccountSwitcher by remember { mutableStateOf(false) }
     var gameSessionActive by remember { mutableStateOf(false) }
     var locallyReadNotices by remember { mutableStateOf(emptySet<String>()) }
     val noticeHost = remember { SnackbarHostState() }
@@ -1098,10 +1102,19 @@ private fun WhappyMain(
     val accountPhone = state.user?.phoneNumber.orEmpty()
     val accountUserId = state.user?.uid.orEmpty()
     val isFounderAccount = WhappyIdentity.isFounder(accountPhone)
-    val accountDisplayName = if (preview && state.user == null) {
+    val personalDisplayName = if (preview && state.user == null) {
         WhappyIdentity.founderName
     } else {
         WhappyIdentity.resolveAccountName(state.accountDisplayName, accountPhone)
+    }
+    val activeBusinessPage = state.businessPages.firstOrNull { it.id == state.activeBusinessPageId }
+    val isBusinessAccount = state.activeProfileType == "business" && activeBusinessPage != null
+    val accountDisplayName = activeBusinessPage?.name?.takeIf { isBusinessAccount } ?: personalDisplayName
+    val activePhotoUrl = activeBusinessPage?.logoUrl?.takeIf { isBusinessAccount }.orEmpty().ifBlank { state.accountPhotoUrl }
+    val visibleConversations = if (isBusinessAccount) {
+        state.conversations.filter { it.profileType == "business" && it.businessPageId == activeBusinessPage?.id }
+    } else {
+        state.conversations.filter { it.profileType != "business" }
     }
     val mainContext = LocalContext.current
     var founderMetrics by remember(isFounderAccount, preview) { mutableStateOf<WapiAdminMetrics?>(null) }
@@ -1149,9 +1162,10 @@ private fun WhappyMain(
     DisposableEffect(radioController) {
         onDispose { radioController.release() }
     }
-    BackHandler(enabled = selected != null || selectedChannel != null || showTwinStudio || showActivityCenter || showAppHub) {
+    BackHandler(enabled = selected != null || selectedChannel != null || showTwinStudio || showActivityCenter || showAppHub || showAccountSwitcher) {
         if (showActivityCenter) showActivityCenter = false
         else if (showAppHub) showAppHub = false
+        else if (showAccountSwitcher) showAccountSwitcher = false
         else if (showTwinStudio) showTwinStudio = false
         else if (preview && selectedChannel != null) previewChannel = null
         else if (preview) previewConversation = null
@@ -1179,6 +1193,17 @@ private fun WhappyMain(
         onOpen = { tab -> showAppHub = false; onTab(tab) },
         onOpenTwin = { showAppHub = false; showTwinStudio = true },
         onDismiss = { showAppHub = false },
+    )
+    if (showAccountSwitcher) AccountSwitcherDialog(
+        personalName = personalDisplayName,
+        personalPhotoUrl = state.accountPhotoUrl,
+        phone = accountPhone,
+        businessPages = state.businessPages,
+        activeBusinessPageId = state.activeBusinessPageId,
+        onSelect = { pageId -> showAccountSwitcher = false; onSelectAccountProfile(pageId) },
+        onOpenBusiness = { showAccountSwitcher = false; onTab(WhappyTab.BUSINESS) },
+        onOpenProfile = { showAccountSwitcher = false; onTab(WhappyTab.PROFILE) },
+        onDismiss = { showAccountSwitcher = false },
     )
     CompositionLocalProvider(
         LocalWhappyLanguage provides appLanguage,
@@ -1295,11 +1320,11 @@ private fun WhappyMain(
                         subtitle = if (preview) "Mode aperçu" else if (state.online) "Vos échanges, simplement" else "Connexion limitée",
                         avatar = true,
                         name = accountDisplayName,
-                        photoUrl = state.accountPhotoUrl,
+                        photoUrl = activePhotoUrl,
                         unread = unreadActivity,
                         founder = isFounderAccount,
                         onActivity = { showActivityCenter = true },
-                        onProfile = { onTab(WhappyTab.PROFILE) },
+                        onProfile = { showAccountSwitcher = true },
                     )
                 }
                 // Compose exactly one destination so avatars and messages never
@@ -1317,7 +1342,7 @@ private fun WhappyMain(
                     statuses = state.statuses,
                     currentUserId = state.user?.uid ?: "demo-user",
                     currentUserName = accountDisplayName,
-                    currentUserPhotoUrl = state.accountPhotoUrl,
+                    currentUserPhotoUrl = activePhotoUrl,
                     busy = state.actionBusy,
                     preview = preview,
                     onPublish = onPublishStatus,
@@ -1331,7 +1356,7 @@ private fun WhappyMain(
                     onConsumeRequestedStory = { requestedStoryAuthorId = null },
                 )
                 WhappyTab.CONTACTS, WhappyTab.CHANNELS -> MessagesScreen(
-                    conversations = if (preview) demoConversations else state.conversations,
+                    conversations = if (preview) demoConversations else visibleConversations,
                     loading = state.loading,
                     preview = preview,
                     contactBusy = state.contactBusy,
@@ -1362,7 +1387,7 @@ private fun WhappyMain(
                     onHandleWhappyLink = onHandleWhappyLink,
                 )
                 WhappyTab.MESSAGES -> MessagesScreen(
-                    conversations = if (preview) demoConversations else state.conversations,
+                    conversations = if (preview) demoConversations else visibleConversations,
                     loading = state.loading,
                     preview = preview,
                     contactBusy = state.contactBusy,
@@ -1402,7 +1427,7 @@ private fun WhappyMain(
                             onOpenBusiness = { onTab(WhappyTab.BUSINESS) },
                         )
                         WhappyTab.CALLS -> CallsScreen(
-                            conversations = if (preview) demoConversations else state.conversations,
+                            conversations = if (preview) demoConversations else visibleConversations,
                             onOpenConversation = { if (preview) previewConversation = it else onOpenConversation(it) },
                         )
                         WhappyTab.MARKET -> MarketScreen(
@@ -1411,7 +1436,7 @@ private fun WhappyMain(
                             preview = preview,
                             busy = state.actionBusy,
                             accountDisplayName = accountDisplayName,
-                            accountPhotoUrl = state.accountPhotoUrl,
+                            accountPhotoUrl = activePhotoUrl,
                             onPublish = onPublishListing,
                             onContactBusiness = onContactBusiness,
                         )
@@ -1421,7 +1446,7 @@ private fun WhappyMain(
                             preview = preview,
                             busy = state.actionBusy,
                             accountDisplayName = accountDisplayName,
-                            accountPhotoUrl = state.accountPhotoUrl,
+                            accountPhotoUrl = activePhotoUrl,
                             onCreateLive = onCreateLive,
                             onEndLive = onEndLive,
                             onUpdateLiveStatus = onUpdateLiveStatus,
@@ -1475,7 +1500,9 @@ private fun WhappyMain(
                             phone = state.user?.phoneNumber.orEmpty(),
                             accountId = state.user?.uid.orEmpty(),
                             online = state.online,
-                            photoUrl = state.accountPhotoUrl,
+                            photoUrl = activePhotoUrl,
+                            businessPages = if (preview) demoBusinessPages else state.businessPages,
+                            activeBusinessPageId = state.activeBusinessPageId,
                             twinReadiness = state.twinProfile?.readiness ?: 0,
                             adminMetrics = adminMetrics,
                             preview = preview,
@@ -1488,6 +1515,7 @@ private fun WhappyMain(
                             language = languagePreference,
                             detectedLanguage = appLanguage,
                             onLanguageChange = { next -> languagePreference = next; languagePrefs.edit().putString("code", next.code).apply() },
+                            onSwitchAccount = onSelectAccountProfile,
                         )
                     }
                 }
@@ -9364,6 +9392,125 @@ private fun FounderConnector(label: String, connected: Boolean, modifier: Modifi
 }
 
 @Composable
+private fun AccountContextCard(
+    personalName: String,
+    personalPhotoUrl: String,
+    businessPages: List<WhappyBusinessPage>,
+    activeBusinessPageId: String,
+    onSelect: (String) -> Unit,
+) {
+    val activePage = businessPages.firstOrNull { it.id == activeBusinessPageId }
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF4F9FD)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, WhappyBlue.copy(alpha = .16f)),
+    ) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Person, null, tint = WhappyBlue)
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text("Identité active", color = WhappyDark, fontWeight = FontWeight.Black)
+                    Text("Personnel et Business restent séparés, avec le même numéro WAPI.", color = WhappyMuted, fontSize = 10.sp)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                UserAvatar(activePage?.logoUrl ?: personalPhotoUrl, activePage?.name ?: personalName, 42.dp, shape = RoundedCornerShape(12.dp))
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(activePage?.name ?: personalName, color = WhappyDark, fontWeight = FontWeight.Black)
+                    Text(if (activePage == null) "Compte personnel · Messages et appels personnels" else "Compte Business · Messages, appels, catalogue et publicités", color = WhappyMuted, fontSize = 10.sp)
+                }
+                if (activePage != null) TextButton(onClick = { onSelect("") }) { Text("Personnel") }
+            }
+            if (businessPages.isEmpty()) {
+                Text("Créez votre page Business pour activer une seconde identité et son espace de vente.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 15.sp)
+            } else {
+                Text("Vos comptes Business", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                businessPages.forEach { page ->
+                    OutlinedButton(
+                        onClick = { onSelect(page.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(13.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = WhappyDark),
+                    ) {
+                        UserAvatar(page.logoUrl, page.name, 28.dp, shape = RoundedCornerShape(8.dp))
+                        Text(page.name, Modifier.weight(1f).padding(start = 9.dp), textAlign = TextAlign.Start)
+                        if (page.id == activeBusinessPageId) Icon(Icons.Rounded.Check, "Compte actif", tint = WhappyBlue)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountSwitcherDialog(
+    personalName: String,
+    personalPhotoUrl: String,
+    phone: String,
+    businessPages: List<WhappyBusinessPage>,
+    activeBusinessPageId: String,
+    onSelect: (String) -> Unit,
+    onOpenBusiness: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(Modifier.fillMaxWidth(.94f), color = Color.White, shape = RoundedCornerShape(28.dp), shadowElevation = 20.dp) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Changer de compte", color = WhappyDark, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Text("Le profil choisi pilote l’identité des messages, appels et actions Business.", color = WhappyMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Fermer") }
+                }
+                AccountSwitcherRow(
+                    photoUrl = personalPhotoUrl,
+                    name = personalName,
+                    subtitle = phone.ifBlank { "Compte personnel WAPI" },
+                    selected = activeBusinessPageId.isBlank(),
+                    onClick = { onSelect("") },
+                )
+                if (businessPages.isNotEmpty()) {
+                    Text("COMPTES BUSINESS", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
+                    businessPages.forEach { page ->
+                        AccountSwitcherRow(
+                            photoUrl = page.logoUrl,
+                            name = page.name,
+                            subtitle = "Business · ${page.category} · ${page.city}",
+                            selected = page.id == activeBusinessPageId,
+                            onClick = { onSelect(page.id) },
+                        )
+                    }
+                }
+                OutlinedButton(onClick = onOpenBusiness, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Rounded.BusinessCenter, null)
+                    Text(if (businessPages.isEmpty()) "Créer mon compte Business" else "Gérer mes comptes Business", Modifier.padding(start = 7.dp))
+                }
+                TextButton(onClick = onOpenProfile, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Ouvrir les paramètres du profil") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountSwitcherRow(photoUrl: String, name: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = if (selected) WapiSoftBlue else Color.White,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) WhappyBlue else WhappyLine),
+    ) {
+        Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+            UserAvatar(photoUrl, name, 46.dp, shape = RoundedCornerShape(13.dp))
+            Column(Modifier.weight(1f).padding(start = 11.dp)) { Text(name, color = WhappyDark, fontWeight = FontWeight.Black); Text(subtitle, color = WhappyMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            if (selected) Icon(Icons.Rounded.CheckCircle, "Compte actif", tint = WhappyBlue)
+        }
+    }
+}
+
+@Composable
 private fun ProfileScreen(
     name: String,
     founder: Boolean,
@@ -9372,6 +9519,8 @@ private fun ProfileScreen(
     accountId: String,
     online: Boolean,
     photoUrl: String,
+    businessPages: List<WhappyBusinessPage>,
+    activeBusinessPageId: String,
     twinReadiness: Int,
     adminMetrics: WapiAdminMetrics,
     preview: Boolean,
@@ -9384,6 +9533,7 @@ private fun ProfileScreen(
     language: WhappyLanguage,
     detectedLanguage: WhappyLanguage,
     onLanguageChange: (WhappyLanguage) -> Unit,
+    onSwitchAccount: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -9440,6 +9590,13 @@ private fun ProfileScreen(
             }
         }
         Text(t("La photo reste fixe. Touchez-la pour l’agrandir.", "Your photo stays fixed. Tap it to zoom.", "Foto etikali fixe. Finá yango mpo na kokómisa monene."), Modifier.padding(horizontal = 20.dp, vertical = 2.dp), color = WhappyMuted, fontSize = 10.sp)
+        AccountContextCard(
+            personalName = if (founder) WhappyIdentity.founderName else name,
+            personalPhotoUrl = if (activeBusinessPageId.isBlank()) localPhoto else "",
+            businessPages = businessPages,
+            activeBusinessPageId = activeBusinessPageId,
+            onSelect = onSwitchAccount,
+        )
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 26.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Card(
