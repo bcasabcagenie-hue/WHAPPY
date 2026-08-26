@@ -25,6 +25,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Pause
@@ -143,6 +145,7 @@ data class WhappyCallUiState(
     val speakerOn: Boolean = false,
     val mediaReady: Boolean = false,
     val actionPending: Boolean = false,
+    val minimized: Boolean = false,
     val error: String? = null,
 )
 
@@ -474,6 +477,16 @@ class WhappyCallController(private val activity: ComponentActivity) {
         activity.lifecycleScope.launch {
             if (id.isNotBlank()) runCatching { db.collection("calls").document(id).update(mapOf("status" to "ended", "updatedAt" to FieldValue.serverTimestamp())).await() }
         }
+    }
+
+    /** Keeps the native WebRTC session alive while the person uses WAPI. */
+    fun minimize() {
+        if (!state.visible || state.incoming || state.error != null) return
+        state = state.copy(minimized = true)
+    }
+
+    fun restore() {
+        if (state.visible) state = state.copy(minimized = false)
     }
 
     fun dismissError() = closeLocal()
@@ -1190,7 +1203,32 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
         if (call.status != "Connecté") { connectedSeconds = 0; return@LaunchedEffect }
         while (true) { kotlinx.coroutines.delay(1_000); connectedSeconds += 1 }
     }
-    BackHandler { if (call.incoming) controller.declineIncoming() else controller.hangUp() }
+    if (call.minimized) {
+        BackHandler(enabled = false) {}
+        Surface(
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
+                .clickable(onClick = controller::restore),
+            color = Color(0xF20A2944),
+            shape = RoundedCornerShape(20.dp),
+            shadowElevation = 18.dp,
+        ) {
+            Row(Modifier.padding(horizontal = 11.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                UserAvatar(call.peerPhotoUrl, call.peerName, 42.dp, shape = RoundedCornerShape(13.dp))
+                Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
+                    Text(call.peerName.ifBlank { "Appel WAPI" }, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(if (call.status == "Connecté") "Appel en cours · toucher pour revenir" else call.status, color = Color.White.copy(alpha = .66f), fontSize = 10.sp, maxLines = 1)
+                }
+                FilledIconButton(onClick = controller::restore, modifier = Modifier.size(40.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = .14f))) {
+                    Icon(Icons.Rounded.Phone, "Revenir à l’appel", tint = Color.White, modifier = Modifier.size(19.dp))
+                }
+                FilledIconButton(onClick = controller::hangUp, modifier = Modifier.padding(start = 7.dp).size(40.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFEF4444))) {
+                    Icon(Icons.Rounded.CallEnd, "Raccrocher", tint = Color.White, modifier = Modifier.size(19.dp))
+                }
+            }
+        }
+        return
+    }
+    BackHandler { if (call.incoming) controller.declineIncoming() else controller.minimize() }
     DisposableEffect(Unit) {
         activityWindow(context)?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose { activityWindow(context)?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
@@ -1239,6 +1277,15 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             ),
         ),
     ) {
+        if (!call.incoming && call.error == null) {
+            FilledIconButton(
+                onClick = controller::minimize,
+                modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 16.dp, top = 15.dp).size(42.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = .28f)),
+            ) {
+                Icon(Icons.Rounded.KeyboardArrowDown, "Réduire l’appel", tint = Color.White)
+            }
+        }
         if (call.video && call.mediaReady && !call.incoming && call.error == null) {
             AndroidView(
                 factory = { SurfaceViewRenderer(context).also { controller.attachRenderer(it, false) } },
@@ -1257,7 +1304,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             shape = RoundedCornerShape(100.dp),
         ) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(callDirection, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text(callDirection, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Text("🔒 Session WAPI chiffrée", color = Color.White.copy(alpha = .72f), fontSize = 9.sp)
             }
         }
@@ -1343,12 +1390,14 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    WapiCallControl(if (call.onHold) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (call.onHold) "Reprendre" else "Attente", call.onHold, controller::toggleHold)
-                    WapiCallControl(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (call.muted) "Réactiver" else "Micro", call.muted, controller::toggleMicrophone)
-                    WapiCallControl(if (call.speakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
-                    if (call.video) WapiCallControl(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", !call.cameraEnabled, controller::toggleCamera)
-                    if (call.video) WapiCallControl(Icons.Rounded.Cameraswitch, "Retourner", false, controller::switchCamera)
-                    WapiCallControl(Icons.Rounded.CallEnd, "Raccrocher", true, controller::hangUp, destructive = true)
+                        WapiCallControl(if (call.onHold) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (call.onHold) "Reprendre" else "Attente", call.onHold, controller::toggleHold)
+                        WapiCallControl(if (call.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (call.muted) "Réactiver" else "Micro", call.muted, controller::toggleMicrophone)
+                        WapiCallControl(if (call.speakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff, "Haut-parleur", call.speakerOn, controller::toggleSpeaker)
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        if (call.video) WapiCallControl(if (call.cameraEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Caméra", !call.cameraEnabled, controller::toggleCamera)
+                        if (call.video) WapiCallControl(Icons.Rounded.Cameraswitch, "Retourner", false, controller::switchCamera)
+                        WapiCallControl(Icons.Rounded.CallEnd, "Raccrocher", true, controller::hangUp, destructive = true)
                     }
                 }
             }

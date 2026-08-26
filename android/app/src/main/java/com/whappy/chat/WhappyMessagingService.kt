@@ -163,7 +163,7 @@ object WhappyNotifications {
         val style = NotificationCompat.MessagingStyle(Person.Builder().setName("Vous").build())
             .setConversationTitle(title)
             .addMessage(body, System.currentTimeMillis(), sender)
-        val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_stat_wapi)
             .setColor(BRAND_COLOR)
             .setContentTitle(title)
@@ -181,19 +181,50 @@ object WhappyNotifications {
             .setAutoCancel(true)
             .setContentIntent(open)
             .apply { senderAvatar?.let { avatar -> setLargeIcon(avatar) } }
-            .build()
+        if (preferences(context).getBoolean("protect_preview", true)) {
+            notificationBuilder.setPublicVersion(
+                NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+                    .setSmallIcon(R.drawable.ic_stat_wapi)
+                    .setColor(BRAND_COLOR)
+                    .setContentTitle("Nouveau message WAPI")
+                    .setContentText("Déverrouillez pour afficher la conversation")
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .build(),
+            )
+        }
+        val notification = notificationBuilder.build()
         val manager = NotificationManagerCompat.from(context)
         manager.notify(notificationId(safeConversationId), notification)
         manager.notify(MESSAGE_SUMMARY_ID, messageSummary(context, unreadCount))
     }
 
-    fun isConversationMuted(context: Context, conversationId: String): Boolean =
-        conversationId.isNotBlank() && preferences(context).getBoolean("muted_conversation_$conversationId", false)
+    fun isConversationMuted(context: Context, conversationId: String): Boolean {
+        if (conversationId.isBlank()) return false
+        val preferences = preferences(context)
+        val until = preferences.getLong("muted_conversation_until_$conversationId", 0L)
+        if (until == Long.MAX_VALUE || until > System.currentTimeMillis()) return true
+        if (until > 0L) preferences.edit().remove("muted_conversation_until_$conversationId").apply()
+        return preferences.getBoolean("muted_conversation_$conversationId", false)
+    }
 
     fun setConversationMuted(context: Context, conversationId: String, muted: Boolean) {
         if (conversationId.isBlank()) return
-        preferences(context).edit().putBoolean("muted_conversation_$conversationId", muted).apply()
+        preferences(context).edit()
+            .putBoolean("muted_conversation_$conversationId", muted)
+            .putLong("muted_conversation_until_$conversationId", if (muted) Long.MAX_VALUE else 0L)
+            .apply()
         if (muted) NotificationManagerCompat.from(context).cancel(notificationId(conversationId))
+    }
+
+    fun muteConversationFor(context: Context, conversationId: String, durationMillis: Long?) {
+        if (conversationId.isBlank()) return
+        val until = durationMillis?.let { System.currentTimeMillis() + it.coerceAtLeast(1L) } ?: Long.MAX_VALUE
+        preferences(context).edit()
+            .putBoolean("muted_conversation_$conversationId", false)
+            .putLong("muted_conversation_until_$conversationId", until)
+            .apply()
+        NotificationManagerCompat.from(context).cancel(notificationId(conversationId))
     }
 
     /** Clears only the opened thread from the launcher count, not unrelated chats. */

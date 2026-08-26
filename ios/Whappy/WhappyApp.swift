@@ -54,7 +54,7 @@ enum WapiSounds {
         let now = Date()
         guard now.timeIntervalSince(lastTypingAt) >= 0.055 else { return }
         lastTypingAt = now
-        play(1104)
+        playGameSample("wapi_piece_select", volume: 0.20, fallback: 1104)
     }
 
     static func sent() { play(1004) }

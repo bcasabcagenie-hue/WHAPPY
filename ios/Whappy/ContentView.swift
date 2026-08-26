@@ -69,7 +69,7 @@ private struct BrandHeader: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
                         Text("WAPI").font(.title2.bold()).foregroundStyle(Color.whappyInk)
-                        Text("PRIVÉ").font(.system(size: 8, weight: .black)).tracking(0.6).foregroundStyle(Color.whappyBlue).padding(.horizontal, 7).padding(.vertical, 4).background(WapiColor.blueMist).clipShape(Capsule())
+                        Text("PRIVÉ").font(.system(size: 8, weight: .bold)).tracking(0.6).foregroundStyle(Color.whappyBlue).padding(.horizontal, 7).padding(.vertical, 4).background(WapiColor.blueMist).clipShape(Capsule())
                     }
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
@@ -100,7 +100,7 @@ struct HomeView: View {
                     Circle().fill(.white.opacity(0.12)).frame(width: 170).offset(x: 220, y: -50)
                     VStack(alignment: .leading, spacing: 9) {
                         Label("WAPI PULSE", systemImage: "waveform.path.ecg").font(.caption.bold()).foregroundStyle(.white.opacity(0.85))
-                        Text("Tout ce qui bouge\nautour de vous.").font(.system(size: 30, weight: .black, design: .rounded)).foregroundStyle(.white)
+                        Text("Tout ce qui bouge\nautour de vous.").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(.white)
                         Text("Explorez, échangez, payez et discutez.").font(.subheadline).foregroundStyle(.white.opacity(0.82))
                     }.padding(24)
                 }
@@ -197,7 +197,7 @@ private struct UpdatesView: View {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Actus")
-                            .font(.system(size: 30, weight: .black, design: .rounded))
+                            .font(.system(size: 30, weight: .bold, design: .rounded))
                             .foregroundStyle(Color.whappyInk)
                         Text("Directs, chaînes et découvertes WAPI")
                             .font(.caption)
@@ -253,7 +253,7 @@ private struct UpdatesView: View {
                                 Button { store.selectedTab = .live } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         HStack {
-                                            Text("● EN DIRECT").font(.caption2.weight(.black)).foregroundStyle(.red)
+                                            Text("● EN DIRECT").font(.caption2.weight(.bold)).foregroundStyle(.red)
                                             Spacer()
                                             Text("\(room.viewers)").font(.caption2.weight(.bold)).foregroundStyle(WapiColor.secondaryText)
                                         }
@@ -404,7 +404,7 @@ private struct WapiStoryComposer: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Nouvelle Story")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.whappyInk)
                     Text("Partagez un moment avec vos contacts. Il disparaîtra automatiquement après 24 heures.")
                         .font(.subheadline)
@@ -603,7 +603,7 @@ struct MessagesView: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(section == 0 ? (store.activeBusinessMode ? "Messages Business" : "Messages") : "Chaînes")
-                        .font(.system(size: 30, weight: .black))
+                        .font(.system(size: 30, weight: .bold))
                         .foregroundStyle(Color.whappyInk)
                     Text(section == 0 ? (store.activeBusinessMode ? "Clients, commandes et équipe · identité séparée" : "Vos échanges, instantanément") : "Les publications que vous choisissez")
                         .font(.caption)
@@ -641,7 +641,7 @@ struct MessagesView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(store.business?.name ?? "WAPI Business").font(.subheadline.weight(.bold)).lineLimit(1)
-                                Text("BUSINESS").font(.system(size: 8, weight: .black)).foregroundStyle(WapiColor.sky)
+                                Text("BUSINESS").font(.system(size: 8, weight: .bold)).foregroundStyle(WapiColor.sky)
                             }
                             Text("Vous répondez au nom de l’entreprise").font(.caption2).foregroundStyle(.white.opacity(0.68))
                         }
@@ -730,7 +730,7 @@ struct MessagesView: View {
                                 }
                                 Spacer()
                                 Text("WAPI PRIVÉ")
-                                    .font(.caption2.weight(.black))
+                                    .font(.caption2.weight(.bold))
                                     .foregroundStyle(Color.whappyBlue)
                             }
                             .padding(.horizontal, 3)
@@ -1067,7 +1067,7 @@ private struct WapiConversationRow: View {
                     Spacer()
                     if conversation.unread {
                         Text("N")
-                            .font(.system(size: 9, weight: .black))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
@@ -2626,7 +2626,7 @@ struct GamesView: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 9) {
                     Label("WHAPPY PLAY", systemImage: "bolt.fill").font(.caption.bold()).foregroundStyle(Color.whappyBlue)
-                    Text("Jouez. Progressez.\nRestez connecté.").font(.system(size: 30, weight: .black, design: .rounded)).foregroundStyle(.white)
+                    Text("Jouez. Progressez.\nRestez connecté.").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(.white)
                     Text("Des mini-jeux à lancer seul ou avec votre communauté.").foregroundStyle(.white.opacity(0.8))
                     HStack { StatPill(title: "Série", value: "\(streak) jour\(streak > 1 ? "s" : "")"); StatPill(title: "Score", value: "\(score) XP") }
                 }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [.whappyInk, .whappyBlue.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 26))
@@ -2777,7 +2777,7 @@ private struct WapiIOSArcadeGame: View {
                     HStack { Text("MANCHE \(round)").font(.caption.bold()).foregroundStyle(.white.opacity(0.7)); Spacer(); Text("\(score) XP").font(.headline.bold()).foregroundStyle(.white) }
                     VStack(alignment: .leading, spacing: 9) {
                         Text(game.name.uppercased()).font(.caption.bold()).foregroundStyle(.cyan)
-                        Text(prompt).font(.system(size: 27, weight: .black, design: .rounded)).foregroundStyle(.white)
+                        Text(prompt).font(.system(size: 27, weight: .bold, design: .rounded)).foregroundStyle(.white)
                         Text(game.subtitle).font(.footnote).foregroundStyle(.white.opacity(0.66))
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     ForEach(options, id: \.self) { option in
@@ -2877,7 +2877,7 @@ private struct KingQiIOSView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 15) {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack { Text("♛").font(.system(size: 40)).frame(width: 58, height: 58).background(Color.yellow).clipShape(Circle()); VStack(alignment: .leading) { Text("KING QI").font(.system(size: 31, weight: .black)); Text("La connaissance devient un spectacle.").font(.caption).foregroundStyle(.white.opacity(0.7)) } }
+                    HStack { Text("♛").font(.system(size: 40)).frame(width: 58, height: 58).background(Color.yellow).clipShape(Circle()); VStack(alignment: .leading) { Text("KING QI").font(.system(size: 31, weight: .bold)); Text("La connaissance devient un spectacle.").font(.caption).foregroundStyle(.white.opacity(0.7)) } }
                     HStack { kingStat("CRÉDITS", "\(credits)"); kingStat("TROPHÉES", "\(trophies)"); kingStat("NIVEAU", "National") }
                 }.foregroundStyle(.white).padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
                 KingQiIOSPlayerProfileCard(displayName: Auth.auth().currentUser?.displayName ?? Auth.auth().currentUser?.phoneNumber ?? "Joueur WAPI", photoURL: Auth.auth().currentUser?.photoURL, victories: victories, trophies: trophies)
@@ -2992,7 +2992,7 @@ private struct KingQiIOSSoloView: View {
             if finished { result }
             else { ScrollView { VStack(spacing: 14) {
                 HStack { Button("Quitter", action: onExit).buttonStyle(.bordered); Spacer(); Text("\(index + 1)/\(questions.count)").bold(); Text("\(seconds)").font(.headline.bold()).frame(width: 48, height: 48).background(seconds <= 5 ? Color.red : Color.yellow).clipShape(Circle()).foregroundStyle(seconds <= 5 ? .white : Color.whappyInk) }
-                VStack(alignment: .leading, spacing: 14) { HStack { Text(question.category).font(.caption.bold()).foregroundStyle(.yellow); Spacer(); Text(question.difficulty).font(.caption.bold()).foregroundStyle(.white.opacity(0.6)) }; Text(question.prompt).font(.system(size: 25, weight: .black)).foregroundStyle(.white); Text("SCORE  \(score)").font(.caption.bold()).foregroundStyle(.white.opacity(0.65)) }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
+                VStack(alignment: .leading, spacing: 14) { HStack { Text(question.category).font(.caption.bold()).foregroundStyle(.yellow); Spacer(); Text(question.difficulty).font(.caption.bold()).foregroundStyle(.white.opacity(0.6)) }; Text(question.prompt).font(.system(size: 25, weight: .bold)).foregroundStyle(.white); Text("SCORE  \(score)").font(.caption.bold()).foregroundStyle(.white.opacity(0.65)) }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
                 ForEach(question.options.indices, id: \.self) { option in kingAnswer(option) }
                 Button { speech.start() } label: { Label(speech.listening ? "Je vous écoute…" : "Répondre avec ma voix", systemImage: "mic.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(speech.listening ? .red : .whappyBlue).disabled(selected != nil)
                 if let selected { Text(selected == question.answer ? "Bonne réponse" : "Réponse : \(question.options[question.answer])").font(.headline).foregroundStyle(selected == question.answer ? .green : .red); Button(index == questions.count - 1 ? "Voir mon résultat" : "Question suivante") { if index == questions.count - 1 { finished = true } else { index += 1 } }.buttonStyle(.borderedProminent).tint(Color.whappyInk).frame(maxWidth: .infinity) }
@@ -3255,8 +3255,8 @@ private struct BusinessWorkspaceView: View {
                     .frame(width: 58, height: 58)
                     .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("ESPACE BUSINESS").font(.system(size: 9, weight: .black)).tracking(1).foregroundStyle(WapiColor.sky)
-                        Text(store.business?.name ?? "Créez votre entreprise").font(.title2.weight(.black)).foregroundStyle(.white).lineLimit(1)
+                        Text("ESPACE BUSINESS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(WapiColor.sky)
+                        Text(store.business?.name ?? "Créez votre entreprise").font(.title2.weight(.bold)).foregroundStyle(.white).lineLimit(1)
                         Text(store.business.map { "\($0.category) · \($0.city)" } ?? "Identité, ventes et clients séparés").font(.caption).foregroundStyle(.white.opacity(0.7))
                     }
                 }
@@ -3279,8 +3279,8 @@ private struct BusinessMetricIOS: View {
     let detail: String
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title.uppercased()).font(.system(size: 8, weight: .black)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
-            Text(value).font(.headline.weight(.black)).foregroundStyle(Color.whappyInk).lineLimit(1)
+            Text(title.uppercased()).font(.system(size: 8, weight: .bold)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
+            Text(value).font(.headline.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
             Text(detail).font(.system(size: 8, weight: .medium)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3304,7 +3304,7 @@ private struct BusinessOperationIOS: View {
                 Text(detail).font(.caption).foregroundStyle(WapiColor.secondaryText).lineLimit(2)
             }
             Spacer()
-            if let badge { Text(badge).font(.caption2.weight(.black)).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(Color.whappyBlue).clipShape(Capsule()) }
+            if let badge { Text(badge).font(.caption2.weight(.bold)).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(Color.whappyBlue).clipShape(Capsule()) }
             Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
         }
         .padding(14).background(.white).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -3941,7 +3941,7 @@ private struct FounderIOSMetric: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.headline)
-            Text(value).font(.system(size: 27, weight: .black, design: .rounded)).foregroundStyle(Color.whappyBlue)
+            Text(value).font(.system(size: 27, weight: .bold, design: .rounded)).foregroundStyle(Color.whappyBlue)
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 4)
     }
@@ -3993,7 +3993,7 @@ private struct MyWhappyLinkView: View {
                         Text("Scannez pour m’ajouter").font(.headline).foregroundStyle(Color.whappyInk)
                         ZStack {
                             Image(uiImage: qrImage).interpolation(.none).resizable().scaledToFit()
-                            Text("W").font(.system(size: 24, weight: .black)).foregroundStyle(.white)
+                            Text("W").font(.system(size: 24, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 52, height: 52).background(Color.whappyBlue, in: RoundedRectangle(cornerRadius: 15))
                                 .padding(5).background(.white, in: RoundedRectangle(cornerRadius: 18))
                         }
@@ -4037,8 +4037,8 @@ private struct WapiSettingsHubView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("CENTRE WAPI").font(.caption.weight(.black)).tracking(1).foregroundStyle(Color.whappyBlue)
-                    Text("Réglages clairs, contrôle réel.").font(.title2.weight(.black)).foregroundStyle(Color.whappyInk)
+                    Text("CENTRE WAPI").font(.caption.weight(.bold)).tracking(1).foregroundStyle(Color.whappyBlue)
+                    Text("Réglages clairs, contrôle réel.").font(.title2.weight(.bold)).foregroundStyle(Color.whappyInk)
                     Text("Chaque réglage agit sur l’application native et reste lié à votre compte ou à cet appareil selon sa nature.").font(.footnote).foregroundStyle(.secondary)
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(LinearGradient(colors: [Color.whappyInk, Color.whappyInk.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
                     .foregroundStyle(.white)
@@ -4174,8 +4174,10 @@ struct WapiCachedRemoteImage<Placeholder: View>: View {
             if let cached = WapiImageMemoryCache.shared.image(for: url) { image = cached; return }
             var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
             request.setValue("image/*", forHTTPHeaderField: "Accept")
+            let dataSaver = UserDefaults.standard.bool(forKey: "dataSaverEnabled")
+            let maximumBytes = (dataSaver ? 8 : 20) * 1024 * 1024
             guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  data.count <= 20 * 1024 * 1024,
+                  data.count <= maximumBytes,
                   ((response as? HTTPURLResponse)?.statusCode ?? 200) < 400,
                   let decoded = UIImage(data: data) else { return }
             WapiImageMemoryCache.shared.insert(decoded, for: url, byteCount: data.count)

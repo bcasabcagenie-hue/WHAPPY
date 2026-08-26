@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.media.SoundPool
 import android.media.ToneGenerator
 import android.os.Build
@@ -116,6 +117,14 @@ object WhappySounds {
         )
     }
 
+    fun previewIncomingRingtone(context: Context) {
+        val ringtone = runCatching {
+            RingtoneManager.getRingtone(context.applicationContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+        }.getOrNull() ?: return
+        runCatching { ringtone.play() }
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ runCatching { ringtone.stop() } }, 1_650L)
+    }
+
     fun typing(context: Context) {
         if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("typing_sounds", true)) return
         val now = android.os.SystemClock.elapsedRealtime()
@@ -128,10 +137,12 @@ object WhappySounds {
         // person controls on the device, even when Android system touch sounds
         // have been disabled.  It remains silent when media volume is zero.
         if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) <= 0) return
-        runCatching { audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, .22f) }
+        // Reuse WAPI's 55 ms tactile sample: it is warmer than the OEM click
+        // and therefore sounds consistent across Samsung, Pixel and Xiaomi.
+        runCatching { sample(context, R.raw.wapi_piece_select, .20f, 1.16f) }
             .onFailure {
-                val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 24).also { keyboardTone = it }
-                generator.startTone(ToneGenerator.TONE_PROP_BEEP, 18)
+                val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 22).also { keyboardTone = it }
+                generator.startTone(ToneGenerator.TONE_PROP_BEEP, 16)
             }
     }
 
