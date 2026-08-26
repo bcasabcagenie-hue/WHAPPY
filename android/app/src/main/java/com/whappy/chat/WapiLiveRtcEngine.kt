@@ -107,7 +107,7 @@ internal class WapiLiveRtcEngine(
         val result = functions.getHttpsCallable("joinLiveSession").call(mapOf("liveId" to id)).await()
         @Suppress("UNCHECKED_CAST")
         val payload = result.data as? Map<String, Any?> ?: error("Réponse du direct WAPI invalide.")
-        require(payload["streamProvider"] == "wapi-webrtc-p2p") { "Transport WebRTC WAPI indisponible." }
+        require(payload["streamProvider"] == "wapi-webrtc-p2p") { "Le service de direct WAPI est momentanément indisponible." }
         host = payload["role"] == "host"
         require(host == expectedHost) { "Le rôle du direct a changé. Rouvrez le direct." }
         iceServers = loadIceServers()
@@ -207,7 +207,7 @@ internal class WapiLiveRtcEngine(
         val peersRef = db.collection("liveSessions").document(liveId).collection("peers")
         registrations += peersRef.addSnapshotListener { snapshot, failure ->
             if (failure != null) {
-                publishFailure("La signalisation du direct est interrompue.")
+                publishFailure("Le direct a perdu la connexion. Vérifiez Internet puis réessayez.")
                 return@addSnapshotListener
             }
             snapshot?.documentChanges.orEmpty()
@@ -304,7 +304,7 @@ internal class WapiLiveRtcEngine(
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
                 when (state) {
                     PeerConnection.PeerConnectionState.CONNECTED -> if (!hostSide) publishState("En direct", true)
-                    PeerConnection.PeerConnectionState.FAILED -> publishFailure("Connexion WebRTC impossible sur ce réseau. Un relais TURN WAPI est requis.")
+                    PeerConnection.PeerConnectionState.FAILED -> publishFailure("Ce réseau ne permet pas d’ouvrir le direct. Essayez un autre Wi-Fi ou vos données mobiles.")
                     else -> Unit
                 }
             }
@@ -319,7 +319,7 @@ internal class WapiLiveRtcEngine(
             override fun onRemoveStream(stream: MediaStream) = Unit
             override fun onDataChannel(channel: DataChannel) = Unit
             override fun onRenegotiationNeeded() = Unit
-        }) ?: error("Le moteur WebRTC n’a pas pu démarrer.")
+        }) ?: error("Impossible de préparer le direct sur cet appareil.")
         return peer
     }
 

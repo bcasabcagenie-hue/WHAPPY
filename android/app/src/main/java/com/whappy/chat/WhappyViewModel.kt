@@ -122,7 +122,11 @@ class WhappyViewModel(
                     it.copy(
                         loading = false,
                         online = false,
-                        error = if (it.messages.isEmpty()) "Messages momentanément indisponibles" else null,
+                        error = if (it.messages.isEmpty()) {
+                            "Vos messages sont momentanément indisponibles. Vérifiez votre connexion."
+                        } else {
+                            null
+                        },
                     )
                 }
             },
@@ -945,7 +949,7 @@ class WhappyViewModel(
                     refreshVisibleLives()
                     _uiState.update { it.copy(actionBusy = false, tab = WhappyTab.LIVE, online = true) }
                 }
-                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La radio en direct n’a pas démarré : le serveur WebRTC WAPI doit être disponible") } }
+                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La radio en direct n’a pas démarré. Vérifiez Internet puis réessayez.") } }
         }
     }
 

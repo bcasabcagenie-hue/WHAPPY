@@ -11,8 +11,8 @@ private enum WapiDirectCallError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidRoute: return "Le contact WAPI de cet appel est introuvable."
-        case .invalidResponse: return "La signalisation sécurisée de l’appel est invalide."
-        case .permissions: return "Autorisez le microphone et la caméra pour cet appel WAPI."
+        case .invalidResponse: return "WAPI n’a pas pu préparer cet appel. Fermez-le puis réessayez."
+        case .permissions: return "Autorisez le microphone et, pour la vidéo, la caméra dans les réglages de l’appareil."
         }
     }
 }
@@ -33,7 +33,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     @Published private(set) var peerName: String
     @Published private(set) var peerPhotoURL: String
     @Published private(set) var videoEnabled: Bool
-    @Published private(set) var connectionLabel = "Préparation sécurisée…"
+    @Published private(set) var connectionLabel = "Préparation de l’appel…"
     @Published private(set) var connecting = true
     @Published private(set) var microphoneEnabled = false
     @Published private(set) var cameraEnabled = false
@@ -217,7 +217,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         for candidate in localCandidates { try? await add(candidate, to: "calleeCandidates", reference: reference) }
         localCandidates.removeAll()
         connecting = false
-        connectionLabel = "Connexion du média…"
+        connectionLabel = "Mise en relation…"
     }
 
     private func configureAudioSession() throws {
@@ -325,7 +325,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         callListener?.remove()
         callListener = reference.addSnapshotListener { [weak self] snapshot, error in
             guard let self else { return }
-            if error != nil { Task { @MainActor in self.fail("La signalisation de l’appel est interrompue.") }; return }
+            if error != nil { Task { @MainActor in self.fail("L’appel a perdu la connexion. Vérifiez Internet puis réessayez.") }; return }
             guard let snapshot, snapshot.exists else { return }
             let status = snapshot.data()?["status"] as? String ?? ""
             Task { @MainActor in
@@ -342,8 +342,8 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
                     try await self.setRemoteDescription(LKRTCSessionDescription(type: .answer, sdp: sdp))
                     self.remoteDescriptionReady = true
                     self.flushQueuedCandidates()
-                    self.connectionLabel = "Connexion du média…"
-                } catch { self.fail("La réponse sécurisée de cet appel est invalide.") }
+                    self.connectionLabel = "Mise en relation…"
+                } catch { self.fail("WAPI n’a pas pu poursuivre cet appel. Fermez-le puis réessayez.") }
             }
         }
     }
@@ -367,7 +367,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
 
     private func addRemote(_ candidate: LKRTCIceCandidate) {
         peerConnection?.add(candidate) { [weak self] error in
-            if error != nil { Task { @MainActor in self?.fail("Une liaison réseau reçue est invalide.") } }
+            if error != nil { Task { @MainActor in self?.fail("WAPI n’a pas pu poursuivre cet appel. Fermez-le puis réessayez.") } }
         }
     }
 
@@ -455,9 +455,9 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         Task { @MainActor in
             switch newState {
             case .connected, .completed: self.mediaConnected = true; self.connecting = false; self.connectionLabel = "Connecté"
-            case .checking: if !self.mediaConnected { self.connectionLabel = "Recherche du réseau…" }
-            case .disconnected: if self.mediaConnected { self.connectionLabel = "Reconnexion…" }
-            case .failed: self.fail("Ce réseau n’a pas pu établir la liaison WebRTC. Essayez une autre connexion Internet puis relancez l’appel.")
+            case .checking: if !self.mediaConnected { self.connectionLabel = "Mise en relation…" }
+            case .disconnected: if self.mediaConnected { self.connectionLabel = "Reconnexion en cours…" }
+            case .failed: self.fail("Ce réseau empêche l’appel d’aboutir. Essayez un autre Wi-Fi ou vos données mobiles, puis relancez l’appel.")
             default: break
             }
         }
@@ -546,7 +546,7 @@ struct WapiDirectCallRoom: View {
                     }.padding(.bottom, 34).foregroundStyle(.white)
                 }
             }
-            if session.connecting { ProgressView("Connexion WAPI sécurisée…").tint(.white).foregroundStyle(.white).padding(18).background(.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius: 16)) }
+            if session.connecting { ProgressView("Connexion de l’appel…").tint(.white).foregroundStyle(.white).padding(18).background(.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius: 16)) }
         }
         .task { if session.outgoing { await session.connect() } else { await session.loadInvitation() } }
         .alert("Appel WAPI indisponible", isPresented: Binding(get: { session.errorMessage != nil }, set: { if !$0 { session.errorMessage = nil } })) {

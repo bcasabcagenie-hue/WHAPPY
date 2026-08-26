@@ -35,7 +35,7 @@ internal object WapiCallSignaling {
     /**
      * Converts the facts observed by WebRTC into a recoverable, user-facing
      * failure category. This prevents the audio screen from staying forever on
-     * "Recherche du réseau" without explaining whether the local device, the
+     * "Mise en relation" without explaining whether the local device, the
      * other device, or a NAT relay is missing.
      */
     fun classifyTransportFailure(

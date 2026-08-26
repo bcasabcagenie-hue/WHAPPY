@@ -4942,7 +4942,7 @@ private fun WhappyStudioScreen(
                 }
 
                 WhappyStudioSection.VOICE -> {
-                    item { StudioTitle("02 / VOICE DNA", "Votre ton, même quand vous travaillez ailleurs", "L’échantillon prépare votre empreinte. Le rendu neuronal nécessite encore un fournisseur de synthèse vocale autorisée.") }
+                    item { StudioTitle("02 / EMPREINTE VOCALE", "Votre ton, même quand vous travaillez ailleurs", "L’échantillon prépare votre voix numérique. Sa génération reste soumise à votre consentement et à un service vocal autorisé.") }
                     item {
                         Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                             Column(Modifier.padding(20.dp)) {
@@ -8935,7 +8935,7 @@ private fun LivePreflightDialog(live: WhappyLive, onDismiss: () -> Unit) {
                             Icon(if (microphoneTesting) Icons.Rounded.Stop else Icons.Rounded.Mic, null)
                             Text(if (microphoneTesting) "  Arrêter le test micro" else "  Tester le microphone", fontWeight = FontWeight.Bold)
                         }
-                        Text("La diffusion publique nécessite un SFU/WebRTC WAPI provisionné. Cette étape ne prétend jamais envoyer votre caméra à des spectateurs.", color = WhappyMuted, fontSize = 9.sp, lineHeight = 13.sp)
+                        Text("La diffusion publique n’est pas encore prête pour ce direct. Vous pouvez vérifier la caméra, le microphone et le haut-parleur sans être visible par les spectateurs.", color = WhappyMuted, fontSize = 9.sp, lineHeight = 13.sp)
                     }
                 }
             }

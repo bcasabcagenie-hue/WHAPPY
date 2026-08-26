@@ -519,7 +519,7 @@ private struct WapiStoryComposer: View {
             WapiSounds.haptic(.medium)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = wapiUserFacingError(error, action: "La publication de votre story")
         }
         isPublishing = false
     }
@@ -1914,9 +1914,7 @@ private struct WapiTranslationSheet: View {
         do {
             result = try await store.translateWithLingwap(message.text, targetLanguage: targetLanguage)
         } catch {
-            errorMessage = error.localizedDescription.isEmpty
-                ? "Lingwap est indisponible. Vérifiez la connexion et le relais de traduction."
-                : error.localizedDescription
+            errorMessage = wapiUserFacingError(error, action: "La traduction Lingwap")
         }
         translating = false
     }
@@ -3474,10 +3472,10 @@ private struct FounderDashboardIOSView: View {
     var body: some View {
         List {
             Section {
-                if loading { ProgressView("Chargement des agrégats Firebase…") }
+                if loading { ProgressView("Chargement des données WAPI…") }
                 else if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
                 else {
-                    FounderIOSMetric(title: "Utilisateurs WAPI", value: values["users"] ?? "0", detail: "Comptes enregistrés dans Firebase")
+                    FounderIOSMetric(title: "Utilisateurs WAPI", value: values["users"] ?? "0", detail: "Comptes WAPI enregistrés")
                     FounderIOSMetric(title: "CA encaissé", value: values["paidRevenue"] ?? "0 XAF", detail: "Notifications de paiement marquées payées")
                     FounderIOSMetric(title: "Installations actives", value: values["activeInstallations"] ?? "0", detail: "Appareils WAPI avec jeton actif")
                     FounderIOSMetric(title: "Pages Business", value: values["businessPages"] ?? "0", detail: "Pages réellement créées")

@@ -245,8 +245,8 @@ class WhappyCallController(private val activity: ComponentActivity) {
         }
     }
     private val reconnectionTimeout = Runnable {
-        if (state.visible && state.status == "Reconnexion…" && state.error == null) {
-            showMediaFailure("La reconnexion WebRTC a dépassé le délai autorisé.")
+        if (state.visible && state.status == "Reconnexion en cours…" && state.error == null) {
+            showMediaFailure("La reconnexion de l’appel a dépassé le délai autorisé.")
         }
     }
 
@@ -264,7 +264,11 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 visible = true,
                 actionPending = false,
                 status = "Autorisation requise",
-                error = "Autorisez le micro et la caméra pour appeler sur WAPI.",
+                error = if (retryVideo) {
+                    "Autorisez le microphone et la caméra pour passer un appel vidéo."
+                } else {
+                    "Autorisez le microphone pour passer un appel audio."
+                },
             )
         }
     }
@@ -355,7 +359,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             peerName = peer.displayName,
             peerPhone = peer.phoneNumber,
             peerPhotoUrl = peer.photoUrl,
-            status = "Appel WAPI…",
+            status = "Ouverture de l’appel…",
         )
         withCallPermissions(video) {
             activity.lifecycleScope.launch {
@@ -378,7 +382,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         }
         terminalActionPending = true
         pendingCallId = requestedId
-        state = state.copy(visible = true, incoming = true, actionPending = true, status = "Récupération de l’appel…", error = null)
+        state = state.copy(visible = true, incoming = true, actionPending = true, status = "Ouverture de l’appel…", error = null)
         activity.lifecycleScope.launch {
             val incoming = runCatching { db.collection("calls").document(requestedId).get().await() }.getOrNull()
             val valid = incoming?.takeIf { it.exists() && it.getString("status") == "ringing" }
@@ -405,7 +409,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             peerName = incoming.getString("callerName") ?: state.peerName.ifBlank { "Contact WAPI" },
             peerPhotoUrl = incoming.getString("callerPhotoUrl").orEmpty(),
             actionPending = true,
-            status = "Décrochage…",
+            status = "Connexion à l’appel…",
             error = null,
         )
         retryPeer = WhappyMember(
@@ -552,7 +556,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         pendingCallId = ""
         callDocumentReady = false
         outgoingRole = true
-        state = WhappyCallUiState(visible = true, video = video, peerName = peer.displayName, peerPhone = peer.phoneNumber, peerPhotoUrl = peer.photoUrl, status = "Connexion sécurisée…")
+        state = WhappyCallUiState(visible = true, video = video, peerName = peer.displayName, peerPhone = peer.phoneNumber, peerPhotoUrl = peer.photoUrl, status = "Ouverture de l’appel…")
         WapiCallHistory.record(activity, peer.displayName, peer.phoneNumber, video, "outgoing", peer.uid, peer.photoUrl)
         runCatching {
             preparePeer(video, "callerCandidates")
@@ -600,7 +604,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         // immediately without being mistaken for a candidate of an old call.
         callDocumentReady = true
         val video = incoming.getBoolean("video") == true
-        state = state.copy(incoming = false, video = video, actionPending = false, status = "Connexion sécurisée…", error = null)
+        state = state.copy(incoming = false, video = video, actionPending = false, status = "Connexion à l’appel…", error = null)
         runCatching {
             preparePeer(video, "calleeCandidates")
             state = state.copy(mediaReady = true)
@@ -621,7 +625,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             ).await()
             queuedLocalCandidates.toList().forEach { addCandidate(incoming.id, "calleeCandidates", it) }
             queuedLocalCandidates.clear()
-            state = state.copy(status = "Connexion du média…")
+            state = state.copy(status = "Mise en relation…")
             scheduleConnectionTimeout()
         }.onFailure { failure ->
             Log.e(CALL_TAG, "Incoming call setup failed", failure)
@@ -692,7 +696,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             if (!isCurrentPeer()) return
             when (newState) {
                 PeerConnection.PeerConnectionState.CONNECTED -> activity.runOnUiThread { markMediaConnected() }
-                PeerConnection.PeerConnectionState.FAILED -> activity.runOnUiThread { showMediaFailure("La négociation WebRTC a échoué.") }
+                PeerConnection.PeerConnectionState.FAILED -> activity.runOnUiThread { showMediaFailure("L’appel n’a pas pu établir la connexion.") }
                 PeerConnection.PeerConnectionState.CLOSED -> activity.runOnUiThread { if (state.visible && state.error == null) state = state.copy(status = "Appel terminé") }
                 else -> Unit
             }
@@ -710,15 +714,15 @@ class WhappyCallController(private val activity: ComponentActivity) {
                             this@WhappyCallController.state.status,
                         )
                     ) {
-                        this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Recherche du réseau…")
+                        this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Mise en relation…")
                     }
                 }
                 PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> activity.runOnUiThread { markMediaConnected() }
                 PeerConnection.IceConnectionState.DISCONNECTED -> activity.runOnUiThread {
-                    this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Reconnexion…")
+                    this@WhappyCallController.state = this@WhappyCallController.state.copy(status = "Reconnexion en cours…")
                     scheduleReconnectionTimeout()
                 }
-                PeerConnection.IceConnectionState.FAILED -> activity.runOnUiThread { showMediaFailure("Le chemin réseau WebRTC a échoué.") }
+                PeerConnection.IceConnectionState.FAILED -> activity.runOnUiThread { showMediaFailure("La connexion de l’appel a été interrompue.") }
                 else -> Unit
             }
         }
@@ -780,7 +784,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
     private fun watchCallDocument(id: String) {
         registrations += db.collection("calls").document(id).addSnapshotListener { snapshot, error ->
             if (error != null) {
-                reportSignalingFailure("La mise à jour de l’appel n’est plus accessible. Vérifiez le réseau puis réessayez.", error)
+                reportSignalingFailure("L’appel a perdu la connexion. Vérifiez Internet puis réessayez.", error)
                 return@addSnapshotListener
             }
             if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
@@ -802,7 +806,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
                         peerConnection?.setRemoteDescriptionAwait(SessionDescription(SessionDescription.Type.ANSWER, answer["sdp"]?.toString().orEmpty()))
                         remoteDescriptionReady = true
                         flushRemoteCandidates()
-                        state = state.copy(status = "Connexion du média…")
+                        state = state.copy(status = "Mise en relation…")
                         scheduleConnectionTimeout()
                     }.onFailure { failure ->
                         Log.e(CALL_TAG, "Remote answer rejected", failure)
@@ -817,7 +821,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         registrations += db.collection("calls").document(id).collection(collection).addSnapshotListener { snapshot, error ->
             if (id != callId || !state.visible) return@addSnapshotListener
             if (error != null) {
-                reportSignalingFailure("Les données réseau de l’appel ne sont pas accessibles. Réessayez l’appel.", error)
+                reportSignalingFailure("L’appel ne reçoit plus les informations nécessaires. Fermez-le puis réessayez.", error)
                 return@addSnapshotListener
             }
             snapshot?.documentChanges.orEmpty().filter { it.type == com.google.firebase.firestore.DocumentChange.Type.ADDED }.forEach { change ->
@@ -828,7 +832,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 remoteCandidateCount.incrementAndGet()
                 if (remoteDescriptionReady) {
                     if (peerConnection?.addIceCandidate(candidate) != true) {
-                        reportSignalingFailure("Une liaison réseau reçue est invalide. Réessayez l’appel.", IllegalStateException("Remote ICE candidate rejected"))
+                        reportSignalingFailure("WAPI n’a pas pu poursuivre cet appel. Fermez-le puis réessayez.", IllegalStateException("Remote ICE candidate rejected"))
                     }
                 } else {
                     queuedRemoteCandidates += candidate
@@ -845,7 +849,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
 
     private fun reportCandidateFailure(id: String, failure: Throwable) {
         if (id != callId || !state.visible) return
-        reportSignalingFailure("WAPI n’a pas pu transmettre la liaison réseau de cet appel. Réessayez.", failure)
+        reportSignalingFailure("WAPI n’a pas pu poursuivre cet appel. Vérifiez Internet puis réessayez.", failure)
     }
 
     private fun reportSignalingFailure(message: String, failure: Throwable) {
@@ -854,7 +858,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             if (state.visible && state.error == null) {
                 cancelConnectionTimeout()
                 cancelReconnectionTimeout()
-                state = state.copy(status = "Signalisation interrompue", error = message)
+                state = state.copy(status = "Appel interrompu", error = message)
             }
         }
     }
@@ -862,7 +866,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
     private fun flushRemoteCandidates() {
         queuedRemoteCandidates.toList().forEach { candidate ->
             if (peerConnection?.addIceCandidate(candidate) != true) {
-                reportSignalingFailure("Une liaison réseau reçue est invalide. Réessayez l’appel.", IllegalStateException("Queued ICE candidate rejected"))
+                reportSignalingFailure("WAPI n’a pas pu poursuivre cet appel. Fermez-le puis réessayez.", IllegalStateException("Queued ICE candidate rejected"))
             }
         }
         queuedRemoteCandidates.clear()
@@ -916,13 +920,13 @@ class WhappyCallController(private val activity: ComponentActivity) {
             status = "Appel interrompu",
             error = when (problem) {
                 WapiCallSignaling.TransportFailure.LOCAL_ICE_UNAVAILABLE ->
-                    "Cet appareil n’a pas pu ouvrir de chemin réseau pour l’appel. Désactivez le VPN si besoin, vérifiez la connexion puis réessayez."
+                    "Cet appareil n’a pas réussi à se connecter. Désactivez le VPN si nécessaire, essayez un autre réseau, puis réessayez."
                 WapiCallSignaling.TransportFailure.REMOTE_ICE_UNAVAILABLE ->
-                    "L’autre appareil n’a pas encore transmis sa liaison d’appel. Demandez à votre correspondant de rouvrir WAPI puis réessayez."
+                    "L’autre appareil n’est pas encore prêt pour l’appel. Demandez à votre correspondant de rouvrir WAPI, puis réessayez."
                 WapiCallSignaling.TransportFailure.DIRECT_PATH_BLOCKED ->
-                    "Les deux appareils sont joignables, mais ce réseau bloque WebRTC direct. Essayez une autre connexion Internet ; un relais WAPI public est nécessaire sur certains opérateurs."
+                    "Ce réseau empêche l’appel d’aboutir. Essayez un autre Wi-Fi ou vos données mobiles, puis réessayez."
                 WapiCallSignaling.TransportFailure.RELAY_OR_NETWORK_FAILED ->
-                    "Le relais sécurisé ou le réseau a interrompu la communication. Vérifiez la connexion puis touchez Réessayer."
+                    "La connexion a été interrompue. Vérifiez Internet puis touchez Réessayer."
             },
         )
     }
@@ -1245,7 +1249,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
                 }
             } else if (call.error != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = controller::retryCall, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(BRAND_BLUE))) { Text("Reprendre") }
+                    Button(onClick = controller::retryCall, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(BRAND_BLUE))) { Text("Réessayer") }
                     Button(onClick = controller::dismissError, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .18f), contentColor = Color.White)) { Text("Fermer") }
                 }
             } else {

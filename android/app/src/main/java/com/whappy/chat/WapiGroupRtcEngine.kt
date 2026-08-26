@@ -99,7 +99,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
         val callable = if (invitationCallId.isBlank()) "createGroupCallSession" else "joinGroupCallSession"
         val data = if (invitationCallId.isBlank()) mapOf("groupId" to groupId, "source" to groupSource, "video" to requestedVideo) else mapOf("callId" to invitationCallId)
         val result = functions.getHttpsCallable(callable).call(data).await().data as? Map<*, *> ?: error("Réponse d’appel WAPI invalide.")
-        require(result["streamProvider"] == "wapi-webrtc-mesh") { "Le moteur WebRTC WAPI n’est pas disponible." }
+        require(result["streamProvider"] == "wapi-webrtc-mesh") { "Le service d’appel de groupe est momentanément indisponible." }
         callId = result["callId"]?.toString().orEmpty()
         groupName = result["groupName"]?.toString()?.takeIf(String::isNotBlank) ?: "Groupe WAPI"
         video = result["video"] == true
@@ -109,7 +109,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
         createLocalMedia()
         functions.getHttpsCallable("setGroupCallPresence").call(mapOf("callId" to callId, "active" to true)).await()
         listenParticipants()
-        publish("Appel WebRTC sécurisé", null)
+        publish("Appel de groupe sécurisé", null)
     }
 
     fun attachRenderer(renderer: SurfaceViewRenderer, local: Boolean) {
@@ -193,7 +193,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
     private fun listenParticipants() {
         val localId = auth.currentUser?.uid ?: error("Connexion WAPI requise.")
         listeners += sessionRef().collection("participants").addSnapshotListener { snapshot, failure ->
-            if (failure != null) { publish("Signalisation interrompue", "La connexion de groupe a été interrompue."); return@addSnapshotListener }
+            if (failure != null) { publish("Appel interrompu", "L’appel de groupe a perdu la connexion. Vérifiez Internet puis réessayez."); return@addSnapshotListener }
             snapshot?.documentChanges.orEmpty().forEach { change ->
                 val remoteId = change.document.id
                 val active = change.document.getBoolean("active") == true
@@ -235,7 +235,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
                         peer.setLocalGroupAwait(answer)
                         pair.set(mapOf("participantIds" to listOf(aId, bId), "aId" to aId, "bId" to bId, "answer" to mapOf("type" to "answer", "sdp" to answer.description), "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
                     }
-                }.onFailure { publish("Connexion partielle", "La négociation WebRTC avec un participant a échoué.") }
+                }.onFailure { publish("Participant indisponible", "Un participant n’a pas pu rejoindre l’appel pour le moment.") }
             }
         }
         if (initiator) {
@@ -256,7 +256,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
         override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
             when (state) {
                 PeerConnection.PeerConnectionState.CONNECTED -> publish("Connecté", null)
-                PeerConnection.PeerConnectionState.FAILED -> publish("Connexion partielle", "Un relais TURN WAPI peut être requis sur ce réseau.")
+                PeerConnection.PeerConnectionState.FAILED -> publish("Participant indisponible", "Ce réseau empêche de joindre un participant. Essayez un autre Wi-Fi ou vos données mobiles.")
                 else -> Unit
             }
         }
@@ -269,7 +269,7 @@ internal class WapiGroupRtcEngine(context: Context, private val scope: Coroutine
         override fun onRemoveStream(stream: MediaStream) = Unit
         override fun onDataChannel(channel: DataChannel) = Unit
         override fun onRenegotiationNeeded() = Unit
-    }) ?: error("Le moteur WebRTC n’a pas pu créer la connexion.")
+    }) ?: error("Impossible de préparer cet appel sur cet appareil.")
 
     private fun listenCandidates(remoteId: String, pair: com.google.firebase.firestore.DocumentReference, collection: String, peer: PeerConnection) {
         pairListeners.getOrPut(remoteId) { mutableListOf() } += pair.collection(collection).addSnapshotListener { snapshot, _ ->

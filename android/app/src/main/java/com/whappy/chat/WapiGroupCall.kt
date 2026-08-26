@@ -81,7 +81,7 @@ internal fun WapiGroupCallDialog(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val engine = remember(group.id, invitation?.callId) { WapiGroupRtcEngine(context, scope) }
     var connecting by remember { mutableStateOf(true) }
-    var status by remember { mutableStateOf("Préparation du réseau WebRTC…") }
+    var status by remember { mutableStateOf("Préparation de l’appel…") }
     var error by remember { mutableStateOf<String?>(null) }
     var microphoneEnabled by remember { mutableStateOf(true) }
     var cameraEnabled by remember { mutableStateOf(requestedVideo || invitation?.video == true) }
@@ -141,7 +141,7 @@ internal fun WapiGroupCallDialog(
                     if (snapshot?.getString("status") == "ended") { status = "Appel terminé"; engine.close() }
                 }
                 connecting = false
-                status = if (radioMode) "Session radio en direct" else "Appel WebRTC sécurisé"
+                status = if (radioMode) "Session radio en direct" else "Appel de groupe sécurisé"
             }
             .onFailure {
                 connecting = false
@@ -189,7 +189,7 @@ internal fun WapiGroupCallDialog(
                         Column(Modifier.align(Alignment.CenterHorizontally), horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.size(118.dp).clip(CircleShape).background(Color.White.copy(alpha = .14f)), contentAlignment = Alignment.Center) { Icon(if (radioMode) Icons.Rounded.Radio else Icons.Rounded.Groups, null, tint = Color.White, modifier = Modifier.size(54.dp)) }
                             Text(if (connecting) "Connexion des participants…" else if (radioMode) "Session radio du groupe" else "Appel audio de groupe", Modifier.padding(top = 14.dp), color = Color.White, fontSize = 18.sp)
-                            Text("WebRTC WAPI · média chiffré de bout en bout", Modifier.padding(top = 6.dp), color = Color.White.copy(alpha = .66f), fontSize = 10.sp)
+                            Text("WAPI · audio et vidéo protégés", Modifier.padding(top = 6.dp), color = Color.White.copy(alpha = .66f), fontSize = 10.sp)
                         }
                     }
                     Spacer(Modifier.weight(1f))

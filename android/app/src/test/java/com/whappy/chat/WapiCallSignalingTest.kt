@@ -52,7 +52,7 @@ class WapiCallSignalingTest {
 
     @Test fun aLateCheckingEventCannotHideAnEstablishedAudioCall() {
         assertFalse(WapiCallSignaling.shouldShowCheckingStatus(true, "Connecté"))
-        assertFalse(WapiCallSignaling.shouldShowCheckingStatus(false, "Connexion du média…"))
-        assertTrue(WapiCallSignaling.shouldShowCheckingStatus(true, "Connexion du média…"))
+        assertFalse(WapiCallSignaling.shouldShowCheckingStatus(false, "Mise en relation…"))
+        assertTrue(WapiCallSignaling.shouldShowCheckingStatus(true, "Mise en relation…"))
     }
 }

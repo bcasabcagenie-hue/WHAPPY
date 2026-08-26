@@ -380,7 +380,7 @@ internal fun WapiNativeLiveRoomDialog(
                     if (live.audioOnly) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.size(104.dp).clip(CircleShape).background(WhappyBlue.copy(alpha = .78f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Radio, null, tint = Color.White, modifier = Modifier.size(50.dp)) }
                         Text(live.hostName, Modifier.padding(top = 12.dp), color = Color.White, fontSize = 18.sp)
-                        Text("Radio en direct · qualité WebRTC", color = Color.White.copy(alpha = .65f), fontSize = 11.sp)
+                        Text("Radio en direct · haute qualité", color = Color.White.copy(alpha = .65f), fontSize = 11.sp)
                     }
                     Spacer(Modifier.weight(1f))
                     LazyColumn(
