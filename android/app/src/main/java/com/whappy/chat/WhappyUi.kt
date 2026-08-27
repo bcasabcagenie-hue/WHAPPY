@@ -3295,14 +3295,17 @@ private fun GamesScreen(
     var gameFilter by rememberSaveable { mutableStateOf("Tous") }
     var xp by rememberSaveable { mutableIntStateOf(gamePrefs.getInt("xp", 0)) }
     var wins by rememberSaveable { mutableIntStateOf(gamePrefs.getInt("wins", 0)) }
-    var dice by rememberSaveable { mutableIntStateOf(0) }
+    var dieOne by rememberSaveable { mutableIntStateOf(0) }
+    var dieTwo by rememberSaveable { mutableIntStateOf(0) }
     var activePlayer by rememberSaveable { mutableIntStateOf(0) }
     // Four real pawns per player. Progress -1 = house, 0..51 = shared
     // circuit, 52..57 = coloured arrival lane.
     var ludoPositions by rememberSaveable { mutableStateOf(List(16) { -1 }) }
     var pendingLudoRoll by rememberSaveable { mutableIntStateOf(0) }
+    var pendingLudoExit by rememberSaveable { mutableStateOf(false) }
+    var pendingLudoExtraTurn by rememberSaveable { mutableStateOf(false) }
     var movableLudoPawns by rememberSaveable { mutableStateOf(emptyList<Int>()) }
-    var ludoLog by rememberSaveable { mutableStateOf("Lancez le dé. Un 6 fait sortir votre pion de la maison.") }
+    var ludoLog by rememberSaveable { mutableStateOf("Lancez les deux dés. Un 6 sur un dé permet de sortir un pion ; un double fait rejouer.") }
     var answer by rememberSaveable { mutableStateOf<String?>(null) }
     var round by rememberSaveable { mutableIntStateOf(1) }
     var diceRolling by rememberSaveable { mutableStateOf(false) }
@@ -3310,7 +3313,7 @@ private fun GamesScreen(
     var showGameGuide by rememberSaveable { mutableStateOf(false) }
     val games = listOf(
         Triple("King QI", "Quiz vocal · contacts · trophées · direct", "♛"),
-        Triple("Ludo WAPI", "Table 3D · dé, pions, captures et arrivée", "🎲"),
+        Triple("Ludo WAPI", "Table 3D · deux dés, pions, captures et arrivée", "🎲"),
         Triple("WAPI Sky", "Course 3D · réflexes et progression", "🚀"),
         Triple("Billard WAPI", "Table 3D · visée, force et collisions", "🎱"),
         Triple("Échecs", "Table 3D · stratégie et IA", "♚"),
@@ -3373,35 +3376,46 @@ private fun GamesScreen(
 
     fun resetLudo() {
         ludoPositions = List(16) { -1 }
-        dice = 0
+        dieOne = 0
+        dieTwo = 0
         activePlayer = 0
         pendingLudoRoll = 0
+        pendingLudoExit = false
+        pendingLudoExtraTurn = false
         movableLudoPawns = emptyList()
         ludoLog = "Nouvelle partie. Sortez sur 6, capturez les adversaires et atteignez l’arrivée."
     }
 
-    fun playLudoTurn(roll: Int, requestedPawn: Int? = null) {
+    fun playLudoTurn(
+        roll: Int,
+        requestedPawn: Int? = null,
+        mayLeaveHome: Boolean = roll == 6,
+        grantsExtraTurn: Boolean = roll == 6,
+    ) {
         WhappySounds.haptic(context)
-        dice = roll
         val player = activePlayer
         val playerName = ludoPlayers[player].first
         val starts = listOf(0, 13, 26, 39)
         val safeSquares = setOf(0, 8, 13, 21, 26, 34, 39, 47)
         val pawns = (player * 4 until player * 4 + 4).filter { index ->
             val progress = ludoPositions[index]
-            (progress < 0 && roll == 6) || (progress in 0..56 && progress + roll <= 57)
+            (progress < 0 && mayLeaveHome) || (progress in 0..56 && progress + roll <= 57)
         }
         if (pawns.isEmpty()) {
             pendingLudoRoll = 0
+            pendingLudoExit = false
+            pendingLudoExtraTurn = false
             movableLudoPawns = emptyList()
-            ludoLog = "$playerName lance $roll, mais aucun pion ne peut avancer. Tour suivant : ${ludoPlayers[nextPlayer(player)].first}."
-            activePlayer = nextPlayer(player)
+            activePlayer = if (grantsExtraTurn) player else nextPlayer(player)
+            ludoLog = "$playerName obtient $roll, mais aucun pion ne peut avancer." + if (grantsExtraTurn) " Double : relancez." else " Tour suivant : ${ludoPlayers[activePlayer].first}."
             return
         }
         if (player == 0 && requestedPawn == null && pawns.size > 1) {
             pendingLudoRoll = roll
+            pendingLudoExit = mayLeaveHome
+            pendingLudoExtraTurn = grantsExtraTurn
             movableLudoPawns = pawns
-            ludoLog = "Vous avez lancé $roll. Choisissez le pion à déplacer."
+            ludoLog = "Total $roll. Choisissez le pion à déplacer."
             WhappySounds.pieceSelected(context)
             return
         }
@@ -3424,12 +3438,12 @@ private fun GamesScreen(
         val current = ludoPositions[pawnIndex]
         val nextPositions = ludoPositions.toMutableList()
         var message: String
-        var extraTurn = roll == 6
+        var extraTurn = grantsExtraTurn
         var captured = false
 
         if (current == -1) {
             nextPositions[pawnIndex] = 0
-            message = "$playerName sort le pion ${(pawnIndex % 4) + 1} avec un 6."
+            message = "$playerName sort le pion ${(pawnIndex % 4) + 1}."
         } else {
             val target = current + roll
             nextPositions[pawnIndex] = target
@@ -3453,9 +3467,11 @@ private fun GamesScreen(
         }
         ludoPositions = nextPositions
         pendingLudoRoll = 0
+        pendingLudoExit = false
+        pendingLudoExtraTurn = false
         movableLudoPawns = emptyList()
         if (captured) WhappySounds.capture(context) else WhappySounds.move(context)
-        if (player == 0 && roll == 6) xp += 10
+        if (player == 0 && grantsExtraTurn) xp += 10
         val playerWon = (player * 4 until player * 4 + 4).all { nextPositions[it] == 57 }
         if (playerWon) {
             if (player == 0) { wins += 1; xp += 150 }
@@ -3475,12 +3491,20 @@ private fun GamesScreen(
         WhappySounds.dice(context)
         gameScope.launch {
             repeat(9) { frame ->
-                dice = ((System.nanoTime() / (frame + 3L)) % 6L).toInt() + 1
+                dieOne = ((System.nanoTime() / (frame + 3L)) % 6L).toInt() + 1
+                dieTwo = ((System.nanoTime() / (frame + 7L) + frame * 3L) % 6L).toInt() + 1
                 delay(48L + frame * 5L)
             }
-            val finalRoll = ((System.nanoTime() / 37L) % 6L).toInt() + 1
-            dice = finalRoll
-            playLudoTurn(finalRoll)
+            val finalOne = ((System.nanoTime() / 37L) % 6L).toInt() + 1
+            val finalTwo = ((System.nanoTime() / 53L + 11L) % 6L).toInt() + 1
+            dieOne = finalOne
+            dieTwo = finalTwo
+            val roll = WapiGameRules.ludoDiceRoll(finalOne, finalTwo)
+            playLudoTurn(
+                roll = roll.total,
+                mayLeaveHome = roll.mayLeaveHome,
+                grantsExtraTurn = roll.grantsExtraTurn,
+            )
             diceRolling = false
         }
     }
@@ -3586,7 +3610,8 @@ private fun GamesScreen(
                                 WapiLudoTabletop3D(
                                     positions = ludoPositions,
                                     activePlayer = activePlayer,
-                                    die = dice.coerceAtLeast(1),
+                                    dieOne = dieOne.coerceAtLeast(1),
+                                    dieTwo = dieTwo.coerceAtLeast(1),
                                     rolling = diceRolling,
                                     modifier = Modifier.fillMaxSize(),
                                 )
@@ -3602,7 +3627,10 @@ private fun GamesScreen(
                                             Text("TOUR DE ${ludoPlayers[activePlayer].first.uppercase()}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                             Text(ludoLog, color = Color.White.copy(alpha = .70f), fontSize = 9.sp, maxLines = 2)
                                         }
-                                        WapiRollingDie(value = dice.coerceAtLeast(1), rolling = diceRolling)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            WapiRollingDie(value = dieOne.coerceAtLeast(1), rolling = diceRolling, dieSize = 38.dp)
+                                            WapiRollingDie(value = dieTwo.coerceAtLeast(1), rolling = diceRolling, dieSize = 38.dp)
+                                        }
                                     }
                                 }
                                 Surface(
@@ -3615,13 +3643,13 @@ private fun GamesScreen(
                                         if (pendingLudoRoll > 0 && movableLudoPawns.isNotEmpty()) {
                                             movableLudoPawns.forEach { pawnIndex ->
                                                 OutlinedButton(
-                                                    onClick = { playLudoTurn(pendingLudoRoll, pawnIndex) },
+                                                    onClick = { playLudoTurn(pendingLudoRoll, pawnIndex, pendingLudoExit, pendingLudoExtraTurn) },
                                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                                 ) { Text("PION ${(pawnIndex % 4) + 1}", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                                             }
                                         } else {
                                             Button(onClick = ::rollLudo, enabled = !diceRolling, modifier = Modifier.width(190.dp).height(48.dp)) {
-                                                Text(if (diceRolling) "LE DÉ ROULE…" else "LANCER LE DÉ", fontWeight = FontWeight.Bold)
+                                                Text(if (diceRolling) "LES DÉS ROULENT…" else "LANCER LES 2 DÉS", fontWeight = FontWeight.Bold)
                                             }
                                         }
                                         OutlinedButton(onClick = ::resetLudo, enabled = !diceRolling, modifier = Modifier.height(48.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") }
@@ -3691,11 +3719,11 @@ private fun WapiGameArenaHeader(title: String, subtitle: String, xp: Int, onClos
 }
 
 @Composable
-private fun WapiRollingDie(value: Int, rolling: Boolean) {
+private fun WapiRollingDie(value: Int, rolling: Boolean, dieSize: Dp = 42.dp) {
     val rotation by animateFloatAsState(if (rolling) 405f else 0f, tween(if (rolling) 440 else 180), label = "wapi-die")
     Box(
-        Modifier.size(54.dp).graphicsLayer { rotationX = rotation; rotationY = rotation * .72f; shadowElevation = 18f; cameraDistance = 14f }
-            .clip(RoundedCornerShape(13.dp)).background(Color.White).border(1.dp, WhappyLine, RoundedCornerShape(13.dp)),
+        Modifier.size(dieSize).graphicsLayer { rotationX = rotation; rotationY = rotation * .72f; shadowElevation = 14f; cameraDistance = 14f }
+            .clip(RoundedCornerShape(dieSize * .23f)).background(Color.White).border(1.dp, WhappyLine, RoundedCornerShape(dieSize * .23f)),
     ) {
         val pips = when (value.coerceIn(1, 6)) {
             1 -> listOf(.5f to .5f)
@@ -3742,7 +3770,7 @@ private fun GameInstructorCard(gameName: String) {
         "Échecs" -> "Touchez une pièce puis sa destination. Les coups illégaux et la mise en échec sont refusés. Utilisez Rejouer pour recommencer la partie."
         "Poker WAPI" -> "Distribuez votre main, observez le flop, le turn et la river, puis choisissez suivre, relancer ou vous coucher. Les jetons sont virtuels."
         "Cartes WAPI" -> "Tirez une carte à chaque manche. La carte la plus forte gagne ; le premier à cinq manches remporte le duel."
-        "Ludo WAPI" -> "Lancez le dé. Un six sort un pion, les cases sûres protègent vos pions et une capture renvoie l’adversaire à la maison."
+        "Ludo WAPI" -> "Lancez les deux dés. Leur total déplace un pion ; un 6 sur un dé permet de sortir de la maison et un double donne une nouvelle lancée. Les cases sûres protègent vos pions."
         "WAPI Sky" -> "Démarrez la course puis touchez la moitié gauche ou droite pour changer de voie et éviter les obstacles."
         else -> "Lisez la consigne, choisissez une réponse puis passez à la manche suivante. Chaque action validée produit un retour sonore et visuel."
     }
@@ -3809,13 +3837,14 @@ private fun GameModeCard(title: String, subtitle: String, category: String, icon
 private fun WapiLudoTabletop3D(
     positions: List<Int>,
     activePlayer: Int,
-    die: Int,
+    dieOne: Int,
+    dieTwo: Int,
     rolling: Boolean,
     modifier: Modifier = Modifier.fillMaxWidth().aspectRatio(1.05f),
 ) {
     AndroidView(
         factory = { context -> WapiTabletop3DView(context) },
-        update = { view -> view.setLudoScene(positions, activePlayer, die, rolling) },
+        update = { view -> view.setLudoScene(positions, activePlayer, dieOne, dieTwo, rolling) },
         modifier = modifier.background(Color(0xFF08111D)),
     )
 }
@@ -4099,11 +4128,23 @@ internal data class WapiPoolBall(
     val pocketed: Boolean = false,
 )
 
-private fun initialPoolBalls(): List<WapiPoolBall> = buildList {
+internal const val WAPI_POOL_WORLD_WIDTH = 10.2f
+internal const val WAPI_POOL_WORLD_HEIGHT = 6.05f
+internal const val WAPI_POOL_BALL_RADIUS = .255f
+
+internal fun wapiPoolDistance(a: WapiPoolBall, b: WapiPoolBall): Float {
+    val dx = (b.x - a.x) * WAPI_POOL_WORLD_WIDTH
+    val dy = (b.y - a.y) * WAPI_POOL_WORLD_HEIGHT
+    return sqrt(dx * dx + dy * dy)
+}
+
+internal fun initialPoolBalls(): List<WapiPoolBall> = buildList {
     add(WapiPoolBall(0, .23f, .50f))
     var id = 1
     for (row in 0..4) for (column in 0..row) {
-        add(WapiPoolBall(id++, .69f + row * .041f, .50f + (column - row / 2f) * .078f))
+        // Equilateral rack in physical table units: no initial overlap and no
+        // explosive separation on the first physics frame.
+        add(WapiPoolBall(id++, .685f + row * .0445f, .50f + (column - row / 2f) * .0865f))
     }
 }
 
@@ -4133,8 +4174,13 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
 
     fun strike() {
         if (physicsRunning || remainingBalls == 0) return
-        val speed = .55f + power * .25f
-        poolBalls = poolBalls.map { ball -> if (ball.id == 0) ball.copy(vx = cos(aimAngle) * speed, vy = sin(aimAngle) * speed) else ball }
+        val speed = 4.1f + power * 1.28f
+        poolBalls = poolBalls.map { ball ->
+            if (ball.id == 0) ball.copy(
+                vx = cos(aimAngle) * speed / WAPI_POOL_WORLD_WIDTH,
+                vy = sin(aimAngle) * speed / WAPI_POOL_WORLD_HEIGHT,
+            ) else ball
+        }
         shots += 1
         physicsRunning = true
         message = "Tir en cours · puissance $power/4"
@@ -4144,15 +4190,14 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
 
     LaunchedEffect(physicsRunning) {
         if (!physicsRunning) return@LaunchedEffect
-        val radius = .034f
         while (physicsRunning) {
             val before = poolBalls
             val next = before.map { ball ->
                 if (ball.pocketed) ball else ball.copy(
                     x = ball.x + ball.vx * .018f,
                     y = ball.y + ball.vy * .018f,
-                    vx = ball.vx * .991f,
-                    vy = ball.vy * .991f,
+                    vx = ball.vx * .993f,
+                    vy = ball.vy * .993f,
                 )
             }.toMutableList()
             var collisionEnergy = 0f
@@ -4160,15 +4205,16 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
                 val ball = next[index]
                 if (ball.pocketed) return@forEach
                 val hitPocket = pockets.any { (px, py) ->
-                    val dx = ball.x - px; val dy = ball.y - py
-                    sqrt(dx * dx + dy * dy) < .065f
+                    val dx = (ball.x - px) * WAPI_POOL_WORLD_WIDTH
+                    val dy = (ball.y - py) * WAPI_POOL_WORLD_HEIGHT
+                    sqrt(dx * dx + dy * dy) < .39f
                 }
                 if (hitPocket) {
                     next[index] = if (ball.id == 0) ball.copy(x = .23f, y = .50f, vx = 0f, vy = 0f)
                     else ball.copy(vx = 0f, vy = 0f, pocketed = true)
                     return@forEach
                 }
-                val minX = .105f; val maxX = .895f; val minY = .135f; val maxY = .865f
+                val minX = .069f; val maxX = .931f; val minY = .101f; val maxY = .899f
                 var x = ball.x; var y = ball.y; var vx = ball.vx; var vy = ball.vy
                 if (x < minX) { x = minX; collisionEnergy = max(collisionEnergy, kotlin.math.abs(vx)); vx = kotlin.math.abs(vx) * .94f }
                 if (x > maxX) { x = maxX; collisionEnergy = max(collisionEnergy, kotlin.math.abs(vx)); vx = -kotlin.math.abs(vx) * .94f }
@@ -4179,20 +4225,35 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
             for (first in next.indices) for (second in first + 1 until next.size) {
                 val a = next[first]; val b = next[second]
                 if (a.pocketed || b.pocketed) continue
-                val dx = b.x - a.x; val dy = b.y - a.y; val distance = sqrt(dx * dx + dy * dy)
-                if (distance > 0f && distance < radius * 2f) {
+                val dx = (b.x - a.x) * WAPI_POOL_WORLD_WIDTH
+                val dy = (b.y - a.y) * WAPI_POOL_WORLD_HEIGHT
+                val distance = wapiPoolDistance(a, b)
+                if (distance > 0f && distance < WAPI_POOL_BALL_RADIUS * 2f) {
                     val nx = dx / distance; val ny = dy / distance
-                    val relative = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
+                    val relative = (b.vx - a.vx) * WAPI_POOL_WORLD_WIDTH * nx +
+                        (b.vy - a.vy) * WAPI_POOL_WORLD_HEIGHT * ny
                     // Separate overlapping balls first; this removes sticking and
                     // repeated jitter when several balls collide in the break.
-                    val correction = ((radius * 2f - distance) * .5f + .0002f)
-                    val separatedA = a.copy(x = a.x - nx * correction, y = a.y - ny * correction)
-                    val separatedB = b.copy(x = b.x + nx * correction, y = b.y + ny * correction)
+                    val correction = ((WAPI_POOL_BALL_RADIUS * 2f - distance) * .5f + .001f)
+                    val separatedA = a.copy(
+                        x = a.x - nx * correction / WAPI_POOL_WORLD_WIDTH,
+                        y = a.y - ny * correction / WAPI_POOL_WORLD_HEIGHT,
+                    )
+                    val separatedB = b.copy(
+                        x = b.x + nx * correction / WAPI_POOL_WORLD_WIDTH,
+                        y = b.y + ny * correction / WAPI_POOL_WORLD_HEIGHT,
+                    )
                     if (relative < 0f) {
                         val impulse = -relative * .97f
                         collisionEnergy = max(collisionEnergy, impulse)
-                        next[first] = separatedA.copy(vx = a.vx - impulse * nx, vy = a.vy - impulse * ny)
-                        next[second] = separatedB.copy(vx = b.vx + impulse * nx, vy = b.vy + impulse * ny)
+                        next[first] = separatedA.copy(
+                            vx = a.vx - impulse * nx / WAPI_POOL_WORLD_WIDTH,
+                            vy = a.vy - impulse * ny / WAPI_POOL_WORLD_HEIGHT,
+                        )
+                        next[second] = separatedB.copy(
+                            vx = b.vx + impulse * nx / WAPI_POOL_WORLD_WIDTH,
+                            vy = b.vy + impulse * ny / WAPI_POOL_WORLD_HEIGHT,
+                        )
                     } else {
                         next[first] = separatedA
                         next[second] = separatedB
@@ -4200,9 +4261,9 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
                 }
             }
             val now = android.os.SystemClock.elapsedRealtime()
-            if (collisionEnergy > .055f && now - lastCollisionSoundAt > 72L) {
+            if (collisionEnergy > .28f && now - lastCollisionSoundAt > 72L) {
                 lastCollisionSoundAt = now
-                WhappySounds.billiardCollision(context, (.22f + collisionEnergy * .45f).coerceAtMost(.66f))
+                WhappySounds.billiardCollision(context, (.20f + collisionEnergy * .07f).coerceAtMost(.66f))
             }
             poolBalls = next
             val newlyPocketed = next.count { it.pocketed } - before.count { it.pocketed }
@@ -4212,8 +4273,14 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
                 WhappySounds.billiardPocket(context)
                 message = "$newlyPocketed bille${if (newlyPocketed > 1) "s" else ""} empochée${if (newlyPocketed > 1) "s" else ""} · +${newlyPocketed * 100} points"
             }
-            val moving = next.any { !it.pocketed && (kotlin.math.abs(it.vx) > .025f || kotlin.math.abs(it.vy) > .025f) }
+            val moving = next.any { ball ->
+                !ball.pocketed && sqrt(
+                    ball.vx * ball.vx * WAPI_POOL_WORLD_WIDTH * WAPI_POOL_WORLD_WIDTH +
+                        ball.vy * ball.vy * WAPI_POOL_WORLD_HEIGHT * WAPI_POOL_WORLD_HEIGHT,
+                ) > .09f
+            }
             if (!moving) {
+                poolBalls = next.map { ball -> if (ball.pocketed) ball else ball.copy(vx = 0f, vy = 0f) }
                 physicsRunning = false
                 if (next.none { it.id != 0 && !it.pocketed }) {
                     onWin()

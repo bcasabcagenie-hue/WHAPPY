@@ -71,11 +71,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.legalTargets = legalTargets.toSet()
     }
 
-    fun setLudoScene(positions: List<Int>, activePlayer: Int, die: Int, rolling: Boolean) {
+    fun setLudoScene(positions: List<Int>, activePlayer: Int, dieOne: Int, dieTwo: Int, rolling: Boolean) {
         tabletopRenderer.scene = Scene.LUDO
         tabletopRenderer.updateLudoPositions(positions)
         tabletopRenderer.activePlayer = activePlayer
-        tabletopRenderer.die = die.coerceIn(1, 6)
+        tabletopRenderer.dieOne = dieOne.coerceIn(1, 6)
+        tabletopRenderer.dieTwo = dieTwo.coerceIn(1, 6)
         tabletopRenderer.dieRolling = rolling
     }
 
@@ -98,12 +99,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 previousX = event.x
                 previousY = event.y
                 tabletopRenderer.beginOrbit()
-                if (tabletopRenderer.scene == Scene.POOL) onPoolGesture?.invoke(event.x / width, event.y / height, false)
+                if (tabletopRenderer.scene == Scene.POOL) dispatchPoolGesture(event, released = false)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (tabletopRenderer.scene == Scene.POOL) {
-                    onPoolGesture?.invoke(event.x / width, event.y / height, false)
+                    dispatchPoolGesture(event, released = false)
                     return true
                 }
                 val dx = event.x - previousX
@@ -117,7 +118,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 performClick()
                 tabletopRenderer.endOrbit()
                 if (tabletopRenderer.scene == Scene.POOL) {
-                    onPoolGesture?.invoke(event.x / width, event.y / height, true)
+                    dispatchPoolGesture(event, released = true)
                 } else if (abs(event.x - downX) + abs(event.y - downY) < 24f && tabletopRenderer.scene != Scene.LUDO) {
                     tabletopRenderer.pickSquare(event.x, event.y)?.let { square ->
                         post { onSquareTapped?.invoke(square) }
@@ -138,6 +139,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         return true
     }
 
+    private fun dispatchPoolGesture(event: MotionEvent, released: Boolean) {
+        tabletopRenderer.pickPoolPoint(event.x, event.y)?.let { point ->
+            onPoolGesture?.invoke(point[0], point[1], released)
+        }
+    }
+
     private data class Mesh(val vertices: FloatBuffer, val count: Int)
     private data class StrategyMove(val from: Int, val to: Int, val startedAtNanos: Long)
     private data class LudoMove(
@@ -155,7 +162,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         @Volatile var legalTargets: Set<Int> = emptySet()
         @Volatile var ludoPositions: List<Int> = emptyList()
         @Volatile var activePlayer: Int = 0
-        @Volatile var die: Int = 1
+        @Volatile var dieOne: Int = 1
+        @Volatile var dieTwo: Int = 1
         @Volatile var dieRolling: Boolean = false
         @Volatile var poolBalls: List<FloatArray> = emptyList()
         @Volatile var poolAim: Float = 0f
@@ -423,6 +431,27 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             return if (row in 0 until dimension && column in 0 until dimension) row * dimension + column else null
         }
 
+        /** Ray-cast the finger onto the physical cloth instead of treating the
+         * perspective screen as a flat normalized table. This keeps cue aiming
+         * accurate on wide phones and foldables. */
+        fun pickPoolPoint(screenX: Float, screenY: Float): FloatArray? {
+            if (width <= 1 || height <= 1) return null
+            val x = screenX / width * 2f - 1f
+            val y = 1f - screenY / height * 2f
+            val near = unproject(x, y, -1f)
+            val far = unproject(x, y, 1f)
+            val dy = far[1] - near[1]
+            if (abs(dy) < .0001f) return null
+            val t = (.18f - near[1]) / dy
+            if (t !in 0f..1f) return null
+            val worldX = near[0] + (far[0] - near[0]) * t
+            val worldZ = near[2] + (far[2] - near[2]) * t
+            return floatArrayOf(
+                (worldX / 10.2f + .5f).coerceIn(.055f, .945f),
+                (worldZ / 6.05f + .5f).coerceIn(.075f, .925f),
+            )
+        }
+
         private fun unproject(x: Float, y: Float, z: Float): FloatArray {
             val input = floatArrayOf(x, y, z, 1f)
             val output = FloatArray(4)
@@ -489,19 +518,22 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
 
         private fun drawChecker(x: Float, z: Float, piece: String, color: FloatArray, accent: FloatArray, selected: Boolean, seconds: Float, scale: Float, movementLift: Float) {
             val lift = (if (selected) (.11f + sin(seconds * 5f) * .035f) * scale else 0f) + movementLift
-            val radius = .43f * scale
-            draw(cylinder, x, .27f + lift, z, radius, .12f * scale, radius, color, .82f, material = 4f)
-            draw(torus, x, .27f + .11f * scale + lift, z, radius * 1.03f, .12f * scale, radius * 1.03f, accent, .92f, material = 4f)
-            draw(cylinder, x, .27f + .13f * scale + lift, z, .35f * scale, .04f * scale, .35f * scale, accent, .90f, material = 4f)
-            draw(cylinder, x, .27f + .17f * scale + lift, z, .27f * scale, .028f * scale, .27f * scale, color, .92f, material = 4f)
+            val radius = .405f * scale
+            draw(cylinder, x, .27f + lift, z, radius, .105f * scale, radius, color, .84f, material = 4f)
+            draw(torus, x, .27f + .10f * scale + lift, z, radius * 1.02f, .085f * scale, radius * 1.02f, accent, .94f, material = 4f)
+            draw(cylinder, x, .27f + .12f * scale + lift, z, .34f * scale, .035f * scale, .34f * scale, accent, .91f, material = 4f)
+            // Concentric moulded grooves catch the light like a polished
+            // tournament checker instead of a flat coloured cylinder.
+            draw(torus, x, .27f + .158f * scale + lift, z, .275f * scale, .025f * scale, .275f * scale, color, .96f, material = 4f)
+            draw(torus, x, .27f + .166f * scale + lift, z, .185f * scale, .018f * scale, .185f * scale, accent, .97f, material = 4f)
             if (piece == "W" || piece == "B") {
                 val gold = floatArrayOf(1f, .67f, .08f, 1f)
-                draw(cylinder, x, .27f + .24f * scale + lift, z, .31f * scale, .05f * scale, .31f * scale, gold, .88f)
-                repeat(5) { point ->
-                    val angle = point * Math.PI * 2.0 / 5.0
-                    draw(cone, x + cos(angle).toFloat() * .21f * scale, .27f + .35f * scale + lift, z + sin(angle).toFloat() * .21f * scale, .08f * scale, .14f * scale, .08f * scale, gold, .86f)
-                }
-                draw(sphere, x, .27f + .34f * scale + lift, z, .09f * scale, .09f * scale, .09f * scale, gold, .95f)
+                // A king is represented by a second stacked checker, the
+                // convention used by physical draughts sets, with a gold inlay.
+                draw(cylinder, x, .27f + .285f * scale + lift, z, radius * .96f, .095f * scale, radius * .96f, color, .88f, material = 4f)
+                draw(torus, x, .27f + .375f * scale + lift, z, radius * .98f, .075f * scale, radius * .98f, accent, .96f, material = 4f)
+                draw(cylinder, x, .27f + .395f * scale + lift, z, .27f * scale, .024f * scale, .27f * scale, gold, .91f, material = 3f)
+                draw(torus, x, .27f + .425f * scale + lift, z, .18f * scale, .022f * scale, .18f * scale, gold, .97f, material = 3f)
             }
         }
 
@@ -656,15 +688,17 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                     )
                 }
             }
-            // The die is a real part of the tabletop, not a small HUD icon.
-            // Keep it above the centre lane, with a shadow, enough volume and
-            // oversized pips so the result remains readable on a phone.
+            // Two correctly proportioned dice: separate bodies, independent
+            // values and a shared physical roll above the centre lane.
             val spin = if (dieRolling) seconds * 470f else 0f
-            val dieY = 1.18f + if (dieRolling) abs(sin(seconds * 9f)) * .68f else 0f
-            if (!dieRolling) drawSoftShadow(0f, 0f, .48f)
-            draw(cube, 0f, dieY, 0f, .49f, .49f, .49f, floatArrayOf(.78f, .84f, .91f, 1f), .55f, rotationX = spin, rotationY = spin * .73f)
-            draw(cube, 0f, dieY, 0f, .455f, .485f, .455f, floatArrayOf(.995f, .998f, 1f, 1f), .92f, rotationX = spin, rotationY = spin * .73f)
-            if (!dieRolling) drawDiePips(die, dieY + .495f)
+            val dieY = .88f + if (dieRolling) abs(sin(seconds * 9f)) * .52f else 0f
+            listOf(-.40f to dieOne, .40f to dieTwo).forEachIndexed { index, (dieX, value) ->
+                val localSpin = spin * if (index == 0) 1f else -.83f
+                if (!dieRolling) drawSoftShadow(dieX, 0f, .28f)
+                draw(cube, dieX, dieY, 0f, .30f, .30f, .30f, floatArrayOf(.78f, .84f, .91f, 1f), .55f, rotationX = localSpin, rotationY = localSpin * .73f)
+                draw(cube, dieX, dieY, 0f, .278f, .292f, .278f, floatArrayOf(.995f, .998f, 1f, 1f), .92f, rotationX = localSpin, rotationY = localSpin * .73f)
+                if (!dieRolling) drawDiePips(value, dieX, 0f, dieY + .298f, .62f)
+            }
         }
 
         private fun drawPool(seconds: Float) {
@@ -756,7 +790,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             draw(sphere, x, .77f + lift, z, .16f, .16f, .16f, color, .96f, material = 4f)
         }
 
-        private fun drawDiePips(value: Int, topY: Float) {
+        private fun drawDiePips(value: Int, centerX: Float, centerZ: Float, topY: Float, scale: Float = 1f) {
             val pip = floatArrayOf(.018f, .024f, .040f, 1f)
             val points = when (value) {
                 1 -> listOf(0f to 0f)
@@ -766,7 +800,9 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 5 -> listOf(-.14f to -.14f, .14f to -.14f, 0f to 0f, -.14f to .14f, .14f to .14f)
                 else -> listOf(-.14f to -.16f, .14f to -.16f, -.14f to 0f, .14f to 0f, -.14f to .16f, .14f to .16f)
             }
-            points.forEach { (x, z) -> draw(sphere, x, topY, z, .072f, .035f, .072f, pip, .88f, material = 3f) }
+            points.forEach { (x, z) ->
+                draw(sphere, centerX + x * scale, topY, centerZ + z * scale, .054f * scale, .025f * scale, .054f * scale, pip, .88f, material = 3f)
+            }
         }
 
         private fun drawSoftShadow(x: Float, z: Float, radius: Float) {

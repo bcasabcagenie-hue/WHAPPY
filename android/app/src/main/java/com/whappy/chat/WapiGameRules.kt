@@ -20,12 +20,34 @@ data class WapiCheckersRules(
     val flyingKings: Boolean = false,
 )
 
+data class WapiLudoDiceRoll(
+    val dieOne: Int,
+    val dieTwo: Int,
+    val total: Int,
+    val mayLeaveHome: Boolean,
+    val grantsExtraTurn: Boolean,
+)
+
 object WapiGameRules {
     private val whiteChess = setOf("♙", "♖", "♘", "♗", "♕", "♔")
     private val blackChess = setOf("♟", "♜", "♞", "♝", "♛", "♚")
 
     fun isWhite(piece: String): Boolean = piece in whiteChess || piece in setOf("w", "W")
     fun isBlack(piece: String): Boolean = piece in blackChess || piece in setOf("b", "B")
+
+    /** WAPI two-dice Ludo preset: totals move one pawn, any six opens
+     * the house and doubles earn another roll. */
+    fun ludoDiceRoll(dieOne: Int, dieTwo: Int): WapiLudoDiceRoll {
+        require(dieOne in 1..6 && dieTwo in 1..6)
+        val total = dieOne + dieTwo
+        return WapiLudoDiceRoll(
+            dieOne = dieOne,
+            dieTwo = dieTwo,
+            total = total,
+            mayLeaveHome = dieOne == 6 || dieTwo == 6 || total == 6,
+            grantsExtraTurn = dieOne == dieTwo,
+        )
+    }
 
     fun chessMove(board: List<String>, from: Int, to: Int, whiteTurn: Boolean): WapiMoveResult? {
         if (board.size != 64 || from !in board.indices || to !in board.indices || from == to) return null

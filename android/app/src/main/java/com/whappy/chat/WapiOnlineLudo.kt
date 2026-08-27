@@ -47,7 +47,8 @@ fun WapiOnlineLudoCard(userId: String, userName: String) {
     var positions by remember { mutableStateOf(listOf(-1, -1, -1, -1)) }
     var turnUid by remember { mutableStateOf("") }
     var roomStatus by remember { mutableStateOf("") }
-    var dice by remember { mutableIntStateOf(0) }
+    var dieOne by remember { mutableIntStateOf(0) }
+    var dieTwo by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Créez une salle ou entrez le code d’un ami.") }
 
@@ -64,7 +65,9 @@ fun WapiOnlineLudoCard(userId: String, userName: String) {
             positions = (snapshot.get("positions") as? List<*>)?.map { (it as? Number)?.toInt() ?: -1 }?.let { it + List((4 - it.size).coerceAtLeast(0)) { -1 } }?.take(4) ?: listOf(-1, -1, -1, -1)
             turnUid = snapshot.getString("turnUid").orEmpty()
             roomStatus = snapshot.getString("status").orEmpty()
-            dice = snapshot.getLong("lastDice")?.toInt() ?: 0
+            val legacyDie = snapshot.getLong("lastDice")?.toInt() ?: 0
+            dieOne = snapshot.getLong("lastDieOne")?.toInt() ?: legacyDie
+            dieTwo = snapshot.getLong("lastDieTwo")?.toInt() ?: 0
             message = snapshot.getString("lastAction") ?: if (roomStatus == "waiting") "En attente d’un autre joueur…" else "À ${players.firstOrNull { it.id == turnUid }?.name ?: "un joueur"} de jouer."
         }
         onDispose { registration.remove() }
@@ -86,6 +89,8 @@ fun WapiOnlineLudoCard(userId: String, userName: String) {
                         "positions" to listOf(-1, -1, -1, -1),
                         "turnUid" to userId,
                         "lastDice" to 0,
+                        "lastDieOne" to 0,
+                        "lastDieTwo" to 0,
                         "lastAction" to "Salle créée · partagez le code $code",
                         "createdAt" to FieldValue.serverTimestamp(),
                         "updatedAt" to FieldValue.serverTimestamp(),
@@ -130,17 +135,27 @@ fun WapiOnlineLudoCard(userId: String, userName: String) {
         if (index < 0) return
         scope.launch {
             busy = true
-            val roll = Random.nextInt(1, 7)
+            val firstDie = Random.nextInt(1, 7)
+            val secondDie = Random.nextInt(1, 7)
+            val roll = WapiGameRules.ludoDiceRoll(firstDie, secondDie)
             val next = positions.toMutableList()
-            next[index] = if (next[index] < 0) if (roll == 6) 0 else -1 else (next[index] + roll).coerceAtMost(52)
+            next[index] = if (next[index] < 0) {
+                if (roll.mayLeaveHome) 0 else -1
+            } else {
+                (next[index] + roll.total).coerceAtMost(52)
+            }
             val nextPlayer = players[(index + 1) % players.size]
             runCatching {
                 firestore.collection("gameRooms").document(roomCode).update(
                     mapOf(
                         "positions" to next,
-                        "turnUid" to if (roll == 6) userId else nextPlayer.id,
-                        "lastDice" to roll,
-                        "lastAction" to "${players[index].name} a obtenu $roll.",
+                        "turnUid" to if (roll.grantsExtraTurn) userId else nextPlayer.id,
+                        // Keep the total for older clients while new clients render
+                        // the two physical dice independently.
+                        "lastDice" to roll.total,
+                        "lastDieOne" to firstDie,
+                        "lastDieTwo" to secondDie,
+                        "lastAction" to "${players[index].name} a obtenu $firstDie + $secondDie = ${roll.total}${if (roll.grantsExtraTurn) " · double, rejouez" else ""}.",
                         "updatedAt" to FieldValue.serverTimestamp(),
                     ),
                 ).await()
@@ -164,7 +179,9 @@ fun WapiOnlineLudoCard(userId: String, userName: String) {
             } else {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text("SALLE $roomCode", color = WhappyDark, fontWeight = androidx.compose.ui.text.font.FontWeight.Black); Text("${players.size}/4 joueurs · ${if (roomStatus == "waiting") "En attente" else "Partie active"}", color = WhappyMuted, fontSize = 11.sp) }
-                    Button(onClick = ::roll, enabled = roomStatus == "playing" && turnUid == userId && !busy, colors = ButtonDefaults.buttonColors(containerColor = WhappyBlue), modifier = Modifier.size(104.dp, 46.dp), shape = RoundedCornerShape(13.dp)) { Text(if (dice == 0) "DÉ" else "DÉ $dice") }
+                    Button(onClick = ::roll, enabled = roomStatus == "playing" && turnUid == userId && !busy, colors = ButtonDefaults.buttonColors(containerColor = WhappyBlue), modifier = Modifier.size(124.dp, 46.dp), shape = RoundedCornerShape(13.dp)) {
+                        Text(if (dieOne == 0 || dieTwo == 0) "2 DÉS" else "$dieOne  +  $dieTwo")
+                    }
                 }
                 Text(players.joinToString(" · ") { it.name }, color = WhappyDark, fontSize = 11.sp)
                 Text(message, color = WhappyMuted, fontSize = 11.sp)

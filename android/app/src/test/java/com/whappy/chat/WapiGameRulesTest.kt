@@ -4,6 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class WapiGameRulesTest {
@@ -59,5 +60,30 @@ class WapiGameRulesTest {
         assertNotNull(second)
         assertTrue(second!!.captured)
         assertFalse(second.board.contains("b"))
+    }
+
+    @Test fun twoDiceLudoUsesBothDiceAndRewardsDoubles() {
+        val regular = WapiGameRules.ludoDiceRoll(2, 5)
+        assertEquals(7, regular.total)
+        assertFalse(regular.mayLeaveHome)
+        assertFalse(regular.grantsExtraTurn)
+
+        val double = WapiGameRules.ludoDiceRoll(6, 6)
+        assertEquals(12, double.total)
+        assertTrue(double.mayLeaveHome)
+        assertTrue(double.grantsExtraTurn)
+    }
+
+    @Test fun professionalPoolRackStartsWithoutOverlappingBalls() {
+        val balls = initialPoolBalls()
+        assertEquals(16, balls.size)
+        balls.indices.forEach { first ->
+            (first + 1 until balls.size).forEach { second ->
+                assertTrue(
+                    "balls ${balls[first].id} and ${balls[second].id} overlap",
+                    wapiPoolDistance(balls[first], balls[second]) >= WAPI_POOL_BALL_RADIUS * 2f - .015f,
+                )
+            }
+        }
     }
 }
