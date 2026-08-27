@@ -59,6 +59,14 @@ fi
 systemctl enable coturn
 systemctl restart coturn
 
+# Coturn's alternate port is intended for RFC 5780 and is not bound on every
+# distribution with a single listening address. Keep the production fallback
+# deterministic by forwarding 443 to the authenticated TURN listener.
+iptables -t nat -C PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 3478 2>/dev/null \
+  || iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 3478
+iptables -t nat -C PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 3478 2>/dev/null \
+  || iptables -t nat -A PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 3478
+
 for attempt in {1..20}; do
   if systemctl is-active --quiet coturn && ss -lntup | grep -qE ':3478|:443'; then
     echo "WAPI TURN active on ${external_ip}"
