@@ -115,8 +115,13 @@ class WhappyViewModel(
             onChange = { messages ->
                 remoteConversationMessages = messages
                 _uiState.update { it.copy(messages = messages, loading = false, online = true) }
-                refreshPendingMessages(conversation.id, user.uid)
-                viewModelScope.launch { runCatching { repository.markRead(conversation.id, user.uid, conversation.source) } }
+                viewModelScope.launch {
+                    // Remove custom outbox entries already represented by
+                    // Firestore before recomputing the pending indicator.
+                    runCatching { repository.acknowledgeDeliveredMessages(messages.map { it.id }) }
+                    refreshPendingMessages(conversation.id, user.uid)
+                    runCatching { repository.markRead(conversation.id, user.uid, conversation.source) }
+                }
             },
             onError = {
                 _uiState.update {

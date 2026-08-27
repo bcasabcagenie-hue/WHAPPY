@@ -82,6 +82,15 @@ class WhappyRepository(
             }
             .toList()
 
+    /**
+     * Firestore's local listener is durable: once a message id is visible there,
+     * keeping the same item in WAPI's custom outbox would create a false offline
+     * warning and a second retry path. Reconcile both stores by id.
+     */
+    suspend fun acknowledgeDeliveredMessages(messageIds: Collection<String>) {
+        messageOutbox.removeAll(messageIds)
+    }
+
     fun cachedMessages(conversationId: String, source: String = "conversations"): List<WhappyMessage> =
         messageCache.read(conversationId, source)
 
@@ -950,7 +959,9 @@ class WhappyRepository(
             val file = File(message.localMediaPath)
             require(file.isFile && file.length() > 0L) { "attachment-missing" }
             val extension = message.mediaName.substringAfterLast('.', "bin").take(8)
-            val objectName = "${System.currentTimeMillis()}-${UUID.randomUUID()}.$extension"
+            // A stable object name makes media retries idempotent. A timeout can
+            // no longer create several remote copies of the same voice note or photo.
+            val objectName = "${message.id}.$extension"
             val objectRef = storage.reference.child("$root/${message.conversationId}/${message.senderId}/$objectName")
             objectRef.putFile(
                 Uri.fromFile(file),
@@ -958,37 +969,43 @@ class WhappyRepository(
             ).await()
             objectRef.downloadUrl.await().toString()
         } else ""
-        conversation.collection("messages").document(message.id).set(
-            buildMap<String, Any> {
-                put("text", message.text)
-                put("senderId", message.senderId)
-                if (message.source == "groups") put("senderName", message.senderName)
-                if (message.source == "groups" && message.senderPhotoUrl.startsWith("https://")) put("senderPhotoUrl", message.senderPhotoUrl.take(2_000))
-                put("createdAt", Timestamp(Date(message.createdAt)))
-                put("clientMessageId", message.id)
-                if (message.kind != "text") {
-                    put("kind", message.kind)
-                    put("mediaUrl", mediaUrl)
-                    put("mediaName", message.mediaName)
-                    put("duration", message.durationSeconds)
-                    put("mediaSizeBytes", message.mediaSizeBytes)
-                    put("mediaSha256", message.mediaSha256)
-                    if (message.viewOnce) put("viewOnce", true)
-                }
-                if (message.replyToId.isNotBlank()) {
-                    put("replyToId", message.replyToId)
-                    put("replyText", message.replyText)
-                }
-            },
-        ).await()
-        conversation.update(buildMap<String, Any> {
+        val messageReference = conversation.collection("messages").document(message.id)
+        val messagePayload = buildMap<String, Any> {
+            put("text", message.text)
+            put("senderId", message.senderId)
+            if (message.source == "groups") put("senderName", message.senderName)
+            if (message.source == "groups" && message.senderPhotoUrl.startsWith("https://")) put("senderPhotoUrl", message.senderPhotoUrl.take(2_000))
+            put("createdAt", Timestamp(Date(message.createdAt)))
+            put("clientMessageId", message.id)
+            if (message.kind != "text") {
+                put("kind", message.kind)
+                put("mediaUrl", mediaUrl)
+                put("mediaName", message.mediaName)
+                put("duration", message.durationSeconds)
+                put("mediaSizeBytes", message.mediaSizeBytes)
+                put("mediaSha256", message.mediaSha256)
+                if (message.viewOnce) put("viewOnce", true)
+            }
+            if (message.replyToId.isNotBlank()) {
+                put("replyToId", message.replyToId)
+                put("replyText", message.replyText)
+            }
+        }
+        val conversationPayload = buildMap<String, Any> {
             put("lastMessage", message.text)
             put("lastSenderId", message.senderId)
             put("updatedAt", FieldValue.serverTimestamp())
             if (message.source != "groups") {
                 put("typingBy.${message.senderId}", false)
             }
-        }).await()
+        }
+        // The message and its conversation summary must succeed or fail together.
+        // Previously, the message could be written while the summary timed out,
+        // leaving an already-sent item incorrectly marked as offline.
+        db.batch().apply {
+            set(messageReference, messagePayload)
+            update(conversation, conversationPayload)
+        }.commit().await()
     }
 
     suspend fun markViewOnceOpened(conversationId: String, messageId: String, userId: String, source: String = "conversations") {

@@ -1295,6 +1295,7 @@ private fun WhappyMain(
                     conversation = selected,
                     messages = if (preview) demoMessages + previewMessages else state.messages,
                     currentUserId = state.user?.uid ?: "demo-user",
+                    online = preview || state.online,
                     loading = state.loading,
                     sending = state.sending,
                     groupBusy = state.actionBusy,
@@ -6549,6 +6550,7 @@ private fun ChatScreen(
     messages: List<WhappyMessage>,
     storyStatuses: List<WhappyStatus>,
     currentUserId: String,
+    online: Boolean,
     loading: Boolean,
     sending: Boolean,
     groupBusy: Boolean,
@@ -7047,20 +7049,20 @@ private fun ChatScreen(
             }
         }
         val pendingCount = messages.count { it.deliveryState != "sent" }
-        if (pendingCount > 0) {
+        if (pendingCount > 0 && !online) {
             Row(
-                Modifier.fillMaxWidth().background(WhappyBlue.copy(alpha = .08f)).padding(horizontal = 14.dp, vertical = 7.dp),
+                Modifier.fillMaxWidth().background(WhappyBlue.copy(alpha = .06f)).padding(horizontal = 14.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Rounded.Schedule, null, tint = WhappyBlue, modifier = Modifier.size(17.dp))
                 Text(
-                    "$pendingCount message${if (pendingCount > 1) "s" else ""} enregistré${if (pendingCount > 1) "s" else ""} hors connexion · envoi automatique",
+                    "Connexion en attente",
                     Modifier.weight(1f).padding(horizontal = 9.dp),
                     color = WhappyBlue,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                TextButton(onClick = onRetryPending) { Text("Réessayer maintenant") }
+                TextButton(onClick = onRetryPending) { Text("Réessayer") }
             }
         }
         if (loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WhappyBlue) }

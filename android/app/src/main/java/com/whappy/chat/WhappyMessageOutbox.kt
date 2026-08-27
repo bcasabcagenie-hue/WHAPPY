@@ -91,6 +91,20 @@ class WhappyMessageOutbox(context: Context) : SQLiteOpenHelper(
         writableDatabase.delete("message_outbox", "id = ?", arrayOf(id))
     }
 
+    suspend fun removeAll(ids: Collection<String>) = withContext(Dispatchers.IO) {
+        val deliveredIds = ids.asSequence().filter(String::isNotBlank).distinct().toList()
+        if (deliveredIds.isEmpty()) return@withContext
+        writableDatabase.beginTransaction()
+        try {
+            deliveredIds.forEach { id ->
+                writableDatabase.delete("message_outbox", "id = ?", arrayOf(id))
+            }
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
+    }
+
     suspend fun markAttempt(id: String) = withContext(Dispatchers.IO) {
         writableDatabase.execSQL(
             "UPDATE message_outbox SET attempts = attempts + 1 WHERE id = ?",
