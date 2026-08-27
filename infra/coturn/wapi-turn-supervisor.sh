@@ -8,11 +8,39 @@ wapi_pid_path="${wapi_state_root}/turnserver.pid"
 wapi_public_ip_path="${wapi_state_root}/public-ip"
 wapi_relay_min_port=49160
 wapi_relay_max_port=49200
-wapi_heartbeat_seconds=240
+wapi_heartbeat_seconds="${WAPI_TURN_HEARTBEAT_SECONDS:-60}"
 wapi_turnserver_bin="${WAPI_TURNSERVER_BIN:-/opt/homebrew/bin/turnserver}"
 wapi_gcloud_bin="${WAPI_GCLOUD_BIN:-/opt/homebrew/bin/gcloud}"
 wapi_jq_bin="${WAPI_JQ_BIN:-/usr/bin/jq}"
 wapi_curl_bin="${WAPI_CURL_BIN:-/usr/bin/curl}"
+
+discover_public_ip() {
+  local wapi_service wapi_candidate=""
+  # Do not make the relay depend on one free IP-discovery provider. Some
+  # Congolese mobile/ISP routes intermittently fail DNS or TLS to a provider.
+  for wapi_service in \
+    "https://api.ipify.org" \
+    "https://checkip.amazonaws.com" \
+    "https://ifconfig.me/ip"; do
+    wapi_candidate=$($wapi_curl_bin -fsS --connect-timeout 3 --max-time 6 "$wapi_service" 2>/dev/null || true)
+    wapi_candidate="${wapi_candidate//$'\n'/}"
+    if print -r -- "$wapi_candidate" | /usr/bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+      print -r -- "$wapi_candidate"
+      return 0
+    fi
+  done
+
+  # A short provider outage must not stop heartbeats for a relay which is
+  # already running on the same Internet connection.
+  if [[ -r "$wapi_public_ip_path" ]]; then
+    wapi_candidate=$(/bin/cat "$wapi_public_ip_path" 2>/dev/null || true)
+    if print -r -- "$wapi_candidate" | /usr/bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+      print -r -- "$wapi_candidate"
+      return 0
+    fi
+  fi
+  return 1
+}
 
 require_executable() {
   if [[ ! -x "$1" ]]; then
@@ -24,20 +52,20 @@ require_executable() {
 current_network() {
   local wapi_interface wapi_candidate_interface wapi_lan_ip="" wapi_public_ip
   wapi_interface=$(/usr/sbin/route -n get default 2>/dev/null | /usr/bin/awk '/interface:/{print $2; exit}')
-  for wapi_candidate_interface in "$wapi_interface" en0 en1 en2; do
+  for wapi_candidate_interface in "$wapi_interface" en0 en1 en2 en3 en4 en5 en6 en7 en8 en9; do
     [[ -n "$wapi_candidate_interface" ]] || continue
     wapi_lan_ip=$(/usr/sbin/ipconfig getifaddr "$wapi_candidate_interface" 2>/dev/null || true)
     if print -r -- "$wapi_lan_ip" | /usr/bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
       break
     fi
   done
-  wapi_public_ip=$($wapi_curl_bin -fsS --max-time 10 https://api.ipify.org)
+  wapi_public_ip=$(discover_public_ip || true)
   if ! print -r -- "$wapi_lan_ip" | /usr/bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
     print -u2 "WAPI TURN: adresse LAN indisponible"
     return 1
   fi
   if ! print -r -- "$wapi_public_ip" | /usr/bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
-    print -u2 "WAPI TURN: adresse publique indisponible"
+    print -u2 "WAPI TURN: adresse publique indisponible auprès des trois relais de découverte"
     return 1
   fi
   print -r -- "${wapi_lan_ip}|${wapi_public_ip}"

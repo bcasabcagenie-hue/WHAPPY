@@ -35,11 +35,14 @@ WAPI existante, sans abonnement média. Il limite volontairement la plage relais
 2. Remplacer l'IP d'exemple par l'IP publique de la connexion.
 3. Générer un secret aléatoire d'au moins 64 caractères.
 4. Lancer le service avec le fichier macOS.
-5. Autoriser explicitement les mêmes ports dans le pare-feu macOS et le routeur.
+5. Réserver l'adresse LAN du Mac dans le DHCP du routeur.
+6. Autoriser explicitement les mêmes ports dans le pare-feu macOS et le routeur.
 
 Cette option exige que le Mac reste allumé et que son IP publique reste stable.
-Sans redirection des ports du routeur, le relais fonctionne seulement sur le réseau
-local et ne peut pas fiabiliser les appels entre deux réseaux mobiles.
+Sans réservation DHCP et redirection des ports du routeur, le relais fonctionne
+seulement sur le réseau local et ne peut pas fiabiliser les appels entre deux
+réseaux mobiles. La réservation évite que la redirection continue de viser une
+ancienne adresse après une reconnexion du Mac.
 
 ### Service natif recommandé sur ce Mac
 
@@ -55,8 +58,10 @@ Le superviseur :
 
 - récupère le secret partagé depuis Firebase Secret Manager sans l’afficher ;
 - redémarre coturn lorsque l’adresse LAN ou publique change ;
-- publie toutes les quatre minutes un heartbeat privé dans
+- publie toutes les minutes un heartbeat privé dans
   `systemConfig/webrtcRelay` ;
+- utilise plusieurs services de découverte d'IP publique et conserve la
+  dernière adresse valide pendant une panne temporaire d'un fournisseur ;
 - fait expirer automatiquement l’adresse annoncée aux applications après douze
   minutes sans heartbeat ;
 - laisse la fonction Firebase tester le port TURN TCP depuis Internet avant de
