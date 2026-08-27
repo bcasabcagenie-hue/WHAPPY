@@ -15,6 +15,21 @@ private let wapiDirectCallCategory = "WAPI_DIRECT_CALL"
 private let wapiAcceptCallAction = "WAPI_ACCEPT_CALL"
 private let wapiDeclineCallAction = "WAPI_DECLINE_CALL"
 
+@MainActor
+enum WapiOrientation {
+    static var supported: UIInterfaceOrientationMask = .portrait
+
+    static func request(_ mask: UIInterfaceOrientationMask) {
+        supported = mask
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) else { return }
+        scene.windows.first(where: \.isKeyWindow)?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+    }
+}
+
 enum WapiSounds {
     private static var lastTypingAt = Date.distantPast
     private static var gamePlayers: [String: AVAudioPlayer] = [:]
@@ -83,6 +98,10 @@ enum WapiSounds {
 }
 
 final class WapiAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNotificationCenterDelegate {
+    func application(_: UIApplication, supportedInterfaceOrientationsFor _: UIWindow?) -> UIInterfaceOrientationMask {
+        WapiOrientation.supported
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         if FirebaseApp.app() == nil { FirebaseApp.configure() }
         Messaging.messaging().delegate = self

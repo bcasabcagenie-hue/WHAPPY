@@ -27,6 +27,14 @@ extension WhappyStore {
     func configureFirebaseMessaging() {
         if FirebaseApp.app() == nil { FirebaseApp.configure() }
         Auth.auth().languageCode = "fr"
+        // Firebase Auth restores the last signed-in user from the Keychain
+        // synchronously. Let the native shell open immediately and refresh
+        // Firestore in background instead of showing a connection interstitial
+        // on every cold launch.
+        if let cachedUser = Auth.auth().currentUser {
+            firebaseUserID = cachedUser.uid
+            firebaseSessionLoading = false
+        }
         firebaseAuthHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
                 guard let self else { return }

@@ -2986,9 +2986,13 @@ struct GamesView: View {
             }.padding()
         }.background(Color.whappyBackground).navigationTitle("Jeux")
             .fullScreenCover(item: $launchedGame) { game in
-                if game.name == "King QI" { KingQiIOSView() }
-                else if ["Ludo WAPI", "Billard WAPI", "Échecs WAPI", "Jeu de dames", "Cartes WAPI", "Poker WAPI"].contains(game.name) { WapiIOSTabletopGame(game: game, score: $score, streak: $streak) }
-                else { WapiIOSArcadeGame(game: game, score: $score, streak: $streak) }
+                Group {
+                    if game.name == "King QI" { KingQiIOSView() }
+                    else if ["Ludo WAPI", "Billard WAPI", "Échecs WAPI", "Jeu de dames", "Cartes WAPI", "Poker WAPI"].contains(game.name) { WapiIOSTabletopGame(game: game, score: $score, streak: $streak) }
+                    else { WapiIOSArcadeGame(game: game, score: $score, streak: $streak) }
+                }
+                .onAppear { WapiOrientation.request(.landscape) }
+                .onDisappear { WapiOrientation.request(.portrait) }
             }
     }
 }

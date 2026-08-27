@@ -20,7 +20,8 @@ import kotlinx.coroutines.launch
 class WhappyViewModel(
     private val repository: WhappyRepository = WhappyRepository(),
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(WhappyUiState(user = repository.currentUser(), sessionRestoring = true))
+    private val initialUser = repository.currentUser()
+    private val _uiState = MutableStateFlow(warmSessionState(initialUser))
     val uiState: StateFlow<WhappyUiState> = _uiState.asStateFlow()
 
     private var conversationsListener: ListenerRegistration? = null
@@ -1117,7 +1118,16 @@ class WhappyViewModel(
         radioEpisodesListener = null
         twinAutomationsListener = null
         twinRendersListener = null
-        _uiState.update { WhappyUiState(user = user, loading = user != null, sessionRestoring = user != null) }
+        _uiState.update { current ->
+            if (user != null && current.user?.uid == user.uid) {
+                // Firebase Auth persists the signed-in account locally. Keep the
+                // already visible WAPI shell while Firestore refreshes the
+                // profile and conversations in background.
+                current.copy(user = user, loading = current.conversations.isEmpty(), sessionRestoring = false)
+            } else {
+                warmSessionState(user)
+            }
+        }
         if (user == null) {
             _uiState.update { it.copy(sessionRestoring = false) }
             return
@@ -1218,6 +1228,23 @@ class WhappyViewModel(
             user.uid,
             onChange = { items -> _uiState.update { it.copy(twinRenders = items, online = true) } },
             onError = { _uiState.update { it.copy(online = false) } },
+        )
+    }
+
+    private fun warmSessionState(user: com.google.firebase.auth.FirebaseUser?): WhappyUiState {
+        if (user == null) return WhappyUiState(user = null, loading = false, sessionRestoring = true)
+        val displayName = AccountSessionPolicy.displayName(
+            resolvedName = user.displayName.orEmpty(),
+            phoneNumber = user.phoneNumber.orEmpty(),
+            creationTimestamp = user.metadata?.creationTimestamp ?: 0L,
+        )
+        return WhappyUiState(
+            user = user,
+            accountDisplayName = displayName,
+            accountPhotoUrl = user.photoUrl?.toString().orEmpty(),
+            accountVerified = WhappyIdentity.isFounder(user.phoneNumber.orEmpty()),
+            loading = true,
+            sessionRestoring = false,
         )
     }
 

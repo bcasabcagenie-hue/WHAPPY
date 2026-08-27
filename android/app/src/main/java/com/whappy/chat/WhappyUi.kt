@@ -2542,6 +2542,7 @@ private fun wepiFailureMessage(error: Throwable): String {
     val remote = error as? FirebaseFunctionsException
     return when (remote?.code?.name) {
         "UNAUTHENTICATED", "PERMISSION_DENIED" -> "Votre session WAPI doit être actualisée avant de continuer avec WIA."
+        "FAILED_PRECONDITION" -> "La liaison sécurisée entre WIA et Pilotis doit être renouvelée. Votre conversation reste enregistrée."
         "RESOURCE_EXHAUSTED" -> "WIA traite beaucoup de demandes. Patientez quelques secondes puis renvoyez votre message."
         "DEADLINE_EXCEEDED", "UNAVAILABLE" -> "La connexion avec WIA a été interrompue. Votre message est conservé : renvoyez-le lorsque le réseau revient."
         "NOT_FOUND" -> "WIA se met à jour. Réessayez dans quelques instants."
@@ -3341,7 +3342,6 @@ private fun GamesScreen(
     val gameActivity = remember(context) { context.findActivity() }
     DisposableEffect(gameOpen, gameActivity) {
         val activity = gameActivity
-        val previousOrientation = activity?.requestedOrientation
         if (gameOpen && activity != null) {
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             WindowCompat.setDecorFitsSystemWindows(activity.window, false)
@@ -3349,13 +3349,21 @@ private fun GamesScreen(
                 hide(WindowInsetsCompat.Type.systemBars())
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
+        } else if (activity != null) {
+            // A landscape request can recreate the Activity. Never reuse the
+            // recreated Activity's "previous" value because it is landscape;
+            // explicitly restore the portrait WAPI shell when the game closes.
+            WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+                .show(WindowInsetsCompat.Type.systemBars())
+            WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
         onDispose {
             if (activity != null && gameOpen) {
                 WindowCompat.getInsetsController(activity.window, activity.window.decorView)
                     .show(WindowInsetsCompat.Type.systemBars())
                 WindowCompat.setDecorFitsSystemWindows(activity.window, true)
-                activity.requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
         }
     }

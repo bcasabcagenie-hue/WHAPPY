@@ -36,11 +36,15 @@ const lingwapRelayToken = defineString("WAPI_LINGWAP_RELAY_TOKEN", { default: ""
 // callable and never embedded in the mobile binaries.
 const webRtcTurnUrls = defineSecret("WAPI_TURN_URLS");
 const webRtcTurnSharedSecret = defineSecret("WAPI_TURN_SHARED_SECRET");
-// WIA is hosted by Pilotis. The historical secret name and HTTP header remain
-// unchanged for API compatibility; the credential never ships in a client.
+// WIA is hosted by Pilotis. The historical secret name remains for deployment
+// compatibility; the credential never ships in a client.
 const wepiApiKey = defineSecret("WAPI_WEPI_API_KEY");
-const wepiEndpoint = "https://mypilotis.web.app/wepi-api/v1/chat/completions";
-const wiaChatModel = "wepi-ai-nova-1";
+// Endpoint and model are server parameters, not mobile constants. Pilotis can
+// evolve the WIA channel without requiring a new Android or iOS binary.
+const wiaEndpoint = defineString("WAPI_WIA_ENDPOINT", {
+  default: "https://mypilotis.web.app/wepi-api/v1/chat/completions",
+});
+const wiaModel = defineString("WAPI_WIA_MODEL", { default: "wepi-ai-nova-1" });
 // The mobile language catalog and the server policy deliberately match. Add a
 // language here only after the self-hosted Lingwap relay supports it.
 const lingwapSupportedLanguages = new Set([
@@ -255,6 +259,11 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     })
     : [];
   const threadId = safeWepiThreadId(request.data?.threadId);
+  const providerEndpoint = wiaEndpoint.value().trim();
+  const providerModel = wiaModel.value().trim() || "wepi-ai-nova-1";
+  if (!providerEndpoint.startsWith("https://")) {
+    throw new HttpsError("failed-precondition", "Le point d’accès sécurisé WIA n’est pas configuré.");
+  }
   const thread = db.doc(`users/${request.auth.uid}/wepiThreads/${threadId}`);
   const [settingsSnapshot, pagesSnapshot, dealsSnapshot, memorySnapshot] = await Promise.all([
     db.doc(`users/${request.auth.uid}/wepi/settings`).get(),
@@ -288,7 +297,7 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
       title: prompt.slice(0, 80),
       lastMessage: prompt.slice(0, 240),
       provider: "wia-pilotis",
-      model: wiaChatModel,
+      model: providerModel,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }),
   ]);
@@ -303,16 +312,15 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
 
   let upstream: Response;
   try {
-    upstream = await fetch(wepiEndpoint, {
+    upstream = await fetch(providerEndpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "X-WEPI-API-Key": apiKey,
         "Content-Type": "application/json; charset=utf-8",
         Accept: "application/json",
       },
       body: JSON.stringify({
-        model: wiaChatModel,
+        model: providerModel,
         temperature: 0.5,
         max_tokens: 640,
         messages: [
@@ -339,6 +347,9 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
   if (!upstream.ok) {
     logger.warn("WIA Pilotis a refusé la requête", { userId: request.auth.uid, status: upstream.status });
     await markPromptFailed();
+    if (upstream.status === 401 || upstream.status === 403) {
+      throw new HttpsError("failed-precondition", "La liaison sécurisée WIA avec Pilotis doit être renouvelée.");
+    }
     throw new HttpsError("unavailable", "WIA ne peut pas répondre pour le moment. Réessayez dans un instant.");
   }
   const answer = String(payload?.choices?.[0]?.message?.content || payload?.content || "").trim();
@@ -348,6 +359,8 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     throw new HttpsError("internal", "La réponse WIA est invalide.");
   }
   const batch = db.batch();
+  const resolvedModel = String(upstream.headers.get("x-wepi-model") || providerModel).trim().slice(0, 120) || providerModel;
+  const providerRevision = String(upstream.headers.get("x-wepi-revision") || "").trim().slice(0, 120);
   batch.set(userMessage, {
     status: "complete",
     updatedAt: FieldValue.serverTimestamp(),
@@ -356,7 +369,8 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     role: "assistant",
     content: answer.slice(0, 12_000),
     provider: "wia-pilotis",
-    model: wiaChatModel,
+    model: resolvedModel,
+    ...(providerRevision ? { providerRevision } : {}),
     createdAt: FieldValue.serverTimestamp(),
   });
   batch.set(thread, {
@@ -364,11 +378,19 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     title: prompt.slice(0, 80),
     lastMessage: answer.slice(0, 240),
     provider: "wia-pilotis",
-    model: wiaChatModel,
+    model: resolvedModel,
+    ...(providerRevision ? { providerRevision } : {}),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   await batch.commit();
-  return { text: answer, provider: "wia-pilotis", model: wiaChatModel, assistant: "WIA", threadId };
+  return {
+    text: answer,
+    provider: "wia-pilotis",
+    model: resolvedModel,
+    providerRevision,
+    assistant: "WIA",
+    threadId,
+  };
 });
 
 async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessage, "tokens">) {
