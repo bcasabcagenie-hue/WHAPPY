@@ -25,6 +25,24 @@ firebase functions:secrets:set WAPI_TURN_SHARED_SECRET
 
 Ne réutilisez pas les identifiants statiques dans l’APK. La fonction `getWebRtcIceServers` calcule le mot de passe TURN via HMAC-SHA1 selon le mécanisme d’authentification partagée coturn.
 
+## Relais public WAPI sur Google Compute Engine
+
+`gce-startup.sh` installe le relais de production sur une VM Debian possédant
+une IP publique fixe. Le compte technique de la VM ne doit recevoir que le rôle
+`Secret Manager Secret Accessor` sur `WAPI_TURN_SHARED_SECRET`; aucune clé
+statique n'est placée dans les métadonnées, Git, Android ou iOS.
+
+Le pare-feu de la VM expose uniquement :
+
+- `3478/TCP` et `3478/UDP` pour TURN standard ;
+- `443/TCP` et `443/UDP` comme chemin de secours sur les réseaux restrictifs ;
+- `49160-49200/UDP` pour les flux média relayés.
+
+L'adresse fixe est enregistrée dans `WAPI_TURN_URLS`. La fonction Firebase
+teste le port TCP public avant de remettre les identifiants temporaires aux
+applications. Un relais domestique périmé ne peut donc plus masquer le relais
+public de production.
+
 ## Exécution gratuite sur un Mac WAPI
 
 Le fichier `docker-compose.macos.yml` permet d'exécuter le relais sur une machine

@@ -54,18 +54,18 @@ test("prefers a fresh self-hosted relay heartbeat over the bootstrap secret", ()
   assert.equal(selected, "turn:102.129.81.15:3478?transport=udp,turn:102.129.81.15:3478?transport=tcp");
 });
 
-test("never advertises a stale or stopped dynamic relay", () => {
+test("falls back to the static production relay when the dynamic relay is stale or stopped", () => {
   const now = 1_800_000_000_000;
   assert.equal(selectTurnUrls("turn:old.example:3478", {
     active: true,
     urls: ["turn:102.129.81.15:3478"],
     updatedAtMs: now - 13 * 60_000,
-  }, now), "");
+  }, now), "turn:old.example:3478");
   assert.equal(selectTurnUrls("turn:old.example:3478", {
     active: false,
     urls: ["turn:102.129.81.15:3478"],
     updatedAtMs: now,
-  }, now), "");
+  }, now), "turn:old.example:3478");
 });
 
 test("keeps Secret Manager as bootstrap until the first heartbeat exists", () => {

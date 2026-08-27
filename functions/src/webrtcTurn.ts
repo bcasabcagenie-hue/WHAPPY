@@ -52,10 +52,10 @@ export function turnTcpEndpoint(rawUrls: string): TurnTcpEndpoint | null {
 /**
  * Prefer the endpoint heartbeat published by WAPI's self-hosted relay.
  *
- * When the runtime document exists but is stale, returning an empty value is
- * intentional: advertising an old dynamic IP makes ICE wait on a relay which
- * cannot answer. The Secret Manager value remains a bootstrap fallback until
- * the first runtime heartbeat has been created.
+ * The runtime document can point to the development relay on a dynamic home
+ * connection. Once it is stale or stopped, fall back to the static production
+ * endpoint kept in Secret Manager. The callable probes its public TCP port
+ * before returning it, so an unavailable fallback is never advertised.
  */
 export function selectTurnUrls(
   secretFallback: string,
@@ -69,13 +69,14 @@ export function selectTurnUrls(
     !Number.isFinite(runtimeRelay.updatedAtMs) ||
     ageMs < -60_000 ||
     ageMs > runtimeRelayMaxAgeMs
-  ) return "";
-  if (!Array.isArray(runtimeRelay.urls)) return "";
-  return runtimeRelay.urls
+  ) return secretFallback.trim();
+  if (!Array.isArray(runtimeRelay.urls)) return secretFallback.trim();
+  const runtimeUrls = runtimeRelay.urls
     .map((value) => String(value || "").trim())
     .filter((value) => /^turns?:[^\s]{1,500}$/i.test(value))
     .slice(0, 8)
     .join(",");
+  return runtimeUrls || secretFallback.trim();
 }
 
 export function createTurnIcePayload(
