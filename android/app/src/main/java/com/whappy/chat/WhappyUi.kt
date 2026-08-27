@@ -3288,6 +3288,7 @@ private fun GamesScreen(
     onSessionChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val graphicsCapabilities = remember(context) { WapiVulkanCapabilities.inspect(context) }
     val gameScope = rememberCoroutineScope()
     val gamePrefs = remember { WhappyFastStorage.preferences(context, "wapi_play") }
     var selected by rememberSaveable { mutableStateOf("Ludo WAPI") }
@@ -3538,7 +3539,13 @@ private fun GamesScreen(
                             Text("ARÈNE DE JEU", color = Color.White.copy(alpha = .68f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         }
                         Surface(color = Color.White.copy(alpha = .12f), shape = RoundedCornerShape(12.dp)) {
-                            Text("3D NATIF", Modifier.padding(horizontal = 10.dp, vertical = 7.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (graphicsCapabilities.available) "VULKAN ${graphicsCapabilities.apiVersion} PRÊT" else "MODE COMPATIBILITÉ",
+                                Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                     }
                     Text("Une vraie partie.\nUn vrai rythme.", Modifier.padding(top = 18.dp), color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold)
@@ -3578,7 +3585,13 @@ private fun GamesScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("${visibleGames.size} modules", color = WhappyMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 Surface(color = Color(0xFFE7F5FF), shape = RoundedCornerShape(10.dp)) {
-                    Text("3D NATIF · SONS", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (graphicsCapabilities.available) "GPU VULKAN · ${graphicsCapabilities.deviceType.uppercase()}" else "3D COMPATIBLE · SONS",
+                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        color = WhappyBlue,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
@@ -3598,7 +3611,7 @@ private fun GamesScreen(
                 Column(Modifier.fillMaxSize()) {
                     WapiGameArenaHeader(
                         title = selected,
-                        subtitle = if (selected == "King QI") "ARÈNE VOCALE" else "MOTEUR 3D NATIF · PARTIE EN COURS",
+                        subtitle = if (selected == "King QI") "ARÈNE VOCALE" else if (graphicsCapabilities.available) "GPU VULKAN VALIDÉ · RENDU COMPATIBILITÉ" else "MOTEUR COMPATIBILITÉ · PARTIE EN COURS",
                         xp = xp,
                         onClose = { gameOpen = false },
                         onGuide = { showGameGuide = true },

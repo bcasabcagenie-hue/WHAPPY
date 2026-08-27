@@ -43,6 +43,7 @@ yarn-error.log*
 /android/build/
 /android/local.properties
 /android/app/build/
+/android/app/.cxx/
 /android/keystore.properties
 /android/*.jks
 **/xcuserdata/

@@ -3064,7 +3064,13 @@ private struct WapiIOS3DTabletop: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> SCNView {
-        let view = SCNView()
+        // SceneKit can fall back to legacy APIs when created without an
+        // explicit backend. WAPI games require Metal on iPhone and iPad so the
+        // Android Vulkan and iOS Metal paths share the same modern GPU policy.
+        let view = SCNView(
+            frame: .zero,
+            options: [SCNView.Option.preferredRenderingAPI.rawValue: SCNRenderingAPI.metal.rawValue]
+        )
         view.scene = WapiGameSceneKit.makeScene(named: scene, dieValue: dieValue)
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false

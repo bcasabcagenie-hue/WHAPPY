@@ -11,6 +11,10 @@
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Vulkan is preferred by WAPI Play but remains optional so older phones
+         can install WAPI and use the compatibility renderer. -->
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="false" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="4198400" android:required="false" />
 
     <application
         android:allowBackup="false"

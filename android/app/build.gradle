@@ -14,6 +14,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.whappy.chat"
     compileSdk 35
+    ndkVersion "28.2.13676358"
 
     defaultConfig {
         applicationId "com.whappy.chat"
@@ -22,6 +23,15 @@ android {
         minSdk 23
         targetSdk 35
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++20 -O2 -fexceptions -frtti"
+                // Vulkan entered the Android NDK at API 24. The Java/Kotlin
+                // shell remains API 23-compatible and never loads this library
+                // on Android 6 devices.
+                arguments "-DANDROID_STL=c++_shared", "-DANDROID_PLATFORM=android-24"
+            }
+        }
         // Continuité de mise à jour avec la branche 2.1.0 déjà distribuée.
         // Android compare ce code interne avant le nom public de la version.
         versionCode 2093
@@ -58,6 +68,13 @@ android {
     buildFeatures {
         compose true
         buildConfig true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+            version "3.22.1"
+        }
     }
 
     packaging {
