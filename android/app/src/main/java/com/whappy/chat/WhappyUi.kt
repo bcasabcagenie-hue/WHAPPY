@@ -4154,7 +4154,7 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
     val context = LocalContext.current
     var poolBalls by remember { mutableStateOf(initialPoolBalls()) }
     var aimAngle by rememberSaveable { mutableFloatStateOf(0f) }
-    var power by rememberSaveable { mutableIntStateOf(2) }
+    var power by rememberSaveable { mutableIntStateOf(55) }
     var shots by rememberSaveable { mutableIntStateOf(0) }
     var score by rememberSaveable { mutableIntStateOf(0) }
     var physicsRunning by remember { mutableStateOf(false) }
@@ -4174,7 +4174,7 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
 
     fun strike() {
         if (physicsRunning || remainingBalls == 0) return
-        val speed = 4.1f + power * 1.28f
+        val speed = 3.4f + power / 100f * 7.4f
         poolBalls = poolBalls.map { ball ->
             if (ball.id == 0) ball.copy(
                 vx = cos(aimAngle) * speed / WAPI_POOL_WORLD_WIDTH,
@@ -4183,7 +4183,7 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
         }
         shots += 1
         physicsRunning = true
-        message = "Tir en cours · puissance $power/4"
+        message = "Tir en cours · puissance $power %"
         WhappySounds.billiardCue(context)
         WhappySounds.haptic(context)
     }
@@ -4303,11 +4303,10 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
                     val dx = x - cue.x
                     val dy = y - cue.y
                     aimAngle = atan2(dy, dx)
-                    power = (((sqrt(dx * dx + dy * dy) - .03f) * 9f).toInt() + 1).coerceIn(1, 4)
-                    message = "Bâton orienté · puissance $power/4. Relâchez pour frapper."
+                    message = "Visée verrouillée · réglez la puissance puis frappez."
                 }
             },
-            onRelease = ::strike,
+            onRelease = { message = "Visée prête · puissance $power %. Appuyez sur FRAPPER." },
         )
         Surface(
             Modifier.align(Alignment.TopStart).padding(18.dp),
@@ -4326,12 +4325,35 @@ private fun Billiards3D(onXp: (Int) -> Unit, onWin: () -> Unit) {
             shape = RoundedCornerShape(22.dp),
             shadowElevation = 20.dp,
         ) {
-            Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(enabled = !physicsRunning, onClick = { aimAngle -= .12f }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("← VISER") }
-                OutlinedButton(enabled = !physicsRunning, onClick = { power = if (power == 4) 1 else power + 1 }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("FORCE $power") }
-                Button(onClick = ::strike, enabled = !physicsRunning && remainingBalls > 0, modifier = Modifier.width(150.dp).height(48.dp), shape = RoundedCornerShape(15.dp)) { Text("FRAPPER", fontWeight = FontWeight.Bold) }
-                OutlinedButton(enabled = !physicsRunning, onClick = { aimAngle += .12f }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("VISER →") }
-                TextButton(onClick = ::resetTable, enabled = !physicsRunning) { Text("REJOUER", color = Color.White) }
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("PUISSANCE", color = Color.White.copy(alpha = .64f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Slider(
+                        value = power.toFloat(),
+                        onValueChange = { power = it.toInt().coerceIn(10, 100) },
+                        enabled = !physicsRunning,
+                        valueRange = 10f..100f,
+                        modifier = Modifier.width(330.dp).padding(horizontal = 10.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = when {
+                                power >= 82 -> Color(0xFFFF4D4D)
+                                power >= 55 -> Color(0xFFFFB020)
+                                else -> Color(0xFF33D6A6)
+                            },
+                            inactiveTrackColor = Color.White.copy(alpha = .16f),
+                        ),
+                    )
+                    Surface(color = Color.White.copy(alpha = .10f), shape = RoundedCornerShape(9.dp)) {
+                        Text("$power %", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(enabled = !physicsRunning, onClick = { aimAngle -= .08f }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("← VISER") }
+                    Button(onClick = ::strike, enabled = !physicsRunning && remainingBalls > 0, modifier = Modifier.width(190.dp).height(48.dp), shape = RoundedCornerShape(15.dp)) { Text("FRAPPER", fontWeight = FontWeight.Bold) }
+                    OutlinedButton(enabled = !physicsRunning, onClick = { aimAngle += .08f }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("VISER →") }
+                    TextButton(onClick = ::resetTable, enabled = !physicsRunning) { Text("REJOUER", color = Color.White) }
+                }
             }
         }
     }

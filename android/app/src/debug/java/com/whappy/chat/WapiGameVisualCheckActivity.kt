@@ -25,14 +25,14 @@ class WapiGameVisualCheckActivity : ComponentActivity() {
                     add(floatArrayOf(.23f, .50f, 0f))
                     var id = 1
                     for (row in 0..4) for (column in 0..row) {
-                        add(floatArrayOf(.69f + row * .041f, .50f + (column - row / 2f) * .078f, id++.toFloat()))
+                        add(floatArrayOf(.685f + row * .0445f, .50f + (column - row / 2f) * .0865f, id++.toFloat()))
                     }
                 },
                 aimAngle = 0f,
-                power = 3,
+                power = 70,
                 moving = false,
             )
-            "ludo" -> view.setLudoScene(List(16) { -1 }, activePlayer = 0, die = 6, rolling = false)
+            "ludo" -> view.setLudoScene(List(16) { -1 }, activePlayer = 0, dieOne = 6, dieTwo = 4, rolling = false)
             "chess" -> view.setStrategyScene(
                 WapiTabletop3DView.Scene.CHESS,
                 listOf("♜","♞","♝","♛","♚","♝","♞","♜") + List(8) { "♟" } + List(32) { "" } + List(8) { "♙" } + listOf("♖","♘","♗","♕","♔","♗","♘","♖"),

@@ -16,6 +16,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.sign
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -84,7 +85,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.scene = Scene.POOL
         tabletopRenderer.poolBalls = balls.map(FloatArray::copyOf)
         tabletopRenderer.poolAim = aimAngle
-        tabletopRenderer.poolPower = power.coerceIn(1, 4)
+        tabletopRenderer.poolPower = power.coerceIn(1, 100)
         tabletopRenderer.poolMoving = moving
     }
 
@@ -167,7 +168,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         @Volatile var dieRolling: Boolean = false
         @Volatile var poolBalls: List<FloatArray> = emptyList()
         @Volatile var poolAim: Float = 0f
-        @Volatile var poolPower: Int = 2
+        @Volatile var poolPower: Int = 45
         @Volatile var poolMoving: Boolean = false
         @Volatile private var strategyMove: StrategyMove? = null
         @Volatile private var ludoMove: LudoMove? = null
@@ -345,6 +346,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                         float vein = sin((vWorld.x + vWorld.z) * 5.4 + sin(vWorld.x * 8.7) * 1.4);
                         float marble = smoothstep(0.72, 1.0, abs(vein)) * 0.075;
                         albedo += vec3(marble);
+                    } else if (uMaterial > 4.5) {
+                        // Polished phenolic resin used by billiard balls. Keep
+                        // the colour clean and let the clear coat carry the
+                        // reflections instead of adding a painted white blob.
+                        float resin = 0.985 + sin((vWorld.x + vWorld.y + vWorld.z) * 17.0) * 0.006;
+                        albedo *= resin;
                     } else if (uMaterial > 3.5) {
                         float lacquer = sin(vWorld.y * 23.0 + vWorld.x * 2.0) * 0.014;
                         albedo *= 0.985 + lacquer;
@@ -358,10 +365,13 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                     // as soon as the player rotated the board.
                     vec3 viewDir = normalize(uEye - vWorld);
                     vec3 reflected = reflect(-light, n);
-                    float specular = pow(max(dot(viewDir, reflected), 0.0), mix(12.0, 72.0, uGloss)) * uGloss;
+                    float billiard = step(4.5, uMaterial);
+                    float specular = pow(max(dot(viewDir, reflected), 0.0), mix(12.0, 116.0, max(uGloss, billiard))) * mix(uGloss, 1.18, billiard);
+                    vec3 secondLight = normalize(vec3(0.22, 0.96, -0.18));
+                    float clearCoat = pow(max(dot(viewDir, reflect(-secondLight, n)), 0.0), 148.0) * billiard * 0.72;
                     float rim = pow(1.0 - max(dot(viewDir, n), 0.0), 2.4) * 0.10;
                     float groundOcclusion = mix(0.82, 1.0, smoothstep(0.0, 0.65, vWorld.y));
-                    vec3 rgb = albedo * (0.38 + diffuse * 0.62 + fill) * groundOcclusion + vec3(specular + rim);
+                    vec3 rgb = albedo * (0.38 + diffuse * 0.62 + fill) * groundOcclusion + vec3(specular + clearCoat + rim);
                     rgb = pow(max(rgb, vec3(0.0)), vec3(0.92));
                     gl_FragColor = vec4(rgb, uColor.a);
                 }
@@ -510,7 +520,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val white = WapiGameRules.isWhite(piece)
                 val color = if (white) floatArrayOf(.91f, .88f, .76f, 1f) else floatArrayOf(.070f, .082f, .105f, 1f)
                 val accent = if (white) floatArrayOf(.98f, .95f, .84f, 1f) else floatArrayOf(.19f, .22f, .28f, 1f)
-                drawSoftShadow(x, z, .38f * pieceScale)
+                val shadowElevation = movementLift + if (index == selected) .11f * pieceScale else 0f
+                drawSoftShadow(x, z, .38f * pieceScale, shadowElevation)
                 if (checkers) drawChecker(x, z, piece, color, accent, index == selected, seconds, pieceScale, movementLift)
                 else drawChessPiece(x, z, piece, color, accent, index == selected, pieceScale, movementLift)
             }
@@ -541,46 +552,55 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             val lift = (if (selected) .09f * scale else 0f) + movementLift
             val key = piece.lowercase()
             val pieceMaterial = if (WapiGameRules.isWhite(piece)) 3f else 4f
-            draw(cylinder, x, .28f + lift, z, .39f * scale, .075f * scale, .39f * scale, color, .90f, material = pieceMaterial)
-            draw(torus, x, .35f + lift, z, .39f * scale, .11f * scale, .39f * scale, accent, .94f, material = pieceMaterial)
-            draw(cylinder, x, .38f + lift, z, .31f * scale, .055f * scale, .31f * scale, accent, .88f, material = pieceMaterial)
+            val s = scale.coerceIn(.86f, 1.08f)
+            draw(cylinder, x, .25f + lift, z, .405f * s, .070f * s, .405f * s, color, .91f, material = pieceMaterial)
+            draw(torus, x, .31f + lift, z, .405f * s, .095f * s, .405f * s, accent, .96f, material = pieceMaterial)
+            draw(cylinder, x, .37f + lift, z, .325f * s, .060f * s, .325f * s, accent, .91f, material = pieceMaterial)
+            draw(torus, x, .42f + lift, z, .31f * s, .052f * s, .31f * s, color, .97f, material = pieceMaterial)
             when (key) {
                 "♙", "♟" -> {
-                    draw(cone, x, .62f + lift, z, .20f, .25f, .20f, color, .84f)
-                    draw(sphere, x, .89f + lift, z, .18f, .18f, .18f, accent, .94f)
+                    draw(cone, x, .62f + lift, z, .205f * s, .245f * s, .205f * s, color, .88f, material = pieceMaterial)
+                    draw(torus, x, .81f + lift, z, .17f * s, .050f * s, .17f * s, accent, .96f, material = pieceMaterial)
+                    draw(sphere, x, .94f + lift, z, .185f * s, .185f * s, .185f * s, accent, .98f, material = pieceMaterial)
                 }
                 "♖", "♜" -> {
-                    draw(cylinder, x, .67f + lift, z, .21f, .30f, .21f, color, .88f)
-                    draw(cylinder, x, .98f + lift, z, .31f, .10f, .31f, accent, .90f)
+                    draw(cone, x, .66f + lift, z, .235f * s, .27f * s, .235f * s, color, .91f, material = pieceMaterial)
+                    draw(cylinder, x, .90f + lift, z, .255f * s, .18f * s, .255f * s, color, .94f, material = pieceMaterial)
+                    draw(torus, x, 1.055f + lift, z, .305f * s, .070f * s, .305f * s, accent, .98f, material = pieceMaterial)
                     repeat(4) { n ->
                         val angle = n * Math.PI / 2.0
-                        draw(cube, x + cos(angle).toFloat() * .22f, 1.10f + lift, z + sin(angle).toFloat() * .22f, .10f, .12f, .10f, color, .76f)
+                        draw(cube, x + cos(angle).toFloat() * .22f * s, 1.15f + lift, z + sin(angle).toFloat() * .22f * s, .09f * s, .11f * s, .09f * s, color, .90f, rotationY = n * 90f, material = pieceMaterial)
                     }
                 }
                 "♘", "♞" -> {
-                    draw(cone, x, .68f + lift, z, .24f, .32f, .24f, color, .87f, rotationX = -12f)
-                    draw(sphere, x, .98f + lift, z - .07f, .22f, .29f, .18f, accent, .94f)
-                    draw(cone, x, 1.18f + lift, z - .09f, .08f, .18f, .08f, color, .90f, rotationX = -20f)
+                    draw(cone, x, .67f + lift, z + .05f, .245f * s, .29f * s, .245f * s, color, .91f, rotationX = -10f, material = pieceMaterial)
+                    draw(sphere, x, .94f + lift, z - .08f, .235f * s, .285f * s, .19f * s, accent, .97f, material = pieceMaterial)
+                    draw(sphere, x, 1.08f + lift, z - .25f, .19f * s, .16f * s, .25f * s, color, .96f, material = pieceMaterial)
+                    draw(cone, x - .09f, 1.27f + lift, z - .13f, .052f * s, .15f * s, .052f * s, accent, .95f, rotationX = -10f, material = pieceMaterial)
+                    draw(cone, x + .09f, 1.27f + lift, z - .13f, .052f * s, .15f * s, .052f * s, accent, .95f, rotationX = -10f, material = pieceMaterial)
                 }
                 "♗", "♝" -> {
-                    draw(cone, x, .70f + lift, z, .24f, .34f, .24f, color, .88f)
-                    draw(sphere, x, 1.02f + lift, z, .20f, .25f, .20f, accent, .94f)
-                    draw(cone, x, 1.25f + lift, z, .07f, .18f, .07f, color, .91f)
+                    draw(cone, x, .70f + lift, z, .245f * s, .33f * s, .245f * s, color, .92f, material = pieceMaterial)
+                    draw(torus, x, .93f + lift, z, .20f * s, .055f * s, .20f * s, accent, .98f, material = pieceMaterial)
+                    draw(sphere, x, 1.09f + lift, z, .20f * s, .25f * s, .20f * s, accent, .98f, material = pieceMaterial)
+                    draw(cone, x, 1.34f + lift, z, .065f * s, .17f * s, .065f * s, color, .96f, rotationX = -18f, material = pieceMaterial)
                 }
                 "♕", "♛" -> {
-                    draw(cone, x, .72f + lift, z, .26f, .36f, .26f, color, .90f)
-                    draw(cylinder, x, 1.03f + lift, z, .27f, .08f, .27f, accent, .92f)
+                    draw(cone, x, .73f + lift, z, .27f * s, .36f * s, .27f * s, color, .94f, material = pieceMaterial)
+                    draw(torus, x, .99f + lift, z, .255f * s, .062f * s, .255f * s, accent, .98f, material = pieceMaterial)
                     repeat(6) { n ->
                         val angle = n * Math.PI / 3.0
-                        draw(sphere, x + cos(angle).toFloat() * .20f, 1.22f + lift, z + sin(angle).toFloat() * .20f, .075f, .11f, .075f, color, .96f)
+                        draw(cone, x + cos(angle).toFloat() * .20f * s, 1.18f + lift, z + sin(angle).toFloat() * .20f * s, .060f * s, .16f * s, .060f * s, color, .97f, material = pieceMaterial)
+                        draw(sphere, x + cos(angle).toFloat() * .20f * s, 1.34f + lift, z + sin(angle).toFloat() * .20f * s, .055f * s, .065f * s, .055f * s, accent, .99f, material = pieceMaterial)
                     }
-                    draw(sphere, x, 1.30f + lift, z, .09f, .12f, .09f, accent, .98f)
+                    draw(sphere, x, 1.28f + lift, z, .09f * s, .12f * s, .09f * s, accent, .99f, material = pieceMaterial)
                 }
                 else -> {
-                    draw(cone, x, .74f + lift, z, .27f, .38f, .27f, color, .91f)
-                    draw(sphere, x, 1.12f + lift, z, .16f, .20f, .16f, accent, .96f)
-                    draw(cube, x, 1.38f + lift, z, .055f, .18f, .055f, color, .90f)
-                    draw(cube, x, 1.45f + lift, z, .15f, .055f, .055f, color, .90f)
+                    draw(cone, x, .75f + lift, z, .28f * s, .38f * s, .28f * s, color, .94f, material = pieceMaterial)
+                    draw(torus, x, 1.00f + lift, z, .22f * s, .055f * s, .22f * s, accent, .98f, material = pieceMaterial)
+                    draw(sphere, x, 1.14f + lift, z, .16f * s, .20f * s, .16f * s, accent, .98f, material = pieceMaterial)
+                    draw(cube, x, 1.38f + lift, z, .050f * s, .17f * s, .050f * s, color, .96f, material = pieceMaterial)
+                    draw(cube, x, 1.45f + lift, z, .14f * s, .048f * s, .048f * s, color, .96f, material = pieceMaterial)
                 }
             }
         }
@@ -704,25 +724,50 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         private fun drawPool(seconds: Float) {
             val wood = floatArrayOf(.28f, .095f, .026f, 1f)
             val woodLight = floatArrayOf(.48f, .20f, .055f, 1f)
+            val cushion = floatArrayOf(.012f, .29f, .18f, 1f)
             val felt = floatArrayOf(.015f, .39f, .24f, 1f)
             val pocketLeather = floatArrayOf(.014f, .016f, .019f, 1f)
-            val brass = floatArrayOf(.73f, .49f, .14f, 1f)
+            val railSight = floatArrayOf(.82f, .66f, .34f, 1f)
             draw(cube, 0f, -.72f, 0f, 7.8f, .05f, 5.1f, floatArrayOf(.022f, .028f, .039f, 1f), .08f, material = 2f)
             draw(cube, 0f, -.24f, 0f, 5.15f, .30f, 3.25f, wood, .38f, material = 1f)
             draw(cube, 0f, .02f, 0f, 4.65f, .11f, 2.67f, felt, .20f, material = 2f)
-            draw(cube, 0f, .22f, -2.92f, 4.82f, .22f, .25f, woodLight, .60f, material = 1f)
-            draw(cube, 0f, .22f, 2.92f, 4.82f, .22f, .25f, woodLight, .60f, material = 1f)
-            draw(cube, -4.91f, .22f, 0f, .25f, .22f, 2.70f, woodLight, .60f, material = 1f)
-            draw(cube, 4.91f, .22f, 0f, .25f, .22f, 2.70f, woodLight, .60f, material = 1f)
-            listOf(-4.60f to -2.55f, 0f to -2.62f, 4.60f to -2.55f, -4.60f to 2.55f, 0f to 2.62f, 4.60f to 2.55f).forEach { (x, z) ->
-                draw(cylinder, x, .17f, z, .27f, .05f, .27f, pocketLeather, .04f)
-                draw(torus, x, .20f, z, .285f, .042f, .285f, brass, .78f, material = 3f)
+            // Rails are split around every pocket. Full rectangular bars used
+            // to cover the openings and made the six pockets look decorative.
+            listOf(-2.43f, 2.43f).forEach { x ->
+                listOf(-2.92f, 2.92f).forEach { z ->
+                    draw(cube, x, .24f, z, 2.03f, .24f, .25f, woodLight, .64f, material = 1f)
+                    draw(cube, x, .26f, z.sign * 2.70f, 1.98f, .15f, .11f, cushion, .22f, material = 2f)
+                }
+            }
+            listOf(-4.91f, 4.91f).forEach { x ->
+                draw(cube, x, .24f, 0f, .25f, .24f, 2.12f, woodLight, .64f, material = 1f)
+                draw(cube, x.sign * 4.70f, .26f, 0f, .11f, .15f, 2.06f, cushion, .22f, material = 2f)
+            }
+            val pockets = listOf(
+                -4.60f to -2.55f, 0f to -2.62f, 4.60f to -2.55f,
+                -4.60f to 2.55f, 0f to 2.62f, 4.60f to 2.55f,
+            )
+            pockets.forEach { (x, z) ->
+                // Recessed black throat, leather liner and inner darkness are
+                // placed below the cloth plane to read as a real opening.
+                draw(cylinder, x, .125f, z, .35f, .014f, .35f, floatArrayOf(.001f, .002f, .003f, 1f), .01f)
+                draw(torus, x, .145f, z, .345f, .080f, .345f, pocketLeather, .12f, material = 4f)
+                draw(cylinder, x, .105f, z, .245f, .035f, .245f, floatArrayOf(0f, 0f, 0f, 1f), .01f)
+            }
+            // Angled rubber jaws frame the pocket mouths instead of allowing
+            // balls to visually pass through a square wooden corner.
+            listOf(-1f, 1f).forEach { side ->
+                listOf(-1f, 1f).forEach { end ->
+                    draw(cube, side * 4.43f, .28f, end * 2.55f, .34f, .15f, .10f, cushion, .24f, rotationY = side * end * 32f, material = 2f)
+                }
+                draw(cube, side * .37f, .28f, -2.62f, .34f, .15f, .10f, cushion, .24f, rotationY = side * 28f, material = 2f)
+                draw(cube, side * .37f, .28f, 2.62f, .34f, .15f, .10f, cushion, .24f, rotationY = -side * 28f, material = 2f)
             }
             // Small inlaid rail sights make the table readable from every
             // camera angle and ground it as a physical object.
             listOf(-2.55f, 2.55f).forEach { x ->
-                draw(cylinder, x, .47f, -2.93f, .045f, .014f, .045f, brass, .82f, material = 3f)
-                draw(cylinder, x, .47f, 2.93f, .045f, .014f, .045f, brass, .82f, material = 3f)
+                draw(cylinder, x, .49f, -2.93f, .045f, .014f, .045f, railSight, .86f, material = 3f)
+                draw(cylinder, x, .49f, 2.93f, .045f, .014f, .045f, railSight, .86f, material = 3f)
             }
             val colors = listOf(
                 floatArrayOf(1f, .78f, .04f, 1f),
@@ -749,20 +794,24 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val roll = if (poolMoving && speed > .002f) seconds * speed * 760f + id * 17f else id * 17f
                 val rotationX = if (speed > .002f) -velocityY / speed * roll else 0f
                 val rotationY = if (speed > .002f) velocityX / speed * roll else roll
-                drawSoftShadow(x, z, .24f)
+                drawSoftShadow(x, z, .235f, .17f)
                 if (id >= 9) {
-                    draw(sphere, x, .38f, z, .255f, .255f, .255f, floatArrayOf(.97f, .975f, .98f, 1f), .95f, rotationX = rotationX, rotationY = rotationY, material = 3f)
-                    draw(cylinder, x, .38f, z, .258f, .095f, .258f, color, .91f, rotationY = rotationY, material = 4f)
+                    draw(sphere, x, .38f, z, .255f, .255f, .255f, floatArrayOf(.97f, .975f, .98f, 1f), .99f, rotationX = rotationX, rotationY = rotationY, material = 5f)
+                    // Three adjoining resin rings form a broad stripe that
+                    // follows the curvature instead of a cylinder cutting
+                    // through the ball.
+                    listOf(-.065f, 0f, .065f).forEach { bandY ->
+                        draw(torus, x, .38f + bandY, z, .252f, .30f, .252f, color, .99f, rotationX = rotationX, rotationY = rotationY, material = 5f)
+                    }
                 } else {
-                    draw(sphere, x, .38f, z, .255f, .255f, .255f, color, .96f, rotationX = rotationX, rotationY = rotationY, material = if (id == 0) 3f else 4f)
+                    draw(sphere, x, .38f, z, .255f, .255f, .255f, color, .99f, rotationX = rotationX, rotationY = rotationY, material = 5f)
                 }
                 if (id != 0) {
                     // Numbered cap: a raised white plate and dark numeral dot
                     // catch the light like a real billiard ball.
-                    draw(cylinder, x, .635f, z, .075f, .008f, .075f, floatArrayOf(.98f, .985f, 1f, 1f), .74f, material = 3f)
+                    draw(cylinder, x, .635f, z, .075f, .008f, .075f, floatArrayOf(.98f, .985f, 1f, 1f), .99f, material = 5f)
                     draw(cylinder, x, .646f, z, .024f, .005f, .024f, floatArrayOf(.012f, .016f, .024f, 1f), .58f)
                 }
-                draw(sphere, x - .07f, .48f, z - .07f, .055f, .035f, .055f, floatArrayOf(1f, 1f, 1f, .82f), .98f)
             }
             if (!poolMoving) {
                 val cue = poolBalls.firstOrNull { it.size >= 3 && it[2].toInt() == 0 } ?: return
@@ -770,7 +819,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val cueZ = (cue[1] - .5f) * 6.05f
                 val directionX = cos(poolAim)
                 val directionZ = sin(poolAim)
-                val distance = 1.8f + poolPower * .22f
+                val strength = poolPower / 100f
+                val distance = 1.78f + strength * .92f
                 val centerX = cueX - directionX * distance
                 val centerZ = cueZ - directionZ * distance
                 // Round maple shaft, leather cue tip and weighted butt.
@@ -805,9 +855,14 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             }
         }
 
-        private fun drawSoftShadow(x: Float, z: Float, radius: Float) {
-            draw(cylinder, x + .08f, .205f, z + .10f, radius, .010f, radius, floatArrayOf(.005f, .007f, .010f, .30f), .01f)
-            draw(cylinder, x + .13f, .202f, z + .16f, radius * 1.16f, .007f, radius * 1.16f, floatArrayOf(.005f, .007f, .010f, .13f), .01f)
+        private fun drawSoftShadow(x: Float, z: Float, radius: Float, elevation: Float = 0f) {
+            // Main light points from upper-left/front. Shadows therefore move
+            // right/back, and the offset/softness increases with elevation.
+            val offsetX = .075f + elevation * .16f
+            val offsetZ = -.060f - elevation * .13f
+            val softness = 1f + elevation * .18f
+            draw(cylinder, x + offsetX, .198f, z + offsetZ, radius * softness, .007f, radius * softness, floatArrayOf(.004f, .006f, .009f, .25f), .01f)
+            draw(cylinder, x + offsetX * 1.65f, .195f, z + offsetZ * 1.65f, radius * 1.20f * softness, .005f, radius * 1.20f * softness, floatArrayOf(.004f, .006f, .009f, .10f), .01f)
         }
 
         private fun draw(
@@ -877,16 +932,26 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         private fun createProgram(vertexSource: String, fragmentSource: String): Int {
             val vertex = compile(GLES20.GL_VERTEX_SHADER, vertexSource)
             val fragment = compile(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
-            return GLES20.glCreateProgram().also {
-                GLES20.glAttachShader(it, vertex)
-                GLES20.glAttachShader(it, fragment)
-                GLES20.glLinkProgram(it)
+            return GLES20.glCreateProgram().also { programId ->
+                GLES20.glAttachShader(programId, vertex)
+                GLES20.glAttachShader(programId, fragment)
+                GLES20.glLinkProgram(programId)
+                val status = IntArray(1)
+                GLES20.glGetProgramiv(programId, GLES20.GL_LINK_STATUS, status, 0)
+                val log = GLES20.glGetProgramInfoLog(programId).orEmpty()
+                GLES20.glDeleteShader(vertex)
+                GLES20.glDeleteShader(fragment)
+                check(status[0] == GLES20.GL_TRUE) { "WAPI tabletop shader link failed: $log" }
             }
         }
 
-        private fun compile(type: Int, source: String): Int = GLES20.glCreateShader(type).also {
-            GLES20.glShaderSource(it, source)
-            GLES20.glCompileShader(it)
+        private fun compile(type: Int, source: String): Int = GLES20.glCreateShader(type).also { shaderId ->
+            GLES20.glShaderSource(shaderId, source)
+            GLES20.glCompileShader(shaderId)
+            val status = IntArray(1)
+            GLES20.glGetShaderiv(shaderId, GLES20.GL_COMPILE_STATUS, status, 0)
+            val log = GLES20.glGetShaderInfoLog(shaderId).orEmpty()
+            check(status[0] == GLES20.GL_TRUE) { "WAPI tabletop shader compile failed: $log" }
         }
 
         private companion object {
