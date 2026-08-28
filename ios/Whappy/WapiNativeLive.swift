@@ -345,7 +345,7 @@ struct LiveView: View {
                         .padding(.top, 70)
                 }
                 ForEach(directory.lives) { live in
-                    Button { selected = live } label: { WapiLiveCard(live: live) }.buttonStyle(.plain)
+                    Button { selected = live } label: { WapiLiveCard(live: live) }.buttonStyle(WapiPressableButtonStyle())
                         .disabled(!live.isHost && live.status != "live")
                 }
             }.padding(WapiSpacing.lg)

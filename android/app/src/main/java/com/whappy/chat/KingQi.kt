@@ -16,7 +16,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -240,7 +239,7 @@ private fun KingQiPlayerProfileCard(displayName: String, photoUrl: String, victo
 
 @Composable
 private fun KingQiModeCard(title: String, subtitle: String, symbol: String, accent: Color, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE4EBF4))) {
+    Card(Modifier.fillMaxWidth().wapiClickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE4EBF4))) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(54.dp).background(accent.copy(alpha = .14f), RoundedCornerShape(17.dp)), contentAlignment = Alignment.Center) { Text(symbol, fontSize = 27.sp, color = accent) }
             Spacer(Modifier.width(13.dp))
@@ -372,7 +371,7 @@ private fun KingQiAnswerBar(index: Int, text: String, selected: Int?, correct: I
         else -> Color.White
     }
     val border = when { index == correct && selected != null -> KingGreen; index == selected -> KingRed; else -> Color(0xFFDCE5F0) }
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(color).border(1.5.dp, border, RoundedCornerShape(17.dp)).clickable(enabled = selected == null, onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(color).border(1.5.dp, border, RoundedCornerShape(17.dp)).wapiClickable(enabled = selected == null, onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(38.dp).background(if (selected == null) KingNavy else border, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text(letter, color = Color.White, fontWeight = FontWeight.Black) }
         Spacer(Modifier.width(12.dp)); Text(text, color = KingNavy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
@@ -467,7 +466,7 @@ private fun KingQiOnlineArena(
     val answeredIds = (room["answeredIds"] as? List<*>)?.map { it.toString() }.orEmpty()
     val answered = answeredIds.contains(currentUserId)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { OutlinedButton(onClick = onBack) { Text("Quitter") }; Spacer(Modifier.weight(1f)); Text("CODE  $code", color = KingNavy, fontWeight = FontWeight.Black); IconButton(onClick = { val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Rejoins mon tournoi King QI sur WAPI avec le code $code") }; context.startActivity(Intent.createChooser(intent, "Inviter à King QI")) }) { Icon(Icons.Rounded.Share, null) } }
+        Row(verticalAlignment = Alignment.CenterVertically) { OutlinedButton(onClick = onBack) { Text("Quitter") }; Spacer(Modifier.weight(1f)); Text("CODE  $code", color = KingNavy, fontWeight = FontWeight.Black); IconButton(onClick = { val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Rejoins mon tournoi King QI sur WAPI avec le code $code") }; context.startActivity(Intent.createChooser(intent, "Inviter à King QI")) }) { Icon(Icons.Rounded.Share, "Partager le tournoi") } }
         val roomCapacity = (room["maxPlayers"] as? Number)?.toInt() ?: maxPlayers
         Card(colors = CardDefaults.cardColors(containerColor = KingNavy), shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp)) { Text(if (status == "waiting") "L'arène se remplit" else if (status == "finished") if (roomCapacity == 2) "Duel terminé" else "Tournoi terminé" else "King QI en cours", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black); Text("${players.size}/$roomCapacity joueurs · cagnotte ${room["potCredits"] ?: 0} crédits", color = Color.White.copy(alpha = .68f)) } }
         KingQiPlayerStage(players, names, photos, scores, answeredIds, currentUserId, roomCapacity, accountName)

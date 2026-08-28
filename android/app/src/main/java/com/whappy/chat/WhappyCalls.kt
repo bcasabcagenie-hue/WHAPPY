@@ -25,7 +25,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1207,7 +1206,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
         BackHandler(enabled = false) {}
         Surface(
             modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
-                .clickable(onClick = controller::restore),
+                .wapiClickable(onClick = controller::restore),
             color = Color(0xF20A2944),
             shape = RoundedCornerShape(20.dp),
             shadowElevation = 18.dp,

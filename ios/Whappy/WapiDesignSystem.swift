@@ -42,6 +42,21 @@ enum WapiShadow {
     static let y: CGFloat = 7
 }
 
+/// Retour tactile visuel commun aux cartes, lignes et icônes personnalisées.
+/// Les boutons système conservent leur style iOS natif ; seuls les anciens
+/// boutons `.plain` utilisent ce comportement afin de ne plus sembler inertes.
+struct WapiPressableButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .opacity(!isEnabled ? 0.46 : (configuration.isPressed ? 0.80 : 1))
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 /// Chrome natif commun à tous les écrans. WAPI conserve les composants iOS,
 /// mais leur donne une identité propre au lieu d'imiter une autre application.
 enum WapiChrome {

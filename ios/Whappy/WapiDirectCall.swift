@@ -628,10 +628,10 @@ struct WapiDirectCallRoom: View {
 
 private struct IncomingCallAction: View {
     let icon: String; let label: String; let color: Color; let action: () -> Void
-    var body: some View { Button(action: action) { VStack(spacing: 8) { Image(systemName: icon).font(.title2.weight(.bold)).frame(width: 64, height: 64).background(color).clipShape(Circle()); Text(label).font(.caption.weight(.semibold)) } }.buttonStyle(.plain) }
+    var body: some View { Button(action: action) { VStack(spacing: 8) { Image(systemName: icon).font(.title2.weight(.bold)).frame(width: 64, height: 64).background(color).clipShape(Circle()); Text(label).font(.caption.weight(.semibold)) } }.buttonStyle(WapiPressableButtonStyle()) }
 }
 
 private struct CallControl: View {
     let icon: String; let label: String; var destructive = false; let action: () -> Void
-    var body: some View { Button(action: action) { VStack(spacing: 6) { Image(systemName: icon).font(.title3).frame(width: 49, height: 49).background(destructive ? Color.red : Color.white.opacity(0.18)).clipShape(Circle()); Text(label).font(.caption2) } }.buttonStyle(.plain) }
+    var body: some View { Button(action: action) { VStack(spacing: 6) { Image(systemName: icon).font(.title3).frame(width: 49, height: 49).background(destructive ? Color.red : Color.white.opacity(0.18)).clipShape(Circle()); Text(label).font(.caption2) } }.buttonStyle(WapiPressableButtonStyle()) }
 }

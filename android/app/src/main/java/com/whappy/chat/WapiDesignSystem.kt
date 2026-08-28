@@ -1,13 +1,18 @@
 package com.whappy.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +70,25 @@ internal object WapiMotion {
     const val quick = 140
     const val standard = 220
     const val expressive = 320
+}
+
+/**
+ * Interaction de base WAPI pour les cartes, lignes et avatars qui ne sont pas
+ * des boutons Material. Elle garantit une cible accessible de 48 dp, un retour
+ * visuel natif et une sémantique de bouton cohérente dans toute l'application.
+ */
+internal fun Modifier.wapiClickable(
+    enabled: Boolean = true,
+    onClickLabel: String? = null,
+    role: Role? = Role.Button,
+    onClick: () -> Unit,
+): Modifier = composed {
+    minimumInteractiveComponentSize().clickable(
+        enabled = enabled,
+        onClickLabel = onClickLabel,
+        role = role,
+        onClick = onClick,
+    )
 }
 
 @Composable

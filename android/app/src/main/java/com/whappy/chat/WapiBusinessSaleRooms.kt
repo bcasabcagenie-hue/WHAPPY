@@ -2,7 +2,6 @@ package com.whappy.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -272,7 +271,7 @@ internal fun WapiPublicSaleRoomsRail() {
                 !loading && rooms.isEmpty() -> Text("Aucune vente ouverte pour le moment.", Modifier.padding(horizontal = 15.dp), color = WhappyMuted, fontSize = 12.sp)
                 else -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 15.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     rooms.take(12).forEach { room ->
-                        Card(Modifier.width(238.dp).clickable { selected = room }, colors = CardDefaults.cardColors(containerColor = Color(0xFF071B3E)), shape = RoundedCornerShape(19.dp)) {
+                        Card(Modifier.width(238.dp).wapiClickable { selected = room }, colors = CardDefaults.cardColors(containerColor = Color(0xFF071B3E)), shape = RoundedCornerShape(19.dp)) {
                             Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row { Text(if (room.status == "live") "● EN COURS" else "BIENTÔT", color = if (room.status == "live") Color(0xFFFF6274) else Color(0xFFFFC83D), fontSize = 9.sp, fontWeight = FontWeight.Black); Spacer(Modifier.weight(1f)); Text(if (room.visibility == "public") "MONDIAL" else "CONTACTS", color = Color.White.copy(alpha = .65f), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
                                 Text(room.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -380,7 +379,7 @@ private fun WapiCreateSaleRoomDialog(pages: List<WhappyBusinessPage>, deals: Lis
                 available.forEach { deal ->
                     Row(
                         Modifier.fillMaxWidth().border(1.dp, if (deal.id in selectedIds) WhappyBlue else WhappyLine, RoundedCornerShape(14.dp))
-                            .clickable { selectedIds = if (deal.id in selectedIds) selectedIds - deal.id else selectedIds + deal.id }
+                            .wapiClickable { selectedIds = if (deal.id in selectedIds) selectedIds - deal.id else selectedIds + deal.id }
                             .padding(11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
