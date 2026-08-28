@@ -1331,6 +1331,9 @@ private fun WhappyMain(
                     onManageGroupMembers = { memberIds, action -> if (!preview) onManageGroupMembers(selected.id, memberIds, action) },
                     onUpdateGroupSettings = { description, editInfo, adminsOnly -> if (!preview) onUpdateGroupSettings(selected.id, description, editInfo, adminsOnly) },
                     availableContacts = state.contacts,
+                    onOpenMember = { member ->
+                        if (!preview) onOpenContact(WhappyContact(member))
+                    },
                     onSetLiveSubscription = { targetUserId, subscribed -> if (!preview) onSetLiveSubscription(targetUserId, subscribed) },
                     publicRadioEpisodes = state.radioEpisodes,
                     requestedGroupCall = state.requestedGroupCall,
@@ -6671,6 +6674,7 @@ private fun ChatScreen(
     onManageGroupMembers: (List<String>, String) -> Unit,
     onUpdateGroupSettings: (String, Boolean, Boolean) -> Unit,
     availableContacts: List<WhappyContact>,
+    onOpenMember: (WhappyMember) -> Unit,
     onSetLiveSubscription: (String, Boolean) -> Unit,
     publicRadioEpisodes: List<WapiRadioEpisode>,
     requestedGroupCall: WapiGroupCallInvitation?,
@@ -7648,33 +7652,108 @@ private fun ChatScreen(
         )
     }
     if (showPeerProfile) {
-        AlertDialog(
+        val peerIsVerified = conversation.peer.verified || WhappyIdentity.isFounder(conversation.peer.phoneNumber)
+        val peerCallable = calls != null && conversation.peer.uid.isNotBlank() && conversation.peer.uid != currentUserId
+        Dialog(
             onDismissRequest = { showPeerProfile = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(
-                        conversation.peer.photoUrl,
-                        conversation.peer.displayName,
-                        72.dp,
-                        Modifier.clickable(enabled = conversation.peer.photoUrl.isNotBlank()) {
-                            previewImage = conversation.peer.photoUrl
-                            showPeerProfile = false
-                        },
-                        RoundedCornerShape(20.dp),
-                    )
-                    Column(Modifier.padding(start = 13.dp)) {
-                        Text(conversation.peer.displayName, color = WhappyDark, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                        Text(if (conversation.isGroup) "Groupe · ${conversation.memberCount} membres" else "Profil WAPI", color = WhappyMuted, fontSize = 11.sp)
-                    }
-                }
-            },
-            text = {
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(.94f).heightIn(max = 760.dp),
+                shape = RoundedCornerShape(30.dp),
+                color = WapiSheet,
+                shadowElevation = 24.dp,
+            ) {
                 Column(
-                    Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    Box(Modifier.fillMaxWidth().background(WhappyAuroraSoft).padding(horizontal = 20.dp, vertical = 22.dp)) {
+                        Box(Modifier.align(Alignment.TopEnd).size(112.dp).offset(x = 38.dp, y = (-46).dp).clip(CircleShape).background(WhappySky.copy(alpha = .12f)))
+                        IconButton(
+                            onClick = { showPeerProfile = false },
+                            modifier = Modifier.align(Alignment.TopEnd).size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color.White.copy(alpha = .88f)),
+                        ) { Icon(Icons.Rounded.Close, "Fermer le profil", tint = WhappyDark) }
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(
+                                shape = RoundedCornerShape(25.dp),
+                                color = Color.White,
+                                border = androidx.compose.foundation.BorderStroke(3.dp, WhappyBlue.copy(alpha = .18f)),
+                                shadowElevation = 10.dp,
+                            ) {
+                                UserAvatar(
+                                    conversation.peer.photoUrl,
+                                    conversation.peer.displayName,
+                                    104.dp,
+                                    Modifier.clickable(enabled = conversation.peer.photoUrl.isNotBlank()) {
+                                        previewImage = conversation.peer.photoUrl
+                                        showPeerProfile = false
+                                    },
+                                    RoundedCornerShape(22.dp),
+                                )
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 14.dp, start = 42.dp, end = 42.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    conversation.peer.displayName.ifBlank { "Compte WAPI" },
+                                    color = WhappyDark,
+                                    fontSize = 24.sp,
+                                    lineHeight = 29.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (peerIsVerified) Icon(
+                                    Icons.Rounded.Verified,
+                                    "Compte certifié",
+                                    tint = WapiVerifiedGray,
+                                    modifier = Modifier.padding(start = 6.dp).size(17.dp),
+                                )
+                            }
+                            Text(
+                                if (conversation.isGroup) "Groupe · ${conversation.memberCount} membres"
+                                else if (WhappyIdentity.isFounder(conversation.peer.phoneNumber)) WhappyIdentity.founderBadgeLabel
+                                else if (conversation.peer.isOnline) "● En ligne maintenant"
+                                else if (conversation.peer.lastSeenAt > 0L) formatLastSeen(conversation.peer.lastSeenAt)
+                                else "Présence privée",
+                                Modifier.padding(top = 6.dp),
+                                color = if (!conversation.isGroup && conversation.peer.isOnline) WapiSuccess else WhappyMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                            )
+                            if (!conversation.isGroup) {
+                                Row(Modifier.fillMaxWidth().padding(top = 17.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                    WapiProfileAction(Icons.Rounded.ChatBubble, "Message", true, Modifier.weight(1f), emphasized = true) { showPeerProfile = false }
+                                    WapiProfileAction(Icons.Rounded.Phone, "Audio", peerCallable, Modifier.weight(1f)) {
+                                        calls?.start(conversation.peer, false)
+                                        showPeerProfile = false
+                                    }
+                                    WapiProfileAction(Icons.Rounded.Videocam, "Vidéo", peerCallable, Modifier.weight(1f)) {
+                                        calls?.start(conversation.peer, true)
+                                        showPeerProfile = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Column(
+                        Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                     if (conversation.peer.phoneNumber.isNotBlank()) Text(conversation.peer.phoneNumber, color = WhappyDark, fontWeight = FontWeight.SemiBold)
                     Text(if (conversation.isGroup) "Ouvrez les informations du groupe, ses membres et ses médias depuis cette fiche." else "Photo, identité et moyens de contact de ce compte.", color = WhappyMuted, lineHeight = 19.sp)
+                    if (!conversation.isGroup) {
+                        Surface(color = Color.White, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .70f))) {
+                            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                WapiProfileInfoRow(Icons.Rounded.Phone, "Numéro", conversation.peer.phoneNumber.ifBlank { "Protégé par la confidentialité" })
+                                WapiProfileInfoRow(Icons.Rounded.Person, "Identifiant WAPI", conversation.peer.uid.ifBlank { "En cours de synchronisation" })
+                                WapiProfileInfoRow(Icons.Rounded.Lock, "Confidentialité", "Seules les informations autorisées par ce compte sont affichées")
+                            }
+                        }
+                    }
                     if (conversation.isGroup) {
                         if (conversation.groupDescription.isNotBlank()) {
                             Text(conversation.groupDescription, color = WhappyDark, fontSize = 12.sp, lineHeight = 18.sp)
@@ -7826,50 +7905,93 @@ private fun ChatScreen(
                             Text(if (liveAlertEnabled) "  Alertes Live activées" else "  Me prévenir de ses Lives")
                         }
                     }
-                    if (!conversation.isGroup && conversation.peer.phoneNumber.isNotBlank()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            OutlinedButton(onClick = { calls?.start(conversation.peer, false); showPeerProfile = false }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Phone, null); Text(" Appeler") }
-                            OutlinedButton(onClick = { calls?.start(conversation.peer, true); showPeerProfile = false }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Videocam, null); Text(" Vidéo") }
-                            OutlinedButton(onClick = { showPeerProfile = false }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.ChatBubble, null); Text(" Message") }
-                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showPeerProfile = false }) { Text("Fermer", fontWeight = FontWeight.Bold) }
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showPeerProfile = false }) { Text("Fermer") } },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(26.dp),
-        )
+            }
+        }
     }
     selectedGroupMember?.let { member ->
         val memberRadio = publicRadioEpisodes.filter { it.ownerId == member.uid }
-        AlertDialog(
+        val memberCallable = calls != null && member.uid.isNotBlank() && member.uid != currentUserId
+        val memberVerified = member.verified || WhappyIdentity.isFounder(member.phoneNumber)
+        Dialog(
             onDismissRequest = { selectedGroupMember = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(member.photoUrl, member.displayName, 58.dp, shape = RoundedCornerShape(14.dp))
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text(member.displayName, color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(if (member.uid in conversation.groupAdminIds) "Administrateur du groupe" else "Membre du groupe", color = WhappyMuted, fontSize = 10.sp)
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (member.phoneNumber.isNotBlank()) Text(member.phoneNumber, color = WhappyDark, fontWeight = FontWeight.Bold)
-                    Text("Activité publique", color = WhappyDark, fontWeight = FontWeight.Bold)
-                    if (memberRadio.isEmpty()) Text("Aucune radio ni playlist publique partagée.", color = WhappyMuted, fontSize = 11.sp)
-                    else memberRadio.take(3).forEach { episode ->
-                        Surface(Modifier.fillMaxWidth().clickable { radio?.play(episode) }, color = WhappyBlue.copy(alpha = .06f), shape = RoundedCornerShape(13.dp)) {
-                            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Radio, null, tint = WhappyBlue); Text(episode.title, Modifier.weight(1f).padding(start = 9.dp), color = WhappyDark, fontWeight = FontWeight.Bold, fontSize = 11.sp); Icon(Icons.Rounded.PlayArrow, "Écouter", tint = WhappyBlue) }
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(Modifier.fillMaxWidth(.94f).heightIn(max = 700.dp), shape = RoundedCornerShape(30.dp), color = WapiSheet, shadowElevation = 22.dp) {
+                Column {
+                    Box(Modifier.fillMaxWidth().background(WhappyAuroraSoft).padding(20.dp)) {
+                        IconButton(onClick = { selectedGroupMember = null }, modifier = Modifier.align(Alignment.TopEnd).size(40.dp).clip(RoundedCornerShape(13.dp)).background(Color.White.copy(alpha = .88f))) {
+                            Icon(Icons.Rounded.Close, "Fermer le profil", tint = WhappyDark)
+                        }
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(shape = RoundedCornerShape(23.dp), color = Color.White, border = androidx.compose.foundation.BorderStroke(3.dp, WhappyBlue.copy(alpha = .18f)), shadowElevation = 9.dp) {
+                                UserAvatar(
+                                    member.photoUrl,
+                                    member.displayName,
+                                    96.dp,
+                                    Modifier.clickable(enabled = member.photoUrl.isNotBlank()) {
+                                        previewImage = member.photoUrl
+                                        selectedGroupMember = null
+                                    },
+                                    RoundedCornerShape(20.dp),
+                                )
+                            }
+                            Row(Modifier.fillMaxWidth().padding(top = 13.dp, start = 40.dp, end = 40.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                                Text(member.displayName.ifBlank { "Membre WAPI" }, color = WhappyDark, fontWeight = FontWeight.SemiBold, fontSize = 23.sp, lineHeight = 28.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                                if (memberVerified) Icon(Icons.Rounded.Verified, "Compte certifié", tint = WapiVerifiedGray, modifier = Modifier.padding(start = 6.dp).size(17.dp))
+                            }
+                            Text(
+                                if (member.uid in conversation.groupAdminIds) "Administrateur du groupe" else "Membre du groupe",
+                                Modifier.padding(top = 5.dp),
+                                color = WhappyMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                WapiProfileAction(Icons.Rounded.ChatBubble, "Message", member.uid.isNotBlank(), Modifier.weight(1f), emphasized = true) {
+                                    selectedGroupMember = null
+                                    onOpenMember(member)
+                                }
+                                WapiProfileAction(Icons.Rounded.Phone, "Audio", memberCallable, Modifier.weight(1f)) {
+                                    calls?.start(member, false)
+                                    selectedGroupMember = null
+                                }
+                                WapiProfileAction(Icons.Rounded.Videocam, "Vidéo", memberCallable, Modifier.weight(1f)) {
+                                    calls?.start(member, true)
+                                    selectedGroupMember = null
+                                }
+                            }
                         }
                     }
-                    if (member.phoneNumber.isNotBlank()) OutlinedButton(onClick = { calls?.start(member, false); selectedGroupMember = null }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Phone, null); Text("  Appeler") }
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                        Surface(color = Color.White, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, WhappyLine.copy(alpha = .70f))) {
+                            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                WapiProfileInfoRow(Icons.Rounded.Phone, "Numéro", member.phoneNumber.ifBlank { "Protégé par la confidentialité" })
+                                WapiProfileInfoRow(Icons.Rounded.Person, "Identifiant WAPI", member.uid.ifBlank { "En cours de synchronisation" })
+                            }
+                        }
+                        Text("Activité publique", color = WhappyDark, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        if (memberRadio.isEmpty()) Text("Aucune radio ni playlist publique partagée.", color = WhappyMuted, fontSize = 11.sp)
+                        else memberRadio.take(3).forEach { episode ->
+                            Surface(Modifier.fillMaxWidth().clickable { radio?.play(episode) }, color = WapiBlueMist, shape = RoundedCornerShape(16.dp)) {
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Radio, null, tint = WhappyBlue)
+                                    Text(episode.title, Modifier.weight(1f).padding(start = 10.dp), color = WhappyDark, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Icon(Icons.Rounded.PlayArrow, "Écouter", tint = WhappyBlue)
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { selectedGroupMember = null }) { Text("Fermer", fontWeight = FontWeight.Bold) }
+                    }
                 }
-            },
-            confirmButton = { TextButton(onClick = { selectedGroupMember = null }) { Text("Fermer") } },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(26.dp),
-        )
+            }
+        }
     }
     if (showGroupMuteOptions && conversation.isGroup) {
         AlertDialog(

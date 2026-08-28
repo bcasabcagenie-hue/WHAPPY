@@ -816,6 +816,21 @@ struct MessagesView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: Conversation.self) { conversation in ConversationView(conversationID: conversation.id).onAppear { store.markRead(conversation) } }
         .navigationDestination(for: WhappyChannel.self) { channel in ChannelView(channelID: channel.id) }
+        .navigationDestination(
+            isPresented: Binding(
+                get: { store.pendingConversationID != nil },
+                set: { presented in if !presented { store.pendingConversationID = nil } }
+            )
+        ) {
+            if let conversationID = store.pendingConversationID {
+                ConversationView(conversationID: conversationID)
+                    .onAppear {
+                        if let conversation = store.accountConversations.first(where: { $0.id == conversationID }) {
+                            store.markRead(conversation)
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $composing) { NewConversationView(initialPhone: linkedPhone) }
         .sheet(isPresented: $creatingChannel) { NewChannelView() }
         .sheet(item: $linkedChannel) { channel in NavigationStack { ChannelView(channelID: channel.id) } }
@@ -2213,6 +2228,7 @@ private struct WapiTranslationSheet: View {
 
 private struct WapiContactProfileView: View {
     let conversation: Conversation
+    var onMessage: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var directCallRoute: WapiDirectCallRoute?
     @State private var showPhoto = false
@@ -2258,9 +2274,12 @@ private struct WapiContactProfileView: View {
 
                         VStack(spacing: 5) {
                             Text(conversation.name)
-                                .font(.system(size: 29, weight: .bold, design: .rounded))
+                                .font(.system(size: 28, weight: .semibold))
                                 .foregroundStyle(Color.whappyInk)
                                 .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.84)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text(profileLabel.uppercased())
                                 .font(.system(size: 10, weight: .bold)).tracking(0.7)
                                 .foregroundStyle(conversation.profileType == "business" ? WapiColor.violet : WapiColor.deepBlue)
@@ -2287,7 +2306,10 @@ private struct WapiContactProfileView: View {
                     .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(WapiColor.sky.opacity(0.24), lineWidth: 1))
 
                     HStack(spacing: 10) {
-                        profileAction("Message", icon: "message.fill", emphasized: false) { dismiss() }
+                        profileAction("Message", icon: "message.fill", emphasized: false) {
+                            dismiss()
+                            DispatchQueue.main.async { onMessage?() }
+                        }
                         profileAction("Audio", icon: "phone.fill", emphasized: false) { beginCall(video: false) }
                         profileAction("Vidéo", icon: "video.fill", emphasized: true) { beginCall(video: true) }
                     }
@@ -2725,7 +2747,7 @@ struct CallsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(store.activeBusinessMode ? "Appels Business" : "Appels")
-                            .font(.system(size: 27, weight: .semibold, design: .rounded))
+                            .font(.system(size: 27, weight: .semibold))
                             .foregroundStyle(Color.whappyInk)
                         Text("Audio et vidéo, simplement").font(.caption).foregroundStyle(WapiColor.secondaryText)
                     }
@@ -2742,7 +2764,7 @@ struct CallsView: View {
                 HStack(spacing: 10) {
                     Capsule().fill(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .top, endPoint: .bottom)).frame(width: 4, height: 34)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Récents").font(.system(.headline, design: .rounded).weight(.semibold)).foregroundStyle(Color.whappyInk)
+                        Text("Récents").font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk)
                         Text(store.calls.isEmpty ? "Aucun appel pour le moment" : "Reprendre une conversation en un geste").font(.caption2).foregroundStyle(WapiColor.secondaryText)
                     }
                 }
@@ -2798,7 +2820,12 @@ struct CallsView: View {
         }
         .background(Color.whappyBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $selectedProfile) { WapiContactProfileView(conversation: $0) }
+        .sheet(item: $selectedProfile) { profile in
+            WapiContactProfileView(conversation: profile) {
+                store.pendingConversationID = profile.id
+                store.selectedTab = .messages
+            }
+        }
         .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
         .alert("Appel WAPI indisponible", isPresented: Binding(get: { unavailableMessage != nil }, set: { if !$0 { unavailableMessage = nil } })) { Button("Fermer", role: .cancel) {} } message: { Text(unavailableMessage ?? "") }
     }

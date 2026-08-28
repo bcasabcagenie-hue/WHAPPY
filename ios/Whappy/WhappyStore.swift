@@ -37,6 +37,7 @@ final class WhappyStore: ObservableObject {
     @Published var interfaceLanguage: WapiInterfaceLanguage { didSet { save() } }
     @Published var pendingContactPhone: String?
     @Published var pendingChannelID: UUID?
+    @Published var pendingConversationID: UUID?
     @Published var pendingSearch: String?
     @Published var pendingGroupCall: WapiGroupCallRoute?
     @Published var pendingDirectCall: WapiDirectCallRoute?
