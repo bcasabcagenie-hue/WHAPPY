@@ -211,7 +211,7 @@ extension WhappyStore {
         }
     }
 
-    func sendFirebaseMedia(kind: String, path: String, mediaName: String? = nil, viewOnce: Bool = false, conversation: Conversation) {
+    func sendFirebaseMedia(kind: String, path: String, mediaName: String? = nil, durationSeconds: Int = 0, viewOnce: Bool = false, conversation: Conversation) {
         guard let remoteID = conversation.remoteID, let userID = firebaseUserID else { return }
         guard ["image", "audio", "video", "document"].contains(kind),
               (!viewOnce || kind != "document") else {
@@ -244,9 +244,11 @@ extension WhappyStore {
         let originalName = (mediaName ?? fileURL.lastPathComponent).trimmingCharacters(in: .whitespacesAndNewlines)
         let originalExtension = fileURL.pathExtension.isEmpty ? fallbackExtension(for: kind) : fileURL.pathExtension.lowercased()
         let safeName = String((originalName.isEmpty ? "wapi-\(kind).\(originalExtension)" : originalName).prefix(120))
-        let fileName = "ios-\(UUID().uuidString).\(originalExtension)"
         let root = Firestore.firestore().collection(rootName).document(remoteID)
         let messageReference = root.collection("messages").document()
+        // The object name follows the Firestore document id. Every retry is
+        // therefore idempotent and cannot create duplicate voice-note files.
+        let fileName = "\(messageReference.documentID).\(originalExtension)"
         let localMessage = Message(
             id: stableFirebaseUUID(messageReference.documentID),
             text: label,
@@ -272,30 +274,29 @@ extension WhappyStore {
         let object = Storage.storage().reference().child("\(rootName)/\(remoteID)/\(userID)/\(fileName)")
         let metadata = StorageMetadata()
         metadata.contentType = mediaContentType(for: fileURL, kind: kind)
-        firebaseBusy = true
-        object.putFile(from: URL(fileURLWithPath: path), metadata: metadata) { [weak self] _, error in
-            guard let self else { return }
-            if let error {
-                Task { @MainActor in
-                    self.firebaseBusy = false
+        // Media upload is represented by the bubble itself. It must not set
+        // the global busy flag and freeze navigation or the composer.
+        uploadFirebaseMedia(object: object, fileURL: fileURL, metadata: metadata) { [weak self] result in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch result {
+                case .failure(let error):
                     self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
-                }
-                return
-            }
-            object.downloadURL { url, error in
-                Task { @MainActor in
-                    self.firebaseBusy = false
-                    if let error {
-                        self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
-                        return
-                    }
-                    guard let url else {
-                        let error = NSError(domain: "WAPI.Media", code: 1, userInfo: [NSLocalizedDescriptionKey: "Le média n’a pas pu être envoyé."])
-                        self.finishFirebaseSend(messageID: localMessage.id, conversationID: conversation.id, error: error)
-                        return
-                    }
+                case .success(let url):
                     let checksum = await checksumTask.value
-                    self.writeFirebaseMediaMessage(label: label, kind: kind, mediaURL: url.absoluteString, fileName: safeName, mediaSizeBytes: fileSize, mediaSha256: checksum, viewOnce: viewOnce, conversation: conversation, messageReference: messageReference, localMessageID: localMessage.id)
+                    self.writeFirebaseMediaMessage(
+                        label: label,
+                        kind: kind,
+                        mediaURL: url.absoluteString,
+                        fileName: safeName,
+                        mediaSizeBytes: fileSize,
+                        mediaSha256: checksum,
+                        durationSeconds: min(max(durationSeconds, 0), 600),
+                        viewOnce: viewOnce,
+                        conversation: conversation,
+                        messageReference: messageReference,
+                        localMessageID: localMessage.id
+                    )
                 }
             }
         }
@@ -541,6 +542,12 @@ extension WhappyStore {
                         "photoUrl": url.absoluteString,
                         "updatedAt": FieldValue.serverTimestamp()
                     ], merge: true)
+                    let change = Auth.auth().currentUser?.createProfileChangeRequest()
+                    change?.photoURL = url
+                    change?.commitChanges { profileError in
+                        guard let profileError else { return }
+                        Task { @MainActor in self.firebaseMessage = self.friendlyFirebaseError(profileError) }
+                    }
                 }
             }
         }
@@ -656,6 +663,7 @@ extension WhappyStore {
                     guard let self else { return }
                     if let error { self.firebaseMessage = self.friendlyFirebaseError(error); return }
                     self.firebaseGroupConversations = snapshot?.documents.compactMap { self.firebaseConversation(from: $0, userID: userID, source: "groups") } ?? []
+                    self.refreshFirebasePresenceObservers()
                     self.publishFirebaseConversations()
                 }
             }
@@ -674,7 +682,9 @@ extension WhappyStore {
     }
 
     private func refreshFirebasePresenceObservers() {
-        let peerIDs = Set(firebaseDirectConversations.compactMap(\.peerUID))
+        let directPeerIDs = firebaseDirectConversations.compactMap(\.peerUID)
+        let groupMemberIDs = firebaseGroupConversations.flatMap(\.groupMembers).map(\.uid)
+        let peerIDs = Set((directPeerIDs + groupMemberIDs).filter { $0 != firebaseUserID })
         guard peerIDs != firebasePresencePeerIDs else { return }
         firebasePresenceListeners.forEach { $0.remove() }
         firebasePresenceListeners.removeAll()
@@ -693,6 +703,37 @@ extension WhappyStore {
                         var updated = conversation
                         updated.peerIsOnline = online
                         updated.peerLastSeenAt = lastSeenAt
+                        // The profile document is canonical; embedded member
+                        // data is only a fallback for the first offline frame.
+                        if conversation.profileType != "business" {
+                            let name = (data["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            let phone = data["phoneNumber"] as? String ?? conversation.phoneNumber
+                            if !name.isEmpty {
+                                updated.name = isWhappyFounderPhone(phone) ? whappyFounderName : name
+                                let initials = updated.name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
+                                updated.initials = initials.isEmpty ? "W" : initials
+                            }
+                            updated.phoneNumber = phone
+                            if let photo = (data["photoUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !photo.isEmpty {
+                                updated.photoURL = photo
+                            }
+                            updated.peerVerified = (data["verified"] as? Bool == true) || isWhappyFounderPhone(phone)
+                        }
+                        return updated
+                    }
+                    self.firebaseGroupConversations = self.firebaseGroupConversations.map { conversation in
+                        var updated = conversation
+                        updated.groupMembers = conversation.groupMembers.map { member in
+                            guard member.uid == peerID else { return member }
+                            let name = (data["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let photo = (data["photoUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            return WapiGroupMember(
+                                uid: member.uid,
+                                displayName: name?.isEmpty == false ? name! : member.displayName,
+                                phoneNumber: data["phoneNumber"] as? String ?? member.phoneNumber,
+                                photoURL: photo?.isEmpty == false ? photo! : member.photoURL
+                            )
+                        }
                         return updated
                     }
                     self.publishFirebaseConversations()
@@ -729,12 +770,19 @@ extension WhappyStore {
             )
         }
         let peer = members.first { ($0["uid"] as? String) != userID }
-        let name = isGroup ? (data["name"] as? String ?? data["title"] as? String ?? "Groupe WAPI") : (peer?["displayName"] as? String ?? data["contactName"] as? String ?? "Contact WAPI")
-        let phone = isGroup ? "" : (peer?["phoneNumber"] as? String ?? "")
-        let photo = isGroup ? (data["photoUrl"] as? String ?? data["groupPhotoUrl"] as? String ?? "") : (peer?["photoUrl"] as? String ?? "")
         let profileType = data["profileType"] as? String ?? "personal"
         let businessPageID = data["businessPageId"] as? String ?? ""
         let businessPageName = data["businessPageName"] as? String ?? ""
+        let businessOwnerID = data["businessOwnerId"] as? String ?? ""
+        let viewingExternalBusiness = !isGroup && profileType == "business" && !businessPageID.isEmpty && userID != businessOwnerID
+        let name = isGroup
+            ? (data["name"] as? String ?? data["title"] as? String ?? "Groupe WAPI")
+            : (viewingExternalBusiness ? businessPageName : (peer?["displayName"] as? String ?? data["contactName"] as? String ?? "Contact WAPI"))
+        let phone = isGroup ? "" : (peer?["phoneNumber"] as? String ?? "")
+        let photo = isGroup
+            ? (data["photoUrl"] as? String ?? data["groupPhotoUrl"] as? String ?? "")
+            : (viewingExternalBusiness ? (data["businessPagePhotoUrl"] as? String ?? "") : (peer?["photoUrl"] as? String ?? ""))
+        let peerVerified = !isGroup && ((peer?["verified"] as? Bool == true) || isWhappyFounderPhone(phone))
         let initials = name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
         let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? (data["createdAt"] as? Timestamp)?.dateValue() ?? .distantPast
         let readBy = data["readBy"] as? [String: Any]
@@ -750,8 +798,9 @@ extension WhappyStore {
             messages: [],
             remoteID: document.documentID,
             source: source,
-            peerUID: isGroup ? nil : peer?["uid"] as? String,
+            peerUID: isGroup ? nil : (viewingExternalBusiness ? businessOwnerID : peer?["uid"] as? String),
             photoURL: photo,
+            peerVerified: peerVerified,
             groupOwnerID: isGroup ? data["ownerId"] as? String : nil,
             groupAdminIDs: isGroup ? (data["adminIds"] as? [String] ?? []) : [],
             groupMembers: isGroup ? groupMembers : [],
@@ -789,21 +838,59 @@ extension WhappyStore {
         )
     }
 
-    private func writeFirebaseMediaMessage(label: String, kind: String, mediaURL: String, fileName: String, mediaSizeBytes: Int, mediaSha256: String, viewOnce: Bool, conversation: Conversation, messageReference: DocumentReference, localMessageID: UUID) {
+    private func writeFirebaseMediaMessage(label: String, kind: String, mediaURL: String, fileName: String, mediaSizeBytes: Int, mediaSha256: String, durationSeconds: Int, viewOnce: Bool, conversation: Conversation, messageReference: DocumentReference, localMessageID: UUID, attempt: Int = 1) {
         guard let remoteID = conversation.remoteID, let userID = firebaseUserID else { return }
         let root = Firestore.firestore().collection(conversation.source == "groups" ? "groups" : "conversations").document(remoteID)
         var data: [String: Any] = [
             "text": label, "senderId": userID, "createdAt": FieldValue.serverTimestamp(),
-            "kind": kind, "mediaUrl": mediaURL, "mediaName": fileName, "duration": 0,
+            "kind": kind, "mediaUrl": mediaURL, "mediaName": fileName, "duration": durationSeconds,
             "mediaSizeBytes": mediaSizeBytes, "mediaSha256": mediaSha256,
             "viewOnce": viewOnce, "viewedBy": [:]
         ]
         if conversation.source == "groups" { data["senderName"] = currentFirebaseSenderName }
         messageReference.setData(data) { [weak self] error in
             Task { @MainActor [weak self] in
+                if error != nil, attempt < 3 {
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 650_000_000)
+                    self?.writeFirebaseMediaMessage(label: label, kind: kind, mediaURL: mediaURL, fileName: fileName, mediaSizeBytes: mediaSizeBytes, mediaSha256: mediaSha256, durationSeconds: durationSeconds, viewOnce: viewOnce, conversation: conversation, messageReference: messageReference, localMessageID: localMessageID, attempt: attempt + 1)
+                    return
+                }
                 self?.finishFirebaseSend(messageID: localMessageID, conversationID: conversation.id, error: error)
                 guard error == nil else { return }
                 self?.updateFirebaseConversationSummary(root: root, source: conversation.source ?? "conversations", text: label, userID: userID)
+            }
+        }
+    }
+
+    /// Firebase Storage has its own transport retries, but a short explicit
+    /// retry keeps voice notes resilient when a phone switches between Wi-Fi
+    /// and cellular data exactly as the user releases the record button.
+    private func uploadFirebaseMedia(
+        object: StorageReference,
+        fileURL: URL,
+        metadata: StorageMetadata,
+        attempt: Int = 1,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        object.putFile(from: fileURL, metadata: metadata) { [weak self] _, uploadError in
+            guard let self else { return }
+            if let uploadError {
+                guard attempt < 3 else { completion(.failure(uploadError)); return }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 550_000_000)
+                    self.uploadFirebaseMedia(object: object, fileURL: fileURL, metadata: metadata, attempt: attempt + 1, completion: completion)
+                }
+                return
+            }
+            object.downloadURL { [weak self] url, downloadError in
+                guard let self else { return }
+                if let url { completion(.success(url)); return }
+                let failure = downloadError ?? NSError(domain: "WAPI.Media", code: 1, userInfo: [NSLocalizedDescriptionKey: "Le média n’a pas pu être envoyé."])
+                guard attempt < 3 else { completion(.failure(failure)); return }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 550_000_000)
+                    self.uploadFirebaseMedia(object: object, fileURL: fileURL, metadata: metadata, attempt: attempt + 1, completion: completion)
+                }
             }
         }
     }
@@ -976,39 +1063,53 @@ struct WhappyPhoneSignInView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 22) {
-                    Image("WhappyMark").resizable().scaledToFit().frame(width: 76, height: 76).clipShape(RoundedRectangle(cornerRadius: 22))
-                    VStack(spacing: 6) {
-                        Text(store.firebaseCodeSent ? "Entrez le code SMS" : "Connexion WAPI").font(.largeTitle.bold()).foregroundStyle(Color.whappyInk)
-                        Text(store.firebaseCodeSent ? "Votre compte et vos messages seront synchronisés sur tous vos appareils." : "Utilisez le même numéro que sur Android ou le Web.").multilineTextAlignment(.center).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(spacing: 5) {
+                        Text("WAPI").font(.system(size: 25, weight: .bold)).tracking(-0.65).foregroundStyle(WapiColor.ink)
+                        Circle().fill(WapiColor.sky).frame(width: 6, height: 6)
                     }
-                    if store.firebaseCodeSent {
-                        TextField("Code à 6 chiffres", text: $code)
-                            .keyboardType(.numberPad).textContentType(.oneTimeCode)
-                            .font(.title2.monospacedDigit()).multilineTextAlignment(.center)
-                            .padding().background(Color.whappyBlue.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 16))
-                        Button { store.confirmFirebasePhoneCode(code) } label: { Text("Continuer").frame(maxWidth: .infinity).padding(.vertical, 8) }
-                            .buttonStyle(.borderedProminent).disabled(code.filter(\.isNumber).count != 6 || store.firebaseBusy)
-                        Button("Changer de numéro") { store.firebaseCodeSent = false; store.firebaseVerificationID = nil; store.firebaseMessage = nil }
-                    } else {
-                        Picker("Pays", selection: $countryCode) {
-                            ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Vos échanges, simplement.").font(.system(size: 30, weight: .bold)).tracking(-0.6).foregroundStyle(WapiColor.ink)
+                        Text("Une identité WAPI pour vos messages, appels et activités.").font(.subheadline).foregroundStyle(WapiColor.secondaryText)
+                    }
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(store.firebaseCodeSent ? "Entrez le code SMS" : "Votre numéro WAPI").font(.title.bold()).foregroundStyle(Color.whappyInk)
+                            Text(store.firebaseCodeSent ? "Votre compte et vos messages seront synchronisés sur tous vos appareils." : "Une seule vérification, puis WAPI s’ouvre directement.").foregroundStyle(WapiColor.secondaryText)
                         }
-                        .pickerStyle(.menu)
-                        TextField("Numéro de téléphone", text: $phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
-                            .padding().background(Color.whappyBlue.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 16))
-                        if let normalizedPhone { Text(normalizedPhone).font(.footnote.bold()).foregroundStyle(Color.whappyBlue) }
-                        Button { if let normalizedPhone { store.requestFirebasePhoneCode(phone: normalizedPhone) } } label: { Text("Recevoir le code SMS").frame(maxWidth: .infinity).padding(.vertical, 8) }
-                            .buttonStyle(.borderedProminent).disabled(normalizedPhone == nil || store.firebaseBusy)
+                        if store.firebaseCodeSent {
+                            TextField("Code à 6 chiffres", text: $code)
+                                .keyboardType(.numberPad).textContentType(.oneTimeCode)
+                                .font(.title2.monospacedDigit()).multilineTextAlignment(.center)
+                                .padding().background(WapiColor.secondarySurface).clipShape(RoundedRectangle(cornerRadius: WapiRadius.control, style: .continuous))
+                            Button { store.confirmFirebasePhoneCode(code) } label: { Text("Continuer").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 8) }
+                                .buttonStyle(.borderedProminent).disabled(code.filter(\.isNumber).count != 6 || store.firebaseBusy)
+                            Button("Changer de numéro") { store.firebaseCodeSent = false; store.firebaseVerificationID = nil; store.firebaseMessage = nil }
+                        } else {
+                            Picker("Pays", selection: $countryCode) {
+                                ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) }
+                            }
+                            .pickerStyle(.menu)
+                            TextField("Numéro de téléphone", text: $phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
+                                .padding().background(WapiColor.secondarySurface).clipShape(RoundedRectangle(cornerRadius: WapiRadius.control, style: .continuous))
+                            if let normalizedPhone { Text(normalizedPhone).font(.footnote.bold()).foregroundStyle(Color.whappyBlue) }
+                            Button { if let normalizedPhone { store.requestFirebasePhoneCode(phone: normalizedPhone) } } label: { Text("Recevoir le code SMS").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 8) }
+                                .buttonStyle(.borderedProminent).disabled(normalizedPhone == nil || store.firebaseBusy)
+                        }
+                        if store.firebaseBusy { ProgressView() }
+                        if let message = store.firebaseMessage { Text(message).font(.footnote).foregroundStyle(Color.whappyBlue) }
+                        Label("Session protégée · aucun mot de passe", systemImage: "lock.fill").font(.caption).foregroundStyle(WapiColor.secondaryText)
                     }
-                    if store.firebaseBusy { ProgressView() }
-                    if let message = store.firebaseMessage { Text(message).font(.footnote).multilineTextAlignment(.center).foregroundStyle(Color.whappyBlue) }
-                    Text("Un numéro = un compte WAPI").font(.caption.bold()).foregroundStyle(.secondary)
+                    .padding(22)
+                    .background(WapiColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: WapiRadius.hero, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: WapiRadius.hero, style: .continuous).stroke(WapiColor.line, lineWidth: 0.8))
                 }
-                .padding(28)
+                .padding(.horizontal, 24).padding(.top, 22)
                 .frame(maxWidth: 520)
             }
             .background(Color.whappyBackground)
+            .tint(WapiColor.blue)
         }
     }
 }

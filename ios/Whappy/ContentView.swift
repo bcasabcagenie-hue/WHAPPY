@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import AudioToolbox
 import CoreImage.CIFilterBuiltins
+import CryptoKit
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseFunctions
@@ -29,8 +30,17 @@ struct ContentView: View {
                 .tabItem { Label(ui("Messages", "Messages", "Nsango"), systemImage: "message.fill") }.badge(store.unreadCount).tag(WhappyTab.messages)
             NavigationStack { CallsView() }
                 .tabItem { Label(ui("Appels", "Calls", "Mabéle"), systemImage: "phone.fill") }.tag(WhappyTab.calls)
-            NavigationStack { UpdatesView() }
-                .tabItem { Label(ui("Actus", "Updates", "Sango"), systemImage: "sparkles") }.tag(WhappyTab.actus)
+            NavigationStack {
+                if store.activeBusinessMode { BusinessWorkspaceView() }
+                else { UpdatesView() }
+            }
+                .tabItem {
+                    Label(
+                        store.activeBusinessMode ? ui("Business", "Business", "Mombongo") : ui("Actus", "Updates", "Sango"),
+                        systemImage: store.activeBusinessMode ? "briefcase.fill" : "sparkles"
+                    )
+                }
+                .tag(WhappyTab.actus)
             NavigationStack { WiaAssistantView() }
                 .tabItem { Label("WIA", systemImage: "wand.and.stars") }.tag(WhappyTab.wia)
             NavigationStack { HomeView() }
@@ -61,52 +71,55 @@ struct ContentView: View {
 }
 
 private struct BrandHeader: View {
+    @EnvironmentObject private var store: WhappyStore
     let subtitle: String
     @State private var showActivity = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .leading, endPoint: .trailing)
-                .frame(height: 4)
-            HStack(spacing: 12) {
-                Image("WhappyMark")
-                    .resizable().scaledToFit()
-                    .frame(width: 43, height: 43)
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    .shadow(color: WapiColor.deepBlue.opacity(0.22), radius: 7, y: 4)
+        HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 7) {
-                        Text("WAPI").font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(Color.whappyInk)
-                        Text("PRIVÉ").font(.system(size: 8, weight: .bold)).tracking(0.6).foregroundStyle(Color.whappyBlue).padding(.horizontal, 7).padding(.vertical, 4).background(WapiColor.blueMist).clipShape(Capsule())
+                    HStack(spacing: 5) {
+                        Text("WAPI")
+                            .font(.system(size: 23, weight: .bold))
+                            .tracking(-0.65)
+                            .foregroundStyle(Color.whappyInk)
+                        Circle().fill(WapiColor.sky).frame(width: 6, height: 6)
+                        if store.activeBusinessMode {
+                            Text("BUSINESS")
+                                .font(.system(size: 7, weight: .bold))
+                                .tracking(0.55)
+                                .foregroundStyle(WapiColor.deepBlue)
+                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                .background(WapiColor.blueMist)
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
                     }
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(store.activeBusinessMode ? (store.business?.name ?? "Compte professionnel") : subtitle)
+                        .font(.system(size: 9, weight: store.activeBusinessMode ? .semibold : .regular))
+                        .foregroundStyle(WapiColor.secondaryText)
+                        .lineLimit(1)
                 }
                 Spacer()
                 Button { showActivity = true } label: {
                     Image(systemName: "bell.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(WapiColor.deepBlue)
-                        .frame(width: 43, height: 43)
-                        .background(Color.white.opacity(0.88))
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .shadow(color: WapiColor.deepBlue.opacity(0.10), radius: 6, y: 3)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(WapiColor.night)
+                        .frame(width: 42, height: 42)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
                 .buttonStyle(WapiPressableButtonStyle())
-            }
-            .padding(.horizontal, WapiSpacing.screen)
-            .padding(.vertical, 12)
         }
-        .background(
-            LinearGradient(colors: [Color.white, WapiColor.blueMist.opacity(0.48), WapiColor.violet.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: WapiColor.deepBlue.opacity(0.10), radius: 12, y: 6)
+        .frame(height: 64)
+        .padding(.horizontal, WapiSpacing.screen)
+        .background(WapiColor.canvas)
         .sheet(isPresented: $showActivity) { ActivityCenterView() }
     }
 }
 
 struct HomeView: View {
     @EnvironmentObject private var store: WhappyStore
+    @StateObject private var sponsoredAds = WapiSponsoredAdsIOSStore()
     @State private var composingMoment = false
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -131,6 +144,17 @@ struct HomeView: View {
                     .padding(15)
                     .wapiFlowSurface()
                 }.buttonStyle(WapiPressableButtonStyle())
+
+                if let campaign = sponsoredAds.campaigns.first {
+                    WapiSponsoredCampaignIOSCard(
+                        campaign: campaign,
+                        onOpen: {
+                            sponsoredAds.recordClick(campaign)
+                            store.selectedTab = .market
+                        },
+                        onDismiss: { sponsoredAds.dismiss(campaign) }
+                    )
+                }
 
                 Text("Découvrir").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk)
                 LazyVGrid(columns: columns, spacing: 12) {
@@ -158,8 +182,145 @@ struct HomeView: View {
         }
         .background(Color.whappyBackground)
         .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(for: Listing.self) { ListingDetailView(listingID: $0.id) }
+        .navigationDestination(for: Listing.self) { ListingDetailView(listing: $0) }
         .sheet(isPresented: $composingMoment) { MomentComposerView() }
+        .onAppear { sponsoredAds.start() }
+        .onDisappear { sponsoredAds.stop() }
+    }
+}
+
+private struct WapiSponsoredCampaignIOS: Identifiable {
+    let id: String
+    let ownerID: String
+    let pageName: String
+    let title: String
+    let creative: String
+    let cta: String
+    let city: String
+    let countryCode: String
+    let rankReasons: [String]
+    let rankingEngine: String
+    let rankingVersion: String
+}
+
+@MainActor
+private final class WapiSponsoredAdsIOSStore: ObservableObject {
+    @Published var campaigns: [WapiSponsoredCampaignIOS] = []
+    private var loading = false
+
+    func start() {
+        guard !loading else { return }
+        loading = true
+        Functions.functions(region: "europe-west1").httpsCallable("getPersonalizedAds").call([
+            "placement": "inbox",
+            "limit": 12,
+            "localeCountry": Locale.current.region?.identifier.uppercased() ?? "",
+        ]) { [weak self] result, _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.loading = false
+                let payload = result?.data as? [String: Any] ?? [:]
+                let values = (payload["ads"] as? [[String: Any]] ?? []).compactMap { data -> WapiSponsoredCampaignIOS? in
+                    let id = data["id"] as? String ?? ""
+                    let title = data["title"] as? String ?? ""
+                    let creative = data["creative"] as? String ?? ""
+                    guard !id.isEmpty, !title.isEmpty, !creative.isEmpty else { return nil }
+                    return WapiSponsoredCampaignIOS(
+                        id: id,
+                        ownerID: data["ownerId"] as? String ?? "",
+                        pageName: data["pageName"] as? String ?? "Business WAPI",
+                        title: title,
+                        creative: creative,
+                        cta: data["cta"] as? String ?? "Découvrir",
+                        city: data["city"] as? String ?? "",
+                        countryCode: data["countryCode"] as? String ?? "",
+                        rankReasons: (data["rankReasons"] as? [String] ?? []).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                        rankingEngine: data["rankingEngine"] as? String ?? "ELEPHANT",
+                        rankingVersion: data["rankingVersion"] as? String ?? "1.0"
+                    )
+                }
+                self.campaigns = values
+                if let first = values.first { self.recordImpression(first) }
+            }
+        }
+    }
+
+    func stop() {}
+
+    func recordClick(_ campaign: WapiSponsoredCampaignIOS) { record(campaign, type: "click") }
+
+    func dismiss(_ campaign: WapiSponsoredCampaignIOS) {
+        campaigns.removeAll { $0.id == campaign.id }
+        record(campaign, type: "dismiss")
+    }
+
+    private func recordImpression(_ campaign: WapiSponsoredCampaignIOS) { record(campaign, type: "impression") }
+
+    private func record(_ campaign: WapiSponsoredCampaignIOS, type: String) {
+        guard let userID = Auth.auth().currentUser?.uid, !userID.isEmpty, campaign.ownerID != userID else { return }
+        Functions.functions(region: "europe-west1").httpsCallable("recordAdBehavior").call([
+            "campaignId": campaign.id,
+            "type": type,
+        ]) { _, _ in }
+    }
+}
+
+private struct WapiSponsoredCampaignIOSCard: View {
+    let campaign: WapiSponsoredCampaignIOS
+    let onOpen: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "megaphone.fill")
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(LinearGradient(colors: [WapiColor.sky, WapiColor.blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(campaign.pageName).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    Text("SPONSORISÉ · \(campaign.city.isEmpty ? "DIFFUSION NATIONALE" : campaign.city.uppercased())")
+                        .font(.system(size: 8, weight: .bold)).tracking(0.45).foregroundStyle(WapiColor.secondaryText)
+                }
+                Spacer()
+                Text("\(campaign.rankingEngine) · ANNONCE").font(.system(size: 8, weight: .bold)).foregroundStyle(Color.whappyBlue)
+                    .padding(.horizontal, 8).padding(.vertical, 5).background(WapiColor.blueMist).clipShape(Capsule())
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(WapiColor.secondaryText)
+                        .frame(width: 32, height: 32)
+                        .background(WapiColor.blueMist.opacity(0.65))
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel("Masquer cette publicité")
+            }
+            Text(campaign.title).font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
+            Text(campaign.creative).font(.subheadline).foregroundStyle(WapiColor.secondaryText).lineLimit(3)
+            if !campaign.rankReasons.isEmpty {
+                Label("Pourquoi cette publicité ? " + campaign.rankReasons.prefix(2).joined(separator: " · "), systemImage: "info.circle.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(WapiColor.secondaryText)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(WapiColor.blueMist.opacity(0.65))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            Button(action: onOpen) {
+                HStack {
+                    Spacer()
+                    Text(campaign.cta.uppercased() + "  ›").font(.caption.weight(.bold)).foregroundStyle(Color.whappyBlue)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(.white)
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(WapiColor.blue.opacity(0.16)))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: WapiShadow.color, radius: 8, y: 4)
     }
 }
 
@@ -586,11 +747,10 @@ private struct WapiStoryViewer: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if story.mediaType == "image", let url = URL(string: story.mediaURL), !story.mediaURL.isEmpty {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image { image.resizable().scaledToFit() }
-                    else if phase.error != nil { storyText }
-                    else { ProgressView().tint(.white) }
+                WapiCachedRemoteImage(url: url, contentMode: .fit) {
+                    ProgressView().tint(.white)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if story.mediaType == "video" || story.mediaType == "audio", let player {
                 VideoPlayer(player: player).ignoresSafeArea(edges: .bottom)
             } else {
@@ -642,12 +802,12 @@ struct MessagesView: View {
     @State private var linkedPhone = "+242"
     @State private var linkedChannel: WhappyChannel?
     @State private var recentAppsExpanded = false
-    @State private var recentPullProgress: CGFloat = 0
-    @State private var recentPullArmed = false
+    @State private var recentPullReady = true
     private var filtered: [Conversation] { store.accountConversations.filter { "\($0.name) \($0.lastMessage) \($0.phoneNumber)".matchesWhappySearch(search) } }
     private var filteredChannels: [WhappyChannel] { store.channels.filter { "\($0.name) \($0.description) \($0.category) \($0.ownerName)".matchesWhappySearch(search) }.sorted { ($0.subscribed ? 1 : 0, $0.memberCount) > ($1.subscribed ? 1 : 0, $1.memberCount) } }
 
     var body: some View {
+        ZStack {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -666,8 +826,8 @@ struct MessagesView: View {
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
-                        .background(Color.whappyBlue)
-                        .clipShape(Circle())
+                        .background(WapiColor.night)
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
                 .buttonStyle(WapiPressableButtonStyle())
                 .accessibilityLabel(section == 0 ? "Nouvelle discussion" : "Nouvelle chaîne")
@@ -714,7 +874,7 @@ struct MessagesView: View {
                 messageSectionButton("Chaînes", value: 1)
             }
             .padding(4)
-            .background(WapiColor.secondarySurface)
+            .background(WapiColor.secondarySurface.opacity(0.82))
             .clipShape(RoundedRectangle(cornerRadius: WapiRadius.control, style: .continuous))
             .padding(.horizontal, WapiSpacing.screen)
 
@@ -732,7 +892,7 @@ struct MessagesView: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 50)
-            .background(.white)
+            .background(WapiColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: WapiRadius.control, style: .continuous))
             .padding(.horizontal, WapiSpacing.screen)
             .padding(.vertical, 10)
@@ -742,12 +902,6 @@ struct MessagesView: View {
                     ScrollView {
                         VStack(spacing: 18) {
                             recentPullReader
-                            if recentAppsExpanded {
-                                WapiInlineRecentAppsIOS { withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { recentAppsExpanded = false } }
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            } else {
-                                recentPullHint
-                            }
                             ContentUnavailableView(
                                 search.isEmpty ? "Aucune conversation" : "Aucun résultat",
                                 systemImage: "message",
@@ -763,14 +917,8 @@ struct MessagesView: View {
                     .scrollBounceBehavior(.always)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 9) {
+                        LazyVStack(spacing: 0) {
                             recentPullReader
-                            if recentAppsExpanded {
-                                WapiInlineRecentAppsIOS { withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { recentAppsExpanded = false } }
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            } else {
-                                recentPullHint
-                            }
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Conversations").font(.headline).foregroundStyle(Color.whappyInk)
@@ -782,25 +930,30 @@ struct MessagesView: View {
                                     .font(.caption2.weight(.bold))
                                     .foregroundStyle(Color.whappyBlue)
                             }
-                            .padding(.horizontal, 3)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, WapiSpacing.screen)
+                            .padding(.vertical, 8)
 
                             ForEach(filtered) { conversation in
-                                NavigationLink(value: conversation) {
-                                    WapiConversationRow(conversation: conversation)
-                                }
-                                .buttonStyle(WapiPressableButtonStyle())
-                                .contextMenu {
-                                    Button { store.toggleUnread(conversation) } label: {
-                                        Label(conversation.unread ? "Marquer comme lu" : "Marquer non lu", systemImage: conversation.unread ? "envelope.open" : "envelope.badge")
+                                VStack(spacing: 0) {
+                                    NavigationLink(value: conversation) {
+                                        WapiConversationRow(conversation: conversation)
                                     }
-                                    Button(role: .destructive) { store.deleteConversation(conversation) } label: {
-                                        Label("Supprimer", systemImage: "trash")
+                                    .buttonStyle(WapiPressableButtonStyle())
+                                    .contextMenu {
+                                        Button { store.toggleUnread(conversation) } label: {
+                                            Label(conversation.unread ? "Marquer comme lu" : "Marquer non lu", systemImage: conversation.unread ? "envelope.open" : "envelope.badge")
+                                        }
+                                        Button(role: .destructive) { store.deleteConversation(conversation) } label: {
+                                            Label("Supprimer", systemImage: "trash")
+                                        }
+                                    }
+                                    if conversation.id != filtered.last?.id {
+                                        Divider()
+                                            .padding(.leading, WapiSpacing.screen + 58)
                                     }
                                 }
                             }
                         }
-                        .padding(.horizontal, WapiSpacing.screen)
                         .padding(.bottom, 24)
                     }
                     .coordinateSpace(name: "wapiMessagesPull")
@@ -832,26 +985,17 @@ struct MessagesView: View {
             }
         }
         .sheet(isPresented: $composing) { NewConversationView(initialPhone: linkedPhone) }
-        .sheet(isPresented: $creatingChannel) { NewChannelView() }
+        .fullScreenCover(isPresented: $creatingChannel) { NewChannelView() }
         .sheet(item: $linkedChannel) { channel in NavigationStack { ChannelView(channelID: channel.id) } }
         .onAppear { consumePendingLinks() }
         .onChange(of: store.pendingContactPhone) { _, _ in consumePendingLinks() }
         .onChange(of: store.pendingChannelID) { _, _ in consumePendingLinks() }
         .onChange(of: store.pendingSearch) { _, _ in consumePendingLinks() }
-    }
-
-    private var recentPullHint: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "chevron.down")
-                .font(.caption2.weight(.bold))
-                .rotationEffect(.degrees(recentPullArmed ? 180 : 0))
-            Text(recentPullArmed ? "Relâchez pour garder Récents ouvert" : "Tirez vers le bas pour afficher Récents")
-                .font(.caption2.weight(recentPullArmed ? .bold : .semibold))
         }
-        .foregroundStyle(recentPullArmed ? Color.whappyBlue : WapiColor.secondaryText)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 3)
-        .scaleEffect(0.96 + recentPullProgress * 0.04)
+        .fullScreenCover(isPresented: $recentAppsExpanded) {
+            WapiInlineRecentAppsIOS { recentAppsExpanded = false }
+                .environmentObject(store)
+        }
     }
 
     private var recentPullReader: some View {
@@ -865,23 +1009,14 @@ struct MessagesView: View {
     }
 
     private func handleRecentPull(_ offset: CGFloat) {
-        guard section == 0, search.isEmpty else {
-            recentPullArmed = false
-            recentPullProgress = 0
-            return
-        }
-        if !recentAppsExpanded {
-            recentPullProgress = min(max(offset / 104, 0), 1)
-            if offset >= 96 { recentPullArmed = true }
-            if recentPullArmed, offset <= 5 {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) { recentAppsExpanded = true }
-                recentPullArmed = false
-                recentPullProgress = 0
-            }
-        } else if offset < -190 {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) { recentAppsExpanded = false }
-        }
+        guard section == 0, search.isEmpty else { recentPullReady = true; return }
+        // One full-screen presentation at the threshold. No inline panel and
+        // no waiting for the ScrollView bounce animation to finish.
+        if offset <= 4 { recentPullReady = true }
+        guard recentPullReady, !recentAppsExpanded, offset >= 64 else { return }
+        recentPullReady = false
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.snappy(duration: 0.20)) { recentAppsExpanded = true }
     }
 
     @ViewBuilder
@@ -912,12 +1047,12 @@ private struct WapiMessagePullOffsetKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-/// Inline recent spaces revealed by the Messages scroll itself. This is not a
-/// modal: the conversation list follows the finger and the user can continue
-/// scrolling upward to return to messages.
+/// Full-screen recent spaces revealed by the Messages scroll itself. The
+/// surface occupies the complete WAPI viewport and closes with an upward drag.
 private struct WapiInlineRecentAppsIOS: View {
     @EnvironmentObject private var store: WhappyStore
     let onClose: () -> Void
+    @State private var closeOffset: CGFloat = 0
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     private struct Item: Identifiable {
@@ -946,7 +1081,14 @@ private struct WapiInlineRecentAppsIOS: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.03, green: 0.09, blue: 0.15), Color(red: 0.04, green: 0.18, blue: 0.27)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            VStack(spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 16, weight: .bold))
@@ -967,6 +1109,7 @@ private struct WapiInlineRecentAppsIOS: View {
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(recents) { item in
                     Button {
+                        onClose()
                         store.rememberRecentSpace(item.tab)
                         store.selectedTab = item.tab
                     } label: {
@@ -989,12 +1132,32 @@ private struct WapiInlineRecentAppsIOS: View {
                     .buttonStyle(WapiPressableButtonStyle())
                 }
             }
+            Spacer(minLength: 12)
+            Label("Glissez vers le haut pour revenir aux messages", systemImage: "chevron.up")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.62))
+            Capsule().fill(.white.opacity(0.34)).frame(width: 46, height: 5)
+                .padding(.bottom, 8)
+            }
+            .padding(.horizontal, WapiSpacing.screen)
+            .padding(.top, 18)
         }
-        .padding(14)
-        .background(LinearGradient(colors: [Color(red: 0.03, green: 0.09, blue: 0.15), Color(red: 0.04, green: 0.18, blue: 0.27)], startPoint: .top, endPoint: .bottom))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .padding(.horizontal, WapiSpacing.screen)
-        .padding(.bottom, 4)
+        .contentShape(Rectangle())
+        .offset(y: closeOffset)
+        .opacity(1 - min(abs(closeOffset) / 420, 0.22))
+        .gesture(DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                guard value.translation.height < 0 else { return }
+                closeOffset = value.translation.height * 0.45
+            }
+            .onEnded { value in
+                if value.translation.height < -88 {
+                    onClose()
+                } else {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) { closeOffset = 0 }
+                }
+            }
+        )
     }
 }
 
@@ -1118,6 +1281,12 @@ private struct WapiConversationRow: View {
                         .font(.headline.weight(conversation.unread ? .bold : .semibold))
                         .foregroundStyle(Color.whappyInk)
                         .lineLimit(1)
+                    if conversation.displaysVerifiedBadge {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.wapiVerified)
+                            .accessibilityLabel("Compte certifié")
+                    }
                     Spacer()
                     Text(moment)
                         .font(.caption2.weight(conversation.unread ? .bold : .regular))
@@ -1141,18 +1310,18 @@ private struct WapiConversationRow: View {
                 }
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 12)
-        .background(
-            LinearGradient(
-                colors: conversation.unread ? [WapiColor.unreadSurface, Color.white] : [Color.white, WapiColor.canvas.opacity(0.46)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(conversation.unread ? WapiColor.blue.opacity(0.18) : WapiColor.line.opacity(0.62), lineWidth: 0.8))
-        .shadow(color: WapiColor.deepBlue.opacity(conversation.unread ? 0.08 : 0.035), radius: 8, y: 3)
+        .padding(.horizontal, WapiSpacing.screen)
+        .padding(.vertical, 11)
+        .background(conversation.unread ? WapiColor.unreadSurface : Color.white)
+        .overlay(alignment: .leading) {
+            if conversation.unread {
+                Capsule()
+                    .fill(Color.whappyBlue)
+                    .frame(width: 3, height: 32)
+                    .padding(.leading, 3)
+            }
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -1198,12 +1367,22 @@ private struct NewChannelView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Identité") { TextField("Nom de la chaîne", text: $name); TextField("Description", text: $description, axis: .vertical).lineLimit(3...6); Text("\(description.count)/300").font(.caption).foregroundStyle(.secondary) }
+                Section("Identité publique") {
+                    WapiEditorTextFieldIOS(title: "Nom de la chaîne", text: $name)
+                    WapiEditorTextFieldIOS(title: "Description", text: $description, limit: 300, multiline: true)
+                }
                 Section("Catégorie") { Picker("Catégorie", selection: $category) { ForEach(categories, id: \.self) { Text($0) } } }
                 Section { Label("Vous seul pourrez publier. Les abonnés pourront suivre et réagir.", systemImage: "shield.checkered").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("Nouvelle chaîne").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Créer") { store.createChannel(name: name, description: description, category: category); dismiss() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || description.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 || description.count > 300) } }
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } } }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                WapiEditorActionIOS(title: "Créer la chaîne", busy: false,
+                    enabled: name.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 && description.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 && description.count <= 300) {
+                    store.createChannel(name: name, description: description, category: category); dismiss()
+                }
+            }
         }
     }
 }
@@ -1275,30 +1454,103 @@ private struct NewConversationView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Contact") {
-                    TextField("Nom", text: $name)
-                    Picker("Pays", selection: $countryCode) { ForEach(WhappyPhoneCountry.supported) { country in Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code) } }
-                    TextField("Téléphone ou lien WAPI", text: $phone)
-                        .keyboardType(.phonePad)
-                        .onChange(of: phone) { _, value in
-                            if case .contact(let scannedPhone) = WhappyDeepLink.parse(value) {
-                                applyPhoneForEditing(scannedPhone)
-                                return
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Coordonnées").font(.title3.weight(.semibold)).foregroundStyle(Color.whappyInk)
+                        Text("Retrouvez une personne et ouvrez une discussion.").font(.footnote).foregroundStyle(.secondary)
+                    }
+
+                    VStack(spacing: 0) {
+                        TextField("Nom du contact", text: $name)
+                            .textContentType(.name)
+                            .padding(.horizontal, 15)
+                            .frame(height: 54)
+                        Divider().padding(.leading, 15)
+                        HStack(spacing: 10) {
+                            Picker("Pays", selection: $countryCode) {
+                                ForEach(WhappyPhoneCountry.supported) { country in
+                                    Text("\(country.flag) \(country.name)  \(country.code)").tag(country.code)
+                                }
                             }
-                            let clean = String(value.filter(\.isNumber).prefix(15))
-                            if clean != value { phone = clean }
+                            .labelsHidden()
+                            .frame(width: 104, alignment: .leading)
+                            Divider().frame(height: 28)
+                            TextField("Numéro de téléphone", text: $phone)
+                                .keyboardType(.phonePad)
+                                .textContentType(.telephoneNumber)
+                                .onChange(of: phone) { _, value in
+                                    if case .contact(let scannedPhone) = WhappyDeepLink.parse(value) {
+                                        applyPhoneForEditing(scannedPhone)
+                                        return
+                                    }
+                                    let clean = String(value.filter(\.isNumber).prefix(15))
+                                    if clean != value { phone = clean }
+                                }
                         }
-                    if let normalizedPhone { Label(normalizedPhone, systemImage: "checkmark.circle.fill").font(.footnote.bold()).foregroundStyle(Color.whappyBlue) }
-                    else if !phone.isEmpty { Label("Vérifiez l’indicatif et la longueur du numéro", systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.orange) }
-                    Button { scanning = true } label: { Label("Numériser un code WAPI", systemImage: "qrcode.viewfinder") }
+                        .padding(.horizontal, 15)
+                        .frame(height: 56)
+                    }
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(WapiColor.line.opacity(0.8)))
+
+                    if let normalizedPhone {
+                        Label("Numéro reconnu  ·  \(normalizedPhone)", systemImage: "checkmark.circle.fill")
+                            .font(.footnote.weight(.semibold)).foregroundStyle(Color.whappyBlue)
+                    } else if !phone.isEmpty {
+                        Label("Vérifiez l’indicatif et le numéro", systemImage: "exclamationmark.circle.fill")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+
+                    Button {
+                        if let normalizedPhone {
+                            store.createConversation(name: name, phone: normalizedPhone)
+                            dismiss()
+                        }
+                    } label: {
+                        Text("Ajouter et ouvrir la discussion")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.whappyBlue)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 || normalizedPhone == nil)
+
+                    Text("AUTRES MOYENS").font(.caption2.weight(.bold)).tracking(0.5).foregroundStyle(.secondary).padding(.top, 4)
+                    Button { scanning = true } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(Color.whappyBlue)
+                                .frame(width: 40, height: 40)
+                                .background(WapiColor.blueMist)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Scanner un code QR").font(.subheadline.weight(.semibold)).foregroundStyle(Color.whappyInk)
+                                Text("Ouvrir directement un profil WAPI").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 64)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(WapiColor.line.opacity(0.8)))
+                    }
+                    .buttonStyle(WapiPressableButtonStyle())
                 }
-                Section { Text("Le contact reste enregistré sur cet appareil et la conversation peut être utilisée immédiatement.").font(.footnote).foregroundStyle(.secondary) }
+                .padding(.horizontal, WapiSpacing.screen)
+                .padding(.vertical, 20)
             }
-            .navigationTitle("Nouvelle discussion")
+            .background(Color.whappyBackground)
+            .navigationTitle("Ajouter un contact")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Créer") { if let normalizedPhone { store.createConversation(name: name, phone: normalizedPhone); dismiss() } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 || normalizedPhone == nil) }
             }
             .sheet(isPresented: $scanning) { WhappyScannerSheet { value in handleScannedValue(value) } }
             .alert("Code WAPI", isPresented: Binding(get: { scanError != nil }, set: { if !$0 { scanError = nil } })) { Button("Compris") { scanError = nil } } message: { Text(scanError ?? "") }
@@ -1339,7 +1591,7 @@ private struct NewConversationView: View {
     }
 }
 
-private struct WhappyScannerSheet: View {
+struct WhappyScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     let onCode: (String) -> Void
     @State private var authorized: Bool?
@@ -1505,13 +1757,22 @@ private struct MessageActionChip: View {
     }
 }
 
+private let wapiVoicePlaybackRequested = Notification.Name("wapi.voice.playbackRequested")
+
 private struct WapiAudioMessagePlayer: View {
     let path: String
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var playbackID = UUID()
     @State private var player: AVPlayer?
     @State private var currentTime: Double = 0
     @State private var duration: Double = 1
     @State private var rate: Float = 1
     @State private var playing = false
+    @State private var wantsPlayback = false
+    @State private var scrubbing = false
+    @State private var seeking = false
+    @State private var loading = false
+    @State private var playbackError = false
 
     private var mediaURL: URL? {
         if let remote = URL(string: path), remote.scheme == "http" || remote.scheme == "https" { return remote }
@@ -1523,21 +1784,19 @@ private struct WapiAudioMessagePlayer: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Button { togglePlayback() } label: {
-                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                    Image(systemName: wantsPlayback ? "pause.fill" : playbackError ? "arrow.clockwise" : "play.fill")
                         .font(.body.weight(.bold))
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                         .background(Color.white.opacity(0.18), in: Circle())
-                }
-                Image(systemName: "waveform")
-                    .font(.headline)
-                Text("Note vocale")
+                }.accessibilityLabel(wantsPlayback ? "Mettre en pause" : playbackError ? "Réessayer la lecture" : "Lire la note vocale")
+                Text(playbackError ? "Lecture indisponible" : loading ? "Chargement…" : "Note vocale")
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 4)
                 Menu {
                     ForEach([Float(1), Float(1.5), Float(2)], id: \.self) { value in
                         Button("\(value == floor(value) ? String(format: "%.0f", value) : String(format: "%.1f", value))×") {
                             rate = value
-                            if playing { player?.rate = value }
+                            if wantsPlayback { player?.rate = value }
                         }
                     }
                 } label: {
@@ -1550,53 +1809,85 @@ private struct WapiAudioMessagePlayer: View {
             }
             HStack(spacing: 8) {
                 Slider(value: $currentTime, in: 0...max(duration, 1), onEditingChanged: { editing in
+                    scrubbing = editing
                     if !editing { seek() }
-                })
-                Text(timeLabel(currentTime))
+                }).disabled(player?.currentItem?.status != .readyToPlay || playbackError)
+                    .accessibilityLabel("Position dans la note vocale")
+                Text("\(timeLabel(currentTime)) / \(timeLabel(duration > 1 ? duration : 0))")
                     .font(.caption2.monospacedDigit())
                     .opacity(0.72)
             }
         }
-        .onAppear(perform: prepare)
-        .onDisappear {
-            player?.pause()
-            playing = false
+        .onDisappear(perform: pause)
+        .onChange(of: scenePhase) { _, phase in if phase != .active { pause() } }
+        .onChange(of: path) { _, _ in pause(); player = nil; currentTime = 0; duration = 1; playbackError = false }
+        .onReceive(NotificationCenter.default.publisher(for: wapiVoicePlaybackRequested)) { notification in
+            if notification.object as? UUID != playbackID { pause() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in pause() }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+            if notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { pause() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
+            guard let item = notification.object as? AVPlayerItem, item === player?.currentItem else { return }
+            pause(); currentTime = duration
         }
         .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in
-            guard let player, playing else { return }
+            guard let player else { return }
+            if player.currentItem?.status == .failed { pause(); playbackError = true; return }
+            loading = wantsPlayback && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            playing = player.timeControlStatus == .playing
+            guard !scrubbing && !seeking else { return }
             let seconds = player.currentTime().seconds
             if seconds.isFinite { currentTime = min(max(seconds, 0), max(duration, 1)) }
         }
     }
 
     private func prepare() {
-        guard player == nil, let mediaURL else { return }
+        guard player == nil else { return }
+        guard let mediaURL else { playbackError = true; wantsPlayback = false; return }
         let item = AVPlayerItem(url: mediaURL)
         let next = AVPlayer(playerItem: item)
         next.actionAtItemEnd = .pause
+        item.audioTimePitchAlgorithm = .timeDomain
         player = next
         Task {
             let loadedDuration = try? await item.asset.load(.duration)
             guard let seconds = loadedDuration?.seconds, seconds.isFinite, seconds > 0 else { return }
-            await MainActor.run { duration = seconds }
+            await MainActor.run { if player === next { duration = seconds } }
         }
+    }
+
+    private func pause() {
+        player?.pause(); wantsPlayback = false; playing = false; loading = false
     }
 
     private func togglePlayback() {
+        if wantsPlayback { pause(); return }
+        if playbackError { player = nil; playbackError = false }
+        prepare()
         guard let player else { return }
-        if playing {
-            player.pause()
-            playing = false
-        } else {
-            if currentTime >= duration - 0.05 { seek(to: 0) }
-            player.playImmediately(atRate: rate)
-            playing = true
-        }
+        NotificationCenter.default.post(name: wapiVoicePlaybackRequested, object: playbackID)
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch { playbackError = true; return }
+        wantsPlayback = true
+        if currentTime >= duration - 0.05 { seek(to: 0) }
+        else { player.playImmediately(atRate: rate) }
     }
 
     private func seek(to seconds: Double? = nil) {
-        let value = seconds ?? currentTime
-        player?.seek(to: CMTime(seconds: value, preferredTimescale: 600))
+        let value = min(max(seconds ?? currentTime, 0), duration)
+        guard let target = player else { return }
+        seeking = true
+        target.seek(to: CMTime(seconds: value, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+            DispatchQueue.main.async {
+                guard player === target else { return }
+                seeking = false
+                if finished && wantsPlayback { target.playImmediately(atRate: rate) }
+            }
+        }
         currentTime = value
     }
 
@@ -1606,10 +1897,19 @@ private struct WapiAudioMessagePlayer: View {
     }
 }
 
-private struct ConversationView: View {
+private struct WapiConversationViewportKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+struct ConversationView: View {
     @EnvironmentObject private var store: WhappyStore
     let conversationID: UUID
     @State private var draft = ""
+    @FocusState private var composerFocused: Bool
+    @State private var attachmentsExpanded = false
+    @State private var followsLatest = true
+    @State private var bottomVisible = true
     @State private var directCallRoute: WapiDirectCallRoute?
     @State private var groupCallRoute: WapiGroupCallRoute?
     @State private var profileConversation: Conversation?
@@ -1742,8 +2042,10 @@ private struct ConversationView: View {
                                 HStack {
                                 if message.mine { Spacer(minLength: 65) }
                                 if !message.mine {
+                                    let senderPhotoURL = conversation?.groupMembers.first(where: { $0.uid == message.senderID })?.photoURL
+                                        ?? conversation?.photoURL
                                     Group {
-                                        if let photoURL = conversation?.photoURL, let url = URL(string: photoURL), !photoURL.isEmpty {
+                                        if let photoURL = senderPhotoURL, let url = URL(string: photoURL), !photoURL.isEmpty {
                                             WapiCachedRemoteImage(url: url) { InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30) }
                                         } else {
                                             InitialsAvatar(text: message.senderName ?? conversation?.initials ?? "W", size: 30)
@@ -1802,7 +2104,7 @@ private struct ConversationView: View {
                                 .foregroundStyle(message.mine ? .white : Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 17))
                                 .contextMenu {
                                     if !message.deleted {
-                                        Button { replyTo = message } label: { Label("Répondre", systemImage: "arrowshape.turn.up.left") }
+                                        Button { if editingMessage != nil { draft = UserDefaults.standard.string(forKey: draftKey) ?? ""; editingMessage = nil }; replyTo = message } label: { Label("Répondre", systemImage: "arrowshape.turn.up.left") }
                                         ForEach(detectMessageActions(message.text).prefix(2)) { action in
                                             Button { openURL(action.url) } label: { Label(action.title, systemImage: action.systemIcon) }
                                         }
@@ -1817,12 +2119,27 @@ private struct ConversationView: View {
                                 }.id(message.id)
                             }
                         }
-                    }.padding()
+                        Color.clear.frame(height: 1).id("conversation-bottom")
+                            .onAppear { bottomVisible = true }
+                            .onDisappear { bottomVisible = false }
+                    }.padding(.horizontal, 12).padding(.vertical, 8)
                 }
-                .onChange(of: conversation?.messages.count) { _, _ in if let id = conversation?.messages.last?.id { withAnimation { proxy.scrollTo(id) } } }
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(DragGesture().onChanged { _ in followsLatest = false }.onEnded { _ in followsLatest = bottomVisible })
+                .background(GeometryReader { geometry in Color.clear.preference(key: WapiConversationViewportKey.self, value: geometry.size.height) })
+                .onPreferenceChange(WapiConversationViewportKey.self) { _ in
+                    if followsLatest { proxy.scrollTo("conversation-bottom", anchor: .bottom) }
+                }
+                .onAppear { proxy.scrollTo("conversation-bottom", anchor: .bottom) }
+                .onChange(of: composerFocused) { _, focused in
+                    if focused && bottomVisible { followsLatest = true; proxy.scrollTo("conversation-bottom", anchor: .bottom) }
+                }
+                .onChange(of: conversation?.messages.last?.id) { _, _ in
+                    if followsLatest { withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo("conversation-bottom", anchor: .bottom) } }
+                }
             }
             if let replyTo { HStack { Image(systemName: "arrowshape.turn.up.left.fill").foregroundStyle(Color.whappyBlue); VStack(alignment: .leading) { Text("Répondre").font(.caption.bold()).foregroundStyle(Color.whappyBlue); Text(replyTo.text).font(.caption).lineLimit(1) }; Spacer(); Button { self.replyTo = nil } label: { Image(systemName: "xmark.circle.fill") } }.padding(.horizontal).padding(.vertical, 8).background(Color.whappyBlue.opacity(0.08)) }
-            if let editingMessage { HStack { Image(systemName: "pencil.circle.fill").foregroundStyle(.orange); VStack(alignment: .leading) { Text("Modifier le message").font(.caption.bold()).foregroundStyle(.orange); Text(editingMessage.text).font(.caption).lineLimit(1) }; Spacer(); Button { self.editingMessage = nil; draft = "" } label: { Image(systemName: "xmark.circle.fill") } }.padding(.horizontal).padding(.vertical, 8).background(Color.orange.opacity(0.08)) }
+            if let editingMessage { HStack { Image(systemName: "pencil.circle.fill").foregroundStyle(.orange); VStack(alignment: .leading) { Text("Modifier le message").font(.caption.bold()).foregroundStyle(.orange); Text(editingMessage.text).font(.caption).lineLimit(1) }; Spacer(); Button { draft = UserDefaults.standard.string(forKey: draftKey) ?? ""; self.editingMessage = nil } label: { Image(systemName: "xmark.circle.fill") } }.padding(.horizontal).padding(.vertical, 8).background(Color.orange.opacity(0.08)) }
             if let voiceDraftURL {
                 HStack(spacing: 12) {
                     Image(systemName: "waveform.circle.fill").font(.title2).foregroundStyle(Color.whappyBlue)
@@ -1837,21 +2154,32 @@ private struct ConversationView: View {
                 }.padding(.horizontal).padding(.vertical, 9).background(Color.whappyBlue.opacity(0.08))
             }
             HStack(spacing: 10) {
-                PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) { Image(systemName: "photo.circle.fill").font(.title2) }.disabled(recording)
-                Button { importingDocument = true } label: { Image(systemName: "paperclip.circle.fill").font(.title2) }.disabled(recording)
-                Button { showingEmojiPicker = true } label: { Image(systemName: "face.smiling.inverse").font(.title2).foregroundStyle(Color.whappyBlue) }.disabled(recording)
+                Button { withAnimation(.easeOut(duration: 0.18)) { attachmentsExpanded.toggle() }; if attachmentsExpanded { composerFocused = false } } label: {
+                    Image(systemName: attachmentsExpanded ? "xmark.circle" : "plus.circle").font(.title2).frame(width: 36, height: 44)
+                }.accessibilityLabel(attachmentsExpanded ? "Fermer les pièces jointes" : "Ajouter une pièce jointe").disabled(recording)
                 if recording {
                     Button { toggleRecordingPause() } label: { Image(systemName: recordingPaused ? "play.circle.fill" : "pause.circle.fill").font(.title2).foregroundStyle(Color.whappyBlue) }
                 }
-                Button { toggleRecording() } label: { Image(systemName: recording ? "stop.circle.fill" : "mic.circle.fill").font(.title2).foregroundStyle(recording ? .red : Color.whappyBlue) }.disabled(voiceDraftURL != nil)
                 TextField("Votre message", text: $draft, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($composerFocused)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: draft) { oldValue, newValue in
                         if newValue.count > oldValue.count { WapiSounds.typing() }
                     }
-                Button { submitDraft() } label: { Image(systemName: editingMessage == nil ? "arrow.up.circle.fill" : "checkmark.circle.fill").font(.system(size: 34)) }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if recording || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && editingMessage == nil) {
+                    Button { attachmentsExpanded = false; toggleRecording() } label: { Image(systemName: recording ? "stop.circle.fill" : "mic.circle.fill").font(.system(size: 34)).foregroundStyle(recording ? .red : Color.whappyBlue).frame(width: 44, height: 44) }.disabled(voiceDraftURL != nil).accessibilityLabel(recording ? "Arrêter la note vocale" : "Enregistrer une note vocale")
+                } else {
+                    Button { submitDraft() } label: { Image(systemName: editingMessage == nil ? "arrow.up.circle.fill" : "checkmark.circle.fill").font(.system(size: 34)).frame(width: 44, height: 44) }.disabled(recording || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Envoyer le message")
+                }
             }.padding(.horizontal).padding(.vertical, 10).background(.bar)
+            if attachmentsExpanded {
+                HStack(spacing: 24) {
+                    PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) { Label("Galerie", systemImage: "photo.on.rectangle") }
+                    Button { attachmentsExpanded = false; importingDocument = true } label: { Label("Fichier", systemImage: "doc") }
+                    Button { attachmentsExpanded = false; showingEmojiPicker = true } label: { Label("Emoji", systemImage: "face.smiling") }
+                }.font(.caption.weight(.semibold)).labelStyle(.titleAndIcon).frame(maxWidth: .infinity).padding(.vertical, 16).background(.bar)
+            }
             HStack {
                 Button { nextMediaIsViewOnce.toggle() } label: {
                     Label(nextMediaIsViewOnce ? "1 vue activée" : "Média", systemImage: nextMediaIsViewOnce ? "eye.fill" : "plus.circle")
@@ -1883,11 +2211,23 @@ private struct ConversationView: View {
                 } else if let conversation {
                     Button {
                         WapiSounds.callStarted()
-                        directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: false)
+                        directCallRoute = store.directCallRoute(
+                            peerID: conversation.peerUID,
+                            peerName: conversation.name,
+                            peerPhotoURL: conversation.photoURL ?? "",
+                            video: false,
+                            targetBusinessPageID: conversation.businessPageID
+                        )
                     } label: { Image(systemName: "phone.fill") }
                     Button {
                         WapiSounds.callStarted()
-                        directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: true)
+                        directCallRoute = store.directCallRoute(
+                            peerID: conversation.peerUID,
+                            peerName: conversation.name,
+                            peerPhotoURL: conversation.photoURL ?? "",
+                            video: true,
+                            targetBusinessPageID: conversation.businessPageID
+                        )
                     } label: { Image(systemName: "video.fill") }
                     Button { profileConversation = conversation } label: { Image(systemName: "person.crop.circle") }
                 }
@@ -1896,7 +2236,7 @@ private struct ConversationView: View {
         .fullScreenCover(item: $directCallRoute) { route in WapiDirectCallRoom(route: route) { directCallRoute = nil } }
         .fullScreenCover(item: $groupCallRoute) { route in WapiGroupCallRoom(route: route) { groupCallRoute = nil } }
         .sheet(item: $profileConversation) { WapiContactProfileView(conversation: $0) }
-        .sheet(item: $groupSettingsConversation) { WapiGroupSettingsView(conversation: $0) }
+        .fullScreenCover(item: $groupSettingsConversation) { WapiGroupSettingsView(conversation: $0) }
         .sheet(item: $translationMessage) { WapiTranslationSheet(message: $0) }
         .sheet(isPresented: $showingEmojiPicker) { WapiEmojiPicker { emoji in draft.append(emoji); WapiSounds.gameMove(); WapiSounds.haptic(.light) } }
         .fullScreenCover(item: $zoomedPhoto) { photo in
@@ -1918,10 +2258,13 @@ private struct ConversationView: View {
     private func submitDraft() {
         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
+        let wasEditing = editingMessage != nil
         if let editingMessage { store.editMessage(editingMessage.id, in: conversationID, text: value); self.editingMessage = nil }
         else { store.send(value, to: conversationID, replyTo: replyTo) }
         WapiSounds.sent()
-        draft = ""; replyTo = nil; UserDefaults.standard.removeObject(forKey: draftKey)
+        draft = wasEditing ? UserDefaults.standard.string(forKey: draftKey) ?? "" : ""
+        replyTo = nil
+        if !wasEditing { UserDefaults.standard.removeObject(forKey: draftKey) }
     }
 
     private func messageDayLabel(_ date: Date) -> String {
@@ -1944,10 +2287,11 @@ private struct ConversationView: View {
             .buttonStyle(WapiPressableButtonStyle())
             .accessibilityLabel("Ouvrir la photo")
         } else if let url = mediaURL(path) {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase { image.resizable().scaledToFill() }
-                else if case .failure = phase { Label("Photo indisponible", systemImage: "exclamationmark.triangle") }
-                else { ProgressView() }
+            WapiCachedRemoteImage(url: url) {
+                ZStack {
+                    WapiColor.blueMist
+                    ProgressView().tint(Color.whappyBlue)
+                }
             }
             .frame(width: 190, height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
         } else {
@@ -2007,6 +2351,8 @@ private struct ConversationView: View {
                 guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
                 let url = directory.appendingPathComponent("whappy-voice-\(UUID().uuidString).m4a")
                 do {
+                    NotificationCenter.default.post(name: wapiVoicePlaybackRequested, object: UUID())
+                    player?.stop(); remotePlayer?.pause()
                     try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
                     try AVAudioSession.sharedInstance().setActive(true)
                     let audio = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: Int(kAudioFormatMPEG4AAC), AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 128_000, AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue])
@@ -2033,7 +2379,15 @@ private struct ConversationView: View {
 
     private func sendVoiceDraft() {
         guard let voiceDraftURL else { return }
-        store.sendMedia(kind: "audio", path: voiceDraftURL.path, to: conversationID, mediaName: voiceDraftURL.lastPathComponent, viewOnce: nextMediaIsViewOnce)
+        let duration = (try? AVAudioPlayer(contentsOf: voiceDraftURL).duration) ?? 0
+        store.sendMedia(
+            kind: "audio",
+            path: voiceDraftURL.path,
+            to: conversationID,
+            mediaName: voiceDraftURL.lastPathComponent,
+            durationSeconds: min(max(Int(duration.rounded(.up)), 0), 600),
+            viewOnce: nextMediaIsViewOnce
+        )
         WapiSounds.sent()
         WapiSounds.haptic(.medium)
         self.voiceDraftURL = nil
@@ -2071,11 +2425,10 @@ private struct WapiViewOncePreview: View {
         NavigationStack {
             Group {
                 if message.kind == "image", let url {
-                    AsyncImage(url: url) { phase in
-                        if case .success(let image) = phase { image.resizable().scaledToFit() }
-                        else if case .failure = phase { ContentUnavailableView("Média indisponible", systemImage: "exclamationmark.triangle") }
-                        else { ProgressView() }
-                    }.padding()
+                    WapiCachedRemoteImage(url: url, contentMode: .fit) {
+                        ProgressView().tint(Color.whappyBlue)
+                    }
+                    .padding()
                 } else if message.kind == "video", let url {
                     VideoPlayer(player: AVPlayer(url: url)).ignoresSafeArea(edges: .bottom)
                 } else if message.kind == "audio", let url {
@@ -2119,10 +2472,17 @@ private struct WapiConversationToolbarTitle: View {
                     .scaleEffect(0.76)
                     .frame(width: 35, height: 35)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(conversation.name)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.whappyInk)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(conversation.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.whappyInk)
+                            .lineLimit(1)
+                        if conversation.displaysVerifiedBadge {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.caption2)
+                                .foregroundStyle(Color.wapiVerified)
+                        }
+                    }
                     HStack(spacing: 4) {
                         if conversation.peerIsOnline == true {
                             Circle().fill(Color.whappyBlue).frame(width: 6, height: 6)
@@ -2234,6 +2594,7 @@ private struct WapiTranslationSheet: View {
 private struct WapiContactProfileView: View {
     let conversation: Conversation
     var onMessage: (() -> Void)? = nil
+    @EnvironmentObject private var store: WhappyStore
     @Environment(\.dismiss) private var dismiss
     @State private var directCallRoute: WapiDirectCallRoute?
     @State private var showPhoto = false
@@ -2278,13 +2639,21 @@ private struct WapiContactProfileView: View {
                         .buttonStyle(WapiPressableButtonStyle())
 
                         VStack(spacing: 5) {
-                            Text(conversation.name)
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundStyle(Color.whappyInk)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.84)
-                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 6) {
+                                Text(conversation.name)
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundStyle(Color.whappyInk)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.84)
+                                if conversation.displaysVerifiedBadge {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(Color.wapiVerified)
+                                        .accessibilityLabel("Compte certifié")
+                                }
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
                             Text(profileLabel.uppercased())
                                 .font(.system(size: 10, weight: .bold)).tracking(0.7)
                                 .foregroundStyle(conversation.profileType == "business" ? WapiColor.violet : WapiColor.deepBlue)
@@ -2374,12 +2743,12 @@ private struct WapiContactProfileView: View {
     private func beginCall(video: Bool) {
         guard let peerID = conversation.peerUID, !peerID.isEmpty else { return }
         WapiSounds.callStarted()
-        directCallRoute = WapiDirectCallRoute(
-            callID: nil,
+        directCallRoute = store.directCallRoute(
             peerID: peerID,
             peerName: conversation.name,
             peerPhotoURL: conversation.photoURL ?? "",
-            video: video
+            video: video,
+            targetBusinessPageID: conversation.businessPageID
         )
     }
 
@@ -2530,9 +2899,9 @@ private struct WapiGroupSettingsView: View {
                             Label(selectedImage == nil ? "Changer la photo" : "Nouvelle photo sélectionnée", systemImage: "photo.on.rectangle.angled")
                         }
                         Toggle("Retirer la photo", isOn: $removePhoto).disabled((conversation.photoURL ?? "").isEmpty)
-                        TextField("Nom du groupe", text: $name).textInputAutocapitalization(.words)
+                        WapiEditorTextFieldIOS(title: "Nom du groupe", text: $name)
                         Text("Chaque modification est enregistrée dans la conversation pour informer les membres.").font(.footnote).foregroundStyle(.secondary)
-                    }
+                    }.disabled(store.firebaseBusy)
                 } else {
                     Section { Label("Seuls les administrateurs peuvent modifier le nom ou la photo du groupe.", systemImage: "lock.fill").font(.footnote) }
                 }
@@ -2560,13 +2929,14 @@ private struct WapiGroupSettingsView: View {
             }
             .background(Color.whappyBackground)
             .navigationTitle("Infos du groupe").navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() }.disabled(store.firebaseBusy) }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 if canEdit {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(store.firebaseBusy ? "Enregistrement…" : "Enregistrer") { save() }
-                            .disabled(!hasChanges || !(2...80).contains(name.trimmingCharacters(in: .whitespacesAndNewlines).count) || store.firebaseBusy)
-                    }
+                    WapiEditorActionIOS(title: "Enregistrer", busy: store.firebaseBusy,
+                        enabled: hasChanges && (2...80).contains(name.trimmingCharacters(in: .whitespacesAndNewlines).count)) { save() }
                 }
             }
             .onChange(of: photoItem) { _, item in
@@ -2740,6 +3110,17 @@ struct CallsView: View {
     @State private var selectedProfile: Conversation?
     @State private var unavailableMessage: String?
 
+    private var accountCalls: [CallRecord] {
+        store.calls.filter { call in
+            if store.activeBusinessMode {
+                return call.profileType == "business" && (store.activeBusinessRemoteID.isEmpty || call.businessPageID == store.activeBusinessRemoteID)
+            }
+            return call.profileType != "business"
+        }
+    }
+
+    private var accountConversations: [Conversation] { store.accountConversations }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
@@ -2754,10 +3135,10 @@ struct CallsView: View {
                         Text(store.activeBusinessMode ? "Appels Business" : "Appels")
                             .font(.system(size: 27, weight: .semibold))
                             .foregroundStyle(Color.whappyInk)
-                        Text("Audio et vidéo, simplement").font(.caption).foregroundStyle(WapiColor.secondaryText)
+                        Text(store.activeBusinessMode ? (store.business?.name ?? "Identité professionnelle") : "Audio et vidéo, simplement").font(.caption).foregroundStyle(WapiColor.secondaryText)
                     }
                     Spacer()
-                    Text("WEBRTC")
+                    Text(store.activeBusinessMode ? "ESPACE SÉPARÉ" : "WEBRTC")
                         .font(.system(size: 8, weight: .bold)).tracking(0.5)
                         .foregroundStyle(WapiColor.deepBlue)
                         .padding(.horizontal, 9).padding(.vertical, 6)
@@ -2770,15 +3151,15 @@ struct CallsView: View {
                     Capsule().fill(LinearGradient(colors: [WapiColor.sky, WapiColor.blue, WapiColor.violet], startPoint: .top, endPoint: .bottom)).frame(width: 4, height: 34)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Récents").font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk)
-                        Text(store.calls.isEmpty ? "Aucun appel pour le moment" : "Reprendre une conversation en un geste").font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                        Text(accountCalls.isEmpty ? "Aucun appel pour le moment" : "Reprendre une conversation en un geste").font(.caption2).foregroundStyle(WapiColor.secondaryText)
                     }
                 }
 
-                if store.calls.isEmpty {
+                if accountCalls.isEmpty {
                     ContentUnavailableView("Aucun appel récent", systemImage: "phone", description: Text("Vos appels audio et vidéo apparaîtront ici."))
                         .frame(maxWidth: .infinity).padding(.vertical, 50).wapiPanel()
                 } else {
-                    ForEach(store.calls) { call in
+                    ForEach(accountCalls) { call in
                         let profile = conversation(for: call)
                         HStack(spacing: 12) {
                             Button { if let profile { selectedProfile = profile } } label: {
@@ -2800,7 +3181,12 @@ struct CallsView: View {
                             .disabled(profile == nil)
                             VStack(alignment: .leading, spacing: 3) {
                                 Button { if let profile { selectedProfile = profile } } label: {
-                                    Text(call.name).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                                    HStack(spacing: 4) {
+                                        Text(call.name).font(.headline.weight(.semibold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                                        if profile?.displaysVerifiedBadge == true {
+                                            Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Color.wapiVerified)
+                                        }
+                                    }
                                 }
                                 .buttonStyle(WapiPressableButtonStyle())
                                 .disabled(profile == nil)
@@ -2841,11 +3227,17 @@ struct CallsView: View {
             return
         }
         WapiSounds.callStarted()
-        directCallRoute = WapiDirectCallRoute(callID: nil, peerID: conversation.peerUID, peerName: conversation.name, peerPhotoURL: conversation.photoURL ?? "", video: video)
+        directCallRoute = store.directCallRoute(
+            peerID: conversation.peerUID,
+            peerName: conversation.name,
+            peerPhotoURL: conversation.photoURL ?? "",
+            video: video,
+            targetBusinessPageID: conversation.businessPageID
+        )
     }
 
     private func conversation(for call: CallRecord) -> Conversation? {
-        store.conversations.first {
+        accountConversations.first {
             (!$0.phoneNumber.isEmpty && $0.phoneNumber == call.phoneNumber) ||
             ($0.name.caseInsensitiveCompare(call.name) == .orderedSame && $0.peerUID != nil)
         }
@@ -2857,14 +3249,45 @@ struct MarketView: View {
     @State private var search = ""
     @State private var selling = false
     @State private var showingCart = false
-    private var filtered: [Listing] { store.listings.filter { "\($0.title) \($0.place) \($0.seller)".matchesWhappySearch(search) } }
+    @State private var marketplace: [Listing] = []
+    @State private var loading = false
+    @State private var serverMessage: String?
+    private var filtered: [Listing] {
+        let all = (marketplace + store.listings).reduce(into: [UUID: Listing]()) { $0[$1.id] = $1 }.values
+        return all.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            .filter { ("\($0.title) \($0.place) \($0.seller) " + ($0.description ?? "")).matchesWhappySearch(search) }
+    }
 
     var body: some View {
-        ScrollView { LazyVStack(spacing: 12) { BusinessSaleRoomsIOSRail(); ForEach(filtered) { listing in NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(WapiPressableButtonStyle()) } }.padding() }
+        ScrollView { LazyVStack(spacing: 12) {
+            WapiCommerceLaunchersIOS(); BusinessSaleRoomsIOSRail()
+            HStack {
+                VStack(alignment: .leading, spacing: 3) { Text("Annonces Business").font(.title3.bold()); Text("Photos, troc, emplois et enchères — visibles par tous les comptes WAPI.").font(.caption).foregroundStyle(.secondary) }
+                Spacer()
+                if loading { ProgressView() }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+            if let serverMessage { Label(serverMessage, systemImage: "info.circle").font(.footnote).foregroundStyle(Color.whappyBlue).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.whappyBlue.opacity(0.08), in: RoundedRectangle(cornerRadius: 16)) }
+            ForEach(filtered) { listing in NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(WapiPressableButtonStyle()) }
+            if !loading && filtered.isEmpty { ContentUnavailableView("Aucune annonce", systemImage: "storefront", description: Text("Les annonces Business actives s’afficheront ici.")) }
+        }.padding() }
             .background(Color.whappyBackground).navigationTitle("Marché").searchable(text: $search, prompt: "Produit, service ou quartier")
-            .navigationDestination(for: Listing.self) { ListingDetailView(listingID: $0.id) }
-            .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { Button { showingCart = true } label: { Label("Panier", systemImage: "cart.fill").badge(store.cartCount) }; Button { selling = true } label: { Label("Vendre", systemImage: "plus") } } }
-            .sheet(isPresented: $selling) { SellListingView() }.sheet(isPresented: $showingCart) { CartView() }
+            .navigationDestination(for: Listing.self) { ListingDetailView(listing: $0) }
+            .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { Button { showingCart = true } label: { Label("Panier", systemImage: "cart.fill").badge(store.cartCount) }; Button { selling = true } label: { Label("Publier", systemImage: "plus") } } }
+            .task { await loadMarketplace() }
+            .fullScreenCover(isPresented: $selling) { SellListingView() }.sheet(isPresented: $showingCart) { CartView() }
+    }
+
+    @MainActor private func loadMarketplace() async {
+        loading = true; defer { loading = false }
+        do {
+            let result = try await WapiCommerceModel.call("marketplaceListings")
+            marketplace = (result["listings"] as? [[String: Any]] ?? []).compactMap { data in
+                guard let rawID = data["id"] as? String, let id = UUID(uuidString: rawID) else { return nil }
+                let mode = data["mode"] as? String ?? "sale"
+                return Listing(id: id, title: data["title"] as? String ?? "Annonce", price: data["priceText"] as? String ?? "À discuter", place: data["place"] as? String ?? "", seller: data["pageName"] as? String ?? "Business WAPI", icon: mode == "trade" ? "arrow.triangle.2.circlepath" : mode == "job" ? "briefcase.fill" : mode == "auction" ? "hammer.fill" : "shippingbox.fill", acceptsTrade: (data["acceptsOffers"] as? Bool ?? false) || mode == "trade", photoURL: (data["photoUrls"] as? [String])?.first, description: data["description"] as? String, mode: mode, businessPageID: data["pageId"] as? String, boostStatus: data["boostStatus"] as? String)
+            }
+            serverMessage = nil
+        } catch { serverMessage = WapiCommerceModel.message(error) }
     }
 }
 
@@ -2872,8 +3295,8 @@ private struct ListingRow: View {
     let listing: Listing
     var body: some View {
         HStack(spacing: 16) {
-            ZStack { RoundedRectangle(cornerRadius: 16).fill(Color.whappyBlue.opacity(0.1)); Image(systemName: listing.icon).font(.system(size: 30)).foregroundStyle(Color.whappyBlue) }.frame(width: 82, height: 82)
-            VStack(alignment: .leading, spacing: 5) { Text(listing.title).font(.headline).foregroundStyle(Color.whappyInk).lineLimit(2); Text(listing.price).font(.subheadline.bold()).foregroundStyle(listing.acceptsTrade ? .orange : Color.whappyBlue); Label("\(listing.place) · \(listing.seller)", systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            CommercePhoto(url: listing.photoURL ?? "", size: 82, symbol: listing.icon)
+            VStack(alignment: .leading, spacing: 5) { Text(listing.title).font(.headline).foregroundStyle(Color.whappyInk).lineLimit(2); Text(listing.price).font(.subheadline.bold()).foregroundStyle(listing.acceptsTrade ? .orange : Color.whappyBlue); Label("\(listing.place) · \(listing.seller)", systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.secondary).lineLimit(1); if listing.mode == "trade" { Text("TROC ACCEPTÉ").font(.caption2.bold()).foregroundStyle(.orange) }; if listing.boostStatus == "active" { Text("SPONSORISÉ").font(.caption2.bold()).foregroundStyle(Color.whappyBlue) } }
             Spacer()
             if listing.saved { Image(systemName: "bookmark.fill").foregroundStyle(Color.whappyBlue) }
         }.padding(12).background(.white).clipShape(RoundedRectangle(cornerRadius: 20))
@@ -2882,31 +3305,87 @@ private struct ListingRow: View {
 
 private struct ListingDetailView: View {
     @EnvironmentObject private var store: WhappyStore
-    let listingID: UUID
+    let listing: Listing
     @State private var added = false
-    private var listing: Listing? { store.listings.first { $0.id == listingID } }
+    @State private var responding = false
+    @State private var responseMessage: String?
+    private var action: (title: String, kind: String, message: String) {
+        switch listing.mode {
+        case "trade": return ("Proposer un troc", "trade", "Je souhaite vous proposer un échange pour cette annonce.")
+        case "auction": return ("Enchérir", "bid", "Je souhaite placer une enchère sur cette annonce.")
+        case "job": return ("Postuler", "apply", "Je souhaite postuler à cette offre.")
+        case "service": return ("Discuter du service", "message", "Je souhaite échanger au sujet de ce service.")
+        default: return ("Faire une offre", "offer", "Je souhaite vous faire une offre pour cette annonce.")
+        }
+    }
     var body: some View {
         ScrollView {
-            if let listing {
-                VStack(alignment: .leading, spacing: 18) {
-                    ZStack { RoundedRectangle(cornerRadius: 28).fill(Color.whappyBlue.opacity(0.12)); Image(systemName: listing.icon).font(.system(size: 80)).foregroundStyle(Color.whappyBlue) }.frame(height: 280)
-                    Text(listing.title).font(.title.bold()).foregroundStyle(Color.whappyInk)
-                    Text(listing.price).font(.title3.bold()).foregroundStyle(listing.acceptsTrade ? .orange : Color.whappyBlue)
-                    Label("\(listing.place) · vendu par \(listing.seller)", systemImage: "mappin.and.ellipse").foregroundStyle(.secondary)
-                    Button { store.addToCart(listing); added = true } label: { Label(added ? "Ajouté au panier" : "Ajouter au panier", systemImage: added ? "checkmark.circle.fill" : "cart.badge.plus").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).controlSize(.large)
-                    Button { store.toggleSaved(listing) } label: { Label(listing.saved ? "Retirer des favoris" : "Enregistrer l’annonce", systemImage: listing.saved ? "bookmark.slash" : "bookmark") }.buttonStyle(.bordered).frame(maxWidth: .infinity)
-                }.padding()
-            }
+            VStack(alignment: .leading, spacing: 18) {
+                CommercePhoto(url: listing.photoURL ?? "", size: 300, symbol: listing.icon).frame(maxWidth: .infinity)
+                Text(listing.title).font(.title.bold()).foregroundStyle(Color.whappyInk)
+                Text(listing.price).font(.title3.bold()).foregroundStyle(listing.acceptsTrade ? .orange : Color.whappyBlue)
+                Label("\(listing.place) · publié par \(listing.seller)", systemImage: "mappin.and.ellipse").foregroundStyle(.secondary)
+                if let description = listing.description, !description.isEmpty { Text(description).foregroundStyle(Color.whappyInk) }
+                if let responseMessage { Label(responseMessage, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(Color.whappyBlue) }
+                Button { Task { await respond() } } label: { Label(responding ? "Envoi…" : action.title, systemImage: listing.mode == "auction" ? "hammer.fill" : "bubble.left.and.bubble.right.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(responding || listing.businessPageID == nil)
+                if listing.mode == "sale" || listing.mode == "auction" { Button { store.addToCart(listing); added = true } label: { Label(added ? "Ajouté à ma sélection" : "Conserver dans ma sélection", systemImage: added ? "checkmark.circle.fill" : "cart.badge.plus") }.buttonStyle(.bordered).frame(maxWidth: .infinity) }
+                Button { store.toggleSaved(listing) } label: { Label(listing.saved ? "Retirer des favoris" : "Mettre une étoile", systemImage: listing.saved ? "star.slash" : "star") }.buttonStyle(.bordered).frame(maxWidth: .infinity)
+                Text("Aucun paiement n’est débité par WAPI pour le moment. Les options Mobile Money s’activeront uniquement après configuration du moyen régional de la page Business.").font(.caption).foregroundStyle(.secondary)
+            }.padding()
         }.background(Color.whappyBackground).navigationTitle("Annonce").navigationBarTitleDisplayMode(.inline)
+    }
+
+    @MainActor private func respond() async {
+        guard listing.businessPageID != nil else { responseMessage = "Cette annonce doit être actualisée avant de recevoir des réponses."; return }
+        responding = true; defer { responding = false }
+        do {
+            var payload: [String: Any] = ["listingId": listing.id.uuidString.lowercased(), "kind": action.kind]
+            if ["offer", "trade", "bid", "apply"].contains(action.kind) { payload["offerText"] = action.message } else { payload["note"] = action.message }
+            _ = try await WapiCommerceModel.call("respondToMarketplaceListing", payload)
+            responseMessage = "Votre demande a été transmise au Business. Vous pourrez poursuivre l’échange dès sa réponse."
+        } catch { responseMessage = WapiCommerceModel.message(error) }
     }
 }
 
 private struct SellListingView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: WhappyStore
-    @State private var title = ""; @State private var price = ""; @State private var place = "Brazzaville"; @State private var trade = false
+    @State private var title = ""; @State private var price = ""; @State private var place = "Brazzaville"; @State private var description = ""; @State private var category = "Autre"; @State private var mode = "sale"
+    @State private var photoItem: PhotosPickerItem?; @State private var photoData: Data?; @State private var busy = false; @State private var error: String?
+    private var pageID: String { store.activeBusinessRemoteID.isEmpty ? (store.business?.remoteID ?? "") : store.activeBusinessRemoteID }
     var body: some View {
-        NavigationStack { Form { Section("Annonce") { TextField("Titre", text: $title); TextField("Prix ou proposition", text: $price); TextField("Quartier / ville", text: $place); Toggle("Accepter le troc", isOn: $trade) } }.navigationTitle("Vendre").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Publier") { store.addListing(title: title, price: price, place: place, trade: trade); dismiss() }.disabled(title.count < 2) } } }
+        NavigationStack {
+            Group {
+                if pageID.isEmpty {
+                    ContentUnavailableView("Compte Business requis", systemImage: "briefcase.fill", description: Text("Tout le monde peut consulter les annonces. Pour publier, créez puis activez votre page Business WAPI."))
+                } else {
+                    Form {
+                        Section("Photo") { PhotosPicker(selection: $photoItem, matching: .images) { HStack { Image(systemName: photoData == nil ? "photo.badge.plus" : "checkmark.circle.fill"); Text(photoData == nil ? "Choisir une photo dans la galerie" : "Photo prête à publier") } }; Text("L’image est recadrée et compressée sur l’appareil avant l’envoi.").font(.caption).foregroundStyle(.secondary) }
+                        Section("Type d’annonce") { Picker("Action attendue", selection: $mode) { Text("Vendre").tag("sale"); Text("Troc").tag("trade"); Text("Enchère").tag("auction"); Text("Emploi").tag("job"); Text("Service").tag("service") }.pickerStyle(.segmented) }
+                        Section("Votre annonce") { WapiEditorTextFieldIOS(title: "Titre", text: $title, limit: 120); WapiEditorTextFieldIOS(title: "Description", text: $description, limit: 1200); WapiEditorTextFieldIOS(title: "Catégorie", text: $category, limit: 60); WapiEditorTextFieldIOS(title: mode == "trade" ? "Échange souhaité" : mode == "job" ? "Contrat ou rémunération" : "Prix / base d’enchère", text: $price, limit: 120); WapiEditorTextFieldIOS(title: "Lieu", text: $place, limit: 120) }
+                        if let error { Section { Text(error).foregroundStyle(.red) } }
+                    }
+                    .task(id: photoItem) { guard let data = try? await photoItem?.loadTransferable(type: Data.self), let image = UIImage(data: data) else { return }; photoData = makeWapiGroupPhotoData(image) }
+                }
+            }
+            .navigationTitle("Nouvelle annonce").navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }; if pageID.isEmpty { ToolbarItem(placement: .confirmationAction) { Button("Créer mon Business") { store.selectedTab = .profile; dismiss() } } } }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !pageID.isEmpty { WapiEditorActionIOS(title: "Publier l’annonce", busy: busy, enabled: title.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 && !busy) { Task { await publish() } } }
+            }
+        }
+    }
+
+    @MainActor private func publish() async {
+        busy = true; error = nil; defer { busy = false }
+        do {
+            var payload: [String: Any] = ["listingId": UUID().uuidString.lowercased(), "pageId": pageID, "title": title.trimmingCharacters(in: .whitespacesAndNewlines), "priceText": price.trimmingCharacters(in: .whitespacesAndNewlines), "place": place.trimmingCharacters(in: .whitespacesAndNewlines), "mode": mode, "description": description.trimmingCharacters(in: .whitespacesAndNewlines), "category": category.trimmingCharacters(in: .whitespacesAndNewlines), "acceptsOffers": true]
+            if mode == "trade" { payload["tradeWish"] = price.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let photoData { payload["photoBase64s"] = [photoData.base64EncodedString()] }
+            _ = try await WapiCommerceModel.call("createMarketplaceListing", payload)
+            dismiss()
+        } catch { self.error = WapiCommerceModel.message(error) }
     }
 }
 
@@ -2921,9 +3400,9 @@ private struct CartView: View {
                 else {
                     Section("Articles") { ForEach(store.cart) { line in HStack { VStack(alignment: .leading) { Text(line.listing.title).font(.headline); Text(line.listing.price).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button { store.changeQuantity(line, delta: -1) } label: { Image(systemName: "minus.circle") }; Text("\(line.quantity)"); Button { store.changeQuantity(line, delta: 1) } label: { Image(systemName: "plus.circle") } } } }
                     Section("Livraison") { TextField("Adresse ou point de rendez-vous", text: $delivery, axis: .vertical) }
-                    Section { Button("Confirmer la commande") { reference = store.checkout(delivery: delivery) }.disabled(delivery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).frame(maxWidth: .infinity) }
+                    Section { Button("Enregistrer ma sélection") { reference = store.checkout(delivery: delivery) }.disabled(delivery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).frame(maxWidth: .infinity); Text("Sélection locale : elle n’est pas transmise au vendeur. Contactez l’établissement depuis sa vitrine.").font(.caption).foregroundStyle(.secondary) }
                 }
-                if let reference { Section { Label("Commande \(reference) enregistrée", systemImage: "checkmark.seal.fill").foregroundStyle(.green) } }
+                if let reference { Section { Label("Sélection \(reference) conservée sur cet appareil", systemImage: "checkmark.circle").foregroundStyle(.secondary) } }
             }.navigationTitle("Panier").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
         }
     }
@@ -2998,7 +3477,7 @@ struct GamesView: View {
     @State private var score = 0
     @State private var streak = 1
     @State private var launchedGame: WapiIOSGameLaunch?
-    private let games = [("King QI", "Quiz vocal · duels · trophées · direct", "crown.fill"), ("Ludo WAPI", "Plateau 3D · dés animés · amis", "dice.fill"), ("Billard WAPI", "Table 3D · visée tactile · tournoi", "circle.grid.cross.fill"), ("Échecs WAPI", "Échiquier 3D · IA et duels", "checkerboard.rectangle"), ("Jeu de dames", "Pions 3D · dames couronnées · IA", "circle.hexagongrid.fill"), ("Cartes WAPI", "Tables privées · amis · tournoi", "suit.club.fill"), ("Poker WAPI", "Salon privé · jetons non monétaires", "suit.spade.fill"), ("Défi du jour", "Quiz rapide · 60 secondes", "bolt.fill"), ("Mots & idées", "Trouvez la solution ensemble", "sparkles")]
+    private let games = [("King QI", "Quiz vocal · duels · trophées · direct", "crown.fill"), ("Ludo WAPI", "Plateau 3D · dés animés · amis", "dice.fill"), ("Wapi Pool", "Table 3D · visée tactile · tournoi", "circle.grid.cross.fill"), ("Échecs WAPI", "Échiquier 3D · IA et duels", "checkerboard.rectangle"), ("Jeu de dames", "Pions 3D · dames couronnées · IA", "circle.hexagongrid.fill"), ("Cartes WAPI", "Tables privées · amis · tournoi", "suit.club.fill"), ("Poker WAPI", "Salon privé · jetons non monétaires", "suit.spade.fill"), ("Défi du jour", "Quiz rapide · 60 secondes", "bolt.fill"), ("Mots & idées", "Trouvez la solution ensemble", "sparkles")]
 
     var body: some View {
         ScrollView {
@@ -3020,7 +3499,8 @@ struct GamesView: View {
             .fullScreenCover(item: $launchedGame) { game in
                 Group {
                     if game.name == "King QI" { KingQiIOSView() }
-                    else if ["Ludo WAPI", "Billard WAPI", "Échecs WAPI", "Jeu de dames", "Cartes WAPI", "Poker WAPI"].contains(game.name) { WapiIOSTabletopGame(game: game, score: $score, streak: $streak) }
+                    else if game.name == "Wapi Pool" { WapiIOSPoolArena() }
+                    else if ["Ludo WAPI", "Échecs WAPI", "Jeu de dames", "Cartes WAPI", "Poker WAPI"].contains(game.name) { WapiIOSTabletopGame(game: game, score: $score, streak: $streak) }
                     else { WapiIOSArcadeGame(game: game, score: $score, streak: $streak) }
                 }
                 .onAppear { WapiOrientation.request(.landscape) }
@@ -3037,11 +3517,21 @@ private struct WapiIOSTabletopGame: View {
     @State private var turn = 1
     @State private var dieValue = 1
     @State private var status = "Touchez la table pour déplacer la caméra."
+    @State private var poolMode = "training"
+    @State private var poolPower = 55.0
+    @State private var poolAngle: Float = 0
+    @State private var poolSideSpin: Float = 0
+    @State private var poolFollowSpin: Float = 0
+    @State private var poolShotRevision = 0
+    @State private var poolShotLocked = false
+    @State private var poolAwaitingAI = false
+    @State private var poolSession = UUID()
+    @State private var poolAITask: Task<Void, Never>?
 
     private var primaryAction: String {
         switch game.name {
         case "Ludo WAPI": return "Lancer le dé"
-        case "Billard WAPI": return "Frapper"
+        case "Wapi Pool": return "Frapper"
         case "Échecs WAPI", "Jeu de dames": return "Jouer le coup"
         default: return "Distribuer"
         }
@@ -3050,7 +3540,7 @@ private struct WapiIOSTabletopGame: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color.whappyInk, Color.whappyBlue.opacity(0.78), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
-            WapiIOS3DTabletop(scene: game.name, dieValue: dieValue).ignoresSafeArea()
+            WapiIOS3DTabletop(scene: game.name, dieValue: dieValue, poolAngle: poolAngle, poolPower: Int(poolPower), poolSideSpin: poolSideSpin, poolFollowSpin: poolFollowSpin, poolShotRevision: poolShotRevision, onPoolSettled: poolSettled).id(poolSession).ignoresSafeArea()
             LinearGradient(colors: [Color.black.opacity(0.72), .clear, .clear, Color.black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
@@ -3065,65 +3555,377 @@ private struct WapiIOSTabletopGame: View {
                 }.padding(.horizontal)
                 Spacer()
                 Text(status).font(.footnote.weight(.semibold)).foregroundStyle(.white).multilineTextAlignment(.center).padding(.horizontal, 14).padding(.vertical, 9).background(.black.opacity(0.52)).clipShape(Capsule()).padding(.horizontal)
+                if game.name == "Wapi Pool" {
+                    VStack(spacing: 9) {
+                        HStack(spacing: 8) {
+                            poolModeButton("Entraînement", value: "training", icon: "scope")
+                            poolModeButton("Contre l’IA", value: "ai", icon: "brain.head.profile")
+                            Button("Rejouer") { resetPool() }.buttonStyle(.bordered).tint(.white)
+                            Spacer()
+                            Text("ANGLE \(Int(poolAngle * 180 / .pi))°").font(.caption2.bold()).foregroundStyle(.white.opacity(0.7))
+                        }
+                        HStack(spacing: 10) {
+                            Button { poolAngle -= 0.07 } label: { Image(systemName: "rotate.left.fill") }.buttonStyle(.bordered).tint(.white).disabled(poolShotLocked)
+                            WapiIOSPoolPowerRail(power: $poolPower, enabled: !poolShotLocked, onRelease: strikePool)
+                                .frame(maxWidth: .infinity)
+                            Text("\(Int(poolPower)) %").font(.caption.bold()).foregroundStyle(.white).frame(width: 48)
+                            Button { poolAngle += 0.07 } label: { Image(systemName: "rotate.right.fill") }.buttonStyle(.bordered).tint(.white).disabled(poolShotLocked)
+                        }
+                        HStack(spacing: 12) {
+                            WapiIOSPoolSpinPad(sideSpin: $poolSideSpin, followSpin: $poolFollowSpin, enabled: !poolShotLocked)
+                                .frame(width: 76, height: 76)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("POINT D’IMPACT").font(.caption2.bold()).tracking(0.8).foregroundStyle(.white.opacity(0.62))
+                                Text(poolFollowSpin > 0.18 ? "Suivi" : poolFollowSpin < -0.18 ? "Rétro" : abs(poolSideSpin) > 0.18 ? "Effet latéral" : "Centre")
+                                    .font(.subheadline.bold()).foregroundStyle(.white)
+                                Text("G/D \(Int(poolSideSpin * 100)) · R/S \(Int(poolFollowSpin * 100))")
+                                    .font(.caption2.monospacedDigit()).foregroundStyle(.cyan.opacity(0.82))
+                            }
+                            Spacer()
+                            Button {
+                                poolSideSpin = 0; poolFollowSpin = 0
+                                WapiSounds.haptic(.light)
+                            } label: { Image(systemName: "scope").font(.title3.bold()) }
+                                .buttonStyle(.bordered).tint(.white).disabled(poolShotLocked)
+                        }
+                    }
+                    .padding(.horizontal)
+                } else {
                 HStack(spacing: 12) {
                     Button { status = "Mode entraînement avec IA sélectionné."; WapiSounds.gameMove(); WapiSounds.haptic(.medium) } label: { Label("IA", systemImage: "brain.head.profile") }.buttonStyle(.bordered).tint(.white)
                     Button {
                         turn += 1; dieValue = Int.random(in: 1...6); score += 10; streak += 1
-                        status = game.name == "Ludo WAPI" ? "Dé : \(dieValue). Choisissez un pion à déplacer." : game.name == "Billard WAPI" ? "Coup joué : ajustez la visée avec un glissement sur la table." : "Coup validé. À l’adversaire."
+                        status = game.name == "Ludo WAPI" ? "Dé : \(dieValue). Choisissez un pion à déplacer." : game.name == "Wapi Pool" ? "Coup joué : ajustez la visée avec un glissement sur la table." : "Coup validé. À l’adversaire."
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
                         if game.name == "Ludo WAPI" { WapiSounds.gameDice() }
-                        else if game.name == "Billard WAPI" { WapiSounds.gamePool() }
+                        else if game.name == "Wapi Pool" { WapiSounds.gamePool() }
                         else if game.name == "Cartes WAPI" || game.name == "Poker WAPI" { WapiSounds.gameCard() }
                         else { WapiSounds.gameMove() }
                     } label: { Label(primaryAction, systemImage: game.name == "Ludo WAPI" ? "dice.fill" : "play.fill").frame(minWidth: 150) }.buttonStyle(.borderedProminent).tint(Color.whappyBlue)
                     Button { status = "Salon en ligne prêt : invitez vos contacts WAPI avec le bouton Partager." } label: { Image(systemName: "person.2.fill") }.buttonStyle(.bordered).tint(.white)
                 }
-                Text("MOTEUR 3D NATIF · 60 IPS · AUDIO DE JEU").font(.caption2.bold()).tracking(0.8).foregroundStyle(.white.opacity(0.62)).padding(.bottom, 8)
+                }
             }.padding(.top, 10)
+        }
+        .onDisappear { poolAITask?.cancel() }
+    }
+
+    private func resetPool() {
+        poolAITask?.cancel(); poolSession = UUID()
+        poolShotLocked = false; poolAwaitingAI = false; poolShotRevision = 0
+        poolAngle = 0; poolPower = 55; poolSideSpin = 0; poolFollowSpin = 0
+        status = "Nouvelle table · à vous de jouer."
+    }
+
+    private func poolModeButton(_ title: String, value: String, icon: String) -> some View {
+        Button {
+            poolMode = value
+            resetPool()
+            status = value == "training" ? "Entraînement libre · coups illimités." : "IA activée · elle joue après chacun de vos tirs."
+        } label: { Label(title, systemImage: icon).font(.caption.bold()) }
+            .buttonStyle(.borderedProminent).tint(poolMode == value ? Color.whappyBlue : Color.black.opacity(0.48))
+            .disabled(poolShotLocked)
+    }
+
+    private func strikePool() {
+        guard !poolShotLocked else { return }
+        poolShotLocked = true
+        poolShotRevision += 1; turn += 1
+        poolAwaitingAI = poolMode == "ai"
+        status = "Tir en mouvement · collisions, bandes et effets sont calculés en temps réel."
+        WapiSounds.haptic(.medium)
+    }
+
+    private func poolSettled(_ angle: Float, _ power: Int) {
+        guard poolShotLocked else { return }
+        if power == 0 { poolAwaitingAI = false; status = "Table terminée · touchez Rejouer pour une nouvelle partie."; return }
+        if poolAwaitingAI {
+            poolAwaitingAI = false
+            status = "L’IA prépare son tir…"
+            let session = poolSession
+            poolAITask = Task { @MainActor in
+                do { try await Task.sleep(for: .milliseconds(550)) } catch { return }
+                guard !Task.isCancelled, session == poolSession else { return }
+                poolAngle = angle; poolPower = Double(power)
+                poolSideSpin = 0; poolFollowSpin = 0; poolShotRevision += 1
+                status = "L’IA joue · attendez l’arrêt des boules."
+            }
+        } else {
+            poolShotLocked = false
+            status = "À vous · visez, tirez la queue et relâchez."
         }
     }
 }
 
-private struct WapiIOS3DTabletop: UIViewRepresentable {
+/** A physical pull-and-release cue rail. There is no arcade strike button:
+ the player pulls the cue, reads the force colour, then releases naturally. */
+struct WapiIOSPoolPowerRail: View {
+    @Binding var power: Double
+    let enabled: Bool
+    let onRelease: () -> Void
+    @GestureState private var pulling = false
+    @State private var originalPower: Double?
+    @State private var cancelled = false
+    @State private var committed = false
+
+    private var forceColor: Color {
+        power >= 82 ? Color(red: 1, green: 0.34, blue: 0.42) : power >= 58 ? Color.orange : Color(red: 0.12, green: 0.62, blue: 1)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let travel = width * 0.86
+            let tipX = max(12, min(travel, travel * power / 100))
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(red: 0.015, green: 0.055, blue: 0.14).opacity(0.94))
+                Capsule().stroke(forceColor.opacity(pulling ? 0.90 : 0.42), lineWidth: pulling ? 2 : 1)
+                Capsule().fill(Color.black.opacity(0.52)).frame(height: 13).padding(.horizontal, 10)
+                Capsule().fill(LinearGradient(colors: [forceColor.opacity(0.35), forceColor], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(12, tipX), height: 6).padding(.leading, 10)
+                Capsule().fill(LinearGradient(colors: [Color(red: 0.92, green: 0.77, blue: 0.52), Color(red: 0.46, green: 0.15, blue: 0.055)], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(30, width * 0.44), height: 8)
+                    .offset(x: min(width * 0.48, tipX), y: 0)
+                    .shadow(color: forceColor.opacity(pulling ? 0.60 : 0.18), radius: pulling ? 8 : 3)
+                Circle().fill(forceColor).frame(width: 15, height: 15).offset(x: tipX + 4)
+                    .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 2).frame(width: 15, height: 15).offset(x: tipX + 4))
+            }
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 6)
+                    .updating($pulling) { _, state, _ in state = enabled }
+                    .onChanged { value in
+                        guard enabled else { return }
+                        if originalPower == nil { originalPower = power; cancelled = false; committed = false }
+                        if value.location.y < -23 || value.location.y > proxy.size.height + 23 { cancelled = true }
+                        power = min(100, max(10, Double(value.translation.width / max(width * 0.65, 1) * 100)))
+                    }
+                    .onEnded { value in
+                        let fraction = value.translation.width / max(width * 0.65, 1)
+                        guard enabled, !cancelled, fraction >= 0.04 else { restorePower(); return }
+                        committed = true
+                        originalPower = nil
+                        onRelease()
+                    }
+            )
+            .onChange(of: pulling) { _, active in
+                if !active { DispatchQueue.main.async { if !pulling && !committed { restorePower() } } }
+            }
+            .onChange(of: enabled) { _, active in if !active && !committed { restorePower() } }
+            .onDisappear { if !committed { restorePower() } }
+            .opacity(enabled ? 1 : 0.55)
+            .accessibilityLabel("Puissance du tir")
+            .accessibilityValue("\(Int(power)) pour cent")
+            .accessibilityHint("Tirez puis relâchez pour jouer")
+        }
+        .frame(height: 46)
+    }
+
+    private func restorePower() {
+        if let originalPower { power = originalPower }
+        originalPower = nil
+    }
+}
+
+struct WapiIOSPoolSpinPad: View {
+    @Binding var sideSpin: Float
+    @Binding var followSpin: Float
+    let enabled: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let diameter = min(proxy.size.width, proxy.size.height)
+            let radius = diameter * 0.39
+            let centre = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            ZStack {
+                Circle().fill(Color.black.opacity(0.62))
+                Circle().stroke(Color.white.opacity(0.20), lineWidth: 1)
+                Circle().fill(LinearGradient(colors: [.white, Color(white: 0.84)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .padding(diameter * 0.10)
+                    .shadow(color: .black.opacity(0.45), radius: 5, y: 3)
+                Path { path in
+                    path.move(to: CGPoint(x: centre.x - radius, y: centre.y)); path.addLine(to: CGPoint(x: centre.x + radius, y: centre.y))
+                    path.move(to: CGPoint(x: centre.x, y: centre.y - radius)); path.addLine(to: CGPoint(x: centre.x, y: centre.y + radius))
+                }.stroke(Color.black.opacity(0.16), lineWidth: 1)
+                Circle().fill(Color.red).frame(width: 12, height: 12)
+                    .overlay(Circle().fill(.white.opacity(0.72)).frame(width: 3, height: 3).offset(x: -2, y: -2))
+                    .position(x: centre.x + CGFloat(sideSpin) * radius * 0.72, y: centre.y - CGFloat(followSpin) * radius * 0.72)
+            }
+            .contentShape(Circle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                guard enabled else { return }
+                var x = Float((value.location.x - centre.x) / max(radius, 1))
+                var y = Float((centre.y - value.location.y) / max(radius, 1))
+                let length = sqrt(x * x + y * y)
+                if length > 1 { x /= length; y /= length }
+                sideSpin = x; followSpin = y
+            })
+            .opacity(enabled ? 1 : 0.55)
+            .accessibilityLabel("Point d’impact sur la blanche")
+            .accessibilityValue("Latéral \(Int(sideSpin * 100)), vertical \(Int(followSpin * 100))")
+        }
+    }
+}
+
+struct WapiIOS3DTabletop: UIViewRepresentable {
     let scene: String
     let dieValue: Int
+    let poolAngle: Float
+    let poolPower: Int
+    let poolSideSpin: Float
+    let poolFollowSpin: Float
+    let poolShotRevision: Int
+    var poolTableTheme = "competitionBlue"
+    var poolCueStyle = "maple"
+    var onPoolSettled: (Float, Int) -> Void = { _, _ in }
+    var cueInHand = false
+    var poolInputEnabled = false
+    var onPoolAim: (Float) -> Void = { _ in }
+    var onPoolPlacement: (Bool) -> Void = { _ in }
+    var onPoolOutcome: (WapiPoolShotOutcome) -> Void = { _ in }
+    var onPoolRemaining: (Set<Int>) -> Void = { _ in }
 
-    final class Coordinator {
-        var currentScene = ""
+    final class Coordinator: NSObject, SCNSceneRendererDelegate {
+        var currentScene = "" {
+            didSet { if currentScene != oldValue { lastViewport = .zero } }
+        }
         var currentDieValue = 1
+        var currentPoolShotRevision = 0
+        private var lastViewport = CGSize.zero
+        var onPoolSettled: (Float, Int) -> Void = { _, _ in }
+        var waitingForRest = false
+        var restStarted: TimeInterval?
+        var framesSinceShot = 0
+        var active = true
+        var cueInHand = false
+        var poolInputEnabled = false
+        var onPoolAim: (Float) -> Void = { _ in }
+        var onPoolPlacement: (Bool) -> Void = { _ in }
+        var onPoolOutcome: (WapiPoolShotOutcome) -> Void = { _ in }
+        var onPoolRemaining: (Set<Int>) -> Void = { _ in }
+        var lastRemaining = Set(1...15)
+
+        @objc func touchPool(_ gesture: UIGestureRecognizer) {
+            guard active, poolInputEnabled, !waitingForRest, currentScene == "Billard WAPI",
+                  let view = gesture.view as? SCNView, let scene = view.scene,
+                  let cue = scene.rootNode.childNode(withName: "wapi.pool.ball.0", recursively: false) else { return }
+            let point = gesture.location(in: view)
+            let near = view.unprojectPoint(SCNVector3(Float(point.x), Float(point.y), 0))
+            let far = view.unprojectPoint(SCNVector3(Float(point.x), Float(point.y), 1))
+            let dy = far.y - near.y
+            guard abs(dy) > 0.0001 else { return }
+            let t = (Float(0.40) - near.y) / dy
+            guard t > 0 else { return }
+            let x = near.x + (far.x - near.x) * t
+            let z = near.z + (far.z - near.z) * t
+            if cueInHand {
+                let valid = WapiGameSceneKit.placePoolCue(in: scene, x: min(-0.45, max(-2.94, x)), z: min(1.46, max(-1.46, z)))
+                onPoolPlacement(valid)
+            } else { onPoolAim(atan2(z - cue.position.z, x - cue.position.x)) }
+        }
+
+        func renderer(_ renderer: SCNSceneRenderer, didSimulatePhysicsAtTime time: TimeInterval) {
+            guard active, currentScene == "Billard WAPI", waitingForRest, let scene = renderer.scene else { return }
+            let remaining = WapiGameSceneKit.poolRemaining(in: scene)
+            if remaining != lastRemaining {
+                lastRemaining = remaining
+                DispatchQueue.main.async { if self.active { self.onPoolRemaining(remaining) } }
+            }
+            framesSinceShot += 1
+            guard framesSinceShot > 15 else { return }
+            let moving = scene.rootNode.childNodes.filter { $0.name?.hasPrefix("wapi.pool.ball.") == true }.contains { node in
+                let velocity = node.physicsBody?.velocity ?? SCNVector3Zero
+                return velocity.x * velocity.x + velocity.z * velocity.z > 0.0016 || node.hasActions
+            }
+            if moving { restStarted = nil; return }
+            if restStarted == nil { restStarted = time }
+            guard time - (restStarted ?? time) >= 0.35 else { return }
+            waitingForRest = false; restStarted = nil
+            let shot = WapiGameSceneKit.nextPoolPracticeShot(in: scene)
+            let outcome = WapiGameSceneKit.poolOutcome(in: scene)
+            DispatchQueue.main.async { if self.active { self.onPoolSettled(shot.0, shot.1); self.onPoolOutcome(outcome) } }
+        }
+
+        func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            guard ["Billard WAPI", "Échecs WAPI", "Jeu de dames"].contains(currentScene), let scene = renderer.scene else { return }
+            let viewport = renderer.currentViewport.size
+            guard viewport != lastViewport, viewport.width > 0, viewport.height > 0 else { return }
+            lastViewport = viewport
+            if currentScene == "Billard WAPI" { WapiGameSceneKit.framePoolCamera(in: scene, viewport: viewport) }
+            else { WapiGameSceneKit.frameStrategyCamera(in: scene, viewport: viewport) }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> SCNView {
         // SceneKit can fall back to legacy APIs when created without an
-        // explicit backend. WAPI games require Metal on iPhone and iPad so the
-        // Android Vulkan and iOS Metal paths share the same modern GPU policy.
+        // explicit backend. Use Metal on supported iPhones and iPads.
         let view = SCNView(
             frame: .zero,
             options: [SCNView.Option.preferredRenderingAPI.rawValue: SCNRenderingAPI.metal.rawValue]
         )
         view.scene = WapiGameSceneKit.makeScene(named: scene, dieValue: dieValue)
-        view.allowsCameraControl = true
+        view.allowsCameraControl = scene != "Billard WAPI"
         view.autoenablesDefaultLighting = false
         view.backgroundColor = UIColor(red: 0.015, green: 0.05, blue: 0.11, alpha: 1)
         view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 60
         view.rendersContinuously = true
-        view.isJitteringEnabled = true
+        view.isJitteringEnabled = scene != "Billard WAPI"
+        view.delegate = context.coordinator
+        if scene == "Billard WAPI" {
+            view.addGestureRecognizer(UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.touchPool(_:))))
+            view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.touchPool(_:))))
+        }
         context.coordinator.currentScene = scene
         context.coordinator.currentDieValue = dieValue
+        context.coordinator.currentPoolShotRevision = poolShotRevision
+        if scene == "Billard WAPI" {
+            WapiGameSceneKit.applyPoolAppearance(in: view.scene, tableTheme: poolTableTheme, cueStyle: poolCueStyle)
+            WapiGameSceneKit.setPoolCue(in: view.scene, angle: poolAngle, power: poolPower, sideSpin: poolSideSpin, followSpin: poolFollowSpin)
+        }
         return view
     }
 
+    static func dismantleUIView(_ view: SCNView, coordinator: Coordinator) {
+        coordinator.active = false
+        coordinator.waitingForRest = false
+        view.delegate = nil
+        view.isPlaying = false
+        view.scene?.rootNode.enumerateChildNodes { node, _ in node.removeAllActions() }
+    }
+
     func updateUIView(_ view: SCNView, context: Context) {
+        context.coordinator.onPoolSettled = onPoolSettled
+        context.coordinator.cueInHand = cueInHand
+        context.coordinator.poolInputEnabled = poolInputEnabled
+        context.coordinator.onPoolAim = onPoolAim
+        context.coordinator.onPoolPlacement = onPoolPlacement
+        context.coordinator.onPoolOutcome = onPoolOutcome
+        context.coordinator.onPoolRemaining = onPoolRemaining
         if context.coordinator.currentScene != scene {
             view.scene = WapiGameSceneKit.makeScene(named: scene, dieValue: dieValue)
+            view.allowsCameraControl = scene != "Billard WAPI"
+            view.isJitteringEnabled = scene != "Billard WAPI"
             context.coordinator.currentScene = scene
             context.coordinator.currentDieValue = dieValue
         } else if context.coordinator.currentDieValue != dieValue {
             WapiGameSceneKit.animateDie(in: view.scene, value: dieValue)
             context.coordinator.currentDieValue = dieValue
+        }
+        if scene == "Billard WAPI" {
+            WapiGameSceneKit.applyPoolAppearance(in: view.scene, tableTheme: poolTableTheme, cueStyle: poolCueStyle)
+            if context.coordinator.currentPoolShotRevision != poolShotRevision {
+                WapiGameSceneKit.strikePool(in: view.scene, angle: poolAngle, power: poolPower, sideSpin: poolSideSpin, followSpin: poolFollowSpin)
+                context.coordinator.currentPoolShotRevision = poolShotRevision
+                context.coordinator.waitingForRest = true
+                context.coordinator.framesSinceShot = 0
+                context.coordinator.restStarted = nil
+            } else if !context.coordinator.waitingForRest {
+                WapiGameSceneKit.setPoolCue(in: view.scene, angle: poolAngle, power: poolPower, sideSpin: poolSideSpin, followSpin: poolFollowSpin)
+                if let scene = view.scene { WapiGameSceneKit.setPoolPlacementHand(in: scene, visible: cueInHand) }
+            }
         }
     }
 }
@@ -3174,7 +3976,7 @@ private struct WapiIOSArcadeGame: View {
                             guard answer == nil else { return }
                             answer = option
                             if option == correct { score += 25; streak += 1; UINotificationFeedbackGenerator().notificationOccurred(.success); WapiSounds.gameReward() }
-                            else { UINotificationFeedbackGenerator().notificationOccurred(.error); WapiSounds.gameMove() }
+                            else { WapiSounds.gameInvalid() }
                         } label: {
                             HStack { Text(option).font(.headline); Spacer(); if answer == option { Image(systemName: option == correct ? "checkmark.circle.fill" : "xmark.circle.fill") } }
                                 .foregroundStyle(answer == option ? .white : Color.whappyInk)
@@ -3235,6 +4037,18 @@ private let kingQiIOSQuestions = [
     KingQiIOSQuestion(category: "TECHNOLOGIE", difficulty: "EXPERT", prompt: "Quelle pratique chiffre des données sans pouvoir les modifier ?", options: ["Hachage", "Compression", "Indexation", "Cache"], answer: 0),
     KingQiIOSQuestion(category: "CULTURE", difficulty: "EXPERT", prompt: "Qui a écrit « Le Petit Prince » ?", options: ["Victor Hugo", "Albert Camus", "Antoine de Saint-Exupéry", "Jules Verne"], answer: 2),
     KingQiIOSQuestion(category: "AFRIQUE", difficulty: "EXPERT", prompt: "Quel fleuve est le deuxième plus long d'Afrique après le Nil ?", options: ["Congo", "Niger", "Zambèze", "Orange"], answer: 0),
+    KingQiIOSQuestion(category: "GÉOGRAPHIE", difficulty: "FACILE", prompt: "Quelle est la capitale du Canada ?", options: ["Toronto", "Vancouver", "Ottawa", "Montréal"], answer: 2),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "FACILE", prompt: "Quelle est la plus grande planète du système solaire ?", options: ["Mars", "Jupiter", "Saturne", "Neptune"], answer: 1),
+    KingQiIOSQuestion(category: "LOGIQUE", difficulty: "FACILE", prompt: "Combien font 9 multiplié par 8 ?", options: ["64", "70", "72", "81"], answer: 2),
+    KingQiIOSQuestion(category: "AFRIQUE", difficulty: "MOYEN", prompt: "Dans quelle ville se trouve le siège de l'Union africaine ?", options: ["Nairobi", "Addis-Abeba", "Le Caire", "Dakar"], answer: 1),
+    KingQiIOSQuestion(category: "TECHNOLOGIE", difficulty: "MOYEN", prompt: "Quel est le système de numération fondé sur zéro et un ?", options: ["Décimal", "Binaire", "Hexadécimal", "Romain"], answer: 1),
+    KingQiIOSQuestion(category: "CULTURE", difficulty: "MOYEN", prompt: "Qui a écrit « Les Misérables » ?", options: ["Victor Hugo", "Émile Zola", "Molière", "Alexandre Dumas"], answer: 0),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "MOYEN", prompt: "Quel métal porte le symbole chimique Au ?", options: ["Argent", "Aluminium", "Or", "Cuivre"], answer: 2),
+    KingQiIOSQuestion(category: "SPORT", difficulty: "MOYEN", prompt: "Combien de joueurs d'une équipe de basket sont sur le terrain ?", options: ["Cinq", "Six", "Sept", "Huit"], answer: 0),
+    KingQiIOSQuestion(category: "SCIENCES", difficulty: "EXPERT", prompt: "Combien de chromosomes possède normalement une cellule humaine ?", options: ["23", "44", "46", "48"], answer: 2),
+    KingQiIOSQuestion(category: "TECHNOLOGIE", difficulty: "EXPERT", prompt: "Que signifie HTTP ?", options: ["HyperText Transfer Protocol", "High Transfer Text Process", "Hosted Terminal Transport Program", "Hybrid Text Transmission Port"], answer: 0),
+    KingQiIOSQuestion(category: "AFRIQUE", difficulty: "EXPERT", prompt: "Quelle militante kényane fut la première Africaine à recevoir le prix Nobel de la paix ?", options: ["Miriam Makeba", "Wangari Maathai", "Ellen Johnson Sirleaf", "Graça Machel"], answer: 1),
+    KingQiIOSQuestion(category: "LOGIQUE", difficulty: "EXPERT", prompt: "Quelle valeur approche le mieux le nombre pi ?", options: ["2,14", "2,72", "3,14", "4,13"], answer: 2),
 ]
 
 private enum KingQiIOSSection { case home, solo, online }
@@ -3367,12 +4181,13 @@ private final class KingQiSpeechController: ObservableObject {
 private struct KingQiIOSSoloView: View {
     let onExit: () -> Void
     @StateObject private var speech = KingQiSpeechController()
-    @State private var questions = kingQiIOSQuestions.shuffled()
+    @State private var questions = Array(kingQiIOSQuestions.shuffled().prefix(15))
     @State private var index = 0
     @State private var selected: Int?
     @State private var score = 0
     @State private var seconds = 15
     @State private var finished = false
+    @State private var roundToken = UUID()
     private let voice = AVSpeechSynthesizer()
     private var question: KingQiIOSQuestion { questions[min(index, questions.count - 1)] }
 
@@ -3384,7 +4199,7 @@ private struct KingQiIOSSoloView: View {
                 VStack(alignment: .leading, spacing: 14) { HStack { Text(question.category).font(.caption.bold()).foregroundStyle(.yellow); Spacer(); Text(question.difficulty).font(.caption.bold()).foregroundStyle(.white.opacity(0.6)) }; Text(question.prompt).font(.system(size: 25, weight: .bold)).foregroundStyle(.white); Text("SCORE  \(score)").font(.caption.bold()).foregroundStyle(.white.opacity(0.65)) }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(red: 0.03, green: 0.11, blue: 0.25)).clipShape(RoundedRectangle(cornerRadius: 28))
                 ForEach(question.options.indices, id: \.self) { option in kingAnswer(option) }
                 Button { speech.start() } label: { Label(speech.listening ? "Je vous écoute…" : "Répondre avec ma voix", systemImage: "mic.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(speech.listening ? .red : .whappyBlue).disabled(selected != nil)
-                if let selected { Text(selected == question.answer ? "Bonne réponse" : "Réponse : \(question.options[question.answer])").font(.headline).foregroundStyle(selected == question.answer ? .green : .red); Button(index == questions.count - 1 ? "Voir mon résultat" : "Question suivante") { if index == questions.count - 1 { finished = true } else { index += 1 } }.buttonStyle(.borderedProminent).tint(Color.whappyInk).frame(maxWidth: .infinity) }
+                if let selected { Text(selected == question.answer ? "Bonne réponse" : "Réponse : \(question.options[question.answer])").font(.headline).foregroundStyle(selected == question.answer ? .green : .red); ProgressView().tint(Color.whappyInk); Text(index == questions.count - 1 ? "Résultat dans un instant…" : "Question suivante automatique…").font(.caption.bold()).foregroundStyle(.secondary) }
             }.padding() } }
         }
         .onAppear { beginQuestion() }
@@ -3399,15 +4214,25 @@ private struct KingQiIOSSoloView: View {
         return Button { choose(option) } label: { HStack { Text(["A", "B", "C", "D"][option]).font(.headline.bold()).foregroundStyle(.white).frame(width: 38, height: 38).background(revealed ? color : Color.whappyInk).clipShape(RoundedRectangle(cornerRadius: 11)); Text(question.options[option]).font(.headline).foregroundStyle(Color.whappyInk); Spacer() }.padding(13).background(revealed && option == question.answer ? Color.green.opacity(0.1) : .white).overlay(RoundedRectangle(cornerRadius: 17).stroke(color, lineWidth: 1.5)).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(WapiPressableButtonStyle()).disabled(revealed)
     }
 
-    private var result: some View { ZStack { Color(red: 0.03, green: 0.11, blue: 0.25).ignoresSafeArea(); VStack(spacing: 14) { Text("🏆").font(.system(size: 86)); Text("GRAND CHAMPION").font(.largeTitle).fontWeight(.black).foregroundStyle(.yellow); Text("\(score) points").foregroundStyle(.white.opacity(0.75)); Button("Rejouer") { questions.shuffle(); index = 0; score = 0; finished = false; beginQuestion() }.buttonStyle(.borderedProminent).tint(.yellow).foregroundStyle(Color.whappyInk); Button("Retour aux jeux", action: onExit).foregroundStyle(.white) } } }
+    private var result: some View { ZStack { Color(red: 0.03, green: 0.11, blue: 0.25).ignoresSafeArea(); VStack(spacing: 14) { Text("🏆").font(.system(size: 86)); Text("GRAND CHAMPION").font(.largeTitle).fontWeight(.black).foregroundStyle(.yellow); Text("\(score) points").foregroundStyle(.white.opacity(0.75)); Button("Rejouer") { questions = Array(kingQiIOSQuestions.shuffled().prefix(15)); index = 0; score = 0; finished = false; beginQuestion() }.buttonStyle(.borderedProminent).tint(.yellow).foregroundStyle(Color.whappyInk); Button("Retour aux jeux", action: onExit).foregroundStyle(.white) } } }
 
     private func beginQuestion() {
-        selected = nil; seconds = 15; speech.transcript = ""
+        let token = UUID(); roundToken = token; selected = nil; seconds = 15; speech.transcript = ""
         voice.stopSpeaking(at: .immediate); let utterance = AVSpeechUtterance(string: question.prompt); utterance.voice = AVSpeechSynthesisVoice(language: "fr-FR"); voice.speak(utterance)
-        Task { while seconds > 0 && selected == nil && !finished { try? await Task.sleep(for: .seconds(1)); if selected == nil { seconds -= 1 } }; if seconds == 0 && selected == nil { selected = -1 } }
+        Task { @MainActor in
+            while roundToken == token && seconds > 0 && selected == nil && !finished {
+                try? await Task.sleep(for: .seconds(1))
+                if roundToken == token && selected == nil {
+                    seconds -= 1
+                    if (1...5).contains(seconds) { WapiSounds.gameQuizTick(urgent: seconds <= 3) }
+                }
+            }
+            if roundToken == token && seconds == 0 && selected == nil { selected = -1; WapiSounds.gameQuizWrong(); advanceAutomatically(token) }
+        }
     }
 
-    private func choose(_ option: Int) { guard selected == nil else { return }; selected = option; speech.stop(); if option == question.answer { score += 500 + seconds * 25 } }
+    private func choose(_ option: Int) { guard selected == nil else { return }; let token = roundToken; selected = option; speech.stop(); if option == question.answer { score += 500 + seconds * 25; WapiSounds.gameQuizCorrect() } else { WapiSounds.gameQuizWrong() }; advanceAutomatically(token) }
+    private func advanceAutomatically(_ token: UUID) { Task { @MainActor in try? await Task.sleep(for: .milliseconds(1_650)); guard roundToken == token, selected != nil, !finished else { return }; if index == questions.count - 1 { finished = true } else { index += 1 } } }
     private func matchVoice(_ value: String) { let heard = normalized(value); guard selected == nil, !heard.isEmpty else { return }; if let option = question.options.firstIndex(where: { let candidate = normalized($0); return heard.contains(candidate) || candidate.contains(heard) }) { choose(option) } }
     private func normalized(_ value: String) -> String { value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ") }
 }
@@ -3424,13 +4249,15 @@ private struct KingQiIOSOnlineView: View {
     @State private var busy = false
     @State private var error: String?
     @State private var listener: ListenerRegistration?
+    @State private var onlineSeconds = 20
+    @State private var autoAdvancedQuestionID = ""
     private let functions = Functions.functions(region: "europe-west1")
 
     var body: some View { ScrollView { VStack(spacing: 14) {
         HStack { Button("Retour", action: onExit).buttonStyle(.bordered); Spacer(); Text("KING QI SOCIAL").font(.headline.bold()) }
         if roomID.isEmpty { setup } else { roomView }
         if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-    }.padding() }.onDisappear { listener?.remove() } }
+    }.padding() }.task(id: roundClockKey) { await runRoundClock() }.onDisappear { listener?.remove() } }
 
     private var setup: some View { Group {
         VStack(alignment: .leading, spacing: 10) { Text(maxPlayers == 2 ? "Créer un duel" : "Créer un tournoi").font(.title2.bold()); Text(maxPlayers == 2 ? "Affrontez un contact dans une arène à deux joueurs." : "Crédits promotionnels par joueur · jusqu’à quatre écrans.").font(.caption).foregroundStyle(.secondary); Picker("Format", selection: $maxPlayers) { Text("Duel · 2 joueurs").tag(2); Text("Tournoi · 4 joueurs").tag(4) }.pickerStyle(.segmented); HStack { ForEach([0, 10, 25, 50], id: \.self) { value in Button("\(value)") { entry = value }.buttonStyle(.borderedProminent).tint(entry == value ? .yellow : .gray) } }; Picker("Diffusion", selection: $visibility) { Text("Contacts").tag("private"); Text("Direct WAPI").tag("live") }.pickerStyle(.segmented); Button { call("kingQiCreateTournament", ["entryCredits": entry, "maxPlayers": maxPlayers, "visibility": visibility]) { watch($0["roomId"] as? String ?? "") } } label: { Label(maxPlayers == 2 ? "Créer le duel" : "Créer le tournoi", systemImage: "play.fill").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(Color.whappyInk) }.padding().background(.white).clipShape(RoundedRectangle(cornerRadius: 22))
@@ -3447,6 +4274,7 @@ private struct KingQiIOSOnlineView: View {
         let scores = room["scores"] as? [String: NSNumber] ?? [:]
         let answeredIDs = room["answeredIds"] as? [String] ?? []
         let uid = Auth.auth().currentUser?.uid ?? ""
+        let answered = answeredIDs.contains(uid)
         return VStack(spacing: 12) {
             Text("CODE  \(room["code"] as? String ?? "")").font(.title2.bold())
             let capacity = (room["maxPlayers"] as? NSNumber)?.intValue ?? (room["maxPlayers"] as? Int ?? maxPlayers)
@@ -3454,8 +4282,53 @@ private struct KingQiIOSOnlineView: View {
             KingQiIOSPlayerStage(playerIDs: playerIDs, names: names, photos: photos, scores: scores, answeredIDs: answeredIDs, currentUserID: uid, capacity: capacity)
             if status == "waiting", room["hostId"] as? String == uid { Button("Démarrer King QI") { call("kingQiStartTournament", ["roomId": roomID]) }.buttonStyle(.borderedProminent).disabled(playerIDs.count < 2 || busy) }
             if status == "waiting", room["hostId"] as? String == uid, room["visibility"] as? String == "live" { Button { call("kingQiPrepareLive", ["roomId": roomID]) { _ in onStartLive() } } label: { Label("Ouvrir mon direct WAPI", systemImage: "video.fill") }.buttonStyle(.bordered) }
-            if status == "playing", let question = room["currentQuestion"] as? [String: Any], let options = question["options"] as? [String] { Text(question["text"] as? String ?? "Question").font(.title2.bold()); ForEach(options.indices, id: \.self) { option in Button(options[option]) { call("kingQiSubmitAnswer", ["roomId": roomID, "optionIndex": option]) }.buttonStyle(.bordered).frame(maxWidth: .infinity) }; Button("Manche suivante") { call("kingQiAdvanceTournament", ["roomId": roomID]) }.buttonStyle(.borderedProminent) }
+            if status == "playing", let question = room["currentQuestion"] as? [String: Any], let options = question["options"] as? [String] {
+                HStack { Text(question["category"] as? String ?? "KING QI").font(.caption.bold()).foregroundStyle(Color.whappyBlue); Spacer(); ZStack { Circle().stroke(Color.gray.opacity(0.2), lineWidth: 5); Circle().trim(from: 0, to: min(max(Double(onlineSeconds) / 20, 0), 1)).stroke(onlineSeconds <= 5 ? Color.red : Color.orange, style: StrokeStyle(lineWidth: 5, lineCap: .round)).rotationEffect(.degrees(-90)); Text("\(onlineSeconds)").font(.headline.bold()).foregroundStyle(onlineSeconds <= 5 ? .red : Color.whappyInk) }.frame(width: 50, height: 50) }
+                Text(question["text"] as? String ?? "Question").font(.title2.bold())
+                ForEach(options.indices, id: \.self) { option in Button(options[option]) { call("kingQiSubmitAnswer", ["roomId": roomID, "optionIndex": option]) { result in if result["correct"] as? Bool == true { WapiSounds.gameQuizCorrect() } else { WapiSounds.gameQuizWrong() } } }.buttonStyle(.bordered).frame(maxWidth: .infinity).disabled(answered || busy) }
+                Text(answered ? "Réponse verrouillée · prochaine question automatique" : "Répondez avant la fin du chronomètre").font(.caption.bold()).foregroundStyle(answered ? .green : .secondary)
+            }
             if status == "finished" { Text(((room["winners"] as? [String])?.contains(uid) == true) ? "🏆 GRAND CHAMPION" : "Tournoi terminé").font(.largeTitle).fontWeight(.black).foregroundStyle(.orange) }
+        }
+    }
+
+    private var roundClockKey: String {
+        let status = room["status"] as? String ?? ""
+        let question = room["currentQuestion"] as? [String: Any]
+        let questionID = question?["id"] as? String ?? ""
+        let deadline = (room["roundDeadline"] as? Timestamp)?.seconds ?? 0
+        let answeredCount = (room["answeredIds"] as? [String])?.count ?? 0
+        return "\(status)-\(questionID)-\(deadline)-\(answeredCount)"
+    }
+
+    @MainActor
+    private func runRoundClock() async {
+        guard room["status"] as? String == "playing",
+              let question = room["currentQuestion"] as? [String: Any],
+              let questionID = question["id"] as? String,
+              !questionID.isEmpty,
+              let deadline = room["roundDeadline"] as? Timestamp else { return }
+        let players = room["playerIds"] as? [String] ?? []
+        let answered = room["answeredIds"] as? [String] ?? []
+        let hostID = room["hostId"] as? String ?? ""
+        let uid = Auth.auth().currentUser?.uid ?? ""
+        var previous = Int.max
+        while !Task.isCancelled {
+            let remaining = max(0, Int(ceil(deadline.dateValue().timeIntervalSinceNow)))
+            if previous != remaining {
+                onlineSeconds = remaining
+                previous = remaining
+                if (1...5).contains(remaining) { WapiSounds.gameQuizTick(urgent: remaining <= 3) }
+            }
+            if remaining == 0 || (!players.isEmpty && answered.count >= players.count) {
+                if hostID == uid && autoAdvancedQuestionID != questionID {
+                    autoAdvancedQuestionID = questionID
+                    try? await Task.sleep(for: .milliseconds(900))
+                    call("kingQiAdvanceTournament", ["roomId": roomID])
+                }
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(250))
         }
     }
 
@@ -3568,8 +4441,13 @@ private struct OrdersView: View {
 
 private struct BusinessWorkspaceView: View {
     @EnvironmentObject private var store: WhappyStore
+    @StateObject private var adMetrics = WapiBusinessAdMetricsIOSStore()
+    @StateObject private var campaigns = WapiBusinessCampaignsIOSStore()
 
     private var businessMessages: [Conversation] { store.conversations.filter { $0.profileType == "business" } }
+    private var recentBusinessMessages: [Conversation] {
+        Array(businessMessages.sorted { ($0.messages.last?.sentAt ?? .distantPast) > ($1.messages.last?.sentAt ?? .distantPast) }.prefix(3))
+    }
     private var unreadClients: Int { businessMessages.filter(\.unread).count }
     private var profileCompletion: Int {
         guard let business = store.business else { return 0 }
@@ -3582,39 +4460,51 @@ private struct BusinessWorkspaceView: View {
             VStack(alignment: .leading, spacing: 16) {
                 businessHero
 
+                businessQuickActions
+
+                Text("Vue d’ensemble").font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
                 HStack(spacing: 10) {
                     BusinessMetricIOS(title: "Clients", value: "\(businessMessages.count)", detail: unreadClients == 0 ? "À jour" : "\(unreadClients) nouveau(x)")
                     BusinessMetricIOS(title: "Commandes", value: "\(store.orders.count)", detail: "Données réelles")
                     BusinessMetricIOS(title: "Profil", value: "\(profileCompletion) %", detail: profileCompletion == 100 ? "Complet" : "À compléter")
                 }
-
-                Text("Piloter l’activité").font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
-
-                Button {
-                    store.switchAccount(business: true)
-                    store.selectedTab = .messages
-                } label: {
-                    BusinessOperationIOS(icon: "bubble.left.and.bubble.right.fill", title: "Messagerie Business", detail: "Répondre aux clients au nom de l’entreprise", badge: unreadClients > 0 ? "\(unreadClients)" : nil)
+                HStack(spacing: 10) {
+                    BusinessMetricIOS(title: "Vues Ads", value: "\(adMetrics.impressions)", detail: "Impressions réelles")
+                    BusinessMetricIOS(title: "Clics Ads", value: "\(adMetrics.clicks)", detail: String(format: "Taux %.1f %%", adMetrics.clickThroughRate))
                 }
-                .buttonStyle(WapiPressableButtonStyle())
 
-                NavigationLink { BusinessSaleRoomManagerIOS() } label: {
-                    BusinessOperationIOS(icon: "person.3.sequence.fill", title: "Ventes privées", detail: "Présenter les produits en direct dans tout WAPI")
+                if !campaigns.items.isEmpty {
+                    Text("Campagnes récentes").font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    ForEach(campaigns.items.prefix(4)) { campaign in
+                        WapiBusinessCampaignRowIOS(campaign: campaign, busy: campaigns.busyID == campaign.id) { action in
+                            campaigns.update(campaign, action: action)
+                        }
+                    }
                 }
-                .buttonStyle(WapiPressableButtonStyle())
 
-                NavigationLink { OrdersView() } label: {
-                    BusinessOperationIOS(icon: "shippingbox.fill", title: "Commandes", detail: "Suivre les achats et les livraisons réelles")
-                }
-                .buttonStyle(WapiPressableButtonStyle())
+                businessRecentClients
+                WapiCommerceLaunchersIOS()
 
-                NavigationLink { BusinessCampaignIOSView() } label: {
-                    BusinessOperationIOS(icon: "megaphone.fill", title: "WAPI Ads", detail: "Préparer une campagne ciblée par région")
-                }
-                .buttonStyle(WapiPressableButtonStyle())
-
-                NavigationLink { BusinessEditorView() } label: {
-                    BusinessOperationIOS(icon: "building.2.crop.circle.fill", title: "Identité professionnelle", detail: "Logo, activité, ville, présentation et contacts")
+                Text("Centre de gestion").font(.title3.weight(.bold)).foregroundStyle(Color.whappyInk)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    NavigationLink { BusinessSaleRoomManagerIOS() } label: {
+                        BusinessControlTileIOS(icon: "dot.radiowaves.left.and.right", title: "Vente en direct", detail: "Publique ou privée", tint: .orange)
+                    }
+                    NavigationLink { OrdersView() } label: {
+                        BusinessControlTileIOS(icon: "shippingbox.fill", title: "Commandes", detail: "\(store.orders.count) à suivre", tint: .purple)
+                    }
+                    NavigationLink { BusinessCampaignIOSView() } label: {
+                        BusinessControlTileIOS(icon: "megaphone.fill", title: "WAPI Ads", detail: "Ciblage régional", tint: .blue)
+                    }
+                    NavigationLink { BusinessEditorView() } label: {
+                        BusinessControlTileIOS(icon: "building.2.crop.circle.fill", title: "Identité", detail: "Profil à \(profileCompletion) %", tint: .green)
+                    }
+                    Button { store.selectedTab = .wia } label: {
+                        BusinessControlTileIOS(icon: "sparkles", title: "WIA Business", detail: "Ventes et contenus", tint: .indigo)
+                    }
+                    NavigationLink { MarketView() } label: {
+                        BusinessControlTileIOS(icon: "tag.fill", title: "Catalogue", detail: "Produits et offres", tint: .cyan)
+                    }
                 }
                 .buttonStyle(WapiPressableButtonStyle())
 
@@ -3628,12 +4518,98 @@ private struct BusinessWorkspaceView: View {
         .background(Color.whappyBackground.ignoresSafeArea())
         .navigationTitle("Business")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { adMetrics.start() }
+        .onAppear { campaigns.start() }
+        .onDisappear { adMetrics.stop(); campaigns.stop() }
+    }
+
+    private var businessQuickActions: some View {
+        HStack(spacing: 8) {
+            BusinessQuickActionIOS(icon: "bubble.left.fill", title: "Clients", badge: unreadClients > 0 ? "\(unreadClients)" : nil) {
+                store.switchAccount(business: true)
+                store.selectedTab = .messages
+            }
+            BusinessQuickActionIOS(icon: "phone.fill", title: "Appels") {
+                store.switchAccount(business: true)
+                store.selectedTab = .calls
+            }
+        }
+    }
+
+    private var businessRecentClients: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Clients récents").font(.headline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    Text("Messagerie de votre identité Business").font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                }
+                Spacer()
+                Button("Tout voir") {
+                    store.switchAccount(business: true)
+                    store.selectedTab = .messages
+                }
+                .font(.caption.weight(.bold))
+            }
+            .padding(.horizontal, 2)
+
+            if businessMessages.isEmpty {
+                Button {
+                    store.switchAccount(business: true)
+                    store.selectedTab = .messages
+                } label: {
+                    HStack(spacing: 11) {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.whappyBlue)
+                            .frame(width: 42, height: 42).background(WapiColor.blueMist).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Votre boîte clients est prête").font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                            Text("Les nouvelles demandes apparaîtront ici.").font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
+                    }
+                    .padding(12).background(.white).clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(WapiColor.line, lineWidth: 0.8))
+                }
+                .buttonStyle(WapiPressableButtonStyle())
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(recentBusinessMessages.indices, id: \.self) { index in
+                        let conversation = recentBusinessMessages[index]
+                        Button {
+                            store.switchAccount(business: true)
+                            store.pendingConversationID = conversation.id
+                            store.selectedTab = .messages
+                        } label: {
+                            HStack(spacing: 11) {
+                                ConversationAvatar(conversation: conversation)
+                                    .frame(width: 45, height: 45)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(conversation.name).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                                    Text(conversation.lastMessage.isEmpty ? "Nouvelle conversation" : conversation.lastMessage)
+                                        .font(.caption).foregroundStyle(conversation.unread ? Color.whappyInk : WapiColor.secondaryText).lineLimit(1)
+                                }
+                                Spacer()
+                                if conversation.unread { Circle().fill(Color.whappyBlue).frame(width: 9, height: 9) }
+                                Image(systemName: "chevron.right").font(.caption2.bold()).foregroundStyle(WapiColor.secondaryText)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                        }
+                        .buttonStyle(WapiPressableButtonStyle())
+                        if index < recentBusinessMessages.count - 1 { Divider().padding(.leading, 68) }
+                    }
+                }
+                .background(.white).clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(WapiColor.line, lineWidth: 0.8))
+            }
+        }
     }
 
     private var businessHero: some View {
-        ZStack(alignment: .topTrailing) {
-            LinearGradient(colors: [Color.whappyInk, WapiColor.deepBlue, Color.whappyBlue], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle().fill(.white.opacity(0.08)).frame(width: 190, height: 190).offset(x: 65, y: -85)
+        ZStack(alignment: .topLeading) {
+            Color.white
+            RoundedRectangle(cornerRadius: 2).fill(Color.whappyBlue).frame(width: 5, height: 84)
             VStack(alignment: .leading, spacing: 15) {
                 HStack(spacing: 12) {
                     Group {
@@ -3644,21 +4620,193 @@ private struct BusinessWorkspaceView: View {
                     .frame(width: 58, height: 58)
                     .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("BUSINESS").font(.system(size: 9, weight: .bold)).tracking(0.6).foregroundStyle(WapiColor.sky)
-                        Text(store.business?.name ?? "Créez votre entreprise").font(.title2.weight(.bold)).foregroundStyle(.white).lineLimit(1)
-                        Text(store.business.map { "\($0.category) · \($0.city)" } ?? "Identité, ventes et clients séparés").font(.caption).foregroundStyle(.white.opacity(0.7))
+                        HStack(spacing: 7) {
+                            Text("COMPTE BUSINESS").font(.system(size: 9, weight: .bold)).tracking(0.6).foregroundStyle(WapiColor.deepBlue)
+                            Text("SÉPARÉ").font(.system(size: 7, weight: .bold)).foregroundStyle(.green)
+                                .padding(.horizontal, 7).padding(.vertical, 3).background(Color.green.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        }
+                        Text(store.business?.name ?? "Créez votre entreprise").font(.title2.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                        Text(store.business.map { "\($0.category) · \($0.city)" } ?? "Identité, appels et clients professionnels").font(.caption).foregroundStyle(WapiColor.secondaryText)
                     }
                 }
                 NavigationLink { BusinessEditorView() } label: {
                     Label(store.business == nil ? "Configurer mon Business" : "Gérer l’identité professionnelle", systemImage: store.business == nil ? "plus" : "pencil")
-                        .font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
-                        .frame(maxWidth: .infinity).frame(height: 44).background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .font(.subheadline.weight(.bold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(height: 44).background(WapiColor.ink).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(WapiPressableButtonStyle())
             }
             .padding(20)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: WapiRadius.hero, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WapiRadius.hero, style: .continuous).stroke(WapiColor.line, lineWidth: 0.9))
+    }
+}
+
+@MainActor
+private final class WapiBusinessAdMetricsIOSStore: ObservableObject {
+    @Published var impressions = 0
+    @Published var clicks = 0
+    private var listener: ListenerRegistration?
+    var clickThroughRate: Double { impressions == 0 ? 0 : Double(clicks) * 100 / Double(impressions) }
+
+    func start() {
+        guard listener == nil, let ownerID = Auth.auth().currentUser?.uid else { return }
+        listener = Firestore.firestore().collection("adEvents")
+            .whereField("ownerId", isEqualTo: ownerID)
+            .limit(to: 5_000)
+            .addSnapshotListener { [weak self] snapshot, _ in
+                let types = snapshot?.documents.compactMap { $0.get("type") as? String } ?? []
+                Task { @MainActor in
+                    self?.impressions = types.filter { $0 == "impression" }.count
+                    self?.clicks = types.filter { $0 == "click" }.count
+                }
+            }
+    }
+
+    func stop() { listener?.remove(); listener = nil }
+}
+
+private struct WapiBusinessCampaignIOS: Identifiable {
+    let id: String
+    let title: String
+    let status: String
+    let city: String
+    let totalBudget: Int
+    let impressions: Int
+    let clicks: Int
+    let deliveryMode: String
+    let targetImpressions: Int
+    let dailyDeliveryCap: Int
+}
+
+@MainActor
+private final class WapiBusinessCampaignsIOSStore: ObservableObject {
+    @Published var items: [WapiBusinessCampaignIOS] = []
+    @Published var busyID: String?
+    private var listener: ListenerRegistration?
+
+    func start() {
+        guard listener == nil, let ownerID = Auth.auth().currentUser?.uid else { return }
+        listener = Firestore.firestore().collection("adCampaigns").whereField("ownerId", isEqualTo: ownerID).limit(to: 100)
+            .addSnapshotListener { [weak self] snapshot, _ in
+                let values = snapshot?.documents.map { document in
+                    WapiBusinessCampaignIOS(
+                        id: document.documentID,
+                        title: document.get("title") as? String ?? "Campagne WAPI",
+                        status: document.get("status") as? String ?? "pending_payment",
+                        city: document.get("city") as? String ?? "",
+                        totalBudget: (document.get("totalBudget") as? NSNumber)?.intValue ?? 0,
+                        impressions: (document.get("impressionCount") as? NSNumber)?.intValue ?? 0,
+                        clicks: (document.get("clickCount") as? NSNumber)?.intValue ?? 0,
+                        deliveryMode: document.get("deliveryMode") as? String ?? "budget",
+                        targetImpressions: (document.get("targetImpressions") as? NSNumber)?.intValue ?? 0,
+                        dailyDeliveryCap: (document.get("dailyDeliveryCap") as? NSNumber)?.intValue ?? 0
+                    )
+                } ?? []
+                Task { @MainActor in self?.items = values }
+            }
+    }
+
+    func stop() { listener?.remove(); listener = nil }
+
+    func update(_ campaign: WapiBusinessCampaignIOS, action: String) {
+        guard busyID == nil else { return }
+        busyID = campaign.id
+        Functions.functions(region: "europe-west1").httpsCallable("updateAdCampaignDelivery").call([
+            "campaignId": campaign.id,
+            "action": action,
+        ]) { [weak self] _, _ in Task { @MainActor in self?.busyID = nil } }
+    }
+}
+
+private struct WapiBusinessCampaignRowIOS: View {
+    let campaign: WapiBusinessCampaignIOS
+    let busy: Bool
+    let onAction: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text(campaign.title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                Spacer()
+                Text(statusLabel).font(.system(size: 8, weight: .bold)).foregroundStyle(statusColor)
+                    .padding(.horizontal, 8).padding(.vertical, 5).background(statusColor.opacity(0.10)).clipShape(Capsule())
+            }
+            Text("\(campaign.totalBudget.formatted()) FCFA · \(campaign.city.isEmpty ? "Zone WAPI" : campaign.city)").font(.caption).foregroundStyle(WapiColor.secondaryText)
+            if campaign.deliveryMode == "impressions", campaign.targetImpressions > 0 {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("\(min(campaign.impressions, campaign.targetImpressions)) / \(campaign.targetImpressions) diffusions livrées")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue)
+                    ProgressView(value: Double(min(campaign.impressions, campaign.targetImpressions)), total: Double(campaign.targetImpressions)).tint(Color.whappyBlue)
+                    Text("Reste \(max(0, campaign.targetImpressions - campaign.impressions).formatted()) · cadence \(max(1, campaign.dailyDeliveryCap).formatted())/jour")
+                        .font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                }
+            } else {
+                Text("\(campaign.impressions) impressions · \(campaign.clicks) clics").font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue)
+            }
+            if campaign.status == "active" || campaign.status == "paused" {
+                HStack {
+                    Button(campaign.status == "active" ? "Mettre en pause" : "Reprendre") { onAction(campaign.status == "active" ? "pause" : "resume") }.buttonStyle(.borderedProminent).disabled(busy)
+                    Button("Terminer", role: .destructive) { onAction("complete") }.buttonStyle(.bordered).disabled(busy)
+                }
+            }
+        }
+        .padding(14).wapiPanel(radius: 18)
+    }
+
+    private var statusLabel: String {
+        switch campaign.status { case "active": return "EN DIFFUSION"; case "paused": return "EN PAUSE"; case "pending_payment": return "PAIEMENT REQUIS"; case "rejected": return "REFUSÉE"; default: return campaign.status.uppercased() }
+    }
+    private var statusColor: Color { campaign.status == "active" ? .green : campaign.status == "rejected" ? .red : .orange }
+}
+
+private struct BusinessQuickActionIOS: View {
+    let icon: String
+    let title: String
+    var badge: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 17, weight: .semibold)).foregroundStyle(WapiColor.deepBlue)
+                    .frame(width: 38, height: 38).background(WapiColor.blueMist).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                Text(title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                Spacer()
+                if let badge { Text(badge).font(.caption2.bold()).foregroundStyle(.white).padding(6).background(Color.whappyBlue).clipShape(Circle()) }
+                Image(systemName: "arrow.up.right").font(.caption.bold()).foregroundStyle(WapiColor.secondaryText)
+            }
+            .padding(11)
+            .frame(maxWidth: .infinity)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: WapiRadius.panel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WapiRadius.panel, style: .continuous).stroke(WapiColor.line, lineWidth: 0.8))
+        }
+        .buttonStyle(WapiPressableButtonStyle())
+    }
+}
+
+private struct BusinessControlTileIOS: View {
+    let icon: String
+    let title: String
+    let detail: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundStyle(tint)
+                .frame(width: 42, height: 42).background(tint.opacity(0.11)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk).lineLimit(1)
+                Text(detail).font(.caption2.weight(.medium)).foregroundStyle(WapiColor.secondaryText).lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+        .padding(14)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: WapiRadius.panel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WapiRadius.panel, style: .continuous).stroke(WapiColor.line, lineWidth: 0.8))
     }
 }
 
@@ -3707,62 +4855,257 @@ private struct BusinessCampaignIOSView: View {
     @EnvironmentObject private var store: WhappyStore
     @State private var title = ""
     @State private var creative = ""
+    @State private var objective = "messages"
+    @State private var placement = "inbox"
+    @State private var destination = "message"
+    @State private var audience = "Utilisateurs WAPI de la région"
     @State private var city = "Brazzaville"
-    @State private var dailyBudget = "1000"
+    @State private var countryCode = Locale.current.region?.identifier ?? "CG"
+    @State private var targetImpressions = "10000"
     @State private var days = "3"
     @State private var saving = false
     @State private var result: String?
+    private let twoColumns = [GridItem(.flexible(), spacing: 9), GridItem(.flexible(), spacing: 9)]
 
     var body: some View {
-        Form {
-            Section("Campagne") {
-                TextField("Nom de la campagne", text: $title)
-                TextField("Message publicitaire", text: $creative, axis: .vertical).lineLimit(3...6)
-                TextField("Ville ou région ciblée", text: $city)
-            }
-            Section("Budget contrôlé") {
-                TextField("Budget quotidien (FCFA)", text: $dailyBudget).keyboardType(.numberPad)
-                TextField("Nombre de jours", text: $days).keyboardType(.numberPad)
-                if let budget = Int(dailyBudget), let duration = Int(days) {
-                    Text("Budget total prévu : \((budget * duration).formatted()) FCFA").font(.footnote).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("ELEPHANT · WAPI ADS").font(.system(size: 10, weight: .bold)).tracking(0.7).foregroundStyle(Color.whappyBlue)
+                    Text("Nouvelle campagne").font(.title2.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    Text("Construisez votre campagne étape par étape. Aucun paiement ne part sans votre confirmation.")
+                        .font(.subheadline).foregroundStyle(WapiColor.secondaryText)
+                }
+
+                adSection(number: "1", title: "Identité et objectif", detail: "Choisissez qui parle et le résultat attendu") {
+                    HStack(spacing: 11) {
+                        if let business = store.business, let url = URL(string: business.logoURL), !business.logoURL.isEmpty {
+                            WapiCachedRemoteImage(url: url) { InitialsAvatar(text: business.name, size: 46) }
+                                .frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        } else { InitialsAvatar(text: store.business?.name ?? "Business", size: 46).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)) }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(store.business?.name ?? "Profil Business requis").font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                            Text("Page à promouvoir").font(.caption).foregroundStyle(WapiColor.secondaryText)
+                        }
+                        Spacer()
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.whappyBlue)
+                    }
+                    .padding(14).wapiPanel(radius: 18)
+
+                    LazyVGrid(columns: twoColumns, spacing: 9) {
+                        adChoice("Visibilité", icon: "eye.fill", value: "reach", selection: $objective)
+                        adChoice("Messages", icon: "bubble.left.fill", value: "messages", selection: $objective)
+                        adChoice("Trafic", icon: "arrow.up.right", value: "traffic", selection: $objective)
+                        adChoice("Ventes", icon: "cart.fill", value: "sales", selection: $objective)
+                    }
+                }
+
+                adSection(number: "2", title: "Création", detail: "Un message lisible et adapté au mobile") {
+                    VStack(spacing: 10) {
+                        WapiAdTextFieldIOS(title: "Nom de la campagne", text: $title)
+                        WapiAdTextFieldIOS(title: "Message publicitaire", text: $creative, multiline: true)
+                    }
+                    WapiAdCreativePreviewIOS(
+                        pageName: store.business?.name ?? "Business WAPI",
+                        title: title,
+                        message: creative,
+                        city: city,
+                        action: destination == "message" ? "Envoyer un message" : "Découvrir"
+                    )
+                }
+
+                adSection(number: "3", title: "Diffusion", detail: "Emplacement et action après le clic") {
+                    Text("EMPLACEMENT").font(.system(size: 9, weight: .bold)).foregroundStyle(WapiColor.secondaryText)
+                    LazyVGrid(columns: twoColumns, spacing: 9) {
+                        adChoice("Story", icon: "circle.dashed.inset.filled", value: "profile_story", selection: $placement)
+                        adChoice("Découverte", icon: "sparkles", value: "inbox", selection: $placement)
+                        adChoice("Marché", icon: "storefront.fill", value: "market", selection: $placement)
+                        adChoice("Direct", icon: "video.fill", value: "live", selection: $placement)
+                    }
+                    Text("ACTION APRÈS LE CLIC").font(.system(size: 9, weight: .bold)).foregroundStyle(WapiColor.secondaryText).padding(.top, 3)
+                    LazyVGrid(columns: twoColumns, spacing: 9) {
+                        adChoice("Écrire", icon: "message.fill", value: "message", selection: $destination)
+                        adChoice("Voir la page", icon: "person.crop.rectangle", value: "page", selection: $destination)
+                        adChoice("Appeler", icon: "phone.fill", value: "call", selection: $destination)
+                        adChoice("Ouvrir le lien", icon: "link", value: "website", selection: $destination)
+                    }
+                }
+
+                adSection(number: "4", title: "Audience et diffusions", detail: "Commandez un volume réel d’affichages") {
+                    WapiAdTextFieldIOS(title: "Audience", text: $audience)
+                    WapiAdTextFieldIOS(title: "Ville ou région ciblée", text: $city)
+                    WapiAdTextFieldIOS(title: "Code pays (ex. CG, FR)", text: $countryCode)
+                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                    Text("PACKS DE DIFFUSION").font(.system(size: 9, weight: .bold)).foregroundStyle(WapiColor.secondaryText)
+                    LazyVGrid(columns: twoColumns, spacing: 9) {
+                        adChoice("1K", icon: "eye.fill", value: "1000", selection: $targetImpressions)
+                        adChoice("5K", icon: "eye.fill", value: "5000", selection: $targetImpressions)
+                        adChoice("10K", icon: "eye.fill", value: "10000", selection: $targetImpressions)
+                        adChoice("50K", icon: "eye.fill", value: "50000", selection: $targetImpressions)
+                    }
+                    HStack(spacing: 9) {
+                        WapiAdTextFieldIOS(title: "Diffusions", text: $targetImpressions, keyboard: .numberPad)
+                        WapiAdTextFieldIOS(title: "Durée en jours", text: $days, keyboard: .numberPad)
+                    }
+                    Text("2 500 FCFA par tranche de 1 000 diffusions. La campagne s’arrête automatiquement au quota.")
+                        .font(.caption).foregroundStyle(WapiColor.secondaryText)
+                    Text("Cadence prévue : \(dailyDeliveryCap.formatted()) diffusions par jour.")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue)
+                }
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "lock.shield.fill").foregroundStyle(Color.orange)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Paiement sous votre contrôle").font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                        Text("La campagne reste en attente jusqu’à votre validation sécurisée. Aucun débit automatique.")
+                            .font(.caption).foregroundStyle(WapiColor.secondaryText)
+                    }
+                }
+                .padding(14).background(Color.orange.opacity(0.09)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                if let result {
+                    Text(result).font(.footnote.weight(.semibold)).foregroundStyle(result.hasPrefix("Campagne") ? .green : .red)
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background((result.hasPrefix("Campagne") ? Color.green : Color.red).opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 14))
                 }
             }
-            Section {
-                Button(saving ? "Préparation…" : "Préparer la campagne") { createCampaign() }
-                    .disabled(!isValid || saving || store.business == nil)
-                if let result { Text(result).foregroundStyle(result.hasPrefix("Campagne") ? .green : .red) }
-                Text("La campagne est enregistrée avec le statut « paiement requis ». Elle ne peut pas dépenser d’argent sans validation explicite.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
+            .padding(.horizontal, WapiSpacing.screen).padding(.top, 12).padding(.bottom, 110)
         }
-        .navigationTitle("WAPI Ads")
+        .background(Color.whappyBackground.ignoresSafeArea())
+        .navigationTitle("WAPI Ads").navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("DIFFUSIONS · BUDGET").font(.system(size: 8, weight: .bold)).foregroundStyle(WapiColor.secondaryText)
+                    Text("\(totalBudget.formatted()) FCFA").font(.headline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                }
+                Spacer()
+                Button(saving ? "Préparation…" : "Continuer") { createCampaign() }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(!isValid || saving || store.business == nil)
+            }
+            .padding(.horizontal, WapiSpacing.screen).padding(.vertical, 11).background(.ultraThinMaterial)
+        }
+    }
+
+    private var totalBudget: Int {
+        let volume = max(0, Int(targetImpressions) ?? 0)
+        return ((volume + 999) / 1_000) * 2_500
+    }
+
+    private var dailyDeliveryCap: Int {
+        let duration = max(1, Int(days) ?? 1)
+        let volume = max(0, Int(targetImpressions) ?? 0)
+        return (volume + duration - 1) / duration
+    }
+
+    @ViewBuilder
+    private func adSection<Content: View>(number: String, title: String, detail: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text(number).font(.caption.weight(.bold)).foregroundStyle(.white).frame(width: 32, height: 32).background(Color.whappyBlue).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.headline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                    Text(detail).font(.caption2).foregroundStyle(WapiColor.secondaryText)
+                }
+            }
+            content()
+        }
+    }
+
+    private func adChoice(_ label: String, icon: String, value: String, selection: Binding<String>) -> some View {
+        Button { selection.wrappedValue = value } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.caption.weight(.bold))
+                Text(label).font(.caption.weight(.semibold)).lineLimit(1)
+                Spacer(minLength: 0)
+                if selection.wrappedValue == value { Image(systemName: "checkmark.circle.fill").font(.caption) }
+            }
+            .foregroundStyle(selection.wrappedValue == value ? Color.whappyBlue : Color.whappyInk)
+            .padding(.horizontal, 11).frame(height: 46)
+            .background(selection.wrappedValue == value ? WapiColor.blueMist : Color.white)
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(selection.wrappedValue == value ? Color.whappyBlue.opacity(0.5) : WapiColor.line, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }.buttonStyle(WapiPressableButtonStyle())
     }
 
     private var isValid: Bool {
         title.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 &&
         creative.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 &&
-        (Int(dailyBudget) ?? 0) >= 500 && (1...90).contains(Int(days) ?? 0)
+        (1_000...20_000_000).contains(Int(targetImpressions) ?? 0) && (1...90).contains(Int(days) ?? 0)
     }
 
     private func createCampaign() {
-        guard let uid = store.firebaseUserID, let business = store.business, !business.remoteID.isEmpty,
-              let budget = Int(dailyBudget), let duration = Int(days), isValid else {
+        guard store.firebaseUserID != nil, let business = store.business, !business.remoteID.isEmpty,
+              let volume = Int(targetImpressions), let duration = Int(days), isValid else {
             result = "Complétez d’abord le profil Business et les champs de la campagne."
             return
         }
         saving = true; result = nil
-        Firestore.firestore().collection("adCampaigns").addDocument(data: [
-            "ownerId": uid, "pageId": business.remoteID, "pageName": business.name,
-            "objective": "messages", "placement": "inbox", "destination": "message",
+        Functions.functions(region: "europe-west1").httpsCallable("createAdCampaign").call([
+            "pageId": business.remoteID,
+            "objective": objective, "placement": placement, "destination": destination,
             "title": title.trimmingCharacters(in: .whitespacesAndNewlines),
             "creative": creative.trimmingCharacters(in: .whitespacesAndNewlines),
-            "cta": "Contacter", "audience": "Utilisateurs WAPI de la région", "city": city,
-            "phone": business.phone, "link": business.website, "dailyBudget": budget, "days": duration,
-            "totalBudget": budget * duration, "estimatedReach": max(120, (budget / 500) * duration * 120),
-            "status": "pending_payment", "createdAt": FieldValue.serverTimestamp(), "updatedAt": FieldValue.serverTimestamp(),
-        ]) { error in
+            "cta": destination == "message" ? "Envoyer un message" : "Découvrir",
+            "audience": audience.trimmingCharacters(in: .whitespacesAndNewlines), "city": city,
+            "countryCode": String(countryCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().prefix(2)),
+            "targetImpressions": volume, "days": duration,
+        ]) { _, error in
             saving = false
             result = error == nil ? "Campagne préparée. Validation du paiement requise." : wapiUserFacingError(error!, action: "La campagne Business")
+        }
+    }
+}
+
+private struct WapiAdTextFieldIOS: View {
+    let title: String
+    @Binding var text: String
+    var multiline = false
+    var keyboard: UIKeyboardType = .default
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(WapiColor.secondaryText)
+            if multiline {
+                TextField("Rédigez un message clair", text: $text, axis: .vertical).lineLimit(4...7)
+                    .padding(13).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(WapiColor.line))
+            } else {
+                TextField(title, text: $text).keyboardType(keyboard)
+                    .padding(.horizontal, 13).frame(height: 50).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(WapiColor.line))
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct WapiAdCreativePreviewIOS: View {
+    let pageName: String
+    let title: String
+    let message: String
+    let city: String
+    let action: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("APERÇU UTILISATEUR").font(.system(size: 9, weight: .bold)).tracking(0.7).foregroundStyle(WapiColor.secondaryText)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 9) {
+                    InitialsAvatar(text: pageName, size: 38).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(pageName).font(.subheadline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                        Text("SPONSORISÉ" + (city.isEmpty ? "" : " · \(city.uppercased())"))
+                            .font(.system(size: 8, weight: .bold)).foregroundStyle(WapiColor.secondaryText)
+                    }
+                }
+                Text(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Votre titre apparaîtra ici" : title)
+                    .font(.headline.weight(.bold)).foregroundStyle(Color.whappyInk)
+                Text(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Prévisualisez ici le message que les utilisateurs WAPI verront." : message)
+                    .font(.subheadline).foregroundStyle(WapiColor.secondaryText).lineLimit(4)
+                HStack { Spacer(); Text(action.uppercased() + "  ›").font(.caption.weight(.bold)).foregroundStyle(Color.whappyBlue) }
+            }
+            .padding(14).wapiPanel(radius: 18)
         }
     }
 }
@@ -3770,64 +5113,86 @@ private struct BusinessCampaignIOSView: View {
 private struct BusinessEditorView: View {
     @EnvironmentObject private var store: WhappyStore
     @State private var name = ""
-    @State private var category = "Commerce"
+    @State private var category = ""
     @State private var bio = ""
-    @State private var city = "Brazzaville"
+    @State private var city = ""
     @State private var phone = ""
     @State private var website = ""
     @State private var saved = false
+    @State private var saving = false
+    @State private var loaded = false
+    @State private var saveError: String?
     @State private var logoItem: PhotosPickerItem?
     @State private var selectedLogo: UIImage?
 
+    private var valid: Bool {
+        (2...80).contains(name.trimmingCharacters(in: .whitespacesAndNewlines).count) &&
+        !category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         Form {
-            Section("Identité professionnelle") {
-                Text("Ce profil Business est distinct de votre compte personnel. Il peut utiliser le même numéro WAPI, mais possède ses propres messages, catalogue et statistiques.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 13) {
-                    businessLogo
-                        .frame(width: 64, height: 64)
+            Section {
+                HStack(spacing: 16) {
+                    businessLogo.frame(width: 72, height: 72)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(store.business == nil ? "Créez votre page puis choisissez son logo." : "Le logo est public et propre à votre page Business.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        PhotosPicker(selection: $logoItem, matching: .images) {
-                            Label("Changer le logo", systemImage: "photo.on.rectangle.angled")
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(store.business == nil ? "Votre entreprise" : name).font(.headline)
+                        if store.business != nil {
+                            PhotosPicker(selection: $logoItem, matching: .images) {
+                                Label("Changer le logo", systemImage: "photo")
+                            }.disabled(store.firebaseBusy || saving)
+                        } else {
+                            Text("Ajoutez votre logo après la création du profil.").font(.footnote).foregroundStyle(.secondary)
                         }
-                        .disabled(store.business == nil || store.firebaseBusy)
+                    }
+                }.padding(.vertical, 8)
+            } footer: {
+                Text("Une identité professionnelle distincte. Votre compte personnel reste inchangé.")
+            }
+            Section("Identité publique") {
+                WapiEditorTextFieldIOS(title: "Nom de l’entreprise", text: $name)
+                WapiEditorTextFieldIOS(title: "Activité", text: $category)
+                WapiEditorTextFieldIOS(title: "Présentation", text: $bio, limit: 400, multiline: true)
+            }.disabled(saving || store.firebaseBusy)
+            Section {
+                WapiEditorTextFieldIOS(title: "Ville ou région", text: $city)
+                WapiEditorTextFieldIOS(title: "Téléphone professionnel", text: $phone, limit: 30, keyboard: .phonePad)
+                WapiEditorTextFieldIOS(title: "Site ou catalogue · facultatif", text: $website, limit: 180, keyboard: .URL)
+            } header: { Text("Coordonnées publiques") }
+              footer: { Text("Ces informations permettent à vos clients de vous retrouver.") }
+            .disabled(saving || store.firebaseBusy)
+            if store.business != nil {
+                Section("Commerce social") {
+                    NavigationLink { BusinessSaleRoomManagerIOS() } label: {
+                        Label("Salons de vente", systemImage: "person.3.sequence.fill")
                     }
                 }
-                .padding(.vertical, 4)
-                TextField("Nom de l’entreprise", text: $name)
-                TextField("Activité", text: $category)
-                TextField("Ville ou région", text: $city)
-                TextField("Numéro Business", text: $phone).keyboardType(.phonePad)
-                TextField("Site ou catalogue", text: $website).keyboardType(.URL)
             }
-            Section("Présentation") {
-                TextField("Que proposez-vous aux clients ?", text: $bio, axis: .vertical).lineLimit(3...6)
-            }
-            Section("Commerce social") {
-                NavigationLink { BusinessSaleRoomManagerIOS() } label: {
-                    Label("Salons de vente", systemImage: "person.3.sequence.fill")
-                }
-                Text("WIA peut préparer vos réponses clients, vos descriptions et vos relances. Les campagnes sont gérées dans Business Ads.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Button(saved ? "Enregistré" : (store.business == nil ? "Créer le profil Business" : "Enregistrer les modifications")) {
-                    store.saveBusiness(name: name, category: category, bio: bio, city: city, phone: phone, website: website)
-                    saved = true
-                }
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 || store.firebaseBusy)
-                .frame(maxWidth: .infinity)
+            if let saveError {
+                Section { Label(saveError, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.red) }
+            } else if saved {
+                Section { Label("Profil enregistré", systemImage: "checkmark.circle.fill").foregroundStyle(Color.whappyBlue) }
             }
         }
-        .navigationTitle("Business")
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle(store.business == nil ? "Créer un profil Business" : "Profil Business")
+        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            WapiEditorActionIOS(title: store.business == nil ? "Créer le profil" : "Enregistrer",
+                busy: saving || store.firebaseBusy, enabled: valid) {
+                saving = true; saved = false; saveError = nil
+                store.saveBusiness(name: name, category: category, bio: bio, city: city, phone: phone, website: website) { success in
+                    saving = false
+                    saved = success
+                    if !success { saveError = store.firebaseMessage ?? "Le profil n’a pas pu être enregistré. Votre saisie est conservée." }
+                }
+            }
+        }
+        .onChange(of: [name, category, bio, city, phone, website]) { _, _ in saved = false; saveError = nil }
         .onAppear {
+            guard !loaded else { return }
+            loaded = true
             if let business = store.business {
                 name = business.name; category = business.category; bio = business.bio
                 city = business.city; phone = business.phone; website = business.website
@@ -4263,34 +5628,95 @@ private struct AccountSwitcherIOSRow: View {
     }
 }
 
+private struct FounderAdReviewIOS: Identifiable {
+    let id: String
+    let pageName: String
+    let title: String
+    let creative: String
+    let city: String
+    let countryCode: String
+    let totalBudget: Int
+    let targetImpressions: Int
+    let days: Int
+}
+
 private struct FounderDashboardIOSView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var values: [String: String] = [:]
+    @State private var pendingReviews: [FounderAdReviewIOS] = []
+    @State private var selectedReview: FounderAdReviewIOS?
+    @State private var selectedReviewAction = "approve"
 
     var body: some View {
         List {
             Section {
                 if loading { ProgressView("Chargement des données WAPI…") }
-                else if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                else if let error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Button("Réessayer la connexion") { Task { await load() } }
+                }
                 else {
                     FounderIOSMetric(title: "Utilisateurs WAPI", value: values["users"] ?? "0", detail: "Comptes WAPI enregistrés")
                     FounderIOSMetric(title: "CA encaissé", value: values["paidRevenue"] ?? "0 XAF", detail: "Notifications de paiement marquées payées")
                     FounderIOSMetric(title: "Installations actives", value: values["activeInstallations"] ?? "0", detail: "Appareils WAPI avec jeton actif")
+                    FounderIOSMetric(title: "Téléchargements stores", value: values["officialDownloads"] ?? "Non relié", detail: "Uniquement les données officielles connectées")
                     FounderIOSMetric(title: "Pages Business", value: values["businessPages"] ?? "0", detail: "Pages réellement créées")
+                    FounderIOSMetric(title: "Commandes payées", value: values["paidOrders"] ?? "0", detail: "Paiements confirmés par le serveur")
                     FounderIOSMetric(title: "Stories publiées", value: values["stories"] ?? "0", detail: "Stories présentes dans le cloud")
                     FounderIOSMetric(title: "Lives actifs", value: values["activeLives"] ?? "0", detail: "Sessions actuellement en direct")
                 }
             } header: { Text("Données opérationnelles") }
+            if !loading && error == nil {
+                Section("Business · facturation") {
+                    FounderIOSMetric(title: "Factures émises", value: values["issuedInvoices"] ?? "0", detail: "Factures créées par les comptes Business")
+                    FounderIOSMetric(title: "Créances ouvertes", value: values["outstandingReceivables"] ?? "0 XAF", detail: "Factures émises, distinctes du CA encaissé")
+                    Text("Une facture n’est jamais présentée comme un encaissement avant confirmation du paiement.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("WAPI Ads") {
+                    FounderIOSMetric(title: "Campagnes", value: values["adCampaigns"] ?? "0", detail: "Campagnes enregistrées dans WAPI Cloud")
+                    FounderIOSMetric(title: "En diffusion", value: values["activeAdCampaigns"] ?? "0", detail: "Campagnes actives")
+                    FounderIOSMetric(title: "En attente", value: values["pendingAdCampaigns"] ?? "0", detail: "Validation ou paiement requis")
+                    FounderIOSMetric(title: "Impressions", value: values["adImpressions"] ?? "0", detail: "Affichages réellement comptabilisés")
+                    FounderIOSMetric(title: "Clics", value: values["adClicks"] ?? "0", detail: "Actions réellement comptabilisées")
+                }
+                if !pendingReviews.isEmpty {
+                    Section("Validations WAPI Ads") {
+                        ForEach(pendingReviews) { campaign in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(campaign.pageName).font(.headline)
+                                Text(campaign.title).font(.subheadline.weight(.semibold))
+                                if !campaign.creative.isEmpty { Text(campaign.creative).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
+                                Text("\(campaign.targetImpressions > 0 ? "\(campaign.targetImpressions.formatted()) diffusions · " : "")\(campaign.totalBudget.formatted()) FCFA · \(campaign.days) jour(s) · \(campaign.city.isEmpty ? campaign.countryCode : campaign.city)")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                HStack {
+                                    Button("Refuser", role: .destructive) { selectedReviewAction = "reject"; selectedReview = campaign }
+                                    Spacer()
+                                    Button("Vérifier et activer") { selectedReviewAction = "approve"; selectedReview = campaign }.buttonStyle(.borderedProminent)
+                                }
+                            }.padding(.vertical, 5)
+                        }
+                    }
+                }
+            }
             Section("Stores") {
                 Label(values["playStore"] == "true" ? "Google Play connecté" : "Google Play non connecté", systemImage: "play.rectangle.fill")
                 Label(values["appStore"] == "true" ? "App Store connecté" : "App Store non connecté", systemImage: "apple.logo")
                 Text("Les téléchargements de store restent à zéro tant que les consoles officielles ne sont pas reliées. Aucun chiffre local n’est présenté comme réel.").font(.footnote).foregroundStyle(.secondary)
             }
+            if let refreshed = values["generatedAt"], !refreshed.isEmpty {
+                Section { Text("Dernière synchronisation : \(refreshed) · source WAPI Cloud").font(.footnote).foregroundStyle(.secondary) }
+            }
         }
         .navigationTitle("Tableau Fondateur")
         .task { await load() }
         .refreshable { await load() }
+        .sheet(item: $selectedReview) { review in
+            FounderAdReviewSheetIOS(review: review, action: selectedReviewAction) {
+                Task { await load() }
+            }
+        }
     }
 
     private func load() async {
@@ -4303,15 +5729,42 @@ private struct FounderDashboardIOSView: View {
                 }
             }
             let stores = result["storeIntegrations"] as? [String: Any] ?? [:]
+            let ads = result["ads"] as? [String: Any] ?? [:]
+            let billing = result["billing"] as? [String: Any] ?? [:]
+            pendingReviews = (result["pendingAdReviews"] as? [[String: Any]] ?? []).compactMap { item in
+                guard let id = item["id"] as? String, !id.isEmpty else { return nil }
+                return FounderAdReviewIOS(
+                    id: id,
+                    pageName: item["pageName"] as? String ?? "Business WAPI",
+                    title: item["title"] as? String ?? "Campagne WAPI",
+                    creative: item["creative"] as? String ?? "",
+                    city: item["city"] as? String ?? "",
+                    countryCode: item["countryCode"] as? String ?? "",
+                    totalBudget: (item["totalBudget"] as? NSNumber)?.intValue ?? 0,
+                    targetImpressions: (item["targetImpressions"] as? NSNumber)?.intValue ?? 0,
+                    days: (item["days"] as? NSNumber)?.intValue ?? 1
+                )
+            }
+            let generatedAt = (result["generatedAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) }
             values = [
                 "users": Self.count(result["users"]),
                 "paidRevenue": "\(Self.count(result["paidRevenue"])) XAF",
                 "activeInstallations": Self.count(result["activeInstallations"]),
+                "officialDownloads": stores["totalDownloads"] is NSNumber ? Self.count(stores["totalDownloads"]) : "Non relié",
                 "businessPages": Self.count(result["businessPages"]),
+                "paidOrders": Self.count(result["paidOrders"]),
+                "issuedInvoices": Self.count(billing["issuedInvoices"]),
+                "outstandingReceivables": "\(Self.count(billing["outstandingReceivables"])) XAF",
                 "stories": Self.count(result["stories"]),
                 "activeLives": Self.count(result["activeLives"]),
+                "adCampaigns": Self.count(ads["campaigns"]),
+                "activeAdCampaigns": Self.count(ads["activeCampaigns"]),
+                "pendingAdCampaigns": Self.count(ads["pendingCampaigns"]),
+                "adImpressions": Self.count(ads["impressions"]),
+                "adClicks": Self.count(ads["clicks"]),
                 "playStore": String(describing: stores["playStore"] as? Bool ?? false),
                 "appStore": String(describing: stores["appStore"] as? Bool ?? false),
+                "generatedAt": generatedAt?.formatted(date: .abbreviated, time: .shortened) ?? "",
             ]
         } catch let failure { error = wapiUserFacingError(failure, action: "Le chargement du tableau fondateur") }
         loading = false
@@ -4335,6 +5788,69 @@ private struct FounderIOSMetric: View {
             Text(value).font(.system(size: 27, weight: .bold, design: .rounded)).foregroundStyle(Color.whappyBlue)
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 4)
+    }
+}
+
+private struct FounderAdReviewSheetIOS: View {
+    @Environment(\.dismiss) private var dismiss
+    let review: FounderAdReviewIOS
+    let action: String
+    let onComplete: () -> Void
+    @State private var paymentReference = ""
+    @State private var reviewNote = ""
+    @State private var busy = false
+    @State private var error: String?
+
+    private var approving: Bool { action == "approve" }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Campagne") {
+                    LabeledContent("Business", value: review.pageName)
+                    LabeledContent("Campagne", value: review.title)
+                    LabeledContent("Budget", value: "\(review.totalBudget.formatted()) FCFA")
+                    if review.targetImpressions > 0 {
+                        LabeledContent("Diffusions", value: review.targetImpressions.formatted())
+                    }
+                    LabeledContent("Durée", value: "\(review.days) jour(s)")
+                }
+                Section(approving ? "Paiement contrôlé" : "Décision") {
+                    if approving {
+                        TextField("Référence de paiement vérifiée", text: $paymentReference).textInputAutocapitalization(.characters)
+                        Text("La diffusion démarre uniquement après validation de cette référence.").font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        TextField("Motif du refus", text: $reviewNote, axis: .vertical).lineLimit(2...5)
+                    }
+                }
+                if let error { Section { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) } }
+            }
+            .navigationTitle(approving ? "Activer la campagne" : "Refuser la campagne")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(approving ? "Activer" : "Refuser", role: approving ? nil : .destructive) { submit() }
+                        .disabled(busy || (approving && paymentReference.trimmingCharacters(in: .whitespacesAndNewlines).count < 6))
+                }
+            }
+        }
+    }
+
+    private func submit() {
+        busy = true; error = nil
+        Functions.functions(region: "europe-west1").httpsCallable("reviewAdCampaign").call([
+            "campaignId": review.id,
+            "action": action,
+            "paymentReference": paymentReference.trimmingCharacters(in: .whitespacesAndNewlines),
+            "reviewNote": reviewNote.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]) { _, failure in
+            Task { @MainActor in
+                busy = false
+                if let failure { error = wapiUserFacingError(failure, action: "La validation WAPI Ads") }
+                else { dismiss(); onComplete() }
+            }
+        }
     }
 }
 
@@ -4500,7 +6016,7 @@ private struct WapiLanguageSettingsView: View {
 private struct DataSettingsView: View {
     @EnvironmentObject private var store: WhappyStore
     @AppStorage("wapi.sounds.enabled") private var soundsEnabled = true
-    @AppStorage("wapi.typing.sounds.enabled") private var typingSoundsEnabled = true
+    @AppStorage("wapi.typing.sounds.enabled") private var typingSoundsEnabled = false
     @AppStorage("wapi.call.end.sounds.enabled") private var callEndSoundsEnabled = true
 
     var body: some View {
@@ -4540,6 +6056,62 @@ final class WapiImageMemoryCache {
     func insert(_ image: UIImage, for url: URL, byteCount: Int) { images.setObject(image, forKey: url as NSURL, cost: max(byteCount, 1)) }
 }
 
+/// Persistent, bounded media cache shared by every native iOS surface.
+/// Images remain immediately available after navigation or an application restart.
+private actor WapiImageDiskCache {
+    static let shared = WapiImageDiskCache()
+    private let directory: URL
+    private let maximumBytes: Int64 = 96 * 1024 * 1024
+
+    private init() {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        directory = base.appendingPathComponent("wapi-images-v1", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    func data(for remoteURL: URL) -> Data? {
+        let file = cacheURL(for: remoteURL)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              let modified = attributes[.modificationDate] as? Date,
+              Date().timeIntervalSince(modified) < 30 * 24 * 60 * 60,
+              let data = try? Data(contentsOf: file, options: [.mappedIfSafe]),
+              !data.isEmpty else { return nil }
+        return data
+    }
+
+    func store(_ data: Data, for remoteURL: URL) {
+        guard !data.isEmpty else { return }
+        try? data.write(to: cacheURL(for: remoteURL), options: .atomic)
+        pruneIfNeeded()
+    }
+
+    private func cacheURL(for remoteURL: URL) -> URL {
+        let digest = SHA256.hash(data: Data(remoteURL.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return directory.appendingPathComponent(digest).appendingPathExtension("img")
+    }
+
+    private func pruneIfNeeded() {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let entries = files.compactMap { url -> (URL, Int64, Date)? in
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { return nil }
+            return (url, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast)
+        }
+        var total = entries.reduce(Int64(0)) { $0 + $1.1 }
+        guard total > maximumBytes else { return }
+        for entry in entries.sorted(by: { $0.2 < $1.2 }) where total > maximumBytes * 3 / 4 {
+            if (try? FileManager.default.removeItem(at: entry.0)) != nil { total -= entry.1 }
+        }
+    }
+}
+
 /// Keeps the last valid frame while Firestore refreshes a profile URL and
 /// shares decoded avatars between Messages, Calls, Stories and Business.
 struct WapiCachedRemoteImage<Placeholder: View>: View {
@@ -4563,6 +6135,11 @@ struct WapiCachedRemoteImage<Placeholder: View>: View {
         .task(id: url?.absoluteString) {
             guard let url else { return }
             if let cached = WapiImageMemoryCache.shared.image(for: url) { image = cached; return }
+            if let data = await WapiImageDiskCache.shared.data(for: url), let decoded = UIImage(data: data) {
+                WapiImageMemoryCache.shared.insert(decoded, for: url, byteCount: data.count)
+                image = decoded
+                return
+            }
             var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
             request.setValue("image/*", forHTTPHeaderField: "Accept")
             let dataSaver = UserDefaults.standard.bool(forKey: "dataSaverEnabled")
@@ -4571,6 +6148,7 @@ struct WapiCachedRemoteImage<Placeholder: View>: View {
                   data.count <= maximumBytes,
                   ((response as? HTTPURLResponse)?.statusCode ?? 200) < 400,
                   let decoded = UIImage(data: data) else { return }
+            await WapiImageDiskCache.shared.store(data, for: url)
             WapiImageMemoryCache.shared.insert(decoded, for: url, byteCount: data.count)
             image = decoded
         }

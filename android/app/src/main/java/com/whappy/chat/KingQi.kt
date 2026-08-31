@@ -136,6 +136,18 @@ private val kingQiSoloQuestions = listOf(
     KingQiQuestion("TECHNOLOGIE", "EXPERT", "Quelle pratique chiffre des données sans pouvoir les modifier ?", listOf("Hachage", "Compression", "Indexation", "Cache"), 0),
     KingQiQuestion("CULTURE", "EXPERT", "Qui a écrit « Le Petit Prince » ?", listOf("Victor Hugo", "Albert Camus", "Antoine de Saint-Exupéry", "Jules Verne"), 2),
     KingQiQuestion("AFRIQUE", "EXPERT", "Quel fleuve est le deuxième plus long d'Afrique après le Nil ?", listOf("Congo", "Niger", "Zambèze", "Orange"), 0),
+    KingQiQuestion("GÉOGRAPHIE", "FACILE", "Quelle est la capitale du Canada ?", listOf("Toronto", "Vancouver", "Ottawa", "Montréal"), 2),
+    KingQiQuestion("SCIENCES", "FACILE", "Quelle est la plus grande planète du système solaire ?", listOf("Mars", "Jupiter", "Saturne", "Neptune"), 1),
+    KingQiQuestion("LOGIQUE", "FACILE", "Combien font 9 multiplié par 8 ?", listOf("64", "70", "72", "81"), 2),
+    KingQiQuestion("AFRIQUE", "MOYEN", "Dans quelle ville se trouve le siège de l'Union africaine ?", listOf("Nairobi", "Addis-Abeba", "Le Caire", "Dakar"), 1),
+    KingQiQuestion("TECHNOLOGIE", "MOYEN", "Quel est le système de numération fondé sur zéro et un ?", listOf("Décimal", "Binaire", "Hexadécimal", "Romain"), 1),
+    KingQiQuestion("CULTURE", "MOYEN", "Qui a écrit « Les Misérables » ?", listOf("Victor Hugo", "Émile Zola", "Molière", "Alexandre Dumas"), 0),
+    KingQiQuestion("SCIENCES", "MOYEN", "Quel métal porte le symbole chimique Au ?", listOf("Argent", "Aluminium", "Or", "Cuivre"), 2),
+    KingQiQuestion("SPORT", "MOYEN", "Combien de joueurs d'une équipe de basket sont sur le terrain ?", listOf("Cinq", "Six", "Sept", "Huit"), 0),
+    KingQiQuestion("SCIENCES", "EXPERT", "Combien de chromosomes possède normalement une cellule humaine ?", listOf("23", "44", "46", "48"), 2),
+    KingQiQuestion("TECHNOLOGIE", "EXPERT", "Que signifie HTTP ?", listOf("HyperText Transfer Protocol", "High Transfer Text Process", "Hosted Terminal Transport Program", "Hybrid Text Transmission Port"), 0),
+    KingQiQuestion("AFRIQUE", "EXPERT", "Quelle militante kényane fut la première Africaine à recevoir le prix Nobel de la paix ?", listOf("Miriam Makeba", "Wangari Maathai", "Ellen Johnson Sirleaf", "Graça Machel"), 1),
+    KingQiQuestion("LOGIQUE", "EXPERT", "Quelle valeur approche le mieux le nombre pi ?", listOf("2,14", "2,72", "3,14", "4,13"), 2),
 )
 
 private enum class KingQiSection { HOME, SOLO, DUEL, ONLINE }
@@ -181,7 +193,7 @@ internal fun KingQiArena(
                 trophies = (profile["trophies"] as? Number)?.toInt() ?: 0,
             )
             Text("Choisissez votre arène", color = KingNavy, fontSize = 22.sp, fontWeight = FontWeight.Black)
-            KingQiModeCard("SOLO IA", "La voix King QI pose 10 questions. Répondez au micro ou touchez une barre.", "♛", KingGold) { section = KingQiSection.SOLO }
+            KingQiModeCard("SOLO IA", "15 questions s'enchaînent automatiquement. Répondez au micro ou touchez une barre.", "♛", KingGold) { section = KingQiSection.SOLO }
             KingQiModeCard("DUEL WAPI", "Affrontez un seul contact : deux joueurs, une arène, un vainqueur.", "⚔", KingRed) { section = KingQiSection.DUEL }
             KingQiModeCard("TOURNOI AVEC CONTACTS", "Créez un code privé, invitez 2 à 4 proches et gagnez des trophées.", "👥", WhappyBlue) { section = KingQiSection.ONLINE }
             KingQiModeCard("KING QI EN DIRECT", "Créez le tournoi puis ouvrez le direct WAPI. Les scores restent validés par le serveur.", "●", KingRed) { section = KingQiSection.ONLINE }
@@ -252,7 +264,7 @@ private fun KingQiModeCard(title: String, subtitle: String, symbol: String, acce
 @Composable
 private fun KingQiSoloGame(accountName: String, onExit: () -> Unit) {
     val context = LocalContext.current
-    val questions = remember { kingQiSoloQuestions.shuffled() }
+    var questions by remember { mutableStateOf(kingQiSoloQuestions.shuffled().take(15)) }
     var index by remember { mutableIntStateOf(0) }
     var score by remember { mutableIntStateOf(0) }
     var seconds by remember { mutableIntStateOf(15) }
@@ -299,7 +311,7 @@ private fun KingQiSoloGame(accountName: String, onExit: () -> Unit) {
     fun choose(option: Int) {
         if (answer != null || finished) return
         answer = option
-        if (option == current.answer) { score += 500 + seconds * 25; WhappySounds.reward(context) } else WhappySounds.impact()
+        if (option == current.answer) { score += 500 + seconds * 25; WhappySounds.quizCorrect(context) } else WhappySounds.quizWrong(context)
         recognizer?.stopListening()
     }
 
@@ -308,8 +320,23 @@ private fun KingQiSoloGame(accountName: String, onExit: () -> Unit) {
             seconds = 15; answer = null; voiceText = ""
             delay(350)
             tts?.speak(current.prompt, TextToSpeech.QUEUE_FLUSH, null, "king_qi_$index")
-            while (seconds > 0 && answer == null && !finished) { delay(1_000); if (answer == null) seconds -= 1 }
-            if (seconds == 0 && answer == null) answer = -1
+            while (seconds > 0 && answer == null && !finished) {
+                delay(1_000)
+                if (answer == null) {
+                    seconds -= 1
+                    if (seconds in 1..5) WhappySounds.quizTick(context, urgent = seconds <= 3)
+                }
+            }
+            if (seconds == 0 && answer == null) {
+                answer = -1
+                WhappySounds.quizWrong(context)
+            }
+        }
+    }
+    LaunchedEffect(answer, index, finished) {
+        if (!finished && answer != null) {
+            delay(1_650L)
+            if (index == questions.lastIndex) finished = true else index += 1
         }
     }
     LaunchedEffect(voiceText) {
@@ -321,7 +348,7 @@ private fun KingQiSoloGame(accountName: String, onExit: () -> Unit) {
     }
 
     if (finished) {
-        KingQiResult(accountName, score, questions.size, onReplay = { index = 0; score = 0; finished = false }, onExit = onExit)
+        KingQiResult(accountName, score, questions.size, onReplay = { questions = kingQiSoloQuestions.shuffled().take(15); index = 0; score = 0; finished = false }, onExit = onExit)
         return
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -350,15 +377,26 @@ private fun KingQiSoloGame(accountName: String, onExit: () -> Unit) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (answer == current.answer) "Bonne réponse · +${500 + seconds * 25} points" else "Réponse : ${current.options[current.answer]}", color = if (answer == current.answer) KingGreen else KingRed, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = { if (index == questions.lastIndex) finished = true else index += 1 }, colors = ButtonDefaults.buttonColors(containerColor = KingNavy), modifier = Modifier.fillMaxWidth()) { Text(if (index == questions.lastIndex) "Voir mon résultat" else "Question suivante", fontWeight = FontWeight.Black) }
+                Text(if (index == questions.lastIndex) "Résultat dans un instant…" else "Question suivante automatique…", color = Color(0xFF64748B), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = KingNavy, strokeWidth = 3.dp)
             }
         }
     }
 }
 
 @Composable
-private fun KingQiTimer(seconds: Int) {
-    Box(Modifier.size(48.dp).background(if (seconds <= 5) KingRed else KingGold, CircleShape), contentAlignment = Alignment.Center) { Text(seconds.toString(), color = if (seconds <= 5) Color.White else KingNavy, fontSize = 18.sp, fontWeight = FontWeight.Black) }
+private fun KingQiTimer(seconds: Int, totalSeconds: Int = 15) {
+    Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = { (seconds / totalSeconds.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxSize(),
+            color = if (seconds <= 5) KingRed else KingGold,
+            trackColor = Color(0xFFE4EBF4),
+            strokeWidth = 5.dp,
+        )
+        Text(seconds.toString(), color = if (seconds <= 5) KingRed else KingNavy, fontSize = 17.sp, fontWeight = FontWeight.Black)
+    }
 }
 
 @Composable
@@ -414,6 +452,8 @@ private fun KingQiOnlineArena(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var listener by remember { mutableStateOf<ListenerRegistration?>(null) }
+    var onlineSeconds by remember { mutableIntStateOf(20) }
+    var autoAdvancedQuestionId by remember { mutableStateOf("") }
     fun watch(id: String) {
         listener?.remove(); roomId = id
         listener = firestore.collection("kingQiRooms").document(id).addSnapshotListener { snapshot, exception ->
@@ -465,6 +505,30 @@ private fun KingQiOnlineArena(
     val question = room["currentQuestion"] as? Map<*, *>
     val answeredIds = (room["answeredIds"] as? List<*>)?.map { it.toString() }.orEmpty()
     val answered = answeredIds.contains(currentUserId)
+    val questionId = (question?.get("id") ?: "").toString()
+    val deadlineMillis = (room["roundDeadline"] as? com.google.firebase.Timestamp)?.toDate()?.time ?: 0L
+    LaunchedEffect(status, questionId, deadlineMillis, answeredIds.size, players.size, hostId, currentUserId) {
+        if (status != "playing" || questionId.isBlank() || deadlineMillis <= 0L) return@LaunchedEffect
+        while (true) {
+            val remainingMillis = (deadlineMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+            val nextSeconds = ((remainingMillis + 999L) / 1_000L).toInt()
+            if (nextSeconds != onlineSeconds) {
+                onlineSeconds = nextSeconds
+                if (nextSeconds in 1..5) WhappySounds.quizTick(context, urgent = nextSeconds <= 3)
+            }
+            val roundComplete = remainingMillis <= 0L || (players.isNotEmpty() && answeredIds.size >= players.size)
+            if (roundComplete) {
+                if (hostId == currentUserId && autoAdvancedQuestionId != questionId) {
+                    autoAdvancedQuestionId = questionId
+                    delay(900L)
+                    runCatching { functions.getHttpsCallable("kingQiAdvanceTournament").call(mapOf("roomId" to roomId)).await() }
+                        .onFailure { error = wapiUserFacingError(it, "Le passage automatique à la question suivante") }
+                }
+                break
+            }
+            delay(250L)
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { OutlinedButton(onClick = onBack) { Text("Quitter") }; Spacer(Modifier.weight(1f)); Text("CODE  $code", color = KingNavy, fontWeight = FontWeight.Black); IconButton(onClick = { val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Rejoins mon tournoi King QI sur WAPI avec le code $code") }; context.startActivity(Intent.createChooser(intent, "Inviter à King QI")) }) { Icon(Icons.Rounded.Share, "Partager le tournoi") } }
         val roomCapacity = (room["maxPlayers"] as? Number)?.toInt() ?: maxPlayers
@@ -477,13 +541,19 @@ private fun KingQiOnlineArena(
                 if (room["visibility"] == "live" && hostId == currentUserId) OutlinedButton(onClick = { call("kingQiPrepareLive", mapOf("roomId" to roomId)) { onStartLive() } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.LiveTv, null); Spacer(Modifier.width(7.dp)); Text("Ouvrir mon direct WAPI") }
             }
             "playing" -> if (question != null) {
-                Text((question["category"] ?: "KING QI").toString(), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text((question["category"] ?: "KING QI").toString(), Modifier.weight(1f), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    KingQiTimer(onlineSeconds.coerceIn(0, 20), totalSeconds = 20)
+                }
                 Text((question["text"] ?: "Question").toString(), color = KingNavy, fontSize = 23.sp, fontWeight = FontWeight.Black)
                 (question["options"] as? List<*>)?.forEachIndexed { optionIndex, option ->
-                    KingQiAnswerBar(optionIndex, option.toString(), if (answered) -2 else null, -3) { call("kingQiSubmitAnswer", mapOf("roomId" to roomId, "optionIndex" to optionIndex)) }
+                    KingQiAnswerBar(optionIndex, option.toString(), if (answered) -2 else null, -3) {
+                        call("kingQiSubmitAnswer", mapOf("roomId" to roomId, "optionIndex" to optionIndex)) { result ->
+                            if (result["correct"] == true) WhappySounds.quizCorrect(context) else WhappySounds.quizWrong(context)
+                        }
+                    }
                 }
-                if (answered) Text("Réponse verrouillée par le serveur.", color = KingGreen, fontWeight = FontWeight.Bold)
-                Button(onClick = { call("kingQiAdvanceTournament", mapOf("roomId" to roomId)) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Manche suivante", fontWeight = FontWeight.Black) }
+                Text(if (answered) "Réponse verrouillée · prochaine question automatique" else "Répondez avant la fin du chronomètre", color = if (answered) KingGreen else Color(0xFF64748B), fontWeight = FontWeight.Bold)
             }
             "finished" -> {
                 val winners = (room["winners"] as? List<*>)?.map { it.toString() }.orEmpty()

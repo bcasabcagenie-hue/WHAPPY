@@ -32,14 +32,15 @@ enum WapiOrientation {
 
 enum WapiSounds {
     private static var lastTypingAt = Date.distantPast
-    private static var gamePlayers: [String: AVAudioPlayer] = [:]
+    private static var lastInterfaceTapAt = Date.distantPast
+    private static var gamePlayers: [String: [AVAudioPlayer]] = [:]
 
     private static var enabled: Bool {
         UserDefaults.standard.object(forKey: "wapi.sounds.enabled") as? Bool ?? true
     }
 
     private static var typingEnabled: Bool {
-        UserDefaults.standard.object(forKey: "wapi.typing.sounds.enabled") as? Bool ?? true
+        UserDefaults.standard.object(forKey: "wapi.typing.sounds.enabled") as? Bool ?? false
     }
 
     private static func play(_ id: SystemSoundID) {
@@ -47,17 +48,27 @@ enum WapiSounds {
         AudioServicesPlaySystemSound(id)
     }
 
-    private static func playGameSample(_ name: String, volume: Float, fallback: SystemSoundID) {
+    private static func playGameSample(_ name: String, volume: Float, rate: Float = 1, fallback: SystemSoundID) {
         guard enabled else { return }
         guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else {
             play(fallback)
             return
         }
         do {
-            let player = try AVAudioPlayer(contentsOf: url)
+            var voices = gamePlayers[name] ?? []
+            let player: AVAudioPlayer
+            if let idle = voices.first(where: { !$0.isPlaying }) { player = idle }
+            else if voices.count < 4 {
+                player = try AVAudioPlayer(contentsOf: url)
+                player.enableRate = true
+                player.prepareToPlay()
+                voices.append(player)
+            } else { player = voices.removeFirst(); player.stop(); voices.append(player) }
+            player.currentTime = 0
             player.volume = volume
-            player.prepareToPlay()
-            gamePlayers[name] = player
+            player.enableRate = true
+            player.rate = min(max(rate, 0.5), 2)
+            gamePlayers[name] = voices
             player.play()
         } catch {
             play(fallback)
@@ -67,9 +78,17 @@ enum WapiSounds {
     static func typing() {
         guard enabled, typingEnabled else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastTypingAt) >= 0.055 else { return }
+        guard now.timeIntervalSince(lastTypingAt) >= 0.085 else { return }
         lastTypingAt = now
-        playGameSample("wapi_piece_select", volume: 0.20, fallback: 1104)
+        playGameSample("wapi_piece_select", volume: 0.055, fallback: 1104)
+    }
+
+    static func interfaceTap() {
+        guard enabled else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastInterfaceTapAt) >= 0.045 else { return }
+        lastInterfaceTapAt = now
+        playGameSample("wapi_piece_select", volume: 0.12, fallback: 1104)
     }
 
     static func sent() { play(1004) }
@@ -87,9 +106,16 @@ enum WapiSounds {
     static func gameMove() { playGameSample("wapi_piece_move", volume: 0.66, fallback: 1104) }
     static func gameCapture() { playGameSample("wapi_piece_capture", volume: 0.82, fallback: 1057) }
     static func gameDice() { playGameSample("wapi_dice_roll", volume: 0.76, fallback: 1104) }
-    static func gamePool() { playGameSample("wapi_pool_hit", volume: 0.86, fallback: 1104) }
+    static func gamePool(power: Int = 70) { playGameSample("wapi_pool_cue", volume: 0.30 + Float(min(max(power, 1), 100)) * 0.006, fallback: 1104) }
+    static func gamePoolCollision(_ intensity: Float = 0.45) { playGameSample("wapi_pool_collision", volume: min(max(intensity, 0.10), 0.78), rate: 0.96 + intensity * 0.12, fallback: 1104) }
+    static func gamePoolRail(_ intensity: Float = 0.36) { playGameSample("wapi_pool_cushion", volume: min(max(intensity, 0.10), 0.60), rate: 0.98, fallback: 1104) }
+    static func gamePoolPocket() { playGameSample("wapi_pool_pocket", volume: 0.84, rate: 0.92, fallback: 1057) }
     static func gameCard() { playGameSample("wapi_card_flip", volume: 0.70, fallback: 1104) }
     static func gameReward() { playGameSample("wapi_victory", volume: 0.88, fallback: 1025) }
+    static func gameInvalid() { playGameSample("wapi_piece_capture", volume: 0.62, rate: 0.66, fallback: 1073); UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    static func gameQuizCorrect() { playGameSample("wapi_victory", volume: 0.90, rate: 1.14, fallback: 1025); UINotificationFeedbackGenerator().notificationOccurred(.success) }
+    static func gameQuizWrong() { playGameSample("wapi_piece_capture", volume: 0.78, rate: 0.72, fallback: 1073); UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    static func gameQuizTick(urgent: Bool = false) { playGameSample("wapi_piece_select", volume: urgent ? 0.50 : 0.28, rate: urgent ? 1.32 : 1.08, fallback: 1104) }
 
     static func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
         guard enabled else { return }
@@ -104,6 +130,10 @@ final class WapiAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate,
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         if FirebaseApp.app() == nil { FirebaseApp.configure() }
+        if !UserDefaults.standard.bool(forKey: "wapi.typing.sound-profile-v2") {
+            UserDefaults.standard.set(false, forKey: "wapi.typing.sounds.enabled")
+            UserDefaults.standard.set(true, forKey: "wapi.typing.sound-profile-v2")
+        }
         Messaging.messaging().delegate = self
         UNUserNotificationCenter.current().delegate = self
         let accept = UNNotificationAction(identifier: wapiAcceptCallAction, title: "Accepter", options: [.foreground])
@@ -111,6 +141,10 @@ final class WapiAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate,
         UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(identifier: wapiDirectCallCategory, actions: [accept, decline], intentIdentifiers: [], options: [.customDismissAction])
         ])
+        #if DEBUG
+        // The isolated graphics harness does not exercise push notifications.
+        if ProcessInfo.processInfo.arguments.contains("--wapi-pool-visual-test") { return true }
+        #endif
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
             guard granted else { return }
             DispatchQueue.main.async { application.registerForRemoteNotifications() }
@@ -133,14 +167,19 @@ final class WapiAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        guard (userInfo["type"] as? String) == "call_cancel",
+        guard ["call_cancel", "call_answered"].contains(userInfo["type"] as? String ?? ""),
               let callID = userInfo["callId"] as? String,
               !callID.isEmpty else {
             completionHandler(.noData)
             return
         }
         removeDeliveredCallNotification(callID: callID)
-        NotificationCenter.default.post(name: wapiPushDidEndCall, object: callID)
+        // Compatibility with the previous backend: acceptance used to arrive
+        // as call_cancel and must not close the newly established media.
+        let status = (userInfo["status"] as? String ?? "").lowercased()
+        if ["declined", "ended", "cancelled", "canceled", "expired"].contains(status) {
+            NotificationCenter.default.post(name: wapiPushDidEndCall, object: callID)
+        }
         completionHandler(.newData)
     }
 
@@ -184,10 +223,20 @@ struct WhappyApp: App {
     @StateObject private var store = WhappyStore()
     @Environment(\.scenePhase) private var scenePhase
 
+    private var poolVisualTest: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("--wapi-pool-visual-test")
+        #else
+        return false
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
-                if store.firebaseSessionLoading {
+                if poolVisualTest {
+                    WapiIOSPoolArena().onAppear { WapiOrientation.request(.landscapeRight) }
+                } else if store.firebaseSessionLoading {
                     ProgressView("Connexion sécurisée à WAPI…")
                 } else if store.firebaseUserID == nil {
                     WhappyPhoneSignInView()
@@ -201,6 +250,7 @@ struct WhappyApp: App {
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
                 case .active: store.setFirebasePresence(online: true)
+                    if poolVisualTest { WapiOrientation.request(.landscapeRight) }
                 case .background: store.setFirebasePresence(online: false)
                 case .inactive: break
                 @unknown default: break

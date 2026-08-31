@@ -1,5 +1,5 @@
 import { getApps, initializeApp } from "firebase-admin/app";
-import { FieldValue, getFirestore, type DocumentSnapshot } from "firebase-admin/firestore";
+import { AggregateField, FieldValue, Timestamp, getFirestore, type DocumentSnapshot } from "firebase-admin/firestore";
 import { getMessaging, type MulticastMessage } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
@@ -15,11 +15,37 @@ import {
 } from "livekit-server-sdk";
 import { createTurnIcePayload, selectTurnUrls, turnTcpEndpoint } from "./webrtcTurn";
 import { decodeGroupPhotoBase64 } from "./groupPhoto";
+import { gameIds, playerCustomization, publicPlayer, poolMatchAward } from "./gamePlayer";
+import { callPushState } from "./callState";
+import { handleCommerce } from "./commerce";
+import {
+  WAPI_AD_PRICE_PER_THOUSAND,
+  ELEPHANT_ALGORITHM_NAME,
+  ELEPHANT_ALGORITHM_VERSION,
+  isWapiDeliveryComplete,
+  priceWapiAdDelivery,
+  rankElephantAds,
+  type WapiAdCandidate,
+  type WapiAdSignal,
+} from "./adRanking";
+import {
+  initialPoolBalls,
+  resolvePoolShot,
+  sanitizePoolBalls,
+  simulatePoolShot,
+  validatePoolShot,
+  validPoolCuePlacement,
+  type PoolGroup,
+} from "./poolGame";
 
 if (!getApps().length) initializeApp();
 setGlobalOptions({ region: "europe-west1", maxInstances: 20, memory: "256MiB" });
 
 const db = getFirestore();
+export const wapiCommerce = onCall({ timeoutSeconds: 60 }, async request => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connectez-vous à WAPI.");
+  return handleCommerce(db, request.auth.uid, request.data || {});
+});
 const livekitServerUrl = defineString("WAPI_LIVEKIT_URL", { default: "" });
 const livekitApiKey = defineString("WAPI_LIVEKIT_API_KEY", { default: "" });
 const livekitApiSecret = defineSecret("WAPI_LIVEKIT_API_SECRET");
@@ -168,6 +194,7 @@ function wepiSystemPrompt(
   settings: Record<string, unknown>,
   pages: Array<Record<string, unknown>>,
   deals: Array<Record<string, unknown>>,
+  catalog: Array<Record<string, unknown>> = [],
 ) {
   const storedAssistantName = String(settings.assistantName || "WIA").trim().slice(0, 60) || "WIA";
   const assistantName = /^(wepi|assistant wapi)$/i.test(storedAssistantName) ? "WIA" : storedAssistantName;
@@ -185,6 +212,9 @@ function wepiSystemPrompt(
     const stock = Math.max(0, Number(deal.stock || 0) - Number(deal.sold || 0));
     return `${String(deal.title || "Produit").slice(0, 120)} — ${Number(deal.dealPrice || 0)} XAF — stock ${stock} — ${String(deal.description || "").slice(0, 180)}`;
   }).join("\n");
+  const marketplaceCatalog = catalog.filter((item) => item.available === true).slice(0, 40).map((item) =>
+    `${String(item.name || "Article").slice(0, 100)} — ${Number(item.priceMinor || 0)} ${String(item.currency || "XAF").slice(0, 3)} — ${String(item.category || "Autres").slice(0, 60)} — ${String(item.description || "").slice(0, 180)}`,
+  ).join("\n");
   return [
     `Tu es ${assistantName}, propulsé par WIA, le même moteur conversationnel que WIA Chat dans Pilotis.`,
     "MODE GÉNÉRAL — ESPACE CHAT.",
@@ -197,6 +227,7 @@ function wepiSystemPrompt(
     instructions ? `Consignes du propriétaire : ${instructions}` : "",
     pageContext ? `Pages Business vérifiées du compte : ${pageContext}.` : "",
     salesAutomation && catalogContext ? `Catalogue actif et prix confirmés :\n${catalogContext}` : "",
+    salesAutomation && marketplaceCatalog ? `Catalogue Marketplace vérifié :\n${marketplaceCatalog}` : "",
     salesAutomation ? "Tu peux recommander uniquement les produits présents dans ce catalogue et vérifier leur stock indiqué." : "Ne mène pas de vente automatisée : le mode vente assistée est désactivé.",
     salesAutomation && captureOrders ? "Pour préparer une demande de commande, recueille le produit, la quantité, le nom, la zone et le mode de livraison. Dis clairement que la commande et le paiement restent à confirmer par le vendeur." : "Ne collecte pas de demande de commande.",
     humanHandoff ? "Propose un transfert humain pour paiement, litige, remise, rupture ou information absente." : "N’annonce pas de transfert humain automatique.",
@@ -265,15 +296,17 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
     throw new HttpsError("failed-precondition", "Le point d’accès sécurisé WIA n’est pas configuré.");
   }
   const thread = db.doc(`users/${request.auth.uid}/wepiThreads/${threadId}`);
-  const [settingsSnapshot, pagesSnapshot, dealsSnapshot, memorySnapshot] = await Promise.all([
+  const [settingsSnapshot, pagesSnapshot, dealsSnapshot, catalogSnapshot, memorySnapshot] = await Promise.all([
     db.doc(`users/${request.auth.uid}/wepi/settings`).get(),
     db.collection("businessPages").where("ownerId", "==", request.auth.uid).limit(10).get(),
     db.collection("businessDeals").where("ownerId", "==", request.auth.uid).limit(40).get(),
+    db.collection("businessCatalog").where("ownerId", "==", request.auth.uid).limit(80).get(),
     thread.collection("messages").orderBy("createdAt", "desc").limit(48).get(),
   ]);
   const settings = (settingsSnapshot.data() || {}) as Record<string, unknown>;
   const pages = pagesSnapshot.docs.map((document) => document.data() as Record<string, unknown>);
   const deals = dealsSnapshot.docs.map((document) => document.data() as Record<string, unknown>);
+  const catalog = catalogSnapshot.docs.map((document) => document.data() as Record<string, unknown>);
   const persistentHistory = memorySnapshot.docs.reverse().flatMap((document) => {
     const item = wepiMessageFromDocument(document);
     return item ? [item] : [];
@@ -324,7 +357,7 @@ export const askWepi = onCall({ secrets: [wepiApiKey], timeoutSeconds: 60 }, asy
         temperature: 0.5,
         max_tokens: 640,
         messages: [
-          { role: "system", content: wepiSystemPrompt(settings, pages, deals) },
+          { role: "system", content: wepiSystemPrompt(settings, pages, deals, catalog) },
           ...history,
           { role: "user", content: prompt },
         ],
@@ -579,16 +612,20 @@ export const notifyCallStateChanged = onDocumentUpdated("calls/{callId}", async 
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after || before.status !== "ringing" || after.status === "ringing") return;
+  const nextStatus = String(after.status || "ended");
+  const pushState = callPushState(nextStatus);
   const calleeId = String(after.calleeId || before.calleeId || "");
   const devices = await pushDevices([calleeId]);
   if (!devices.length) return;
   await sendInBatches(devices, {
     data: {
-      type: "call_cancel",
+      // Accepting only dismisses the ringing notification. It must not be
+      // mistaken for a terminal event by the handset that just answered.
+      type: pushState.type,
       title: "WAPI",
-      body: "Appel terminé",
+      body: pushState.body,
       callId: event.params.callId,
-      status: String(after.status || "ended"),
+      status: nextStatus,
       silent: "true",
     },
     android: { priority: "high", ttl: 60_000, collapseKey: `call-${event.params.callId}` },
@@ -1733,6 +1770,33 @@ async function storyAudienceIds(userId: string): Promise<string[]> {
 export const publishStory = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const userId = request.auth.uid;
+  const clientRequestId = String(request.data?.clientRequestId || "").trim();
+  if (clientRequestId && !/^[A-Za-z0-9_-]{8,80}$/.test(clientRequestId)) {
+    throw new HttpsError("invalid-argument", "Identifiant de publication Story invalide.");
+  }
+  const story = clientRequestId
+    ? db.collection("stories").doc(`${userId}_${clientRequestId}`)
+    : db.collection("stories").doc();
+  if (clientRequestId) {
+    const existing = await story.get();
+    if (existing.exists) {
+      const value = existing.data() || {};
+      const createdAt = Number(value.createdAtMillis || (value.createdAt?.toMillis?.() ?? Date.now()));
+      const expiresAt = Number(value.expiresAt?.toMillis?.() ?? createdAt + 24 * 60 * 60 * 1_000);
+      return {
+        id: existing.id,
+        authorId: String(value.authorId || userId),
+        authorName: String(value.authorName || "Membre WAPI"),
+        authorPhotoUrl: String(value.authorPhotoUrl || ""),
+        caption: String(value.caption || ""),
+        mediaUrl: String(value.mediaUrl || ""),
+        mediaType: String(value.mediaType || "text"),
+        createdAtMillis: createdAt,
+        expiresAtMillis: expiresAt,
+        viewCount: Number(value.viewCount || 0),
+      };
+    }
+  }
   const caption = String(request.data?.caption || "").trim().slice(0, 600);
   const mediaType = String(request.data?.mediaType || "text").trim().toLowerCase();
   let mediaUrl = String(request.data?.mediaUrl || "").trim().slice(0, 2_000);
@@ -1771,7 +1835,6 @@ export const publishStory = onCall(async (request) => {
   const authorName = String(profile.get("displayName") || profile.get("phoneNumber") || "Membre WAPI").trim().slice(0, 80);
   const authorPhotoUrl = String(profile.get("photoUrl") || "").trim().slice(0, 2_000);
   const createdAt = Date.now();
-  const story = db.collection("stories").doc();
   try {
     await story.set({
       authorId: userId,
@@ -1781,6 +1844,7 @@ export const publishStory = onCall(async (request) => {
       mediaUrl,
       mediaType,
       storagePath,
+      clientRequestId: clientRequestId || null,
       audienceIds: await storyAudienceIds(userId),
       viewCount: 0,
       // Keep a concrete millisecond value in addition to the server timestamp.
@@ -2261,6 +2325,18 @@ const kingQiQuestions: KingQiQuestion[] = [
   { id: "culture_04", category: "Culture", difficulty: "expert", text: "Qui a écrit « Le Petit Prince » ?", options: ["Victor Hugo", "Albert Camus", "Antoine de Saint-Exupéry", "Jules Verne"], correctIndex: 2 },
   { id: "lang_03", category: "Langues", difficulty: "expert", text: "Quelle écriture est utilisée principalement pour le japonais moderne ?", options: ["Cyrillique", "Kanji et kana", "Arabe", "Devanagari"], correctIndex: 1 },
   { id: "africa_01", category: "Afrique", difficulty: "expert", text: "Quel fleuve est le deuxième plus long d'Afrique après le Nil ?", options: ["Congo", "Niger", "Zambèze", "Orange"], correctIndex: 0 },
+  { id: "geo_08", category: "Géographie", difficulty: "facile", text: "Quelle est la capitale du Canada ?", options: ["Toronto", "Vancouver", "Ottawa", "Montréal"], correctIndex: 2 },
+  { id: "sci_08", category: "Sciences", difficulty: "facile", text: "Quelle est la plus grande planète du système solaire ?", options: ["Mars", "Jupiter", "Saturne", "Neptune"], correctIndex: 1 },
+  { id: "math_06", category: "Logique", difficulty: "facile", text: "Combien font 9 multiplié par 8 ?", options: ["64", "70", "72", "81"], correctIndex: 2 },
+  { id: "africa_02", category: "Afrique", difficulty: "moyen", text: "Dans quelle ville se trouve le siège de l'Union africaine ?", options: ["Nairobi", "Addis-Abeba", "Le Caire", "Dakar"], correctIndex: 1 },
+  { id: "tech_06", category: "Technologie", difficulty: "moyen", text: "Quel est le système de numération fondé sur zéro et un ?", options: ["Décimal", "Binaire", "Hexadécimal", "Romain"], correctIndex: 1 },
+  { id: "culture_05", category: "Culture", difficulty: "moyen", text: "Qui a écrit « Les Misérables » ?", options: ["Victor Hugo", "Émile Zola", "Molière", "Alexandre Dumas"], correctIndex: 0 },
+  { id: "sci_09", category: "Sciences", difficulty: "moyen", text: "Quel métal porte le symbole chimique Au ?", options: ["Argent", "Aluminium", "Or", "Cuivre"], correctIndex: 2 },
+  { id: "sport_03", category: "Sport", difficulty: "moyen", text: "Combien de joueurs d'une équipe de basket sont sur le terrain ?", options: ["Cinq", "Six", "Sept", "Huit"], correctIndex: 0 },
+  { id: "sci_10", category: "Sciences", difficulty: "expert", text: "Combien de chromosomes possède normalement une cellule humaine ?", options: ["23", "44", "46", "48"], correctIndex: 2 },
+  { id: "tech_07", category: "Technologie", difficulty: "expert", text: "Que signifie HTTP ?", options: ["HyperText Transfer Protocol", "High Transfer Text Process", "Hosted Terminal Transport Program", "Hybrid Text Transmission Port"], correctIndex: 0 },
+  { id: "africa_03", category: "Afrique", difficulty: "expert", text: "Quelle militante kényane fut la première Africaine à recevoir le prix Nobel de la paix ?", options: ["Miriam Makeba", "Wangari Maathai", "Ellen Johnson Sirleaf", "Graça Machel"], correctIndex: 1 },
+  { id: "math_07", category: "Logique", difficulty: "expert", text: "Quelle valeur approche le mieux le nombre pi ?", options: ["2,14", "2,72", "3,14", "4,13"], correctIndex: 2 },
 ];
 
 const kingQiPublicQuestion = (question: KingQiQuestion, index: number) => ({
@@ -2274,6 +2350,352 @@ const kingQiPublicQuestion = (question: KingQiQuestion, index: number) => ({
 
 const kingQiQuestionById = (id: unknown) => kingQiQuestions.find((question) => question.id === String(id || ""));
 const kingQiCreditChoices = new Set([0, 10, 25, 50]);
+
+const adObjectives = new Set(["reach", "messages", "traffic", "sales"]);
+const adPlacements = new Set(["profile_story", "inbox", "market", "live"]);
+const adDestinations = new Set(["message", "page", "call", "website"]);
+
+/**
+ * Creates a Business campaign from trusted page data.
+ *
+ * Mobile clients only submit the creative and targeting choices. Ownership,
+ * public identity, destination details, budget totals and estimated reach are
+ * resolved again on the server so a modified APK cannot impersonate another
+ * Business page or silently alter the campaign budget.
+ */
+export const createAdCampaign = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const input = (request.data || {}) as Record<string, unknown>;
+  const text = (key: string, max: number) => String(input[key] || "").trim().slice(0, max);
+  const pageId = text("pageId", 160);
+  const objective = text("objective", 24);
+  const placement = text("placement", 24);
+  const destination = text("destination", 24);
+  const title = text("title", 120);
+  const creative = text("creative", 600);
+  const cta = text("cta", 40) || (destination === "message" ? "Envoyer un message" : "Découvrir");
+  const audience = text("audience", 120) || "Utilisateurs WAPI de la région";
+  const city = text("city", 80);
+  const countryCode = text("countryCode", 2).toUpperCase();
+  const days = Number(input.days);
+  const requestedTargetImpressions = Number(input.targetImpressions || 0);
+  const deliveryMode = requestedTargetImpressions > 0 ? "impressions" : "budget";
+  const legacyDailyBudget = Number(input.dailyBudget);
+
+  if (!pageId) throw new HttpsError("invalid-argument", "Sélectionnez une page Business.");
+  if (!adObjectives.has(objective) || !adPlacements.has(placement) || !adDestinations.has(destination)) {
+    throw new HttpsError("invalid-argument", "Configuration publicitaire invalide.");
+  }
+  if (title.length < 2 || creative.length < 2) throw new HttpsError("invalid-argument", "Le titre et le message sont requis.");
+  if (deliveryMode === "impressions" && (!Number.isSafeInteger(requestedTargetImpressions) || requestedTargetImpressions < 1_000 || requestedTargetImpressions > 20_000_000)) {
+    throw new HttpsError("invalid-argument", "Le volume doit être compris entre 1 000 et 20 000 000 diffusions.");
+  }
+  if (deliveryMode === "budget" && (!Number.isSafeInteger(legacyDailyBudget) || legacyDailyBudget < 500 || legacyDailyBudget > 50_000_000)) {
+    throw new HttpsError("invalid-argument", "Le budget quotidien doit être compris entre 500 et 50 000 000 FCFA.");
+  }
+  if (!Number.isSafeInteger(days) || days < 1 || days > 90) throw new HttpsError("invalid-argument", "La durée doit être comprise entre 1 et 90 jours.");
+  if (countryCode && !/^[A-Z]{2}$/.test(countryCode)) throw new HttpsError("invalid-argument", "Code pays invalide.");
+
+  const page = await db.collection("businessPages").doc(pageId).get();
+  if (!page.exists || String(page.get("ownerId") || "") !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "Cette page Business ne vous appartient pas.");
+  }
+  const pageData = page.data() || {};
+  const pageName = String(pageData.name || "Business WAPI").trim().slice(0, 120);
+  const pageCategory = String(pageData.category || "Business").trim().slice(0, 80);
+  const phone = String(pageData.phone || "").trim().slice(0, 40);
+  const link = String(pageData.website || "").trim().slice(0, 180);
+  if (destination === "website" && !/^https:\/\//i.test(link)) {
+    throw new HttpsError("failed-precondition", "Ajoutez un site HTTPS à votre page Business avant de choisir cette destination.");
+  }
+  if (destination === "call" && !phone) {
+    throw new HttpsError("failed-precondition", "Ajoutez un numéro à votre page Business avant de choisir l’appel.");
+  }
+
+  const targetImpressions = deliveryMode === "impressions" ? requestedTargetImpressions : 0;
+  const totalBudget = deliveryMode === "impressions"
+    ? priceWapiAdDelivery(targetImpressions)
+    : legacyDailyBudget * days;
+  const dailyBudget = Math.max(500, Math.ceil(totalBudget / days));
+  const dailyDeliveryCap = deliveryMode === "impressions" ? Math.ceil(targetImpressions / days) : 0;
+  const placementFactor = placement === "profile_story" ? 180 : placement === "inbox" ? 150 : 120;
+  const estimatedReach = deliveryMode === "impressions"
+    ? targetImpressions
+    : Math.max(120, Math.floor(dailyBudget / 500) * days * placementFactor);
+  const campaign = db.collection("adCampaigns").doc();
+  await campaign.create({
+    ownerId: request.auth.uid,
+    pageId,
+    pageName,
+    pageCategory,
+    objective,
+    placement,
+    destination,
+    title,
+    creative,
+    cta,
+    audience,
+    city,
+    countryCode,
+    phone,
+    link,
+    estimatedReach,
+    deliveryMode,
+    targetImpressions,
+    pricePerThousand: deliveryMode === "impressions" ? WAPI_AD_PRICE_PER_THOUSAND : 0,
+    dailyDeliveryCap,
+    deliveryByDay: {},
+    dailyBudget,
+    days,
+    totalBudget,
+    status: "pending_payment",
+    impressionCount: 0,
+    clickCount: 0,
+    dismissCount: 0,
+    conversionCount: 0,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return {
+    id: campaign.id,
+    status: "pending_payment",
+    deliveryMode,
+    targetImpressions,
+    pricePerThousand: deliveryMode === "impressions" ? WAPI_AD_PRICE_PER_THOUSAND : 0,
+    dailyDeliveryCap,
+    estimatedReach,
+    totalBudget,
+  };
+});
+
+function adMillis(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof (value as { toMillis?: () => number }).toMillis === "function") {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  return 0;
+}
+
+/**
+ * Returns privacy-conscious, frequency-capped and diversified ad inventory.
+ * Exact location, contacts, messages and protected characteristics are never
+ * read by the WAPI Ads algorithm.
+ */
+export const getPersonalizedAds = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const placement = String(request.data?.placement || "inbox").trim();
+  if (!adPlacements.has(placement)) throw new HttpsError("invalid-argument", "Emplacement publicitaire invalide.");
+  const requestedLimit = Number(request.data?.limit || 8);
+  const limit = Number.isSafeInteger(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 20)) : 8;
+  const [profile, campaignSnapshot, signalSnapshot] = await Promise.all([
+    db.collection("users").doc(request.auth.uid).get(),
+    db.collection("adCampaigns").where("status", "==", "active").limit(150).get(),
+    db.collection("adEvents").where("userId", "==", request.auth.uid).limit(500).get(),
+  ]);
+  const profileData = profile.data() || {};
+  const countryCode = String(profileData.countryCode || request.data?.localeCountry || "").trim().slice(0, 2).toUpperCase();
+  const city = String(profileData.city || request.data?.localeCity || "").trim().slice(0, 80);
+  const rawCampaigns = new Map<string, Record<string, unknown>>();
+  const deliveryDay = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const candidates: WapiAdCandidate[] = campaignSnapshot.docs.flatMap((document) => {
+    const value = document.data() as Record<string, unknown>;
+    if (!String(value.title || "").trim() || !String(value.creative || "").trim()) return [];
+    if (adMillis(value.endAt) > 0 && adMillis(value.endAt) <= Date.now()) return [];
+    const targetImpressions = Math.max(0, Number(value.targetImpressions || 0));
+    if (isWapiDeliveryComplete(Math.max(0, Number(value.impressionCount || 0)), targetImpressions)) return [];
+    rawCampaigns.set(document.id, value);
+    return [{
+      id: document.id,
+      ownerId: String(value.ownerId || ""),
+      pageId: String(value.pageId || ""),
+      category: String(value.pageCategory || "Business"),
+      placement: String(value.placement || "inbox"),
+      countryCode: String(value.countryCode || "").toUpperCase(),
+      city: String(value.city || ""),
+      createdAtMillis: adMillis(value.createdAt) || Date.now(),
+      impressions: Math.max(0, Number(value.impressionCount || 0)),
+      clicks: Math.max(0, Number(value.clickCount || 0)),
+      dismissals: Math.max(0, Number(value.dismissCount || 0)),
+      conversions: Math.max(0, Number(value.conversionCount || 0)),
+      dailyDelivered: Math.max(0, Number((value.deliveryByDay as Record<string, unknown> | undefined)?.[deliveryDay] || 0)),
+      dailyCap: Math.max(0, Number(value.dailyDeliveryCap || 0)),
+    }];
+  });
+  const validSignalTypes = new Set(["impression", "click", "dismiss", "conversion"]);
+  const signals: WapiAdSignal[] = signalSnapshot.docs.flatMap((document) => {
+    const value = document.data();
+    const type = String(value.type || "");
+    if (!validSignalTypes.has(type)) return [];
+    return [{
+      campaignId: String(value.campaignId || ""),
+      type: type as WapiAdSignal["type"],
+      category: String(value.pageCategory || ""),
+      createdAtMillis: adMillis(value.createdAt),
+    }];
+  });
+  const ranked = rankElephantAds({ candidates, signals, userId: request.auth.uid, placement, countryCode, city, nowMillis: Date.now(), limit });
+  return {
+    placement,
+    algorithm: { name: ELEPHANT_ALGORITHM_NAME, version: ELEPHANT_ALGORITHM_VERSION },
+    ads: ranked.map((rankedAd) => {
+      const value = rawCampaigns.get(rankedAd.id) || {};
+      return {
+        id: rankedAd.id,
+        ownerId: rankedAd.ownerId,
+        pageId: rankedAd.pageId,
+        pageName: String(value.pageName || "Business WAPI"),
+        pageCategory: rankedAd.category,
+        objective: String(value.objective || "reach"),
+        placement: rankedAd.placement,
+        destination: String(value.destination || "page"),
+        title: String(value.title || ""),
+        creative: String(value.creative || ""),
+        cta: String(value.cta || "Découvrir"),
+        audience: String(value.audience || "Public local"),
+        city: rankedAd.city,
+        countryCode: rankedAd.countryCode,
+        phone: String(value.phone || ""),
+        link: String(value.link || ""),
+        estimatedReach: Math.max(0, Number(value.estimatedReach || 0)),
+        dailyBudget: Math.max(0, Number(value.dailyBudget || 0)),
+        days: Math.max(1, Number(value.days || 1)),
+        deliveryMode: String(value.deliveryMode || "budget"),
+        targetImpressions: Math.max(0, Number(value.targetImpressions || 0)),
+        pricePerThousand: Math.max(0, Number(value.pricePerThousand || 0)),
+        dailyDeliveryCap: Math.max(0, Number(value.dailyDeliveryCap || 0)),
+        totalBudget: Math.max(0, Number(value.totalBudget || 0)),
+        rankScore: Math.round(rankedAd.score * 100) / 100,
+        rankReasons: rankedAd.reasons,
+        rankingEngine: ELEPHANT_ALGORITHM_NAME,
+        rankingVersion: ELEPHANT_ALGORITHM_VERSION,
+      };
+    }),
+    generatedAt: Date.now(),
+  };
+});
+
+/** Records deduplicated ad behaviour and updates aggregate campaign quality. */
+export const recordAdBehavior = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const campaignId = String(request.data?.campaignId || "").trim();
+  const type = String(request.data?.type || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,160}$/.test(campaignId) || !["impression", "click", "dismiss", "conversion"].includes(type)) {
+    throw new HttpsError("invalid-argument", "Événement publicitaire invalide.");
+  }
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const event = db.collection("adEvents").doc(`${campaignId}_${request.auth.uid}_${type}_${day}`);
+  const campaign = db.collection("adCampaigns").doc(campaignId);
+  const tracked = await db.runTransaction(async (transaction) => {
+    const [campaignSnapshot, eventSnapshot] = await Promise.all([transaction.get(campaign), transaction.get(event)]);
+    if (eventSnapshot.exists) return false;
+    if (!campaignSnapshot.exists || campaignSnapshot.get("status") !== "active") {
+      throw new HttpsError("failed-precondition", "Cette campagne n’est plus en diffusion.");
+    }
+    const ownerId = String(campaignSnapshot.get("ownerId") || "");
+    if (!ownerId || ownerId === request.auth!.uid) return false;
+    const counter = type === "impression" ? "impressionCount" : type === "click" ? "clickCount" : type === "dismiss" ? "dismissCount" : "conversionCount";
+    transaction.create(event, {
+      campaignId,
+      ownerId,
+      userId: request.auth!.uid,
+      type,
+      pageCategory: String(campaignSnapshot.get("pageCategory") || "Business").slice(0, 80),
+      placement: String(campaignSnapshot.get("placement") || "inbox").slice(0, 24),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    const update: Record<string, unknown> = { [counter]: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() };
+    if (type === "impression") {
+      update[`deliveryByDay.${day}`] = FieldValue.increment(1);
+      const targetImpressions = Math.max(0, Number(campaignSnapshot.get("targetImpressions") || 0));
+      const delivered = Math.max(0, Number(campaignSnapshot.get("impressionCount") || 0)) + 1;
+      if (isWapiDeliveryComplete(delivered, targetImpressions)) {
+        update.status = "completed";
+        update.completedReason = "delivery_quota_reached";
+        update.completedAt = FieldValue.serverTimestamp();
+      }
+    }
+    transaction.update(campaign, update);
+    return true;
+  });
+  return { ok: true, tracked };
+});
+
+/** Founder review is the only manual path from pending payment to delivery. */
+export const reviewAdCampaign = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const phone = String(request.auth.token.phone_number || "").replace(/\D/g, "");
+  if (phone !== "242065465808" && phone !== "065465808") {
+    throw new HttpsError("permission-denied", "Validation réservée au Fondateur WAPI.");
+  }
+  const campaignId = String(request.data?.campaignId || "").trim();
+  const action = String(request.data?.action || "").trim();
+  const paymentReference = String(request.data?.paymentReference || "").trim().slice(0, 120);
+  const reviewNote = String(request.data?.reviewNote || "").trim().slice(0, 300);
+  if (!/^[A-Za-z0-9_-]{8,160}$/.test(campaignId) || !["approve", "reject"].includes(action)) {
+    throw new HttpsError("invalid-argument", "Décision publicitaire invalide.");
+  }
+  if (action === "approve" && paymentReference.length < 6) {
+    throw new HttpsError("invalid-argument", "Une référence de paiement vérifiée est obligatoire.");
+  }
+  const campaign = db.collection("adCampaigns").doc(campaignId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(campaign);
+    if (!snapshot.exists || snapshot.get("status") !== "pending_payment") {
+      throw new HttpsError("failed-precondition", "Cette campagne a déjà été traitée.");
+    }
+    if (action === "reject") {
+      transaction.update(campaign, {
+        status: "rejected",
+        reviewNote: reviewNote || "Campagne refusée après contrôle WAPI Ads.",
+        reviewedBy: request.auth!.uid,
+        reviewedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+    const days = Math.max(1, Math.min(90, Number(snapshot.get("days") || 1)));
+    const targetImpressions = Math.max(0, Number(snapshot.get("targetImpressions") || 0));
+    if (targetImpressions > 0 && Number(snapshot.get("impressionCount") || 0) >= targetImpressions) {
+      throw new HttpsError("failed-precondition", "Le quota de diffusion est déjà atteint.");
+    }
+    const startAtMillis = Date.now();
+    transaction.update(campaign, {
+      status: "active",
+      paymentStatus: "verified",
+      paymentReference,
+      reviewedBy: request.auth!.uid,
+      reviewedAt: FieldValue.serverTimestamp(),
+      startAt: Timestamp.fromMillis(startAtMillis),
+      endAt: Timestamp.fromMillis(startAtMillis + days * 24 * 60 * 60 * 1_000),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true, status: action === "approve" ? "active" : "rejected" };
+});
+
+/** Business owners may pause, resume or end delivery, but never approve payment. */
+export const updateAdCampaignDelivery = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const campaignId = String(request.data?.campaignId || "").trim();
+  const action = String(request.data?.action || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,160}$/.test(campaignId) || !["pause", "resume", "complete"].includes(action)) {
+    throw new HttpsError("invalid-argument", "Action de diffusion invalide.");
+  }
+  const campaign = db.collection("adCampaigns").doc(campaignId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(campaign);
+    if (!snapshot.exists || snapshot.get("ownerId") !== request.auth!.uid) throw new HttpsError("permission-denied", "Campagne inaccessible.");
+    const current = String(snapshot.get("status") || "");
+    const targetImpressions = Math.max(0, Number(snapshot.get("targetImpressions") || 0));
+    const quotaAvailable = targetImpressions <= 0 || Number(snapshot.get("impressionCount") || 0) < targetImpressions;
+    const next = action === "pause" && current === "active" ? "paused"
+      : action === "resume" && current === "paused" && adMillis(snapshot.get("endAt")) > Date.now() && quotaAvailable ? "active"
+        : action === "complete" && ["active", "paused"].includes(current) ? "completed" : "";
+    if (!next) throw new HttpsError("failed-precondition", "Cette transition de campagne n’est pas autorisée.");
+    transaction.update(campaign, { status: next, updatedAt: FieldValue.serverTimestamp() });
+  });
+  return { ok: true };
+});
 
 /**
  * Founder-only operational dashboard.
@@ -2293,7 +2715,10 @@ export const getFounderDashboard = onCall(async (request) => {
   }
 
   const count = async (collection: string) => (await db.collection(collection).count().get()).data().count;
-  const [users, pages, stories, channels, liveSessions, radioEpisodes, installations, stores, paymentSnapshot] = await Promise.all([
+  const [
+    users, pages, stories, channels, liveSessions, radioEpisodes, installations, stores, paymentAggregate, invoiceAggregate,
+    campaigns, activeCampaigns, pendingCampaigns, pendingReviewSnapshot, adImpressions, adClicks,
+  ] = await Promise.all([
     count("users"),
     count("businessPages"),
     count("stories"),
@@ -2302,11 +2727,39 @@ export const getFounderDashboard = onCall(async (request) => {
     count("radioEpisodes"),
     db.collectionGroup("devices").where("enabled", "==", true).count().get().then((result) => result.data().count),
     db.collection("platformConfig").doc("stores").get(),
-    db.collection("paymentNotifications").where("status", "==", "paid").limit(5_000).get(),
+    db.collection("paymentNotifications").where("status", "==", "paid").aggregate({
+      paidOrders: AggregateField.count(),
+      paidRevenue: AggregateField.sum("amount"),
+    }).get(),
+    // Invoices are intentionally kept apart from paid revenue: an issued
+    // invoice is a receivable, not cash that WAPI has collected.
+    db.collection("marketplaceInvoices").where("status", "==", "issued").aggregate({
+      issuedInvoices: AggregateField.count(),
+      outstandingReceivables: AggregateField.sum("balanceMinor"),
+    }).get(),
+    count("adCampaigns"),
+    db.collection("adCampaigns").where("status", "==", "active").count().get().then((result) => result.data().count),
+    db.collection("adCampaigns").where("status", "==", "pending_payment").count().get().then((result) => result.data().count),
+    db.collection("adCampaigns").where("status", "==", "pending_payment").limit(25).get(),
+    db.collection("adEvents").where("type", "==", "impression").count().get().then((result) => result.data().count),
+    db.collection("adEvents").where("type", "==", "click").count().get().then((result) => result.data().count),
   ]);
 
-  const paidRevenue = paymentSnapshot.docs.reduce((total, document) => total + Number(document.get("amount") || 0), 0);
+  const paymentData = paymentAggregate.data();
+  const invoiceData = invoiceAggregate.data();
+  const paidRevenue = Math.max(0, Number(paymentData.paidRevenue || 0));
+  const paidOrders = Math.max(0, Number(paymentData.paidOrders || 0));
+  const issuedInvoices = Math.max(0, Number(invoiceData.issuedInvoices || 0));
+  const outstandingReceivables = Math.max(0, Number(invoiceData.outstandingReceivables || 0));
   const storeData = stores.data() || {};
+  const playStoreConnected = storeData.playStore === true;
+  const appStoreConnected = storeData.appStore === true;
+  const officialDownloadCount = (connected: boolean, value: unknown) => {
+    const parsed = Number(value);
+    return connected && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+  };
+  const playDownloads = officialDownloadCount(playStoreConnected, storeData.playDownloads);
+  const appStoreDownloads = officialDownloadCount(appStoreConnected, storeData.appStoreDownloads);
   return {
     users,
     businessPages: pages,
@@ -2316,11 +2769,42 @@ export const getFounderDashboard = onCall(async (request) => {
     radioEpisodes,
     activeInstallations: installations,
     paidRevenue,
+    paidOrders,
+    billing: {
+      issuedInvoices,
+      outstandingReceivables,
+      currency: "XAF",
+      note: "Créances émises par les comptes Business : elles ne sont pas comptées dans le CA encaissé.",
+    },
+    ads: {
+      algorithm: { name: ELEPHANT_ALGORITHM_NAME, version: ELEPHANT_ALGORITHM_VERSION },
+      campaigns,
+      activeCampaigns,
+      pendingCampaigns,
+      impressions: adImpressions,
+      clicks: adClicks,
+    },
+    pendingAdReviews: pendingReviewSnapshot.docs.map((document) => ({
+      id: document.id,
+      pageName: String(document.get("pageName") || "Business WAPI").slice(0, 120),
+      title: String(document.get("title") || "Campagne WAPI").slice(0, 120),
+      creative: String(document.get("creative") || "").slice(0, 240),
+      city: String(document.get("city") || "").slice(0, 80),
+      countryCode: String(document.get("countryCode") || "").slice(0, 2),
+      totalBudget: Math.max(0, Number(document.get("totalBudget") || 0)),
+      deliveryMode: String(document.get("deliveryMode") || "budget"),
+      targetImpressions: Math.max(0, Number(document.get("targetImpressions") || 0)),
+      days: Math.max(1, Number(document.get("days") || 1)),
+      createdAt: adMillis(document.get("createdAt")),
+    })),
     currency: "XAF",
     storeIntegrations: {
-      playStore: storeData.playStore === true,
-      appStore: storeData.appStore === true,
-      configured: storeData.playStore === true || storeData.appStore === true,
+      playStore: playStoreConnected,
+      appStore: appStoreConnected,
+      playDownloads,
+      appStoreDownloads,
+      totalDownloads: playDownloads === null && appStoreDownloads === null ? null : (playDownloads || 0) + (appStoreDownloads || 0),
+      configured: playStoreConnected || appStoreConnected,
     },
     generatedAt: Date.now(),
   };
@@ -2382,29 +2866,53 @@ export const kingQiGetProfile = onCall(async (request) => {
 export const getGameProfile = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const gameId = String(request.data?.gameId || "").trim().toLowerCase();
-  const allowed = new Set(["king-qi", "ludo", "checkers", "chess", "billard", "cards", "poker"]);
-  if (!allowed.has(gameId)) throw new HttpsError("invalid-argument", "Jeu WAPI inconnu.");
-  const identity = await kingQiIdentity(request.auth.uid);
-  const ref = db.collection("gameProfiles").doc(`${request.auth.uid}_${gameId}`);
-  await db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(ref);
-    const existing = snapshot.data() || {};
-    transaction.set(ref, {
-      uid: request.auth!.uid,
-      gameId,
-      displayName: identity.displayName,
-      photoUrl: identity.photoUrl,
-      country: identity.country,
-      victories: Number(existing.victories || 0),
-      defeats: Number(existing.defeats || 0),
-      trophies: Number(existing.trophies || 0),
-      rating: Number(existing.rating || 1000),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-  });
-  const snapshot = await ref.get();
-  return { gameId, profile: snapshot.data() || {} };
+  if (!gameIds.has(gameId)) throw new HttpsError("invalid-argument", "Jeu WAPI inconnu.");
+  const uid = String(request.data?.uid || request.auth.uid);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(uid)) throw new HttpsError("invalid-argument", "Joueur invalide.");
+  const [identity, snapshot] = await Promise.all([gamePlayerIdentity(uid), db.collection("gameProfiles").doc(`${uid}_${gameId}`).get()]);
+  return { gameId, profile: publicPlayer(uid, gameId, identity, snapshot.data() || {}) };
 });
+
+export const saveGameProfile = onCall({ memory: "256MiB", timeoutSeconds: 60 }, async request => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const uid = request.auth.uid;
+  const gameId = String(request.data?.gameId || "");
+  if (!gameIds.has(gameId)) throw new HttpsError("invalid-argument", "Jeu WAPI inconnu.");
+  let customization;
+  try { customization = playerCustomization(request.data || {}); }
+  catch { throw new HttpsError("invalid-argument", "Vérifiez votre pseudo et votre avatar."); }
+  const ref = db.collection("gameProfiles").doc(`${uid}_${gameId}`);
+  const existing = await ref.get();
+  let customPhotoUrl = String(existing.get("customPhotoUrl") || "");
+  if (request.data?.photoBase64) {
+    let photo;
+    try { photo = decodeGroupPhotoBase64(request.data.photoBase64); }
+    catch { throw new HttpsError("invalid-argument", "Choisissez une photo JPEG, PNG ou WebP de moins de 5 Mo."); }
+    if (!photo) throw new HttpsError("invalid-argument", "Photo vide.");
+    const bucket = getStorage().bucket();
+    const path = `profiles/${uid}/game-${gameId}-${randomUUID()}.${photo.extension}`;
+    const token = randomUUID();
+    await bucket.file(path).save(photo.bytes, { resumable: false, metadata: { contentType: photo.contentType,
+      cacheControl: "public,max-age=31536000,immutable", metadata: { firebaseStorageDownloadTokens: token } } });
+    customPhotoUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+  }
+  if (customization.avatarMode === "photo" && !customPhotoUrl) throw new HttpsError("invalid-argument", "Choisissez une photo.");
+  await ref.set({ uid, gameId, ...customization, customPhotoUrl, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  const [identity, saved] = await Promise.all([gamePlayerIdentity(uid), ref.get()]);
+  return { profile: publicPlayer(uid, gameId, identity, saved.data() || {}) };
+});
+
+async function gamePlayerIdentity(uid: string) {
+  const identity = (await db.collection("users").doc(uid).get()).data() || {};
+  // A public game profile must never fall back to a private phone number.
+  return { displayName: String(identity.displayName || identity.name || "Joueur WAPI").slice(0, 60),
+    photoUrl: String(identity.photoUrl || "").slice(0, 1500), country: String(identity.countryCode || identity.country || "").slice(0, 8) };
+}
+
+async function poolPlayerIdentity(uid: string) {
+  const [identity, snapshot] = await Promise.all([gamePlayerIdentity(uid), db.collection("gameProfiles").doc(`${uid}_billard`).get()]);
+  return publicPlayer(uid, "billard", identity, snapshot.data() || {});
+}
 
 export const kingQiCreateTournament = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
@@ -2417,7 +2925,7 @@ export const kingQiCreateTournament = onCall(async (request) => {
   const identity = await kingQiIdentity(uid);
   const room = db.collection("kingQiRooms").doc();
   const wallet = db.collection("kingQiWallets").doc(uid);
-  const shuffled = [...kingQiQuestions].sort(() => Math.random() - .5).slice(0, 10).map((question) => question.id);
+  const shuffled = [...kingQiQuestions].sort(() => Math.random() - .5).slice(0, 15).map((question) => question.id);
   let code = kingQiRoomCode();
   while (!(await db.collection("kingQiRooms").where("code", "==", code).limit(1).get()).empty) code = kingQiRoomCode();
   await db.runTransaction(async (transaction) => {
@@ -2802,4 +3310,268 @@ export const endBusinessSaleRoom = onCall(async (request) => {
   if (snapshot.get("ownerId") !== request.auth.uid) throw new HttpsError("permission-denied", "Seule la boutique peut terminer cette vente.");
   await room.set({ status: "ended", endedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return { ok: true };
+});
+
+const poolAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function poolRoomCode() {
+  return Array.from({ length: 6 }, () => poolAlphabet[Math.floor(Math.random() * poolAlphabet.length)]).join("");
+}
+
+function poolRoomId(value: unknown) {
+  const roomId = String(value || "").trim().toUpperCase();
+  if (!/^[A-Z2-9]{6}$/.test(roomId)) throw new HttpsError("invalid-argument", "Code de table WAPI invalide.");
+  return roomId;
+}
+
+/** Creates a server-owned pool table. Mobile clients never author the initial
+ * board, turn, groups or anti-cheat revision. */
+export const createPoolMatch = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const profile = await poolPlayerIdentity(userId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const roomId = poolRoomCode();
+    const room = db.collection("gameRooms").doc(roomId);
+    if ((await room.get()).exists) continue;
+    await room.create({
+      game: "pool",
+      engineVersion: 2,
+      authority: "wapi-server",
+      status: "waiting",
+      visibility: request.data?.visibility === "private" ? "private" : "wapi",
+      hostId: userId,
+      playerIds: [userId],
+      playerNames: [profile.displayName], playerProfiles: { [userId]: profile },
+      groups: { [userId]: "open" },
+      turnUid: userId,
+      winnerUid: "",
+      ballInHandUid: "",
+      balls: initialPoolBalls(),
+      ballStateRevision: 0,
+      shotRevision: 0,
+      lastAction: `Table créée · partagez le code ${roomId}.`,
+      turnDeadlineMs: Date.now() + 45_000,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { roomId, status: "waiting", reconnected: false };
+  }
+  throw new HttpsError("resource-exhausted", "Impossible de réserver une table. Réessayez.");
+});
+
+export const joinPoolMatch = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const roomId = poolRoomId(request.data?.roomId);
+  const profile = await poolPlayerIdentity(userId);
+  const room = db.collection("gameRooms").doc(roomId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    if (!snapshot.exists || value.game !== "pool") throw new HttpsError("not-found", "Cette table n’existe plus.");
+    const ids = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+    const names = Array.isArray(value.playerNames) ? value.playerNames.map(String) : [];
+    if (ids.includes(userId)) return;
+    if (value.status !== "waiting" || ids.length !== 1) throw new HttpsError("failed-precondition", "Cette table est déjà complète.");
+    transaction.update(room, {
+      playerIds: [...ids, userId],
+      playerNames: [...names, profile.displayName], playerProfiles: { ...(value.playerProfiles || {}), [userId]: profile },
+      groups: { ...(value.groups || {}), [userId]: "open" },
+      status: "playing",
+      turnDeadlineMs: Date.now() + 45_000,
+      lastAction: `${profile.displayName} a rejoint la table · casse au premier joueur.`,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { roomId, status: "playing" };
+});
+
+/** Finds a real waiting player or creates a public table. A later invocation
+ * by another account joins the same room transactionally. */
+export const findPoolMatch = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const waiting = await db.collection("gameRooms")
+    .where("game", "==", "pool")
+    .where("status", "==", "waiting")
+    .limit(12)
+    .get();
+  const candidate = waiting.docs.find((document) => {
+    const value = document.data();
+    return value.visibility !== "private" && Array.isArray(value.playerIds) && !value.playerIds.includes(userId);
+  });
+  if (candidate) {
+    const profile = await poolPlayerIdentity(userId);
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(candidate.ref);
+      const value = snapshot.data() || {};
+      const ids = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+      const names = Array.isArray(value.playerNames) ? value.playerNames.map(String) : [];
+      if (!snapshot.exists || value.status !== "waiting" || ids.length !== 1 || ids.includes(userId)) {
+        throw new HttpsError("aborted", "Cette table vient d’être prise. Relancez la recherche.");
+      }
+      transaction.update(candidate.ref, {
+        playerIds: [...ids, userId], playerNames: [...names, profile.displayName], playerProfiles: { ...(value.playerProfiles || {}), [userId]: profile },
+        groups: { ...(value.groups || {}), [userId]: "open" }, status: "playing",
+        turnDeadlineMs: Date.now() + 45_000,
+        lastAction: `${profile.displayName} a rejoint la table · casse au premier joueur.`,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return { roomId: candidate.id, status: "playing", matched: true };
+  }
+  // Keep matchmaking callable independent from callable internals: create a
+  // public room directly with the same authoritative schema.
+  const profile = await poolPlayerIdentity(userId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const roomId = poolRoomCode();
+    const room = db.collection("gameRooms").doc(roomId);
+    if ((await room.get()).exists) continue;
+    await room.create({
+      game: "pool", engineVersion: 2, authority: "wapi-server", status: "waiting", visibility: "wapi",
+      hostId: userId, playerIds: [userId], playerNames: [profile.displayName], playerProfiles: { [userId]: profile }, groups: { [userId]: "open" },
+      turnUid: userId, winnerUid: "", ballInHandUid: "", balls: initialPoolBalls(), ballStateRevision: 0,
+      shotRevision: 0, lastAction: "Recherche d’un adversaire WAPI…", turnDeadlineMs: Date.now() + 45_000,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { roomId, status: "waiting", matched: false };
+  }
+  throw new HttpsError("resource-exhausted", "Le matchmaking est momentanément saturé.");
+});
+
+export const reconnectPoolMatch = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const snapshots = await db.collection("gameRooms").where("playerIds", "array-contains", request.auth.uid).limit(20).get();
+  const active = snapshots.docs
+    .filter((document) => ["waiting", "playing"].includes(String(document.get("status") || "")))
+    .sort((a, b) => Number(b.get("turnDeadlineMs") || 0) - Number(a.get("turnDeadlineMs") || 0))[0];
+  return active ? { roomId: active.id, status: active.get("status"), found: true } : { found: false };
+});
+
+export const placePoolCueBall = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const roomId = poolRoomId(request.data?.roomId);
+  const x = Number(request.data?.x);
+  const y = Number(request.data?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new HttpsError("invalid-argument", "Position de la bille blanche invalide.");
+  }
+  const room = db.collection("gameRooms").doc(roomId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    if (!snapshot.exists || value.status !== "playing") throw new HttpsError("failed-precondition", "Cette partie n’est plus active.");
+    if (value.turnUid !== userId || value.ballInHandUid !== userId) throw new HttpsError("permission-denied", "Vous n’avez pas la bille en main.");
+    const balls = sanitizePoolBalls(value.balls);
+    if (!validPoolCuePlacement(x, y, balls)) throw new HttpsError("invalid-argument", "La bille blanche chevauche une autre bille.");
+    const next = balls.map((ball) => ball.id === 0 ? { ...ball, x, y } : ball);
+    transaction.update(room, {
+      balls: next,
+      ballStateRevision: Number(value.ballStateRevision || 0) + 1,
+      ballInHandUid: "",
+      turnDeadlineMs: Date.now() + 45_000,
+      lastAction: "Bille blanche placée · le tir peut commencer.",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true };
+});
+
+export const expirePoolTurn = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const roomId = poolRoomId(request.data?.roomId);
+  const room = db.collection("gameRooms").doc(roomId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    if (!snapshot.exists || value.status !== "playing") return;
+    if (value.turnUid !== userId) throw new HttpsError("permission-denied", "Ce tour ne vous appartient pas.");
+    if (Number(value.turnDeadlineMs || 0) > Date.now()) throw new HttpsError("failed-precondition", "Le chronomètre n’est pas terminé.");
+    const ids = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+    const opponentUid = ids.find((id: string) => id !== userId);
+    if (!opponentUid) throw new HttpsError("failed-precondition", "L’adversaire n’est pas connecté.");
+    transaction.update(room, {
+      turnUid: opponentUid,
+      ballInHandUid: opponentUid,
+      turnDeadlineMs: Date.now() + 45_000,
+      lastAction: "Temps écoulé · bille en main pour l’adversaire.",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true };
+});
+
+export const submitPoolShot = onCall({ timeoutSeconds: 30, memory: "512MiB" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const roomId = poolRoomId(request.data?.roomId);
+  let shot;
+  try { shot = validatePoolShot(request.data); }
+  catch { throw new HttpsError("invalid-argument", "Paramètres de tir invalides."); }
+  const room = db.collection("gameRooms").doc(roomId);
+  let response: Record<string, unknown> = {};
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    if (!snapshot.exists || value.game !== "pool" || value.status !== "playing") throw new HttpsError("failed-precondition", "Cette partie n’est plus active.");
+    if (value.turnUid !== userId) throw new HttpsError("permission-denied", "Ce n’est pas votre tour.");
+    if (String(value.ballInHandUid || "")) throw new HttpsError("failed-precondition", "Placez d’abord la bille blanche.");
+    if (Number(value.turnDeadlineMs || 0) < Date.now() - 1_500) throw new HttpsError("deadline-exceeded", "Le temps du tir est écoulé.");
+    const playerIds = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+    const opponentUid = playerIds.find((id: string) => id !== userId);
+    if (!opponentUid) throw new HttpsError("failed-precondition", "L’adversaire n’a pas encore rejoint la table.");
+    const ballsBefore = sanitizePoolBalls(value.balls);
+    const simulation = simulatePoolShot(ballsBefore, shot);
+    const groups = value.groups && typeof value.groups === "object" ? value.groups as Record<string, PoolGroup> : {};
+    const resolution = resolvePoolShot(ballsBefore, groups[userId] || "open", groups[opponentUid] || "open", simulation);
+    const winnerUid = resolution.shooterWon === true ? userId : resolution.shooterWon === false ? opponentUid : "";
+    const nextTurn = resolution.keepTurn ? userId : opponentUid;
+    const revision = Number(value.shotRevision || 0) + 1;
+    const legalPockets = resolution.foul ? 0 : simulation.pocketedIds.filter(id => id !== 8 &&
+      ((resolution.shooterGroup === "solids" && id >= 1 && id <= 7) || (resolution.shooterGroup === "stripes" && id >= 9 && id <= 15))).length;
+    const run = Number(value.runs?.[userId] || 0) + legalPockets;
+    const bestRuns = { ...(value.bestRuns || {}), [userId]: Math.max(Number(value.bestRuns?.[userId] || 0), run) };
+    if (winnerUid) {
+      const refs = playerIds.map((uid: string) => db.collection("gameProfiles").doc(`${uid}_billard`));
+      const profiles = await Promise.all(refs.map(ref => transaction.get(ref)));
+      playerIds.forEach((uid: string, index: number) => {
+        const award = poolMatchAward(uid === winnerUid, Number(bestRuns[uid] || 0));
+        transaction.set(refs[index], { uid, gameId: "billard", matchesPlayed: FieldValue.increment(1),
+          victories: FieldValue.increment(award.victories), defeats: FieldValue.increment(award.defeats),
+          points: FieldValue.increment(award.points), bestRun: Math.max(Number(profiles[index].get("bestRun") || 0), award.bestRun),
+          updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
+      transaction.create(db.collection("poolResults").doc(roomId), {
+        roomId, playerIds, winnerUid, shots: revision, bestRuns, pointsAwarded: 100,
+        monetaryValue: 0, completedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    transaction.update(room, {
+      runs: { ...(value.runs || {}), [userId]: resolution.keepTurn ? run : 0, ...(resolution.keepTurn ? {} : { [opponentUid]: 0 }) },
+      bestRuns,
+      authority: "wapi-server",
+      shotRevision: revision,
+      shotBy: userId,
+      shotAngle: shot.angle,
+      shotPower: shot.power,
+      shotSideSpin: shot.sideSpin,
+      shotFollowSpin: shot.followSpin,
+      shotStartBalls: ballsBefore,
+      balls: simulation.balls,
+      ballStateRevision: revision,
+      groups: { ...groups, [userId]: resolution.shooterGroup, [opponentUid]: resolution.opponentGroup },
+      turnUid: nextTurn,
+      winnerUid,
+      status: winnerUid ? "finished" : "playing",
+      ballInHandUid: resolution.foul && !winnerUid ? opponentUid : "",
+      turnDeadlineMs: winnerUid ? 0 : Date.now() + 45_000,
+      lastAction: resolution.message,
+      lastSimulationFrames: simulation.frames,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    response = { ok: true, roomId, revision, nextTurn, winnerUid, foul: resolution.foul, message: resolution.message };
+  });
+  return response;
 });

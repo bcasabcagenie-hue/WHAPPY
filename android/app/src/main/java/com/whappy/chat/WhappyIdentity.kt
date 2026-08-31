@@ -11,10 +11,8 @@ internal object WhappyIdentity {
     const val founderChannelTagline = "Idées, projets et annonces publiés directement par Cyril Bokilo."
 
     fun isFounder(phoneNumber: String?): Boolean {
-        val normalized = phoneNumber
-            .orEmpty()
-            .filter(Char::isDigit)
-        return normalized == founderPhone || normalized == founderLocalPhone
+        val normalized = WapiNativeCore.normalizePhone(phoneNumber, "242")
+        return normalized == founderPhone || phoneNumber.orEmpty().filter(Char::isDigit) == founderLocalPhone
     }
 
     fun resolveAccountName(resolvedName: String, phoneNumber: String): String {

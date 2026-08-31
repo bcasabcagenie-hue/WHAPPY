@@ -142,7 +142,11 @@ final class WhappyStore: ObservableObject {
         case .contact(let phone): pendingContactPhone = phone
         case .channel(let id): pendingChannelID = id
         case .groupCall(let id): pendingGroupCall = WapiGroupCallRoute(callID: id, groupID: nil, groupName: "Appel de groupe", video: false)
-        case .directCall(let id): pendingDirectCall = WapiDirectCallRoute(callID: id, peerID: nil, peerName: "Appel WAPI", peerPhotoURL: "", video: false)
+        case .directCall(let id):
+            // APNs may redeliver the same collapsed invitation while iOS is
+            // restoring the app. Never present a second call sheet for it.
+            guard pendingDirectCall?.callID != id else { return }
+            pendingDirectCall = WapiDirectCallRoute(callID: id, peerID: nil, peerName: "Appel WAPI", peerPhotoURL: "", video: false)
         case .search(let query): pendingSearch = query
         }
     }
@@ -243,10 +247,10 @@ final class WhappyStore: ObservableObject {
         if message == conversations[conversation].messages.count - 1 { conversations[conversation].lastMessage = value }
     }
 
-    func sendMedia(kind: String, path: String, to conversationID: UUID, mediaName: String? = nil, viewOnce: Bool = false) {
+    func sendMedia(kind: String, path: String, to conversationID: UUID, mediaName: String? = nil, durationSeconds: Int = 0, viewOnce: Bool = false) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
         if conversations[index].remoteID != nil {
-            sendFirebaseMedia(kind: kind, path: path, mediaName: mediaName, viewOnce: viewOnce, conversation: conversations[index])
+            sendFirebaseMedia(kind: kind, path: path, mediaName: mediaName, durationSeconds: durationSeconds, viewOnce: viewOnce, conversation: conversations[index])
             return
         }
         let label = switch kind {
@@ -368,6 +372,7 @@ final class WhappyStore: ObservableObject {
             do {
                 let published = try await self.uploadStory(
                     userID: userID,
+                    clientRequestID: String(pendingID.dropFirst("pending-story-".count)),
                     caption: cleanCaption,
                     mediaData: mediaData,
                     mediaType: mediaType,
@@ -380,14 +385,34 @@ final class WhappyStore: ObservableObject {
                 self.refreshStories()
             } catch {
                 // Do not remove the user's work on a temporary Firebase or
-                // network failure.  The local Story remains visible instead
-                // of looking as if publishing silently failed.
-                self.pendingStoryIDs.remove(pendingID)
+                // network failure. Keep the pending marker as well as the
+                // private outbox media so refreshStories cannot erase it.
+                self.firebaseMessage = "Story conservée sur cet appareil. WAPI réessaiera dès que le réseau sera stable."
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                guard self.pendingStoryIDs.contains(pendingID) else { return }
+                do {
+                    let published = try await self.uploadStory(
+                        userID: userID,
+                        clientRequestID: String(pendingID.dropFirst("pending-story-".count)),
+                        caption: cleanCaption,
+                        mediaData: mediaData,
+                        mediaType: mediaType,
+                        contentType: contentType,
+                    )
+                    self.pendingStoryIDs.remove(pendingID)
+                    self.stories.removeAll { $0.id == pendingID || $0.id == published.id }
+                    self.stories.insert(published, at: 0)
+                    self.removeLocalStoryMedia(at: localMediaURL)
+                    self.firebaseMessage = "Story publiée."
+                    self.refreshStories()
+                } catch {
+                    self.firebaseMessage = "Story conservée sur cet appareil. Le réseau reste indisponible."
+                }
             }
         }
     }
 
-    private func uploadStory(userID: String, caption cleanCaption: String, mediaData: Data?, mediaType: String, contentType: String) async throws -> WapiStory {
+    private func uploadStory(userID: String, clientRequestID: String, caption cleanCaption: String, mediaData: Data?, mediaType: String, contentType: String) async throws -> WapiStory {
         var mediaURL = ""
         var storagePath = ""
         var serverImageData: Data?
@@ -399,19 +424,25 @@ final class WhappyStore: ObservableObject {
                 storagePath = "stories/\(userID)/\(UUID().uuidString).\(ext)"
                 let reference = Storage.storage().reference().child(storagePath)
                 let metadata = StorageMetadata(); metadata.contentType = contentType.isEmpty ? (mediaType == "video" ? "video/mp4" : "audio/mp4") : contentType
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    reference.putData(mediaData, metadata: metadata) { _, error in if let error { continuation.resume(throwing: error) } else { continuation.resume() } }
+                try await retryStoryOperation {
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                        reference.putData(mediaData, metadata: metadata) { _, error in if let error { continuation.resume(throwing: error) } else { continuation.resume() } }
+                    }
                 }
-                mediaURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
-                    reference.downloadURL { url, error in if let error { continuation.resume(throwing: error) } else if let url { continuation.resume(returning: url.absoluteString) } else { continuation.resume(throwing: NSError(domain: "WAPI", code: 500)) } }
+                mediaURL = try await retryStoryOperation {
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                        reference.downloadURL { url, error in if let error { continuation.resume(throwing: error) } else if let url { continuation.resume(returning: url.absoluteString) } else { continuation.resume(throwing: NSError(domain: "WAPI", code: 500)) } }
+                    }
                 }
             }
         }
-        var payload: [String: Any] = ["caption": cleanCaption, "mediaType": mediaType, "mediaUrl": mediaURL, "storagePath": storagePath]
+        var payload: [String: Any] = ["clientRequestId": clientRequestID, "caption": cleanCaption, "mediaType": mediaType, "mediaUrl": mediaURL, "storagePath": storagePath]
         if let serverImageData { payload["mediaDataBase64"] = serverImageData.base64EncodedString() }
-        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
-            Functions.functions(region: "europe-west1").httpsCallable("publishStory").call(payload) { result, error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: result?.data as? [String: Any] ?? [:]) }
+        let result = try await retryStoryOperation {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
+                Functions.functions(region: "europe-west1").httpsCallable("publishStory").call(payload) { result, error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: result?.data as? [String: Any] ?? [:]) }
+                }
             }
         }
         guard let id = result["id"] as? String else { throw NSError(domain: "WAPI", code: 500, userInfo: [NSLocalizedDescriptionKey: "La Story n’a pas reçu d’identifiant."]) }
@@ -420,6 +451,20 @@ final class WhappyStore: ObservableObject {
         let created = (result["createdAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? now
         let expiry = (result["expiresAtMillis"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1_000) } ?? created.addingTimeInterval(24 * 60 * 60)
         return WapiStory(id: id, authorID: userID, authorName: result["authorName"] as? String ?? "Membre WAPI", authorPhotoURL: result["authorPhotoUrl"] as? String ?? "", caption: cleanCaption, mediaURL: mediaURL, mediaType: mediaType, createdAt: created, expiresAt: expiry, viewCount: 0, viewed: true)
+    }
+
+    private func retryStoryOperation<T>(_ operation: () async throws -> T) async throws -> T {
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do { return try await operation() }
+            catch {
+                lastError = error
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: UInt64(650_000_000 * (attempt + 1)))
+                }
+            }
+        }
+        throw lastError ?? NSError(domain: "WAPI", code: 503, userInfo: [NSLocalizedDescriptionKey: "Le réseau WAPI est momentanément indisponible."])
     }
 
     private func normalizedStoryImage(_ data: Data) throws -> Data {
@@ -530,7 +575,32 @@ final class WhappyStore: ObservableObject {
     }
 
     func recordCall(name: String, phone: String, mode: CallMode) {
-        calls.insert(CallRecord(id: UUID(), name: name, phoneNumber: phone, mode: mode, date: Date(), outgoing: true, missed: false), at: 0)
+        calls.insert(CallRecord(
+            id: UUID(), name: name, phoneNumber: phone, mode: mode,
+            date: Date(), outgoing: true, missed: false,
+            profileType: activeBusinessMode ? "business" : "personal",
+            businessPageID: activeBusinessMode ? activeBusinessRemoteID : nil
+        ), at: 0)
+    }
+
+    func directCallRoute(
+        peerID: String?,
+        peerName: String,
+        peerPhotoURL: String,
+        video: Bool,
+        targetBusinessPageID: String? = nil
+    ) -> WapiDirectCallRoute {
+        WapiDirectCallRoute(
+            callID: nil,
+            peerID: peerID,
+            peerName: peerName,
+            peerPhotoURL: peerPhotoURL,
+            video: video,
+            callerName: activeBusinessMode ? business?.name : nil,
+            callerPhotoURL: activeBusinessMode ? business?.logoURL : nil,
+            callerBusinessPageID: activeBusinessMode ? activeBusinessRemoteID : nil,
+            calleeBusinessPageID: activeBusinessMode ? nil : targetBusinessPageID
+        )
     }
 
     func addListing(title: String, price: String, place: String, trade: Bool) {
@@ -581,15 +651,22 @@ final class WhappyStore: ObservableObject {
         serviceRequests.insert(WhappyServiceRequest(id: UUID(), type: type, details: value, createdAt: Date(), status: "Demandé"), at: 0)
     }
 
-    func saveBusiness(name: String, category: String, bio: String, city: String, phone: String, website: String) {
+    func saveBusiness(name: String, category: String, bio: String, city: String, phone: String, website: String, completion: @escaping (Bool) -> Void = { _ in }) {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard cleanName.count >= 2 else { return }
+        guard (2...80).contains(cleanName.count), !category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !firebaseBusy else {
+            firebaseMessage = "Vérifiez le nom et l’activité de votre entreprise."
+            completion(false)
+            return
+        }
+        guard let uid = firebaseUserID else {
+            firebaseMessage = "Connectez-vous pour enregistrer votre profil Business."
+            completion(false)
+            return
+        }
         let existingRemoteID = business?.remoteID ?? ""
         let remoteID = existingRemoteID.isEmpty ? UUID().uuidString.lowercased() : existingRemoteID
         let next = WhappyBusiness(id: business?.id ?? UUID(), remoteID: remoteID, name: cleanName, category: category.trimmingCharacters(in: .whitespacesAndNewlines), bio: bio.trimmingCharacters(in: .whitespacesAndNewlines), city: city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Brazzaville" : city.trimmingCharacters(in: .whitespacesAndNewlines), phone: phone.trimmingCharacters(in: .whitespacesAndNewlines), website: website.trimmingCharacters(in: .whitespacesAndNewlines), logoURL: business?.logoURL ?? "")
-        business = next
-        switchAccount(business: true)
-        guard let uid = firebaseUserID else { return }
+        // Do not turn an unacknowledged draft into a saved Business identity.
         let handle = cleanName.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: "-")) + "-" + String(remoteID.prefix(5))
         firebaseBusy = true
         var payload: [String: Any] = [
@@ -620,6 +697,8 @@ final class WhappyStore: ObservableObject {
                 guard let self else { return }
                 self.firebaseBusy = false
                 self.firebaseMessage = error.map { wapiUserFacingError($0, action: "La synchronisation du compte Business") } ?? "Compte Business synchronisé dans WAPI."
+                if error == nil { self.business = next }
+                completion(error == nil)
             }
         }
     }
@@ -673,6 +752,10 @@ final class WhappyStore: ObservableObject {
         guard !business || self.business != nil else { return }
         activeBusinessMode = business
         activeBusinessRemoteID = business ? (self.business?.remoteID ?? "") : ""
+        // Account switching is a real workspace boundary. Always land in the
+        // corresponding inbox so a personal screen cannot remain visible
+        // under a Business identity (or the reverse).
+        selectedTab = .messages
         if let uid = firebaseUserID {
             Firestore.firestore().collection("users").document(uid).setData([
                 "activeProfileType": business ? "business" : "personal",

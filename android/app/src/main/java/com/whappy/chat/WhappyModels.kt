@@ -28,6 +28,8 @@ data class WhappyMember(
     val verified: Boolean = false,
     val isOnline: Boolean = false,
     val lastSeenAt: Long = 0L,
+    /** Present only when this member is displayed through a Business page. */
+    val businessPageId: String = "",
 )
 
 data class WhappyConversation(
@@ -117,7 +119,13 @@ data class WhappyListing(
     val place: String,
     val seller: String,
     val ownerId: String,
-    val mode: String = "vente",
+    val mode: String = "sale",
+    val description: String = "",
+    val category: String = "Autre",
+    val businessPageId: String = "",
+    val photoUrls: List<String> = emptyList(),
+    val acceptsOffers: Boolean = true,
+    val boostStatus: String = "none",
 )
 
 data class WhappyBusinessPage(
@@ -154,6 +162,16 @@ data class WhappyCampaign(
     val phone: String = "",
     val link: String = "",
     val estimatedReach: Long = 0L,
+    val countryCode: String = "",
+    val pageCategory: String = "Business",
+    val rankReasons: List<String> = emptyList(),
+    val deliveryMode: String = "budget",
+    val targetImpressions: Long = 0L,
+    val pricePerThousand: Long = 0L,
+    val totalBudget: Long = 0L,
+    val dailyDeliveryCap: Long = 0L,
+    val rankingEngine: String = "ELEPHANT",
+    val rankingVersion: String = "1.0",
 )
 
 data class WhappyCampaignDraft(
@@ -167,11 +185,21 @@ data class WhappyCampaignDraft(
     val city: String,
     val dailyBudget: Long,
     val days: Int,
+    val targetImpressions: Long = 0L,
     val placement: String = "profile_story",
     val destination: String = "message",
     val phone: String = "",
     val link: String = "",
+    val countryCode: String = "",
 )
+
+data class WhappyAdMetrics(
+    val impressions: Int = 0,
+    val clicks: Int = 0,
+) {
+    val clickThroughRate: Double
+        get() = if (impressions <= 0) 0.0 else clicks.toDouble() * 100.0 / impressions.toDouble()
+}
 
 data class WhappyLive(
     val id: String,
@@ -336,6 +364,9 @@ data class WhappyUiState(
     val listings: List<WhappyListing> = emptyList(),
     val businessPages: List<WhappyBusinessPage> = emptyList(),
     val campaigns: List<WhappyCampaign> = emptyList(),
+    /** Campagnes payées et réellement diffusables dans les surfaces WAPI. */
+    val sponsoredCampaigns: List<WhappyCampaign> = emptyList(),
+    val adMetrics: Map<String, WhappyAdMetrics> = emptyMap(),
     val lives: List<WhappyLive> = emptyList(),
     val statuses: List<WhappyStatus> = emptyList(),
     val storyViewers: Map<String, List<WapiStoryViewer>> = emptyMap(),

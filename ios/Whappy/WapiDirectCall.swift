@@ -42,6 +42,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     @Published private(set) var outgoing = false
     @Published private(set) var invitationReady = false
     @Published private(set) var mediaConnected = false
+    @Published private(set) var relayReady = false
     @Published var errorMessage: String?
 
     private let route: WapiDirectCallRoute
@@ -167,7 +168,9 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
     private func beginOutgoing() async throws {
         guard let user = Auth.auth().currentUser,
               let peerID = route.peerID, !peerID.isEmpty else { throw WapiDirectCallError.invalidRoute }
-        try preparePeer(iceServers: await loadIceServers())
+        let iceServers = await loadIceServers(requireRelayRefresh: true)
+        relayReady = iceServers.contains { server in server.urls.contains { $0.lowercased().hasPrefix("turn:") || $0.lowercased().hasPrefix("turns:") } }
+        try preparePeer(iceServers: iceServers)
         let offer = try await makeOffer()
         try await setLocalDescription(offer)
         let profile = try? await firestore.collection("users").document(user.uid).getDocument()
@@ -178,8 +181,11 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         let callData: [String: Any] = [
             "callerId": user.uid,
             "calleeId": peerID,
-            "callerName": profileData["displayName"] as? String ?? user.displayName ?? "Membre WAPI",
-            "callerPhotoUrl": profileData["photoUrl"] as? String ?? user.photoURL?.absoluteString ?? "",
+            "callerName": route.callerName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? route.callerName! : (profileData["displayName"] as? String ?? user.displayName ?? "Membre WAPI"),
+            "callerPhotoUrl": route.callerBusinessPageID?.isEmpty == false ? (route.callerPhotoURL ?? "") : (route.callerPhotoURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? route.callerPhotoURL! : (profileData["photoUrl"] as? String ?? user.photoURL?.absoluteString ?? "")),
+            "callerProfileType": route.callerBusinessPageID?.isEmpty == false ? "business" : "personal",
+            "callerBusinessPageId": route.callerBusinessPageID ?? "",
+            "calleeBusinessPageId": route.calleeBusinessPageID ?? "",
             "calleeName": peerName,
             "video": videoEnabled,
             "status": "ringing",
@@ -209,7 +215,9 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         peerName = data["callerName"] as? String ?? peerName
         peerPhotoURL = data["callerPhotoUrl"] as? String ?? peerPhotoURL
         videoEnabled = data["video"] as? Bool ?? videoEnabled
-        try preparePeer(iceServers: await loadIceServers())
+        let iceServers = await loadIceServers(requireRelayRefresh: true)
+        relayReady = iceServers.contains { server in server.urls.contains { $0.lowercased().hasPrefix("turn:") || $0.lowercased().hasPrefix("turns:") } }
+        try preparePeer(iceServers: iceServers)
         try await setRemoteDescription(LKRTCSessionDescription(type: .offer, sdp: sdp))
         remoteDescriptionReady = true
         flushQueuedCandidates()
@@ -245,7 +253,7 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
         ].map { WapiIceServer(urls: [$0], username: nil, credential: nil) }
     }
 
-    private func loadIceServers() async -> [WapiIceServer] {
+    private func loadIceServers(requireRelayRefresh: Bool = false) async -> [WapiIceServer] {
         let fallback = fallbackIceServers()
         if let cached = Self.cachedIceServers {
             let includesTurn = cached.contains { server in
@@ -254,11 +262,12 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
                     return normalized.hasPrefix("turn:") || normalized.hasPrefix("turns:")
                 }
             }
-            let lifetime: TimeInterval = includesTurn ? 45 * 60 : 60
-            if Date().timeIntervalSince(Self.cachedIceServersAt) < lifetime { return cached }
+            let lifetime: TimeInterval = includesTurn ? 45 * 60 : 8
+            if Date().timeIntervalSince(Self.cachedIceServersAt) < lifetime,
+               (!requireRelayRefresh || includesTurn) { return cached }
         }
-        do {
-            let result = try await callable("getWebRtcIceServers", data: [:], timeout: 8)
+        func requestConfiguration(timeout: TimeInterval) async throws -> [WapiIceServer] {
+            let result = try await callable("getWebRtcIceServers", data: [:], timeout: timeout)
             let raw = result["iceServers"] as? [[String: Any]] ?? []
             let configured = raw.compactMap { item -> WapiIceServer? in
                 let urls = (item["urls"] as? [String]) ?? (item["urls"] as? String).map { [$0] } ?? []
@@ -270,9 +279,20 @@ private final class WapiDirectCallSession: NSObject, ObservableObject, @preconcu
                 let key = server.urls.joined(separator: "|")
                 return seen.insert(key).inserted
             }
-            Self.cachedIceServers = merged
-            Self.cachedIceServersAt = Date()
             return merged
+        }
+        do {
+            var resolved = try await requestConfiguration(timeout: 8)
+            let includesTurn = resolved.contains { server in
+                server.urls.contains { $0.lowercased().hasPrefix("turn:") || $0.lowercased().hasPrefix("turns:") }
+            }
+            if requireRelayRefresh, !includesTurn {
+                try? await Task.sleep(nanoseconds: 260_000_000)
+                if let retried = try? await requestConfiguration(timeout: 4) { resolved = retried }
+            }
+            Self.cachedIceServers = resolved
+            Self.cachedIceServersAt = Date()
+            return resolved
         } catch {
             // A cold or unavailable callable must never prevent a direct call.
             Self.cachedIceServers = fallback
@@ -529,7 +549,10 @@ struct WapiDirectCallRoom: View {
                 HStack {
                     Button { Task { await close(decline: !session.outgoing && !session.mediaConnected) } } label: { Image(systemName: "chevron.down").frame(width: 42, height: 42).background(.black.opacity(0.28)).clipShape(Circle()) }
                     Spacer()
-                    Text(callDirection).font(.caption2.weight(.bold)).tracking(1.1).padding(.horizontal, 12).padding(.vertical, 7).background(.black.opacity(0.30)).clipShape(Capsule())
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(callDirection).font(.caption2.weight(.bold)).tracking(1.1)
+                        Text(session.relayReady ? "Relais Internet WAPI prêt" : "Connexion directe sécurisée").font(.system(size: 8, weight: .semibold)).foregroundStyle(.white.opacity(0.62))
+                    }.padding(.horizontal, 12).padding(.vertical, 7).background(.black.opacity(0.30)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }.padding().foregroundStyle(.white)
                 Spacer()
                 if session.videoTrack == nil {

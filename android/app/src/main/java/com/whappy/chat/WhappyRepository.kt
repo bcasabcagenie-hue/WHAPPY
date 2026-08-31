@@ -253,6 +253,36 @@ class WhappyRepository(
                     .sortedByDescending { it.updatedAt },
             )
         }
+        fun applyLiveMember(items: List<WhappyConversation>, peerId: String, member: WhappyMember): List<WhappyConversation> =
+            items.map { conversation ->
+                when {
+                    !conversation.isGroup && conversation.peer.uid == peerId -> conversation.copy(peer = member)
+                    conversation.isGroup -> conversation.copy(
+                        groupMembers = conversation.groupMembers.map { current -> if (current.uid == peerId) member else current },
+                    )
+                    else -> conversation
+                }
+            }
+        fun syncProfileListeners() {
+            val peerIds = (conversations + webGroups).asSequence()
+                .flatMap { conversation ->
+                    if (conversation.isGroup) conversation.groupMembers.asSequence().map { it.uid }
+                    else sequenceOf(conversation.peer.uid)
+                }
+                .filter { it.isNotBlank() && it != userId }
+                .toSet()
+            (profileListeners.keys - peerIds).forEach { peerId -> profileListeners.remove(peerId)?.remove() }
+            (peerIds - profileListeners.keys).forEach { peerId ->
+                profileListeners[peerId] = db.collection("users").document(peerId)
+                    .addSnapshotListener { profile, _ ->
+                        if (removed || profile == null || !profile.exists()) return@addSnapshotListener
+                        val liveMember = profile.toMember()
+                        conversations = applyLiveMember(conversations, peerId, liveMember)
+                        webGroups = applyLiveMember(webGroups, peerId, liveMember)
+                        emit()
+                    }
+            }
+        }
         val conversationListener = db.collection("conversations")
             .whereArrayContains("memberIds", userId)
             .addSnapshotListener { snapshot, error ->
@@ -276,28 +306,7 @@ class WhappyRepository(
                 }
                 .sortedByDescending { it.updatedAt }
             emit()
-
-            val peerIds = conversations.asSequence()
-                .filterNot { it.isGroup }
-                .map { it.peer.uid }
-                .filter { it.isNotBlank() && it != userId }
-                .toSet()
-            (profileListeners.keys - peerIds).forEach { peerId ->
-                profileListeners.remove(peerId)?.remove()
-            }
-            (peerIds - profileListeners.keys).forEach { peerId ->
-                profileListeners[peerId] = db.collection("users").document(peerId)
-                    .addSnapshotListener { profile, _ ->
-                        if (removed || profile == null || !profile.exists()) return@addSnapshotListener
-                        val liveMember = profile.toMember()
-                        conversations = conversations.map { conversation ->
-                            if (!conversation.isGroup && conversation.peer.uid == peerId) {
-                                conversation.copy(peer = liveMember)
-                            } else conversation
-                        }
-                        emit()
-                    }
-            }
+            syncProfileListeners()
         }
         val groupListener = db.collection("groups")
             .whereArrayContains("memberIds", userId)
@@ -308,6 +317,7 @@ class WhappyRepository(
                 }
                 webGroups = snapshot?.documents.orEmpty().mapNotNull { it.toGroupConversation(userId) }
                 emit()
+                syncProfileListeners()
             }
         return object : ListenerRegistration {
             override fun remove() {
@@ -324,15 +334,28 @@ class WhappyRepository(
         userId: String,
         onChange: (List<WhappyContact>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("users").document(userId)
-        .addSnapshotListener { snapshot, error ->
+    ): ListenerRegistration {
+        var storedContacts = emptyList<WhappyContact>()
+        val liveProfiles = mutableMapOf<String, WhappyMember>()
+        val profileListeners = mutableMapOf<String, ListenerRegistration>()
+        var removed = false
+
+        fun emit() {
+            if (removed) return
+            onChange(storedContacts.map { contact ->
+                liveProfiles[contact.member.uid]?.let { contact.copy(member = it) } ?: contact
+            }.sortedBy { it.member.displayName.lowercase() })
+        }
+
+        val contactListener = db.collection("users").document(userId)
+            .addSnapshotListener { snapshot, error ->
             if (error != null) {
                 onError(error)
                 return@addSnapshotListener
             }
             @Suppress("UNCHECKED_CAST")
             val contacts = snapshot?.get("contacts") as? Map<String, Map<String, Any?>> ?: emptyMap()
-            onChange(contacts.mapNotNull { (uid, value) ->
+            storedContacts = contacts.mapNotNull { (uid, value) ->
                 val name = value["displayName"]?.toString()?.trim().orEmpty()
                 val phone = value["phoneNumber"]?.toString().orEmpty()
                 if (uid.isBlank() || name.isBlank()) null else WhappyContact(
@@ -341,12 +364,36 @@ class WhappyRepository(
                         displayName = WhappyIdentity.resolveAccountName(name, phone),
                         phoneNumber = phone,
                         photoUrl = value["photoUrl"]?.toString().orEmpty(),
-                        verified = value["verified"] == true,
+                        verified = value["verified"] == true || WhappyIdentity.isFounder(phone),
                     ),
                     addedAt = (value["addedAt"] as? Timestamp)?.toDate()?.time ?: 0L,
                 )
-            }.sortedBy { it.member.displayName.lowercase() })
+            }
+            val contactIds = storedContacts.map { it.member.uid }.filter(String::isNotBlank).toSet()
+            (profileListeners.keys - contactIds).forEach { uid ->
+                profileListeners.remove(uid)?.remove()
+                liveProfiles.remove(uid)
+            }
+            (contactIds - profileListeners.keys).forEach { uid ->
+                profileListeners[uid] = db.collection("users").document(uid)
+                    .addSnapshotListener { profile, _ ->
+                        if (removed || profile == null || !profile.exists()) return@addSnapshotListener
+                        liveProfiles[uid] = profile.toMember()
+                        emit()
+                    }
+            }
+            emit()
         }
+        return object : ListenerRegistration {
+            override fun remove() {
+                removed = true
+                contactListener.remove()
+                profileListeners.values.forEach { it.remove() }
+                profileListeners.clear()
+                liveProfiles.clear()
+            }
+        }
+    }
 
     fun observeMessages(
         conversationId: String,
@@ -451,7 +498,7 @@ class WhappyRepository(
     fun observeListings(
         onChange: (List<WhappyListing>) -> Unit,
         onError: (Throwable) -> Unit,
-    ): ListenerRegistration = db.collection("listings").addSnapshotListener { snapshot, error ->
+    ): ListenerRegistration = db.collection("marketplaceListings").addSnapshotListener { snapshot, error ->
         if (error != null) {
             onError(error)
             return@addSnapshotListener
@@ -464,9 +511,15 @@ class WhappyRepository(
                 place = document.getString("place") ?: "Brazzaville",
                 seller = document.getString("seller") ?: "Vendeur WAPI",
                 ownerId = document.getString("ownerId").orEmpty(),
-                mode = document.getString("mode") ?: "vente",
+                mode = document.getString("mode") ?: "sale",
+                description = document.getString("description").orEmpty(),
+                category = document.getString("category") ?: "Autre",
+                businessPageId = document.getString("pageId").orEmpty(),
+                photoUrls = (document.get("photoUrls") as? List<*>)?.mapNotNull { it as? String }?.take(5).orEmpty(),
+                acceptsOffers = document.getBoolean("acceptsOffers") ?: true,
+                boostStatus = document.getString("boostStatus") ?: "none",
             )
-        }.filter { it.title.isNotBlank() })
+        }.filter { it.title.isNotBlank() }.sortedByDescending { it.id })
     }
 
     fun observeBusinessPages(
@@ -514,9 +567,176 @@ class WhappyRepository(
                     phone = document.getString("phone").orEmpty(),
                     link = document.getString("link").orEmpty(),
                     estimatedReach = document.getLong("estimatedReach") ?: 0L,
+                    countryCode = document.getString("countryCode").orEmpty(),
+                    deliveryMode = document.getString("deliveryMode") ?: "budget",
+                    targetImpressions = document.getLong("targetImpressions") ?: 0L,
+                    pricePerThousand = document.getLong("pricePerThousand") ?: 0L,
+                    totalBudget = document.getLong("totalBudget") ?: 0L,
+                    dailyDeliveryCap = document.getLong("dailyDeliveryCap") ?: 0L,
                 )
             })
         }
+
+    /** Public advertising inventory. Only server/payment-activated campaigns
+     * enter the feed; drafts and pending payments never leave Business. */
+    fun observeSponsoredCampaigns(
+        onChange: (List<WhappyCampaign>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("adCampaigns")
+        .whereEqualTo("status", "active")
+        .limit(30)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            onChange(snapshot?.documents.orEmpty().map { document ->
+                WhappyCampaign(
+                    id = document.id,
+                    pageId = document.getString("pageId").orEmpty(),
+                    pageName = document.getString("pageName") ?: "Business WAPI",
+                    objective = document.getString("objective") ?: "reach",
+                    title = document.getString("title") ?: "À découvrir",
+                    dailyBudget = document.getLong("dailyBudget") ?: 0L,
+                    days = document.getLong("days")?.toInt() ?: 1,
+                    status = "active",
+                    ownerId = document.getString("ownerId").orEmpty(),
+                    placement = document.getString("placement") ?: "inbox",
+                    destination = document.getString("destination") ?: "page",
+                    creative = document.getString("creative").orEmpty(),
+                    cta = document.getString("cta") ?: "Découvrir",
+                    audience = document.getString("audience") ?: "Public local",
+                    city = document.getString("city").orEmpty(),
+                    phone = document.getString("phone").orEmpty(),
+                    link = document.getString("link").orEmpty(),
+                    estimatedReach = document.getLong("estimatedReach") ?: 0L,
+                    countryCode = document.getString("countryCode").orEmpty(),
+                    deliveryMode = document.getString("deliveryMode") ?: "budget",
+                    targetImpressions = document.getLong("targetImpressions") ?: 0L,
+                    pricePerThousand = document.getLong("pricePerThousand") ?: 0L,
+                    totalBudget = document.getLong("totalBudget") ?: 0L,
+                    dailyDeliveryCap = document.getLong("dailyDeliveryCap") ?: 0L,
+                )
+            }.filter { campaign ->
+                val deviceCountry = Locale.getDefault().country.uppercase(Locale.ROOT)
+                campaign.title.isNotBlank() && campaign.creative.isNotBlank() &&
+                    (campaign.countryCode.isBlank() || deviceCountry.isBlank() || campaign.countryCode.uppercase(Locale.ROOT) == deviceCountry)
+            })
+        }
+
+    /** Server-ranked inventory: region, frequency cap, quality and diversity. */
+    suspend fun getPersonalizedAds(placement: String = "inbox", limit: Int = 12): List<WhappyCampaign> {
+        val payload = functions.getHttpsCallable("getPersonalizedAds").call(
+            mapOf(
+                "placement" to placement,
+                "limit" to limit.coerceIn(1, 20),
+                "localeCountry" to Locale.getDefault().country.uppercase(Locale.ROOT).take(2),
+            ),
+        ).await().data as? Map<*, *> ?: return emptyList()
+        return (payload["ads"] as? List<*>).orEmpty().mapNotNull { raw ->
+            val value = raw as? Map<*, *> ?: return@mapNotNull null
+            val id = value["id"]?.toString().orEmpty()
+            val title = value["title"]?.toString().orEmpty()
+            val creative = value["creative"]?.toString().orEmpty()
+            if (id.isBlank() || title.isBlank() || creative.isBlank()) return@mapNotNull null
+            WhappyCampaign(
+                id = id,
+                pageId = value["pageId"]?.toString().orEmpty(),
+                pageName = value["pageName"]?.toString().orEmpty().ifBlank { "Business WAPI" },
+                objective = value["objective"]?.toString().orEmpty().ifBlank { "reach" },
+                title = title,
+                dailyBudget = (value["dailyBudget"] as? Number)?.toLong() ?: 0L,
+                days = (value["days"] as? Number)?.toInt() ?: 1,
+                status = "active",
+                ownerId = value["ownerId"]?.toString().orEmpty(),
+                placement = value["placement"]?.toString().orEmpty().ifBlank { placement },
+                destination = value["destination"]?.toString().orEmpty().ifBlank { "page" },
+                creative = creative,
+                cta = value["cta"]?.toString().orEmpty().ifBlank { "Découvrir" },
+                audience = value["audience"]?.toString().orEmpty().ifBlank { "Public local" },
+                city = value["city"]?.toString().orEmpty(),
+                phone = value["phone"]?.toString().orEmpty(),
+                link = value["link"]?.toString().orEmpty(),
+                estimatedReach = (value["estimatedReach"] as? Number)?.toLong() ?: 0L,
+                countryCode = value["countryCode"]?.toString().orEmpty(),
+                pageCategory = value["pageCategory"]?.toString().orEmpty().ifBlank { "Business" },
+                rankReasons = (value["rankReasons"] as? List<*>)
+                    .orEmpty()
+                    .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) },
+                deliveryMode = value["deliveryMode"]?.toString().orEmpty().ifBlank { "budget" },
+                targetImpressions = (value["targetImpressions"] as? Number)?.toLong() ?: 0L,
+                pricePerThousand = (value["pricePerThousand"] as? Number)?.toLong() ?: 0L,
+                totalBudget = (value["totalBudget"] as? Number)?.toLong() ?: 0L,
+                dailyDeliveryCap = (value["dailyDeliveryCap"] as? Number)?.toLong() ?: 0L,
+                rankingEngine = value["rankingEngine"]?.toString().orEmpty().ifBlank { "ELEPHANT" },
+                rankingVersion = value["rankingVersion"]?.toString().orEmpty().ifBlank { "1.0" },
+            )
+        }
+    }
+
+    suspend fun recordAdBehavior(campaignId: String, type: String) {
+        require(type in setOf("impression", "click", "dismiss", "conversion"))
+        functions.getHttpsCallable("recordAdBehavior").call(mapOf("campaignId" to campaignId, "type" to type)).await()
+    }
+
+    fun observeAdMetrics(
+        ownerId: String,
+        onChange: (Map<String, WhappyAdMetrics>) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): ListenerRegistration = db.collection("adEvents")
+        .whereEqualTo("ownerId", ownerId)
+        .limit(5_000)
+        .addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+            val totals = mutableMapOf<String, WhappyAdMetrics>()
+            snapshot?.documents.orEmpty().forEach { document ->
+                val campaignId = document.getString("campaignId").orEmpty()
+                if (campaignId.isBlank()) return@forEach
+                val current = totals[campaignId] ?: WhappyAdMetrics()
+                totals[campaignId] = when (document.getString("type")) {
+                    "impression" -> current.copy(impressions = current.impressions + 1)
+                    "click" -> current.copy(clicks = current.clicks + 1)
+                    else -> current
+                }
+            }
+            onChange(totals)
+        }
+
+    suspend fun recordAdEvent(userId: String, campaign: WhappyCampaign, type: String) {
+        require(type == "impression" || type == "click")
+        if (userId.isBlank() || campaign.id.isBlank() || campaign.ownerId == userId || campaign.status != "active") return
+        val events = db.collection("adEvents")
+        val reference = if (type == "impression") {
+            val day = SimpleDateFormat("yyyyMMdd", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+            events.document("${campaign.id}_${userId}_$day")
+        } else {
+            events.document()
+        }
+        if (type == "impression") {
+            db.runTransaction { transaction ->
+                if (!transaction.get(reference).exists()) {
+                    transaction.set(reference, mapOf(
+                        "campaignId" to campaign.id,
+                        "ownerId" to campaign.ownerId,
+                        "userId" to userId,
+                        "type" to type,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                    ))
+                }
+            }.await()
+        } else {
+            reference.set(mapOf(
+                "campaignId" to campaign.id,
+                "ownerId" to campaign.ownerId,
+                "userId" to userId,
+                "type" to type,
+                "createdAt" to FieldValue.serverTimestamp(),
+            )).await()
+        }
+    }
 
     fun observeLives(
         onChange: (List<WhappyLive>) -> Unit,
@@ -1504,24 +1724,53 @@ class WhappyRepository(
         return WhappyDeliveryResult.QUEUED
     }
 
-    suspend fun publishListing(user: WhappyMember, title: String, price: String, place: String, mode: String) {
+    suspend fun publishListing(user: WhappyMember, pageId: String, title: String, price: String, place: String, mode: String, description: String, category: String, photoUri: Uri?) {
         val value = title.trim()
         require(value.length in 2..120)
-        db.collection("listings").add(
-            mapOf(
-                "ownerId" to user.uid,
-                "title" to value,
-                "price" to price.trim().ifBlank { "Prix à discuter" },
-                "place" to place.trim().ifBlank { "Brazzaville" },
-                "seller" to user.displayName,
-                "category" to "Communauté",
-                "mode" to mode,
-                "status" to "active",
-                "trust" to 100,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
-            ),
-        ).await()
+        require(pageId.isNotBlank()) { "Créez et activez votre compte Business avant de publier une annonce." }
+        val photoPayload = photoUri?.let { uri -> withContext(Dispatchers.IO) {
+            val original = appContext.contentResolver.openInputStream(uri).use { BitmapFactory.decodeStream(it) } ?: error("Photo illisible")
+            val scale = minOf(1f, 1600f / maxOf(original.width, original.height))
+            val bitmap = if (scale < 1f) Bitmap.createScaledBitmap(original, (original.width * scale).toInt().coerceAtLeast(1), (original.height * scale).toInt().coerceAtLeast(1), true) else original
+            try {
+                ByteArrayOutputStream().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 86, out)
+                    Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                }
+            } finally {
+                if (bitmap !== original) bitmap.recycle()
+                original.recycle()
+            }
+        } }
+        functions.getHttpsCallable("wapiCommerce").call(mapOf(
+            "action" to "createMarketplaceListing", "listingId" to UUID.randomUUID().toString(), "pageId" to pageId,
+            "title" to value, "priceText" to price.trim(), "place" to place.trim(), "mode" to mode,
+            "description" to description.trim(), "category" to category.trim().ifBlank { "Autre" },
+            "tradeWish" to if (mode == "trade") price.trim() else "", "acceptsOffers" to true,
+            "photoBase64s" to (photoPayload?.let(::listOf) ?: emptyList<String>()),
+        )).await()
+    }
+
+    suspend fun respondToMarketplaceListing(listing: WhappyListing, kind: String) {
+        require(listing.id.isNotBlank()) { "Annonce introuvable" }
+        val message = when (kind) {
+            "trade" -> "Je souhaite vous proposer un échange pour cette annonce."
+            "bid" -> "Je souhaite placer une enchère sur cette annonce."
+            "apply" -> "Je souhaite postuler à cette offre."
+            "message" -> "Je souhaite échanger au sujet de ce service."
+            else -> "Je souhaite vous faire une offre pour cette annonce."
+        }
+        val payload = mutableMapOf<String, Any>("action" to "respondToMarketplaceListing", "listingId" to listing.id, "kind" to kind)
+        if (kind in setOf("offer", "trade", "bid", "apply")) payload["offerText"] = message else payload["note"] = message
+        functions.getHttpsCallable("wapiCommerce").call(payload).await()
+    }
+
+    suspend fun prepareMarketplaceBoost(listing: WhappyListing) {
+        require(listing.id.isNotBlank()) { "Annonce introuvable" }
+        functions.getHttpsCallable("wapiCommerce").call(mapOf(
+            "action" to "boostMarketplaceListing", "listingId" to listing.id,
+            "region" to listing.place.ifBlank { "Zone de la page Business" }, "objective" to "visibility",
+        )).await()
     }
 
     suspend fun createBusinessPage(userId: String, name: String, category: String, bio: String, city: String, phone: String, website: String) {
@@ -1580,7 +1829,8 @@ class WhappyRepository(
         val id = "business-${page.id}-${current.uid}"
         val reference = db.collection("conversations").document(id)
         val owner = findUserById(page.ownerId) ?: error("business-owner-not-found")
-        reference.set(
+        db.runTransaction { transaction ->
+            if (!transaction.get(reference).exists()) transaction.set(reference,
             mapOf(
                 // Firestore conversation ownership is the creator of this
                 // thread. The Business owner is stored separately so a
@@ -1600,11 +1850,11 @@ class WhappyRepository(
                 "readBy" to emptyMap<String, Any>(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
-            com.google.firebase.firestore.SetOptions.merge(),
-        ).await()
+            )
+        }.await()
         return WhappyConversation(
             id = id,
-            peer = WhappyMember(page.id, page.name, page.phone, page.logoUrl, page.verified),
+            peer = WhappyMember(page.ownerId, page.name, page.phone, page.logoUrl, page.verified, businessPageId = page.id),
             lastMessage = "Nouvelle conversation Business",
             updatedAt = System.currentTimeMillis(),
             unread = false,
@@ -1639,15 +1889,15 @@ class WhappyRepository(
     }
 
     suspend fun createCampaign(userId: String, draft: WhappyCampaignDraft) {
+        require(auth.currentUser?.uid == userId)
         require(draft.title.trim().length in 2..120)
         require(draft.creative.trim().length in 2..600)
         require(draft.dailyBudget >= 500L)
         require(draft.days in 1..90)
-        db.collection("adCampaigns").add(
+        require(draft.targetImpressions in 1_000L..20_000_000L)
+        functions.getHttpsCallable("createAdCampaign").call(
             mapOf(
-                "ownerId" to userId,
                 "pageId" to draft.pageId,
-                "pageName" to draft.pageName,
                 "objective" to draft.objective,
                 "placement" to draft.placement,
                 "destination" to draft.destination,
@@ -1658,14 +1908,18 @@ class WhappyRepository(
                 "city" to draft.city.trim().take(80),
                 "phone" to draft.phone.trim().take(40),
                 "link" to draft.link.trim().take(180),
+                "countryCode" to draft.countryCode.trim().uppercase(Locale.ROOT).take(2),
                 "dailyBudget" to draft.dailyBudget,
                 "days" to draft.days,
-                "totalBudget" to draft.dailyBudget * draft.days,
-                "estimatedReach" to ((draft.dailyBudget / 500L) * draft.days * if (draft.placement == "profile_story") 180L else 120L).coerceAtLeast(120L),
-                "status" to "pending_payment",
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
+                "targetImpressions" to draft.targetImpressions,
             ),
+        ).await()
+    }
+
+    suspend fun updateCampaignDelivery(campaignId: String, action: String) {
+        require(action in setOf("pause", "resume", "complete"))
+        functions.getHttpsCallable("updateAdCampaignDelivery").call(
+            mapOf("campaignId" to campaignId, "action" to action),
         ).await()
     }
 
@@ -1744,11 +1998,17 @@ class WhappyRepository(
             }
         }
         val createdAt = System.currentTimeMillis()
-        val publishPayload = mutableMapOf<String, Any>("caption" to value, "mediaType" to mediaKind, "mediaUrl" to mediaUrl, "storagePath" to storagePath)
+        val clientRequestId = UUID.randomUUID().toString().replace("-", "")
+        val publishPayload = mutableMapOf<String, Any>(
+            "clientRequestId" to clientRequestId,
+            "caption" to value,
+            "mediaType" to mediaKind,
+            "mediaUrl" to mediaUrl,
+            "storagePath" to storagePath,
+        )
         serverImagePayload?.let { publishPayload["mediaDataBase64"] = Base64.encodeToString(it, Base64.NO_WRAP) }
-        val result = functions.getHttpsCallable("publishStory").call(
-            publishPayload,
-        ).await().data as? Map<*, *> ?: error("story-publish-empty-response")
+        val result = callPublishStoryWithRetry(publishPayload)
+            ?: error("story-publish-empty-response")
         mediaUrl = result["mediaUrl"]?.toString().orEmpty().ifBlank { mediaUrl }
         val storyId = result["id"]?.toString().orEmpty().ifBlank { error("story-publish-missing-id") }
         val serverAuthorName = result["authorName"]?.toString().orEmpty().ifBlank { authorName.trim().take(80) }
@@ -1767,6 +2027,31 @@ class WhappyRepository(
             expiresAt = (result["expiresAtMillis"] as? Number)?.toLong() ?: publishedAt + 24L * 60L * 60L * 1000L,
             authorPhotoUrl = serverPhotoUrl,
         )
+    }
+
+    /**
+     * A Story request carries a stable clientRequestId, so retrying after a
+     * mobile-network handover cannot create a duplicate Firestore record.
+     */
+    private suspend fun callPublishStoryWithRetry(payload: Map<String, Any>): Map<*, *>? {
+        var lastFailure: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                return functions.getHttpsCallable("publishStory").call(payload).await().data as? Map<*, *>
+            } catch (failure: Throwable) {
+                val code = (failure as? FirebaseFunctionsException)?.code
+                if (code !in setOf(
+                        FirebaseFunctionsException.Code.UNAVAILABLE,
+                        FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
+                        FirebaseFunctionsException.Code.INTERNAL,
+                        FirebaseFunctionsException.Code.UNKNOWN,
+                    )
+                ) throw failure
+                lastFailure = failure
+                if (attempt < 2) delay(650L * (attempt + 1))
+            }
+        }
+        throw lastFailure ?: IllegalStateException("story-publish-failed")
     }
 
     private fun normalizeStoryImage(file: File): ByteArray {
@@ -2170,9 +2455,12 @@ class WhappyRepository(
             )
         } else if (businessPageId.isNotBlank() && userId != getString("businessOwnerId")) {
             WhappyMember(
-                uid = businessPageId,
+                // Calls must target the authenticated owner account while the
+                // public identity remains the Business page.
+                uid = getString("businessOwnerId").orEmpty().ifBlank { businessPageId },
                 displayName = businessPageName.ifBlank { "Business WAPI" },
                 photoUrl = getString("businessPagePhotoUrl").orEmpty(),
+                businessPageId = businessPageId,
             )
         } else if (peerMap != null) {
             val phone = peerMap["phoneNumber"]?.toString().orEmpty()
@@ -2281,7 +2569,7 @@ class WhappyRepository(
             displayName = WhappyIdentity.resolveAccountName(getString("displayName").orEmpty(), phone),
             phoneNumber = phone,
             photoUrl = getString("photoUrl").orEmpty(),
-            verified = getBoolean("verified") == true,
+            verified = getBoolean("verified") == true || WhappyIdentity.isFounder(phone),
             isOnline = isOnline,
             lastSeenAt = lastSeenAt,
         )

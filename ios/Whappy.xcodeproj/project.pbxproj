@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A13000000000000000000001 /* WapiPoolPlayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13000000000000000000002; };
+        A13000000000000000000003 /* WapiPoolRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13000000000000000000004; };
+		FD1110000000000000000003 /* wapi_pool_cushion.wav in Resources */ = {isa = PBXBuildFile; fileRef = FD2220000000000000000003 /* wapi_pool_cushion.wav */; };
+		FD1110000000000000000002 /* wapi_pool_collision.wav in Resources */ = {isa = PBXBuildFile; fileRef = FD2220000000000000000002 /* wapi_pool_collision.wav */; };
+		FD1110000000000000000001 /* wapi_pool_cue.wav in Resources */ = {isa = PBXBuildFile; fileRef = FD2220000000000000000001 /* wapi_pool_cue.wav */; };
+		FE1110000000000000000001 /* WapiCommerce.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2220000000000000000001 /* WapiCommerce.swift */; };
 		0365E4EAAB9EC925A52E675B /* WhappyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 988B5C1D9C22BDDB06A9C166 /* WhappyStore.swift */; };
 		1229B1F4A61FC2560CD09CEE /* WhappyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F71455E92162DF8FC4F909 /* WhappyApp.swift */; };
 		1B682AC2B151270EC99A8F48 /* WapiDirectCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76B0BCACC937730C45284187 /* WapiDirectCall.swift */; };
@@ -32,9 +38,18 @@
 		D4B35BCF3E46A81B24E409C7 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A9928DB2771DA7BE237ECE7 /* LiveKit */; };
 		DDD09897EE3523F8A16956FF /* WapiNativeLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2317FDD4CDE608E8C29C07 /* WapiNativeLive.swift */; };
 		E055BDA98E5F3D10842225B7 /* Pods_Whappy.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B5295CDC66602FC14BE667D /* Pods_Whappy.framework */; };
+		F111A0000000000000000001 /* WapiNativeCoreBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = F211A0000000000000000001 /* WapiNativeCoreBridge.mm */; };
+		F111B0000000000000000001 /* wapi_core.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F211C0000000000000000001 /* wapi_core.cpp */; };
+		F111C0000000000000000001 /* WapiNativeCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211D0000000000000000001 /* WapiNativeCore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        A13000000000000000000002 /* WapiPoolPlayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WapiPoolPlayers.swift; sourceTree = "<group>"; };
+        A13000000000000000000004 /* WapiPoolRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WapiPoolRules.swift; sourceTree = "<group>"; };
+		FD2220000000000000000003 /* wapi_pool_cushion.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = wapi_pool_cushion.wav; sourceTree = "<group>"; };
+		FD2220000000000000000002 /* wapi_pool_collision.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = wapi_pool_collision.wav; sourceTree = "<group>"; };
+		FD2220000000000000000001 /* wapi_pool_cue.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = wapi_pool_cue.wav; sourceTree = "<group>"; };
+		FE2220000000000000000001 /* WapiCommerce.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WapiCommerce.swift; sourceTree = "<group>"; };
 		11F0ED662993652BBB7D16C2 /* wapi_piece_move.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = wapi_piece_move.wav; sourceTree = "<group>"; };
 		2461260C3BE10B31DD2C60D6 /* wapi_dice_roll.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = wapi_dice_roll.wav; sourceTree = "<group>"; };
 		2B5295CDC66602FC14BE667D /* Pods_Whappy.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Whappy.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -61,6 +76,11 @@
 		E2ED1C406C3E278E9AF55BD3 /* wapi_piece_select.wav */ = {isa = PBXFileReference; includeInIndex = 1; path = wapi_piece_select.wav; sourceTree = "<group>"; };
 		E65A6091DA863343EFC8C698 /* Pods-Whappy.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Whappy.release.xcconfig"; path = "Target Support Files/Pods-Whappy/Pods-Whappy.release.xcconfig"; sourceTree = "<group>"; };
 		EC34FFB42FD485C1B28291E3 /* WhappyFirebaseMessaging.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhappyFirebaseMessaging.swift; sourceTree = "<group>"; };
+		F211A0000000000000000001 /* WapiNativeCoreBridge.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; path = WapiNativeCoreBridge.mm; sourceTree = "<group>"; };
+		F211B0000000000000000001 /* WapiNativeCoreBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WapiNativeCoreBridge.h; sourceTree = "<group>"; };
+		F211C0000000000000000001 /* wapi_core.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = wapi_core.cpp; path = ../../shared/native/wapi_core.cpp; sourceTree = "<group>"; };
+		F211D0000000000000000001 /* WapiNativeCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WapiNativeCore.swift; sourceTree = "<group>"; };
+		F211E0000000000000000001 /* Wapi-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "Wapi-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +117,9 @@
 				870BEEF6E00CCCC77457750D /* wapi_piece_capture.wav */,
 				C3060881E5AE74424D1D7A8C /* wapi_piece_crown.wav */,
 				7B7BE80C7918A1473692848C /* wapi_pool_hit.wav */,
+				FD2220000000000000000003 /* wapi_pool_cushion.wav */,
+				FD2220000000000000000002 /* wapi_pool_collision.wav */,
+				FD2220000000000000000001 /* wapi_pool_cue.wav */,
 				8BE326C47765E5F036B91662 /* wapi_pool_pocket.wav */,
 				BE1FEA6783283F6CC09174AD /* wapi_card_flip.wav */,
 				D55A2E5B64CDF999A5C6971F /* wapi_victory.wav */,
@@ -126,11 +149,19 @@
 		DEC639DB9C472B5CED82AFE0 /* Whappy */ = {
 			isa = PBXGroup;
 			children = (
+				F211D0000000000000000001 /* WapiNativeCore.swift */,
+				FE2220000000000000000001 /* WapiCommerce.swift */,
+				F211A0000000000000000001 /* WapiNativeCoreBridge.mm */,
+				F211B0000000000000000001 /* WapiNativeCoreBridge.h */,
+				F211E0000000000000000001 /* Wapi-Bridging-Header.h */,
+				F211C0000000000000000001 /* wapi_core.cpp */,
 				36FA2FE1EB5E1B5813815FF5 /* WapiDesignSystem.swift */,
 				3E2317FDD4CDE608E8C29C07 /* WapiNativeLive.swift */,
 				76B0BCACC937730C45284187 /* WapiDirectCall.swift */,
 				762DE746012434FF2952A6D4 /* WiaAssistantView.swift */,
 				6B4C059543CB6A7B88D53B2F /* WapiGameSceneKit.swift */,
+                A13000000000000000000002 /* WapiPoolPlayers.swift */,
+                A13000000000000000000004 /* WapiPoolRules.swift */,
 				B5F71455E92162DF8FC4F909 /* WhappyApp.swift */,
 				C0B655EFD49DB308CCDB28B0 /* Models.swift */,
 				988B5C1D9C22BDDB06A9C166 /* WhappyStore.swift */,
@@ -233,6 +264,9 @@
 				B20B380D6B9019FBF85B2B83 /* wapi_piece_capture.wav in Resources */,
 				74B4DF79ABAC3CCC943972BA /* wapi_piece_crown.wav in Resources */,
 				9FF9020D7F86D1BE1AE212DC /* wapi_pool_hit.wav in Resources */,
+				FD1110000000000000000003 /* wapi_pool_cushion.wav in Resources */,
+				FD1110000000000000000002 /* wapi_pool_collision.wav in Resources */,
+				FD1110000000000000000001 /* wapi_pool_cue.wav in Resources */,
 				B35A08333AA3FFE47FD27FBB /* wapi_pool_pocket.wav in Resources */,
 				687F2A3CFFE02FF9BFAADEE3 /* wapi_card_flip.wav in Resources */,
 				915105D458AFB9D3391793A1 /* wapi_victory.wav in Resources */,
@@ -325,11 +359,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F111C0000000000000000001 /* WapiNativeCore.swift in Sources */,
+				FE1110000000000000000001 /* WapiCommerce.swift in Sources */,
+				F111A0000000000000000001 /* WapiNativeCoreBridge.mm in Sources */,
+				F111B0000000000000000001 /* wapi_core.cpp in Sources */,
 				9752121F4563847AB93EBD81 /* WapiDesignSystem.swift in Sources */,
 				DDD09897EE3523F8A16956FF /* WapiNativeLive.swift in Sources */,
 				1B682AC2B151270EC99A8F48 /* WapiDirectCall.swift in Sources */,
 				A2DA1C46010C0DAA10AA55A8 /* WiaAssistantView.swift in Sources */,
 				3D3C830858A8165DC91D04D7 /* WapiGameSceneKit.swift in Sources */,
+                A13000000000000000000001 /* WapiPoolPlayers.swift in Sources */,
+                A13000000000000000000003 /* WapiPoolRules.swift in Sources */,
 				1229B1F4A61FC2560CD09CEE /* WhappyApp.swift in Sources */,
 				6E95233E3DC26C7A4C973031 /* Models.swift in Sources */,
 				0365E4EAAB9EC925A52E675B /* WhappyStore.swift in Sources */,
@@ -401,6 +441,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
@@ -426,6 +467,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Whappy/Wapi-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
@@ -499,6 +541,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
@@ -524,6 +567,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Whappy/Wapi-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

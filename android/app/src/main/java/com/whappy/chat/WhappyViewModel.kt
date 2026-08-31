@@ -32,6 +32,8 @@ class WhappyViewModel(
     private var listingsListener: ListenerRegistration? = null
     private var businessListener: ListenerRegistration? = null
     private var campaignsListener: ListenerRegistration? = null
+    private var sponsoredCampaignsListener: ListenerRegistration? = null
+    private var adMetricsListener: ListenerRegistration? = null
     private var livesListener: ListenerRegistration? = null
     private var statusesListener: ListenerRegistration? = null
     private var dealsListener: ListenerRegistration? = null
@@ -795,7 +797,7 @@ class WhappyViewModel(
         }
     }
 
-    fun publishListing(title: String, price: String, place: String, mode: String) {
+    fun publishListing(title: String, price: String, place: String, mode: String, description: String, category: String, photoUri: Uri?) {
         val user = _uiState.value.user ?: return
         if (_uiState.value.actionBusy) return
         _uiState.update { it.copy(actionBusy = true, error = null) }
@@ -803,13 +805,37 @@ class WhappyViewModel(
             runCatching {
                 repository.publishListing(
                     currentMember(user),
+                    _uiState.value.activeBusinessPageId,
                     title,
                     price,
                     place,
                     mode,
+                    description,
+                    category,
+                    photoUri,
                 )
             }.onSuccess { _uiState.update { it.copy(actionBusy = false) } }
-                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "L’annonce n’a pas été publiée") } }
+                .onFailure { failure -> _uiState.update { it.copy(actionBusy = false, error = failure.message ?: "L’annonce n’a pas été publiée") } }
+        }
+    }
+
+    fun respondToMarketplaceListing(listing: WhappyListing, kind: String) {
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.respondToMarketplaceListing(listing, kind) }
+                .onSuccess { _uiState.update { it.copy(actionBusy = false) } }
+                .onFailure { failure -> _uiState.update { it.copy(actionBusy = false, error = failure.message ?: "Votre réponse n’a pas été envoyée") } }
+        }
+    }
+
+    fun prepareMarketplaceBoost(listing: WhappyListing) {
+        if (_uiState.value.actionBusy) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.prepareMarketplaceBoost(listing) }
+                .onSuccess { _uiState.update { it.copy(actionBusy = false) } }
+                .onFailure { failure -> _uiState.update { it.copy(actionBusy = false, error = failure.message ?: "Le plan de boost n’a pas été préparé") } }
         }
     }
 
@@ -831,7 +857,33 @@ class WhappyViewModel(
         viewModelScope.launch {
             runCatching { repository.createCampaign(user.uid, draft) }
                 .onSuccess { _uiState.update { it.copy(actionBusy = false) } }
-                .onFailure { _uiState.update { it.copy(actionBusy = false, error = "La campagne n’a pas été créée") } }
+                .onFailure { failure ->
+                    val detail = (failure as? com.google.firebase.functions.FirebaseFunctionsException)?.message
+                    _uiState.update { it.copy(actionBusy = false, error = detail ?: "La campagne n’a pas été créée") }
+                }
+        }
+    }
+
+    fun recordSponsoredCampaignClick(campaign: WhappyCampaign) {
+        if (_uiState.value.user == null) return
+        viewModelScope.launch { runCatching { repository.recordAdBehavior(campaign.id, "click") } }
+    }
+
+    fun dismissSponsoredCampaign(campaign: WhappyCampaign) {
+        if (_uiState.value.user == null) return
+        _uiState.update { current ->
+            current.copy(sponsoredCampaigns = current.sponsoredCampaigns.filterNot { it.id == campaign.id })
+        }
+        viewModelScope.launch { runCatching { repository.recordAdBehavior(campaign.id, "dismiss") } }
+    }
+
+    fun updateCampaignDelivery(campaignId: String, action: String) {
+        if (_uiState.value.actionBusy || action !in setOf("pause", "resume", "complete")) return
+        _uiState.update { it.copy(actionBusy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.updateCampaignDelivery(campaignId, action) }
+                .onSuccess { _uiState.update { it.copy(actionBusy = false) } }
+                .onFailure { failure -> _uiState.update { it.copy(actionBusy = false, error = failure.message ?: "La diffusion n’a pas été mise à jour") } }
         }
     }
 
@@ -898,8 +950,36 @@ class WhappyViewModel(
                     refreshVisibleStories()
                 }
                 .onFailure { error ->
-                    pendingStories.remove(localId)
-                    _uiState.update { current -> current.copy(statuses = mergeStories(current.statuses), actionBusy = false, error = wapiUserFacingError(error, "La publication de la Story")) }
+                    pendingStories[localId] = pendingStories[localId]?.copy(mediaName = "En attente du réseau")
+                        ?: return@onFailure
+                    _uiState.update { current ->
+                        current.copy(
+                            statuses = mergeStories(current.statuses),
+                            actionBusy = false,
+                            error = "Story conservée sur cet appareil. Nouvelle tentative automatique en cours.",
+                        )
+                    }
+                    viewModelScope.launch {
+                        delay(12_000)
+                        if (pendingStories[localId] == null) return@launch
+                        runCatching { repository.publishStatus(user.uid, accountName(), text, "personal", mediaUri, mediaContentType) }
+                            .onSuccess { story ->
+                                pendingStories.remove(localId)
+                                confirmedStories[story.id] = story
+                                _uiState.update { current ->
+                                    current.copy(statuses = mergeStories(current.statuses), online = true, error = null)
+                                }
+                                refreshVisibleStories()
+                            }
+                            .onFailure { retryError ->
+                                _uiState.update { current ->
+                                    current.copy(
+                                        statuses = mergeStories(current.statuses),
+                                        error = wapiUserFacingError(retryError, "La Story conservée"),
+                                    )
+                                }
+                            }
+                    }
                 }
         }
     }
@@ -1097,6 +1177,8 @@ class WhappyViewModel(
         listingsListener?.remove()
         businessListener?.remove()
         campaignsListener?.remove()
+        sponsoredCampaignsListener?.remove()
+        adMetricsListener?.remove()
         livesListener?.remove()
         statusesListener?.remove()
         dealsListener?.remove()
@@ -1114,6 +1196,8 @@ class WhappyViewModel(
         listingsListener = null
         businessListener = null
         campaignsListener = null
+        sponsoredCampaignsListener = null
+        adMetricsListener = null
         livesListener = null
         statusesListener = null
         dealsListener = null
@@ -1186,6 +1270,23 @@ class WhappyViewModel(
         campaignsListener = repository.observeCampaigns(
             user.uid,
             onChange = { campaigns -> _uiState.update { it.copy(campaigns = campaigns, online = true) } },
+            onError = { _uiState.update { it.copy(online = false) } },
+        )
+        // Server-ranked inventory enforces regional relevance, frequency caps,
+        // quality, exploration and advertiser diversity.
+        viewModelScope.launch {
+            runCatching { repository.getPersonalizedAds(placement = "inbox", limit = 12) }
+                .onSuccess { campaigns ->
+                    _uiState.update { it.copy(sponsoredCampaigns = campaigns, online = true) }
+                    campaigns.firstOrNull()?.let { campaign ->
+                        runCatching { repository.recordAdBehavior(campaign.id, "impression") }
+                    }
+                }
+                .onFailure { _uiState.update { it.copy(sponsoredCampaigns = emptyList()) } }
+        }
+        adMetricsListener = repository.observeAdMetrics(
+            user.uid,
+            onChange = { metrics -> _uiState.update { it.copy(adMetrics = metrics, online = true) } },
             onError = { _uiState.update { it.copy(online = false) } },
         )
         livesListener = repository.observeLives(
@@ -1316,6 +1417,8 @@ class WhappyViewModel(
         listingsListener?.remove()
         businessListener?.remove()
         campaignsListener?.remove()
+        sponsoredCampaignsListener?.remove()
+        adMetricsListener?.remove()
         livesListener?.remove()
         statusesListener?.remove()
         dealsListener?.remove()

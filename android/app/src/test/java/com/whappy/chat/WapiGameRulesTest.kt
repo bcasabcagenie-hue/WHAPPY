@@ -86,4 +86,111 @@ class WapiGameRulesTest {
             }
         }
     }
+
+    @Test fun poolPhysicsPocketsObjectBallButRespotsCueBall() {
+        val objectFrame = advanceWapiPoolFrame(listOf(WapiPoolBall(3, .055f, .08f)))
+        assertTrue(objectFrame.balls.single().pocketed)
+        assertEquals(1, objectFrame.newlyPocketed)
+
+        val cueFrame = advanceWapiPoolFrame(listOf(WapiPoolBall(0, .055f, .08f)))
+        assertFalse(cueFrame.balls.single().pocketed)
+        assertTrue(cueFrame.cueScratch)
+        assertTrue(kotlin.math.abs(cueFrame.balls.single().x - .23f) < .0001f)
+    }
+
+    @Test fun poolPocketShelfPullsSlowBallTowardTheThroat() {
+        val nearCorner = WapiPoolBall(
+            id = 4,
+            x = .055f + .40f / WAPI_POOL_WORLD_WIDTH,
+            y = .07f,
+        )
+        val frame = advanceWapiPoolFrame(listOf(nearCorner), deltaSeconds = .018f)
+        assertTrue(frame.balls.single().vx < 0f)
+        assertFalse(frame.balls.single().pocketed)
+    }
+
+    @Test fun poolRollingResistanceIsStableAcrossFrameSteps() {
+        val moving = WapiPoolBall(0, .50f, .50f, vx = .70f, vy = .20f)
+        val oneStep = advanceWapiPoolFrame(listOf(moving), deltaSeconds = .036f).balls.single()
+        val firstHalf = advanceWapiPoolFrame(listOf(moving), deltaSeconds = .018f).balls.single()
+        val twoSteps = advanceWapiPoolFrame(listOf(firstHalf), deltaSeconds = .018f).balls.single()
+        assertEquals(oneStep.vx, twoSteps.vx, .0015f)
+        assertEquals(oneStep.vy, twoSteps.vy, .0015f)
+    }
+
+    @Test fun poolCollisionTransfersMomentumWithoutOverlapping() {
+        val first = WapiPoolBall(0, .40f, .50f, vx = .8f)
+        val second = WapiPoolBall(1, .40f + (WAPI_POOL_BALL_RADIUS * 1.8f / WAPI_POOL_WORLD_WIDTH), .50f)
+        val frame = advanceWapiPoolFrame(listOf(first, second), deltaSeconds = 0f)
+        assertTrue(frame.collisionEnergy > 0f)
+        assertTrue(frame.balls[1].vx > 0f)
+        assertTrue(wapiPoolDistance(frame.balls[0], frame.balls[1]) >= WAPI_POOL_BALL_RADIUS * 2f - .002f)
+    }
+
+    @Test fun poolHighPowerFrameCannotTunnelThroughTargetBall() {
+        val cue = WapiPoolBall(0, .25f, .50f, vx = 12f / WAPI_POOL_WORLD_WIDTH)
+        val target = WapiPoolBall(5, .25f + .42f / WAPI_POOL_WORLD_WIDTH, .50f)
+        val frame = advanceWapiPoolFrame(listOf(cue, target), deltaSeconds = .05f)
+        assertEquals(5, frame.cueContactBallId)
+        assertTrue(frame.collisionEnergy > 0f)
+        assertTrue(frame.balls[1].vx > 0f)
+    }
+
+    @Test fun poolFollowSpinChangesCueBallAfterContact() {
+        val targetX = .40f + (WAPI_POOL_BALL_RADIUS * 1.8f / WAPI_POOL_WORLD_WIDTH)
+        val neutral = advanceWapiPoolFrame(
+            listOf(WapiPoolBall(0, .40f, .50f, vx = .8f), WapiPoolBall(1, targetX, .50f)),
+            deltaSeconds = 0f,
+        )
+        val follow = advanceWapiPoolFrame(
+            listOf(WapiPoolBall(0, .40f, .50f, vx = .8f, followSpin = 1f), WapiPoolBall(1, targetX, .50f)),
+            deltaSeconds = 0f,
+        )
+        assertEquals(1, follow.cueContactBallId)
+        assertTrue(follow.balls.first().vx > neutral.balls.first().vx)
+    }
+
+    @Test fun poolBallInHandRejectsOverlapAndAcceptsClearHeadString() {
+        val balls = listOf(WapiPoolBall(0, .23f, .50f), WapiPoolBall(1, .30f, .50f))
+        assertFalse(isValidWapiCuePlacement(.30f, .50f, balls))
+        assertTrue(isValidWapiCuePlacement(.18f, .30f, balls))
+        assertFalse(isValidWapiCuePlacement(.60f, .30f, balls))
+    }
+
+    @Test fun poolAiPlansARealTargetToPocketRoute() {
+        val plan = planWapiPoolAiShot(listOf(WapiPoolBall(0, .22f, .50f), WapiPoolBall(4, .60f, .50f)))
+        assertNotNull(plan)
+        assertEquals(4, plan!!.targetBallId)
+        assertTrue(plan.power in 34..92)
+    }
+
+    @Test fun eightBallAssignsSolidsAfterFirstLegalPocket() {
+        val before = listOf(WapiPoolBall(0, .22f, .50f), WapiPoolBall(2, .55f, .50f), WapiPoolBall(10, .68f, .60f), WapiPoolBall(8, .70f, .50f))
+        val result = resolveWapiPoolShot(before, WapiPoolGroup.OPEN, WapiPoolGroup.OPEN, firstContactBallId = 2, scratched = false, pocketedBallIds = setOf(2))
+        assertEquals(WapiPoolGroup.SOLIDS, result.shooterGroup)
+        assertEquals(WapiPoolGroup.STRIPES, result.opponentGroup)
+        assertTrue(result.keepTurn)
+        assertFalse(result.foul)
+    }
+
+    @Test fun eightBallWrongFirstGroupIsAFoul() {
+        val before = listOf(WapiPoolBall(0, .22f, .50f), WapiPoolBall(3, .55f, .50f), WapiPoolBall(11, .68f, .60f), WapiPoolBall(8, .70f, .50f))
+        val result = resolveWapiPoolShot(before, WapiPoolGroup.SOLIDS, WapiPoolGroup.STRIPES, firstContactBallId = 11, scratched = false, pocketedBallIds = emptySet())
+        assertTrue(result.foul)
+        assertFalse(result.keepTurn)
+    }
+
+    @Test fun eightBallEarlyBlackLosesButLegalBlackWins() {
+        val early = resolveWapiPoolShot(
+            listOf(WapiPoolBall(0, .22f, .50f), WapiPoolBall(3, .55f, .50f), WapiPoolBall(8, .70f, .50f)),
+            WapiPoolGroup.SOLIDS, WapiPoolGroup.STRIPES, firstContactBallId = 8, scratched = false, pocketedBallIds = setOf(8),
+        )
+        assertEquals(false, early.shooterWon)
+
+        val cleared = resolveWapiPoolShot(
+            listOf(WapiPoolBall(0, .22f, .50f), WapiPoolBall(3, .55f, .50f, pocketed = true), WapiPoolBall(8, .70f, .50f)),
+            WapiPoolGroup.SOLIDS, WapiPoolGroup.STRIPES, firstContactBallId = 8, scratched = false, pocketedBallIds = setOf(8),
+        )
+        assertEquals(true, cleared.shooterWon)
+    }
 }

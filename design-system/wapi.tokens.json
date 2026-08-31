@@ -2,25 +2,27 @@
   "$schema": "https://design-tokens.github.io/community-group/format/",
   "meta": {
     "name": "WAPI Native Design System",
-    "version": "3.0.0",
+    "version": "5.1.0",
     "platforms": ["android", "ios"]
   },
   "color": {
     "brand": {
-      "primary": { "$type": "color", "$value": "#148AF2" },
-      "deep": { "$type": "color", "$value": "#0B6FD8" },
-      "sky": { "$type": "color", "$value": "#50C9EA" }
+      "primary": { "$type": "color", "$value": "#146FE8" },
+      "deep": { "$type": "color", "$value": "#084A9B" },
+      "sky": { "$type": "color", "$value": "#19BFF2" },
+      "night": { "$type": "color", "$value": "#062A4C" },
+      "aqua": { "$type": "color", "$value": "#00A7A0" }
     },
     "text": {
-      "primary": { "$type": "color", "$value": "#11243D" },
-      "secondary": { "$type": "color", "$value": "#64748B" },
+      "primary": { "$type": "color", "$value": "#0A1D32" },
+      "secondary": { "$type": "color", "$value": "#647588" },
       "inverse": { "$type": "color", "$value": "#FFFFFF" }
     },
     "surface": {
-      "canvas": { "$type": "color", "$value": "#F1F5FA" },
+      "canvas": { "$type": "color", "$value": "#F7F9FC" },
       "primary": { "$type": "color", "$value": "#FFFFFF" },
-      "secondary": { "$type": "color", "$value": "#EAF1F8" },
-      "line": { "$type": "color", "$value": "#D7E1EC" }
+      "secondary": { "$type": "color", "$value": "#EFF3F7" },
+      "line": { "$type": "color", "$value": "#DDE4EC" }
     },
     "semantic": {
       "verified": { "$type": "color", "$value": "#858D96" },
@@ -37,9 +39,9 @@
     "xl": { "$type": "dimension", "$value": { "value": 24, "unit": "px" } }
   },
   "radius": {
-    "compact": { "$type": "dimension", "$value": { "value": 12, "unit": "px" } },
-    "control": { "$type": "dimension", "$value": { "value": 16, "unit": "px" } },
-    "panel": { "$type": "dimension", "$value": { "value": 22, "unit": "px" } },
-    "hero": { "$type": "dimension", "$value": { "value": 28, "unit": "px" } }
+    "compact": { "$type": "dimension", "$value": { "value": 8, "unit": "px" } },
+    "control": { "$type": "dimension", "$value": { "value": 12, "unit": "px" } },
+    "panel": { "$type": "dimension", "$value": { "value": 16, "unit": "px" } },
+    "hero": { "$type": "dimension", "$value": { "value": 22, "unit": "px" } }
   }
 }

@@ -89,6 +89,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -145,6 +146,7 @@ data class WhappyCallUiState(
     val mediaReady: Boolean = false,
     val actionPending: Boolean = false,
     val minimized: Boolean = false,
+    val transportLabel: String = "Internet sécurisé",
     val error: String? = null,
 )
 
@@ -172,6 +174,9 @@ class WhappyCallController(private val activity: ComponentActivity) {
     private val registrations = CopyOnWriteArrayList<ListenerRegistration>()
     private var incomingRegistration: ListenerRegistration? = null
     private var boundUserId = ""
+    private var activeBusinessPageId = ""
+    private var activeCallerName = ""
+    private var activeCallerPhotoUrl = ""
     private var peerConnection: PeerConnection? = null
     private var localAudioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
@@ -315,14 +320,23 @@ class WhappyCallController(private val activity: ComponentActivity) {
                     peerPhotoUrl = recent.getString("callerPhotoUrl").orEmpty(),
                     status = "Sonnerie…",
                 )
-                val notificationRings = WhappyNotifications.showIncomingCall(
-                    context = activity,
-                    callId = recent.id,
-                    callerName = recent.getString("callerName") ?: "Contact WAPI",
-                    callerPhotoUrl = recent.getString("callerPhotoUrl").orEmpty(),
-                    video = recent.getBoolean("video") == true,
-                )
-                if (!notificationRings) startRinging()
+                // Foreground and background use one presentation path each.
+                // Showing a full-screen system notification while the native
+                // overlay is already visible produced two call surfaces and
+                // delegated ringing to a possibly muted Android channel.
+                if (WapiPresence.isForeground) {
+                    WhappyNotifications.cancelCall(activity, recent.id)
+                    startRinging()
+                } else {
+                    val notificationRings = WhappyNotifications.showIncomingCall(
+                        context = activity,
+                        callId = recent.id,
+                        callerName = recent.getString("callerName") ?: "Contact WAPI",
+                        callerPhotoUrl = recent.getString("callerPhotoUrl").orEmpty(),
+                        video = recent.getBoolean("video") == true,
+                    )
+                    if (!notificationRings) startRinging()
+                }
                 watchCallDocument(recent.id)
                 // The call must start ringing immediately. If an older client
                 // created the call without embedding the avatar URL, hydrate
@@ -339,6 +353,13 @@ class WhappyCallController(private val activity: ComponentActivity) {
                     }
                 }
             }
+    }
+
+    fun setActiveIdentity(businessPageId: String, displayName: String, photoUrl: String) {
+        activeBusinessPageId = businessPageId.trim()
+        activeCallerName = displayName.trim()
+        activeCallerPhotoUrl = photoUrl.trim()
+        WapiCallHistory.setActiveScope(activity, activeBusinessPageId)
     }
 
     fun startByPhone(phone: String, video: Boolean) {
@@ -443,6 +464,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             "incoming",
             incoming.getString("callerId").orEmpty(),
             incoming.getString("callerPhotoUrl").orEmpty(),
+            incoming.getString("calleeBusinessPageId").orEmpty(),
         )
         withCallPermissions(incoming.getBoolean("video") == true) {
             activity.lifecycleScope.launch {
@@ -462,6 +484,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
             "missed",
             pendingIncoming?.getString("callerId").orEmpty(),
             state.peerPhotoUrl,
+            pendingIncoming?.getString("calleeBusinessPageId").orEmpty(),
         )
         closeLocal()
         activity.lifecycleScope.launch {
@@ -589,7 +612,7 @@ class WhappyCallController(private val activity: ComponentActivity) {
         callDocumentReady = false
         outgoingRole = true
         state = WhappyCallUiState(visible = true, video = video, peerName = peer.displayName, peerPhone = peer.phoneNumber, peerPhotoUrl = peer.photoUrl, status = "Ouverture de l’appel…")
-        WapiCallHistory.record(activity, peer.displayName, peer.phoneNumber, video, "outgoing", peer.uid, peer.photoUrl)
+        WapiCallHistory.record(activity, peer.displayName, peer.phoneNumber, video, "outgoing", peer.uid, peer.photoUrl, activeBusinessPageId)
         runCatching {
             preparePeer(video, "callerCandidates")
             state = state.copy(mediaReady = true)
@@ -597,15 +620,20 @@ class WhappyCallController(private val activity: ComponentActivity) {
             peerConnection!!.setLocalDescriptionAwait(offer)
             val reference = db.collection("calls").document()
             callId = reference.id
-            val callerPhotoUrl = runCatching {
+            val personalPhotoUrl = runCatching {
                 db.collection("users").document(current.uid).get().await().getString("photoUrl").orEmpty()
             }.getOrDefault(current.photoUrl?.toString().orEmpty())
+            val callerName = activeCallerName.ifBlank { current.displayName ?: "Contact WAPI" }
+            val callerPhotoUrl = if (activeBusinessPageId.isNotBlank()) activeCallerPhotoUrl else activeCallerPhotoUrl.ifBlank { personalPhotoUrl }
             reference.set(
                 mapOf(
                     "callerId" to current.uid,
                     "calleeId" to peer.uid,
-                    "callerName" to (current.displayName ?: "Contact WAPI"),
+                    "calleeBusinessPageId" to peer.businessPageId,
+                    "callerName" to callerName,
                     "callerPhotoUrl" to callerPhotoUrl.take(2_000),
+                    "callerProfileType" to if (activeBusinessPageId.isBlank()) "personal" else "business",
+                    "callerBusinessPageId" to activeBusinessPageId,
                     "calleeName" to peer.displayName,
                     "video" to video,
                     "status" to "ringing",
@@ -692,8 +720,11 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 localRenderer?.let(track::addSink)
             }
         }
-        val ice = loadIceServers()
+        // A remote/mobile-network call must not reuse a recent STUN-only
+        // prewarm result when WAPI TURN became available in the meantime.
+        val ice = loadIceServers(requireRelayRefresh = true)
         turnConfigured = ice.turnConfigured
+        state = state.copy(transportLabel = if (ice.turnConfigured) "Relais Internet WAPI prêt" else "Connexion directe sécurisée")
         val rtcConfiguration = WapiIceDefaults.rtcConfiguration(ice.servers)
         val peerGeneration = signalingGeneration
         peerConnection = factory.createPeerConnection(rtcConfiguration, peerObserver(localCandidateCollection, peerGeneration)) ?: error("peer")
@@ -767,22 +798,22 @@ class WhappyCallController(private val activity: ComponentActivity) {
         override fun onRenegotiationNeeded() = Unit
     }
 
-    private suspend fun loadIceServers(): WapiIceConfiguration {
+    private suspend fun loadIceServers(requireRelayRefresh: Boolean = false): WapiIceConfiguration {
         val fallback = WapiIceDefaults.fallbackServers()
         val now = System.currentTimeMillis()
         cachedIceConfiguration?.let { cached ->
-            val cacheLifetime = if (cached.turnConfigured) 45 * 60_000L else 60_000L
-            if (now - cachedIceConfigurationAt < cacheLifetime) return cached
+            val cacheLifetime = if (cached.turnConfigured) 45 * 60_000L else 8_000L
+            if (now - cachedIceConfigurationAt < cacheLifetime && (!requireRelayRefresh || cached.turnConfigured)) return cached
         }
-        val configuration = runCatching {
-            val result = withTimeoutOrNull(WapiIceDefaults.CONFIGURATION_TIMEOUT_MS) {
+        suspend fun requestConfiguration(timeoutMs: Long): WapiIceConfiguration? = runCatching {
+            val result = withTimeoutOrNull(timeoutMs) {
                 FirebaseFunctions.getInstance("europe-west1")
                     .getHttpsCallable("getWebRtcIceServers")
                     .call()
                     .await()
-            } ?: return@runCatching WapiIceConfiguration(fallback, false)
-            val payload = result.data as? Map<*, *> ?: return@runCatching WapiIceConfiguration(fallback, false)
-            val rawServers = payload["iceServers"] as? List<*> ?: return@runCatching WapiIceConfiguration(fallback, false)
+            } ?: return@runCatching null
+            val payload = result.data as? Map<*, *> ?: return@runCatching null
+            val rawServers = payload["iceServers"] as? List<*> ?: return@runCatching null
             val servers = rawServers.mapNotNull { raw ->
                 val data = raw as? Map<*, *> ?: return@mapNotNull null
                 val urls = when (val value = data["urls"]) {
@@ -804,13 +835,20 @@ class WhappyCallController(private val activity: ComponentActivity) {
                 servers = merged,
                 turnConfigured = payload["turnConfigured"] == true || merged.any { server -> server.urls.any { it.startsWith("turn:") || it.startsWith("turns:") } },
             )
-        }.getOrElse { failure ->
-            Log.w(CALL_TAG, "TURN configuration unavailable; direct ICE only", failure)
-            WapiIceConfiguration(fallback, false)
+        }.onFailure { failure -> Log.w(CALL_TAG, "TURN configuration lookup failed", failure) }.getOrNull()
+
+        var configuration = requestConfiguration(WapiIceDefaults.CONFIGURATION_TIMEOUT_MS)
+        if (requireRelayRefresh && configuration?.turnConfigured != true) {
+            // One short retry handles a cold callable/temporary radio switch;
+            // after that WAPI still allows direct WebRTC instead of freezing.
+            delay(260L)
+            configuration = requestConfiguration(4_000L) ?: configuration
         }
-        cachedIceConfiguration = configuration
+        val resolved = configuration ?: WapiIceConfiguration(fallback, false)
+        if (!resolved.turnConfigured) Log.w(CALL_TAG, "TURN unavailable; continuing with direct ICE only")
+        cachedIceConfiguration = resolved
         cachedIceConfigurationAt = System.currentTimeMillis()
-        return configuration
+        return resolved
     }
 
     private fun watchCallDocument(id: String) {
@@ -1305,6 +1343,7 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(callDirection, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Text("🔒 Session WAPI chiffrée", color = Color.White.copy(alpha = .72f), fontSize = 9.sp)
+                Text(call.transportLabel, color = Color.White.copy(alpha = .58f), fontSize = 8.sp)
             }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

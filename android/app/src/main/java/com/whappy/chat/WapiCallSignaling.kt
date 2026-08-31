@@ -20,6 +20,10 @@ internal object WapiCallSignaling {
         peerReady: Boolean,
     ): Boolean = outgoingRole && status == "accepted" && !answerApplied && peerReady
 
+    /** Only a terminal remote state is allowed to close active media. */
+    fun shouldTerminateFromPush(status: String): Boolean =
+        status.lowercase() in setOf("declined", "ended", "cancelled", "canceled", "expired")
+
     /**
      * ICE may start gathering before the caller's Firestore document exists.
      * Keeping those candidates locally avoids writing them to a stale call

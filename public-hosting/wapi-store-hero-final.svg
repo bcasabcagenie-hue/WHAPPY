@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941">
+  <image href="wapi-store-hero-base.png" x="0" y="0" width="1672" height="941" preserveAspectRatio="none"/>
+
+  <!-- Official WAPI mark -->
+  <image href="wapi-logo.png" x="82" y="94" width="92" height="92"/>
+
+  <!-- Store download badges -->
+  <g transform="translate(82 650)">
+    <rect width="245" height="76" rx="13" fill="#050505" stroke="#ffffff" stroke-opacity=".35"/>
+    <text x="20" y="51" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="39"></text>
+    <text x="78" y="25" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="12">Disponible sur</text>
+    <text x="78" y="52" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="700">App Store</text>
+  </g>
+  <g transform="translate(344 650)">
+    <rect width="270" height="76" rx="13" fill="#050505" stroke="#ffffff" stroke-opacity=".35"/>
+    <path d="M25 17l24 21-24 21c-2-2-3-5-3-9V26c0-4 1-7 3-9z" fill="#34a853"/>
+    <path d="M25 17l29 16-5 5-24-21z" fill="#4285f4"/>
+    <path d="M25 59l29-16-5-5-24 21z" fill="#fbbc04"/>
+    <path d="M54 33l7 4c4 2 4 6 0 8l-7 4-5-5z" fill="#ea4335"/>
+    <text x="78" y="25" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="12">DISPONIBLE SUR</text>
+    <text x="78" y="52" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="21" font-weight="700">Google Play</text>
+  </g>
+</svg>

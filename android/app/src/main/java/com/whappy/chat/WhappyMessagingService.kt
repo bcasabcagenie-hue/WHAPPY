@@ -49,6 +49,10 @@ class WhappyMessagingService : FirebaseMessagingService() {
         // foreground path. Keeping FCM for background only prevents duplicate
         // sounds and duplicate message cards while preserving closed-app push.
         if (WapiPresence.isForeground && type in setOf("message", "chat") && WhappyRealtimeNotifications.isReady) return
+        // The authenticated Firestore listener owns foreground calls. Letting
+        // FCM create another full-screen notification at the same time caused
+        // two incoming-call surfaces for a single call document.
+        if (WapiPresence.isForeground && type in setOf("call", "incoming_call", "direct_call")) return
         when (type) {
             "call", "incoming_call", "direct_call" -> WhappyNotifications.showIncomingCall(
                 context = this,
@@ -57,7 +61,18 @@ class WhappyMessagingService : FirebaseMessagingService() {
                 callerPhotoUrl = data["callerPhotoUrl"].orEmpty(),
                 video = data["video"].toBoolean(),
             )
-            "call_cancel", "call_ended", "call_declined" -> {
+            "call_answered" -> {
+                WhappyNotifications.cancelCall(this, data["callId"].orEmpty())
+            }
+            "call_cancel" -> {
+                WhappyNotifications.cancelCall(this, data["callId"].orEmpty())
+                // Compatibility with the previous backend, which emitted
+                // call_cancel for the non-terminal "accepted" transition.
+                if (WapiCallSignaling.shouldTerminateFromPush(data["status"].orEmpty())) {
+                    WhappyCallEvents.notifyEnded(data["callId"].orEmpty())
+                }
+            }
+            "call_ended", "call_declined" -> {
                 WhappyNotifications.cancelCall(this, data["callId"].orEmpty())
                 WhappyCallEvents.notifyEnded(data["callId"].orEmpty())
             }
@@ -98,7 +113,9 @@ object WhappyNotifications {
     // Android keeps a channel's sound policy after its first creation.  A new
     // id deliberately upgrades devices that installed an older silent build.
     private const val CHANNEL_MESSAGES = "wapi_messages_v5"
-    private const val CHANNEL_CALLS = "whappy_calls_v5"
+    // Android keeps channel sound settings forever. A fresh channel upgrades
+    // installations that inherited a silent call channel from an older APK.
+    private const val CHANNEL_CALLS = "wapi_calls_v6"
     private const val CHANNEL_ACTIVITY = "whappy_activity_v2"
     private const val CALL_NOTIFICATION_BASE = 6_100
     private const val MESSAGE_SUMMARY_ID = 6_001

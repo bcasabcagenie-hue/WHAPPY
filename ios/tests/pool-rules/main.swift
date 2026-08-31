@@ -1,0 +1,20 @@
+import Foundation
+
+let all = Set(1...15)
+func expect(_ value: Bool, _ label: String) { precondition(value, label) }
+let assign = WapiPoolRules.resolve(before: all, shooterGroup: 0, opponentGroup: 0, first: 1, scratched: false, pocketed: [1])
+expect(assign.shooterGroup == 1 && assign.opponentGroup == 2 && assign.keepTurn, "Legal pocket assigns groups and keeps turn")
+let scratch = WapiPoolRules.resolve(before: all, shooterGroup: 0, opponentGroup: 0, first: 1, scratched: true, pocketed: [1])
+expect(scratch.foul && !scratch.keepTurn && scratch.shooterGroup == 0, "Scratch cannot assign a group")
+let wrong = WapiPoolRules.resolve(before: all, shooterGroup: 1, opponentGroup: 2, first: 12, scratched: false, pocketed: [2])
+expect(wrong.foul && !wrong.keepTurn, "Wrong first contact is a foul")
+let early = WapiPoolRules.resolve(before: all, shooterGroup: 1, opponentGroup: 2, first: 1, scratched: false, pocketed: [8])
+expect(early.shooterWon == false, "Premature black loses")
+let cleared = Set(8...15)
+let winner = WapiPoolRules.resolve(before: cleared, shooterGroup: 1, opponentGroup: 2, first: 8, scratched: false, pocketed: [8])
+expect(winner.shooterWon == true, "Legal black wins")
+let lost = WapiPoolRules.resolve(before: cleared, shooterGroup: 1, opponentGroup: 2, first: 8, scratched: true, pocketed: [8])
+expect(lost.shooterWon == false, "Scratch on black loses")
+expect(WapiPoolRules.targets(group: 1, remaining: cleared) == [8], "Cleared player targets black")
+expect(WapiPoolRules.targets(group: 0, remaining: all).count == 14, "Open table excludes black")
+print("8 pool rule checks passed")

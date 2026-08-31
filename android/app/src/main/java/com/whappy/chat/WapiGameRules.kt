@@ -133,12 +133,17 @@ object WapiGameRules {
         whiteTurn: Boolean,
         rules: WapiCheckersRules = WapiCheckersRules(),
     ): WapiMoveResult? {
+        return applyCheckersMove(board, from, to, whiteTurn, rules,
+            rules.mandatoryCapture && hasCheckersCapture(board, whiteTurn, rules))
+    }
+
+    private fun applyCheckersMove(board: List<String>, from: Int, to: Int, whiteTurn: Boolean,
+        rules: WapiCheckersRules, mandatoryCapture: Boolean): WapiMoveResult? {
         val dimension = checkersDimension(board) ?: return null
         if (from !in board.indices || to !in board.indices || from == to || board[to].isNotBlank()) return null
         val piece = board[from]
         if (piece.isBlank() || isWhite(piece) != whiteTurn) return null
         val path = checkersPath(board, from, to, whiteTurn, rules) ?: return null
-        val mandatoryCapture = rules.mandatoryCapture && hasCheckersCapture(board, whiteTurn, rules)
         if (mandatoryCapture && path < 0) return null
         val next = board.toMutableList()
         val captured = path >= 0
@@ -192,12 +197,13 @@ object WapiGameRules {
         difficulty: String = "medium",
         checkersRules: WapiCheckersRules = WapiCheckersRules(),
     ): Pair<Int, Int>? {
+        val mandatoryCapture = checkers && checkersRules.mandatoryCapture && hasCheckersCapture(board, whiteTurn, checkersRules)
         val moves = buildList {
             board.indices.filter { index ->
                 board[index].isNotBlank() && isWhite(board[index]) == whiteTurn
             }.forEach { from ->
                 board.indices.forEach { to ->
-                    val result = if (checkers) checkersMove(board, from, to, whiteTurn, checkersRules) else chessMove(board, from, to, whiteTurn)
+                    val result = if (checkers) applyCheckersMove(board, from, to, whiteTurn, checkersRules, mandatoryCapture) else chessMove(board, from, to, whiteTurn)
                     if (result != null) add(from to to to result)
                 }
             }
@@ -205,7 +211,7 @@ object WapiGameRules {
         if (moves.isEmpty()) return null
         if (difficulty == "easy") {
             // Stable but deliberately imperfect choice so Easy remains humane.
-            return moves[(board.joinToString().hashCode().ushr(1) + moves.size) % moves.size].first
+            return moves[(board.hashCode().toLong() and 0x7fffffffL).rem(moves.size).toInt()].first
         }
         fun tacticalScore(move: Pair<Pair<Int, Int>, WapiMoveResult>) =
             (if (move.second.captured) 80 else 0) + (if (move.second.promoted) 110 else 0) + move.first.second
@@ -213,12 +219,14 @@ object WapiGameRules {
 
         fun material(value: List<String>, sideWhite: Boolean): Int = value.sumOf { piece ->
             if (piece.isBlank() || isWhite(piece) != sideWhite) 0
-            else when (piece.lowercase()) {
-                "q" -> 90
-                "r" -> 50
-                "b", "n" -> 32
-                "p", "w", "b" -> 10
-                else -> 12
+            else when (piece) {
+                "♕", "♛" -> 90
+                "♖", "♜" -> 50
+                "♗", "♝", "♘", "♞" -> 32
+                "♙", "♟", "w", "b" -> 10
+                "W", "B" -> 28
+                "♔", "♚" -> 1000
+                else -> 0
             }
         }
         fun positionalScore(result: WapiMoveResult): Int {

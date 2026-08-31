@@ -40,6 +40,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WhappyFastStorage.initialize(applicationContext)
+        WhappyFastStorage.preferences(applicationContext, "whappy_consumer").let { preferences ->
+            if (!preferences.getBoolean("typing_sound_profile_v2", false)) {
+                preferences.edit()
+                    .putBoolean("typing_sounds", false)
+                    .putBoolean("typing_sound_profile_v2", true)
+                    .apply()
+            }
+        }
         // Cache is disposable; trim it at launch without touching messages,
         // pending uploads or media the user chose to keep offline.
         runCatching { WapiMediaStore.trimCache(applicationContext) }
@@ -145,10 +153,15 @@ class MainActivity : ComponentActivity() {
                     onSearchBusinesses = model::searchBusinesses,
                     onContactBusiness = model::contactBusiness,
                     onPublishListing = model::publishListing,
+                    onRespondToMarketplaceListing = model::respondToMarketplaceListing,
+                    onPrepareMarketplaceBoost = model::prepareMarketplaceBoost,
                     onCreateBusinessPage = model::createBusinessPage,
                     onUpdateBusinessPage = model::updateBusinessPage,
                     onUpdateBusinessLogo = model::updateBusinessPageLogo,
                     onCreateCampaign = model::createCampaign,
+                    onUpdateCampaignDelivery = model::updateCampaignDelivery,
+                    onSponsoredCampaignClick = model::recordSponsoredCampaignClick,
+                    onSponsoredCampaignDismiss = model::dismissSponsoredCampaign,
                     onCreateLive = model::createLive,
                     onPublishStatus = model::publishStatus,
                     onMarkStoryViewed = model::markStoryViewed,

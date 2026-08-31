@@ -59,8 +59,8 @@ func wapiUserFacingError(_ error: Error, action: String) -> String {
 }
 
 func isWhappyFounderPhone(_ rawPhone: String) -> Bool {
-    guard let normalized = WhappyPhoneCountry.normalize(rawPhone) else { return false }
-    return normalized == whappyFounderPhoneNormalized
+    let normalized = WapiNativeCore.normalizePhone(rawPhone)
+    return normalized == whappyFounderPhoneNormalized.filter(\.isNumber)
 }
 
 enum WapiInterfaceLanguage: String, CaseIterable, Identifiable {
@@ -507,6 +507,13 @@ struct WapiDirectCallRoute: Identifiable, Equatable {
     let peerName: String
     let peerPhotoURL: String
     let video: Bool
+    var callerName: String? = nil
+    var callerPhotoURL: String? = nil
+    var callerBusinessPageID: String? = nil
+    /// Set when a personal account calls a public Business identity. The
+    /// authenticated callee remains the page owner while the call is routed
+    /// to the dedicated Business inbox and history.
+    var calleeBusinessPageID: String? = nil
 
     var id: String { callID ?? "new-\(peerID ?? "contact")-\(video ? "video" : "audio")" }
 }
@@ -522,9 +529,9 @@ struct WapiGroupMember: Identifiable, Hashable, Codable {
 
 struct Conversation: Identifiable, Hashable, Codable {
     let id: UUID
-    let name: String
-    let initials: String
-    let phoneNumber: String
+    var name: String
+    var initials: String
+    var phoneNumber: String
     var lastMessage: String
     var unread: Bool
     var readAt: Date = .distantPast
@@ -533,6 +540,9 @@ struct Conversation: Identifiable, Hashable, Codable {
     var source: String? = nil
     var peerUID: String? = nil
     var photoURL: String? = nil
+    /// Canonical certification state from users/{uid}. Optional keeps older
+    /// locally cached conversations backward-compatible.
+    var peerVerified: Bool? = nil
     var peerIsOnline: Bool? = nil
     var peerLastSeenAt: Date? = nil
     var groupOwnerID: String? = nil
@@ -544,6 +554,10 @@ struct Conversation: Identifiable, Hashable, Codable {
     var profileType: String? = nil
     var businessPageID: String? = nil
     var businessPageName: String? = nil
+
+    var displaysVerifiedBadge: Bool {
+        peerVerified == true || isWhappyFounderPhone(phoneNumber)
+    }
 }
 
 enum CallMode: String, Identifiable, Codable {
@@ -561,6 +575,8 @@ struct CallRecord: Identifiable, Hashable, Codable {
     let date: Date
     let outgoing: Bool
     let missed: Bool
+    var profileType: String? = nil
+    var businessPageID: String? = nil
 }
 
 struct Message: Identifiable, Hashable, Codable {
@@ -671,6 +687,13 @@ struct Listing: Identifiable, Hashable, Codable {
     let icon: String
     let acceptsTrade: Bool
     var saved: Bool = false
+    /// Marketplace fields are optional so listings cached by older WAPI builds
+    /// keep decoding safely after the Business-only marketplace migration.
+    var photoURL: String? = nil
+    var description: String? = nil
+    var mode: String? = nil
+    var businessPageID: String? = nil
+    var boostStatus: String? = nil
 }
 
 struct CartLine: Identifiable, Hashable, Codable {

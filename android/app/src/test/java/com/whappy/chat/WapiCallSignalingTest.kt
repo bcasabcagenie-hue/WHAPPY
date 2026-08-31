@@ -20,6 +20,13 @@ class WapiCallSignalingTest {
         assertFalse(WapiCallSignaling.shouldApplyRemoteAnswer(true, "ringing", false, true))
     }
 
+    @Test fun acceptedPushDismissesRingingWithoutEndingMedia() {
+        assertFalse(WapiCallSignaling.shouldTerminateFromPush("accepted"))
+        assertFalse(WapiCallSignaling.shouldTerminateFromPush(""))
+        assertTrue(WapiCallSignaling.shouldTerminateFromPush("declined"))
+        assertTrue(WapiCallSignaling.shouldTerminateFromPush("ended"))
+    }
+
     @Test fun earlyIceCandidatesWaitForTheNewCallDocument() {
         assertTrue(WapiCallSignaling.shouldQueueLocalCandidate(false, ""))
         assertTrue(WapiCallSignaling.shouldQueueLocalCandidate(false, "old-call"))

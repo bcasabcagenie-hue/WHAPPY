@@ -14,6 +14,7 @@ import android.os.VibratorManager
 
 object WhappySounds {
     private var lastKeyAt = 0L
+    private var lastUiTapAt = 0L
     private var keyboardTone: ToneGenerator? = null
     private val gameSamples = mutableMapOf<Int, Int>()
     private val readySamples = mutableSetOf<Int>()
@@ -46,6 +47,18 @@ object WhappySounds {
     fun reward() = tone(ToneGenerator.TONE_PROP_ACK, 180, 48)
     fun impact() = tone(ToneGenerator.TONE_PROP_NACK, 160, 38)
 
+    /** Retour très court pour les cartes et lignes WAPI. Il suit le volume
+     * multimédia, se coupe avec celui-ci et reste limité pour les doubles taps. */
+    fun uiTap(context: Context) {
+        if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("interface_sounds", true)) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastUiTapAt < 42L) return
+        lastUiTapAt = now
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) <= 0) return
+        runCatching { audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, .16f) }
+    }
+
     @Synchronized
     fun preloadGames(context: Context) {
         if (gameSoundPool != null) return
@@ -69,6 +82,9 @@ object WhappySounds {
             R.raw.wapi_piece_capture,
             R.raw.wapi_piece_crown,
             R.raw.wapi_pool_hit,
+            R.raw.wapi_pool_cue,
+            R.raw.wapi_pool_collision,
+            R.raw.wapi_pool_cushion,
             R.raw.wapi_pool_pocket,
             R.raw.wapi_card_flip,
             R.raw.wapi_victory,
@@ -100,12 +116,47 @@ object WhappySounds {
     fun move(context: Context) = sample(context, R.raw.wapi_piece_move, .64f)
     fun capture(context: Context) = sample(context, R.raw.wapi_piece_capture, .80f)
     fun crowned(context: Context) = sample(context, R.raw.wapi_piece_crown, .82f)
-    fun billiardCue(context: Context) = sample(context, R.raw.wapi_pool_hit, .88f)
+    fun billiardCue(context: Context, power: Int = 62) {
+        val normalized = power.coerceIn(1, 100) / 100f
+        // One cue contact. The break's later clicks come from real collisions,
+        // not an extra sound scheduled whether or not a ball was hit.
+        sample(context, R.raw.wapi_pool_cue, .30f + normalized * .60f, .96f + normalized * .08f)
+    }
     fun billiardCollision(context: Context, intensity: Float = .45f) =
-        sample(context, R.raw.wapi_pool_hit, intensity.coerceIn(.18f, .66f), 1.22f)
-    fun billiardPocket(context: Context) = sample(context, R.raw.wapi_pool_pocket, .82f)
+        sample(context, R.raw.wapi_pool_collision, intensity.coerceIn(.10f, .78f), .96f + intensity * .12f)
+    fun billiardRail(context: Context, intensity: Float = .38f) =
+        sample(context, R.raw.wapi_pool_cushion, intensity.coerceIn(.10f, .60f), .98f)
+    fun billiardPocket(context: Context) {
+        sample(context, R.raw.wapi_pool_pocket, .84f, .92f)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            { sample(context, R.raw.wapi_pool_hit, .23f, .64f) },
+            58L,
+        )
+    }
     fun cardFlip(context: Context) = sample(context, R.raw.wapi_card_flip, .68f)
     fun reward(context: Context) = sample(context, R.raw.wapi_victory, .86f)
+
+    /** Retour commun aux jeux de plateau : grave, bref et distinct d'une
+     * collision de billard. Il évite les anciens bips génériques. */
+    fun gameInvalid(context: Context) {
+        sample(context, R.raw.wapi_piece_capture, .60f, .66f)
+        haptic(context, strong = true)
+    }
+
+    /** Signatures King QI distinctes : la personne comprend le verdict même
+     * sans regarder l'écran, contrairement au bip générique de l'interface. */
+    fun quizCorrect(context: Context) {
+        sample(context, R.raw.wapi_victory, .88f, 1.14f)
+        haptic(context, strong = true)
+    }
+
+    fun quizWrong(context: Context) {
+        sample(context, R.raw.wapi_piece_capture, .76f, .72f)
+        haptic(context, strong = true)
+    }
+
+    fun quizTick(context: Context, urgent: Boolean = false) =
+        sample(context, R.raw.wapi_piece_select, if (urgent) .52f else .30f, if (urgent) 1.32f else 1.08f)
 
     /** Audible confirmation that a call has actually left the screen/session. */
     fun callEnded(context: Context) {
@@ -126,23 +177,23 @@ object WhappySounds {
     }
 
     fun typing(context: Context) {
-        if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("typing_sounds", true)) return
+        if (!WhappyFastStorage.preferences(context, "whappy_consumer").getBoolean("typing_sounds", false)) return
         val now = android.os.SystemClock.elapsedRealtime()
         // A short native key click is less electronic and tiring than a DTMF
         // beep. It follows the media volume and remains throttled while typing.
-        if (now - lastKeyAt < 54L) return
+        if (now - lastKeyAt < 82L) return
         lastKeyAt = now
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         // Use the media stream deliberately: the click follows the volume the
         // person controls on the device, even when Android system touch sounds
         // have been disabled.  It remains silent when media volume is zero.
         if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) <= 0) return
-        // Reuse WAPI's 55 ms tactile sample: it is warmer than the OEM click
-        // and therefore sounds consistent across Samsung, Pixel and Xiaomi.
-        runCatching { sample(context, R.raw.wapi_piece_select, .20f, 1.16f) }
+        // A low native key click is less tonal than the former game sample and
+        // stays in the background even during fast typing.
+        runCatching { audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, .055f) }
             .onFailure {
-                val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 22).also { keyboardTone = it }
-                generator.startTone(ToneGenerator.TONE_PROP_BEEP, 16)
+                val generator = keyboardTone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 8).also { keyboardTone = it }
+                generator.startTone(ToneGenerator.TONE_PROP_BEEP, 10)
             }
     }
 
