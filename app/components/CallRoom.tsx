@@ -1,5 +1,5 @@
 "use client";
-/* eslint-disable jsx-a11y/media-has-caption -- flux WebRTC en direct sans piste de sous-titres disponible */
+/* eslint-disable jsx-a11y/media-has-caption -- flux d’appel en direct sans piste de sous-titres disponible */
 
 import { useEffect, useRef, useState } from "react";
 import { addCallCandidate, answerCall, startCall, updateCallStatus, watchCall, watchCallCandidates, type CallSignal } from "@/lib/whappy-calls";
@@ -218,7 +218,7 @@ export function CallRoom({ contact, video, currentUser, peer, incoming, onClose 
 
   return <div className="call-layer" role="dialog" aria-modal="true" aria-label={`Appel avec ${contact}`}>
     <section className={`call-room ${video ? "video" : "audio"} ${status}`}>
-      <header><span>WHAPPY CALL · {isReal ? "WEBRTC" : "DÉMONSTRATION"}</span><b>{label}</b></header>
+      <header><span>WHAPPY CALL · {isReal ? "APPEL SÉCURISÉ" : "APERÇU"}</span><b>{label}</b></header>
       {video && <><video className="remote-video" ref={remoteVideo} muted autoPlay playsInline/><video className="local-video" ref={localVideo} muted autoPlay playsInline/></>}
       <audio ref={remoteAudio} autoPlay/>
       <div className="call-contact">
@@ -235,7 +235,7 @@ export function CallRoom({ contact, video, currentUser, peer, incoming, onClose 
         <button className={speaker ? "" : "off"} onClick={() => setSpeaker((value) => !value)} aria-label="Activer ou désactiver le haut-parleur">◖<small>Haut-parleur</small></button>
         <button onClick={() => hangup()} className="hangup" aria-label="Raccrocher">☎<small>Raccrocher</small></button>
       </footer>}
-      <small className="call-note">{isReal ? "WebRTC utilise une connexion directe. Un relais TURN pourra être requis sur certains réseaux mobiles stricts." : "Choisissez un contact Whappy Direct pour appeler un véritable autre compte."}</small>
+      <small className="call-note">{isReal ? "Votre conversation est protégée et reste privée." : "Choisissez un contact Whappy Direct pour appeler un autre compte."}</small>
     </section>
   </div>;
 }

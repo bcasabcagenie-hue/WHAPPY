@@ -15,8 +15,11 @@
   --whappy-blue: #0094F0;
   --whappy-blue-2: #00A2E6;
   --whappy-blue-3: #0066CF;
-  --whappy-coral: #0094F0;
-  --whappy-gold: #0094F0;
+  --whappy-coral: #F0445A;
+  --whappy-gold: #E58A00;
+  --whappy-success: #1F9D68;
+  --whappy-warning: #E58A00;
+  --whappy-danger: #D9364F;
   --whappy-indigo: #0066CF;
   --whappy-indigo-light: #E8F7FF;
   --whappy-indigo-soft: #F2FAFF;
@@ -175,6 +178,154 @@ body,
 }
 
 ::selection { background: #0094F0; color: #FFFFFF; }
+
+/* Appels : hiérarchie calme, états sémantiques et actions immédiatement lisibles. */
+.whappy-blue .realtime-panel.embedded {
+  overflow: hidden;
+  border: 1px solid rgba(10, 29, 50, .08) !important;
+  border-radius: 24px;
+  background: #F7F9FC !important;
+  box-shadow: 0 20px 55px rgba(10, 29, 50, .10) !important;
+}
+.whappy-blue .realtime-panel.embedded > aside {
+  background: #FFFFFF !important;
+  border-right: 1px solid #DDE4EC !important;
+}
+.whappy-blue .realtime-panel.embedded > main {
+  background: #F7F9FC !important;
+}
+.whappy-blue .direct-tabs {
+  margin: 10px 12px;
+  padding: 4px;
+  border: 1px solid #DDE4EC;
+  border-radius: 12px;
+  background: #F7F9FC !important;
+}
+.whappy-blue .direct-tabs button {
+  color: #647588 !important;
+  border-radius: 9px;
+}
+.whappy-blue .direct-tabs button.active {
+  background: #FFFFFF !important;
+  color: #146FE8 !important;
+  box-shadow: 0 3px 10px rgba(10, 29, 50, .08);
+}
+.whappy-blue .direct-tabs b {
+  background: #EAF2FF !important;
+  color: #146FE8 !important;
+}
+.whappy-blue .call-summary {
+  min-height: 100%;
+  padding: 32px 24px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F7F9FC 100%) !important;
+}
+.whappy-blue .call-summary > span {
+  width: 72px;
+  height: 72px;
+  border: 1px solid #BFD8FA;
+  background: #EAF2FF !important;
+  color: #146FE8 !important;
+  box-shadow: 0 12px 28px rgba(20, 111, 232, .14);
+}
+.whappy-blue .call-summary > strong,
+.whappy-blue .call-history-head strong { color: #0A1D32 !important; }
+.whappy-blue .call-summary > div p {
+  border: 1px solid #DDE4EC;
+  background: #FFFFFF;
+  color: #647588;
+}
+.whappy-blue .call-summary > div p b { color: #146FE8 !important; }
+.whappy-blue .call-history-head {
+  padding: 18px 22px !important;
+  border-bottom: 1px solid #DDE4EC !important;
+  background: #FFFFFF !important;
+}
+.whappy-blue .call-history-head > span {
+  background: #EAF2FF !important;
+  color: #146FE8 !important;
+}
+.whappy-blue .call-history-head small { color: #647588 !important; }
+.whappy-blue .call-history {
+  padding: 18px 22px 28px !important;
+  background: #F7F9FC !important;
+}
+.whappy-blue .call-history > article {
+  border: 1px solid #DDE4EC !important;
+  background: #FFFFFF !important;
+  color: #0A1D32 !important;
+  box-shadow: 0 8px 22px rgba(10, 29, 50, .06) !important;
+}
+.whappy-blue .call-history > article > span {
+  background: #146FE8 !important;
+  color: #FFFFFF !important;
+}
+.whappy-blue .call-history article > i {
+  background: #EAF2FF !important;
+  color: #146FE8 !important;
+}
+.whappy-blue .call-history article > button {
+  border-color: #DDE4EC !important;
+  background: #FFFFFF !important;
+  color: #146FE8 !important;
+}
+.whappy-blue .call-history article > button:last-child {
+  border-color: #146FE8 !important;
+  background: #146FE8 !important;
+  color: #FFFFFF !important;
+}
+.whappy-blue .call-history > article.missed {
+  border-color: rgba(240, 68, 90, .28) !important;
+  background: #FFF8F9 !important;
+}
+.whappy-blue .call-history > article.missed > span {
+  background: #F0445A !important;
+}
+.whappy-blue .call-history > article.missed small,
+.whappy-blue .call-history > article.missed > i { color: #D9364F !important; }
+.whappy-blue .call-history-empty > span {
+  background: #EAF2FF !important;
+  color: #146FE8 !important;
+}
+.whappy-blue .call-history-empty h3 { color: #0A1D32 !important; }
+
+.whappy-blue .call-room {
+  border-color: rgba(255, 255, 255, .22);
+  background: radial-gradient(circle at 50% 30%, #1B64C8 0%, #0A1D32 72%) !important;
+}
+.whappy-blue .call-room header span { color: #9ED7FF !important; }
+.whappy-blue .call-room header b { color: #FFFFFF !important; }
+.whappy-blue .call-contact > span { border-color: rgba(158, 215, 255, .42); color: #FFFFFF !important; }
+.whappy-blue .call-contact p { color: rgba(255, 255, 255, .72) !important; }
+.whappy-blue .call-note { color: rgba(255, 255, 255, .66) !important; }
+.whappy-blue .call-room footer button.hangup { background: #F0445A !important; }
+.whappy-blue .call-room footer button.accept-call { background: #1F9D68 !important; }
+.whappy-blue .call-room footer button.off { color: #146FE8 !important; }
+
+@media (max-width: 760px) {
+  .whappy-blue .realtime-panel.embedded { border-radius: 0; }
+  .whappy-blue .call-history { padding: 12px 10px 24px !important; }
+  .whappy-blue .call-history-head { padding: 14px 12px !important; }
+}
+
+/* Couleurs sémantiques partagées : un état critique reste rouge partout dans l’app. */
+.whappy-blue :is(.error, .access-error, .danger, .urgent, .missed, .declined) {
+  border-color: rgba(240, 68, 90, .28) !important;
+  background-color: #FFF8F9 !important;
+  color: #D9364F !important;
+}
+.whappy-blue :is(.warning, .pending, .processing) {
+  border-color: rgba(229, 138, 0, .28) !important;
+  background-color: #FFF9ED !important;
+  color: #B56B00 !important;
+}
+.whappy-blue :is(.success, .accepted, .paid, .connected, .ready) {
+  border-color: rgba(31, 157, 104, .24) !important;
+  color: #167A50 !important;
+}
+.whappy-blue :is(.live-pill, .live-label, .preview-live) {
+  background: #F0445A !important;
+  color: #FFFFFF !important;
+}
 
 /* WAPI design system: surfaces calmes, bleu propriétaire et interactions natives. */
 .mobile-primary-nav { display: none !important; }
