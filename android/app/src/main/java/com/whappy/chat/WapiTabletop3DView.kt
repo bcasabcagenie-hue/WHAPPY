@@ -36,6 +36,19 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
     private var previousX = 0f
     private var previousY = 0f
     private val touchInput = WapiTabletopInput(android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+    /**
+     * The old renderer drew sixty frames per second even while a board was
+     * completely still.  Besides heating phones this made chess, dames and
+     * ludo feel sluggish because they competed with the app UI for every
+     * frame.  We now wake OpenGL only for a move, a roll, a cue stroke or
+     * rolling balls.
+     */
+    private val frameTicker = object : Runnable {
+        override fun run() {
+            requestRender()
+            if (tabletopRenderer.needsAnimationFrame()) postDelayed(this, 16L)
+        }
+    }
     var onSquareTapped: ((Int) -> Unit)? = null
     var onLudoPawnTapped: ((Int) -> Unit)? = null
     var onPoolGesture: ((Float, Float, Boolean) -> Unit)? = null
@@ -66,8 +79,14 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         setEGLContextClientVersion(2)
         setEGLConfigChooser(8, 8, 8, 8, 24, 0)
         setRenderer(tabletopRenderer)
-        renderMode = RENDERMODE_CONTINUOUSLY
+        renderMode = RENDERMODE_WHEN_DIRTY
         preserveEGLContextOnPause = true
+    }
+
+    private fun requestGameFrame() {
+        removeCallbacks(frameTicker)
+        requestRender()
+        if (tabletopRenderer.needsAnimationFrame()) postDelayed(frameTicker, 16L)
     }
 
     fun setStrategyScene(scene: Scene, board: List<String>, selected: Int, legalTargets: Set<Int>) {
@@ -75,6 +94,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.updateStrategyBoard(board)
         tabletopRenderer.selected = selected
         tabletopRenderer.legalTargets = legalTargets.toSet()
+        requestGameFrame()
     }
 
     fun setLudoScene(
@@ -92,6 +112,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.dieTwo = dieTwo.coerceIn(1, 6)
         tabletopRenderer.dieRolling = rolling
         tabletopRenderer.selectableLudoPawns = selectablePawns.toSet()
+        requestGameFrame()
     }
 
     fun setPoolScene(
@@ -117,6 +138,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.poolCueInHand = cueInHand
         tabletopRenderer.poolTableTheme = tableTheme
         tabletopRenderer.poolCueStyle = cueStyle
+        requestGameFrame()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -143,19 +165,24 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 touchInput.move(event.x, event.y)
                 if (tabletopRenderer.scene == Scene.POOL) {
                     dispatchPoolGesture(event, released = false)
+                    requestGameFrame()
                     return true
                 }
                 val dx = event.x - previousX
                 val dy = event.y - previousY
                 previousX = event.x
                 previousY = event.y
-                if (touchInput.wasDragged) tabletopRenderer.orbit(dx, dy)
+                if (touchInput.wasDragged) {
+                    tabletopRenderer.orbit(dx, dy)
+                    requestGameFrame()
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 val tapped = touchInput.finish(event.x, event.y)
                 performClick()
                 tabletopRenderer.endOrbit()
+                requestGameFrame()
                 if (tabletopRenderer.scene == Scene.POOL) {
                     if (!touchInput.cancelled) dispatchPoolGesture(event, released = true)
                 } else if (tapped) {
@@ -276,6 +303,14 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         private val pocketLiner = pocketLinerMesh(48)
         private val ballRoll = mutableMapOf<Int, FloatArray>()
         private val startedAt = System.nanoTime()
+
+        /** True only while visible state is actually changing. */
+        fun needsAnimationFrame(): Boolean = when (scene) {
+            Scene.POOL -> poolMoving || poolCueStroke > .001f || poolDrops.isNotEmpty()
+            Scene.LUDO -> dieRolling || ludoMove != null
+            Scene.CHECKERS, Scene.CHESS -> strategyMove != null || orbiting ||
+                abs(yawVelocity) > .01f || abs(pitchVelocity) > .01f
+        }
 
         fun updateStrategyBoard(nextBoard: List<String>) {
             val previous = board
@@ -950,27 +985,50 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             val wood = when (poolCueStyle) {
                 "walnut" -> floatArrayOf(.16f, .055f, .020f, 1f)
                 "carbon" -> floatArrayOf(.035f, .047f, .058f, 1f)
+                "obsidian" -> floatArrayOf(.050f, .025f, .115f, 1f)
                 else -> floatArrayOf(.22f, .105f, .045f, 1f)
             }
             val woodLight = when (poolCueStyle) {
                 "walnut" -> floatArrayOf(.30f, .095f, .038f, 1f)
                 "carbon" -> floatArrayOf(.10f, .13f, .16f, 1f)
+                "obsidian" -> floatArrayOf(.22f, .10f, .42f, 1f)
                 else -> floatArrayOf(.40f, .145f, .060f, 1f)
             }
             val felt = when (poolTableTheme) {
                 "navy" -> floatArrayOf(.018f, .17f, .43f, 1f)
                 "emerald" -> floatArrayOf(.015f, .37f, .27f, 1f)
-                else -> floatArrayOf(.018f, .47f, .74f, 1f)
+                // Competition blue: a real wool-cloth blue, deliberately
+                // deeper than the old cyan which made the table look like a
+                // generic mobile-game surface under bright Android displays.
+                else -> floatArrayOf(.012f, .31f, .62f, 1f)
             }
             val cushion = when (poolTableTheme) {
                 "emerald" -> floatArrayOf(.012f, .23f, .15f, 1f)
-                else -> floatArrayOf(.012f, .31f, .46f, 1f)
+                else -> floatArrayOf(.008f, .20f, .39f, 1f)
             }
             val pocketLeather = floatArrayOf(.055f, .021f, .012f, 1f)
             val railSight = floatArrayOf(.90f, .94f, 1f, 1f)
             val pulse = .58f + (sin(seconds * 1.10f) + 1f) * .09f
             // Dark lounge floor, blue under-light and a physical table plinth.
             draw(cube, 0f, -.72f, 0f, 7.8f, .05f, 4.45f, floatArrayOf(.006f, .012f, .026f, 1f), .08f)
+            // The apron and legs give the table a real centre of gravity. The
+            // old floating slab looked polished but had no believable weight
+            // once the camera revealed the lower edge.
+            val apron = floatArrayOf(.045f, .018f, .010f, 1f)
+            val apronHighlight = floatArrayOf(.22f, .075f, .025f, 1f)
+            draw(cube, 0f, -.55f, -3.02f, 5.18f, .34f, .16f, apron, .34f, material = 1f)
+            draw(cube, 0f, -.55f, 3.02f, 5.18f, .34f, .16f, apron, .34f, material = 1f)
+            draw(cube, -5.18f, -.55f, 0f, .16f, .34f, 2.84f, apron, .34f, material = 1f)
+            draw(cube, 5.18f, -.55f, 0f, .16f, .34f, 2.84f, apron, .34f, material = 1f)
+            draw(cube, 0f, -.34f, -3.12f, 4.48f, .025f, .018f, apronHighlight, .72f, material = 3f)
+            draw(cube, 0f, -.34f, 3.12f, 4.48f, .025f, .018f, apronHighlight, .72f, material = 3f)
+            listOf(-4.30f, 4.30f).forEach { x ->
+                listOf(-2.28f, 2.28f).forEach { z ->
+                    draw(cube, x, -1.02f, z, .33f, .74f, .33f, wood, .24f, material = 1f)
+                    draw(cube, x, -1.43f, z, .48f, .08f, .48f, apron, .18f, material = 1f)
+                    draw(cylinder, x, -.56f, z, .11f, .035f, .11f, apronHighlight, .82f, material = 3f)
+                }
+            }
             draw(cube, 0f, -.56f, -2.93f, 4.82f, .026f, .028f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
             draw(cube, 0f, -.56f, 2.93f, 4.82f, .026f, .028f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
             draw(cube, -5.48f, -.56f, 0f, .028f, .026f, 2.53f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
@@ -1032,30 +1090,61 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 floatArrayOf(.46f, .03f, .06f, 1f),
                 floatArrayOf(.008f, .012f, .018f, 1f),
             )
-            // Compact three-lane U-shaped return behind the head rail. This
-            // avoids the overly long straight bar and reads as a physical
-            // ball-return mechanism from every camera angle.
-            val returnBed = floatArrayOf(.025f, .045f, .070f, 1f)
-            val returnRail = floatArrayOf(.42f, .48f, .56f, 1f)
-            draw(cube, 0f, .19f, -3.07f, 4.62f, .15f, .78f, returnBed, .24f, material = 1f)
-            listOf(-3.33f, -3.08f, -2.83f).forEach { z ->
-                draw(cylinder, 0f, .39f, z, .042f, 4.18f, .042f, returnRail, .72f, rotationZ = 90f, material = 3f)
-            }
-            listOf(-2.07f, 2.07f).forEach { x ->
-                draw(cylinder, x, .39f, -3.20f, .042f, .30f, .042f, returnRail, .72f, material = 3f)
-                draw(cylinder, x, .39f, -2.95f, .042f, .30f, .042f, returnRail, .72f, material = 3f)
+            // Mechanical ball-return assembly: three compact nested chrome
+            // U tracks behind the head rail.  The U closes only at its far
+            // end, like a real return channel; joining both ends made it look
+            // like a fence in the on-device camera.
+            val returnBed = floatArrayOf(.012f, .024f, .042f, 1f)
+            val returnWell = floatArrayOf(.005f, .010f, .019f, 1f)
+            val returnRail = floatArrayOf(.55f, .64f, .75f, 1f)
+            val returnJoint = floatArrayOf(.82f, .89f, .97f, 1f)
+            val returnBaseZ = -3.24f
+            draw(cube, 0f, .22f, returnBaseZ, 3.70f, .17f, .60f, returnBed, .18f, material = 1f)
+            draw(cube, 0f, .30f, returnBaseZ, 3.48f, .028f, .43f, returnWell, .05f, material = 8f)
+            repeat(3) { index ->
+                val halfWidth = 3.34f - index * .18f
+                val y = .46f + index * .105f
+                val backZ = -3.50f + index * .045f
+                val frontZ = -3.16f + index * .045f
+                val tubeRadius = .033f
+                val left = -halfWidth + .14f
+                val right = halfWidth - .15f
+                val arcX = halfWidth + .02f
+                // The two long parallel tubes and five tiny bevels create a
+                // rounded U elbow without visible cross-braces.
+                draw(cylinder, (left + right) / 2f, y, frontZ, tubeRadius, right - left, tubeRadius, returnRail, .84f, rotationZ = 90f, material = 3f)
+                draw(cylinder, (left + right) / 2f, y, backZ, tubeRadius, right - left, tubeRadius, returnRail, .84f, rotationZ = 90f, material = 3f)
+                val elbow = listOf(
+                    floatArrayOf(right, frontZ),
+                    floatArrayOf(arcX, frontZ + .075f),
+                    floatArrayOf(arcX + .035f, (frontZ + backZ) / 2f),
+                    floatArrayOf(arcX, backZ - .075f),
+                    floatArrayOf(right, backZ),
+                )
+                elbow.zipWithNext().forEach { (from, to) ->
+                    val dx = to[0] - from[0]
+                    val dz = to[1] - from[1]
+                    val length = kotlin.math.sqrt(dx * dx + dz * dz)
+                    val angle = Math.toDegrees(kotlin.math.atan2(dz.toDouble(), dx.toDouble())).toFloat()
+                    draw(cylinder, (from[0] + to[0]) / 2f, y, (from[1] + to[1]) / 2f, tubeRadius, length, tubeRadius, returnRail, .84f, rotationZ = 90f, rotationY = -angle, material = 3f)
+                }
+                elbow.forEach { point -> draw(sphere, point[0], y, point[1], .039f, .039f, .039f, returnJoint, .78f, material = 3f) }
+                draw(sphere, left, y, frontZ, .039f, .039f, .039f, returnJoint, .78f, material = 3f)
+                draw(sphere, left, y, backZ, .039f, .039f, .039f, returnJoint, .78f, material = 3f)
             }
             val returnedBalls = poolBalls.filter { it.size >= 6 && it[2].toInt() > 0 && it[5] >= .5f }
                 .map { it[2].toInt() }.sorted().take(15)
             returnedBalls.forEachIndexed { index, id ->
                 val lane = index / 5
                 val slot = index % 5
-                val x = -1.60f + slot * .80f
-                val z = -3.25f + lane * .20f
+                // Balls sit in the actual return wells, between the front and
+                // rear rails, instead of floating on the decorative top bar.
+                val x = -2.38f + slot * 1.19f
+                val z = -3.25f + lane * .075f
                 val color = colors[(id - 1).mod(colors.size)]
                 drawSoftShadow(x, z, .105f, .065f)
-                draw(sphere, x, .44f, z, .115f, .115f, .115f, color, .92f, material = if (id >= 9) 6f else 5f)
-                draw(cylinder, x, .541f, z, .046f, .002f, .046f, floatArrayOf(.98f, .985f, 1f, 1f), .30f)
+                draw(sphere, x, .47f + lane * .060f, z, .115f, .115f, .115f, color, .92f, material = if (id >= 9) 6f else 5f)
+                draw(cylinder, x, .571f + lane * .060f, z, .046f, .002f, .046f, floatArrayOf(.98f, .985f, 1f, 1f), .30f)
                 drawPoolNumber(id, x, z)
             }
             poolBalls.forEach { ball ->
@@ -1228,10 +1317,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val cueShaft = when (poolCueStyle) {
                     "walnut" -> floatArrayOf(.52f, .20f, .075f, 1f)
                     "carbon" -> floatArrayOf(.12f, .15f, .17f, 1f)
+                    "obsidian" -> floatArrayOf(.25f, .10f, .50f, 1f)
                     else -> floatArrayOf(.96f, .76f, .43f, 1f)
                 }
                 val cueGrip = when (poolCueStyle) {
                     "carbon" -> floatArrayOf(.018f, .025f, .035f, 1f)
+                    "obsidian" -> floatArrayOf(.035f, .012f, .085f, 1f)
                     else -> floatArrayOf(.095f, .028f, .010f, 1f)
                 }
                 draw(cueFrustum, centerX, .36f, centerZ, .061f, cueHalfLength, .061f, cueShaft, .38f, rotationX = 90f, rotationZ = shaftRotation, material = 7f)
@@ -1247,25 +1338,26 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         }
 
         private fun drawPlacementHand(ballX: Float, z: Float) {
-            // Fitted ivory glove: padded knuckles, bent fingers gripping the
-            // ball, stitched back and a ribbed navy cuff. The ball stays visible.
-            val x = ballX + .24f
-            val glove = floatArrayOf(.93f, .935f, .91f, 1f)
+            // A fitted billiards glove sits beside the ball, with only the
+            // fingertips entering the placement area.  It must guide the
+            // gesture without hiding the cue ball or looking like a mascot.
+            val x = ballX + .15f
+            val glove = floatArrayOf(.84f, .855f, .86f, 1f)
             val seam = floatArrayOf(.56f, .62f, .66f, 1f)
-            draw(sphere, x + .095f, .72f, z + .28f, .20f, .080f, .22f, glove, .08f, material = 9f)
+            draw(sphere, x + .065f, .59f, z + .20f, .135f, .052f, .150f, glove, .08f, material = 9f)
             for (finger in 0..3) {
-                val fx = x - .06f + finger * .08f
-                val reach = if (finger == 3) .035f else 0f
-                draw(sphere, fx, .68f, z + .09f + reach, .039f, .063f, .14f, glove, .08f, rotationX = -22f, material = 9f)
-                draw(sphere, fx, .56f, z + .005f + reach, .038f, .10f, .046f, glove, .08f, rotationX = -18f, material = 9f)
-                draw(sphere, fx, .746f, z + .155f, .036f, .018f, .041f, glove, .06f, material = 9f)
+                val fx = x - .055f + finger * .055f
+                val reach = if (finger == 3) .022f else 0f
+                draw(sphere, fx, .57f, z + .060f + reach, .027f, .044f, .098f, glove, .08f, rotationX = -22f, material = 9f)
+                draw(sphere, fx, .485f, z + .002f + reach, .026f, .069f, .032f, glove, .08f, rotationX = -18f, material = 9f)
+                draw(sphere, fx, .616f, z + .110f, .022f, .011f, .027f, glove, .06f, material = 9f)
             }
-            draw(sphere, x - .12f, .63f, z + .21f, .060f, .065f, .13f, glove, .08f, rotationY = -38f, material = 9f)
-            draw(sphere, x - .17f, .53f, z + .12f, .050f, .080f, .054f, glove, .08f, material = 9f)
-            for (stitch in -1..1) draw(sphere, x + .095f + stitch * .065f, .799f, z + .29f, .004f, .004f, .088f, seam, 0f, material = 9f)
-            draw(sphere, x + .095f, .72f, z + .495f, .149f, .076f, .09f, glove, .05f, material = 9f)
-            draw(sphere, x + .095f, .72f, z + .55f, .142f, .072f, .078f, floatArrayOf(.016f, .07f, .13f, 1f), .05f, material = 9f)
-            for (rib in -3..3) draw(sphere, x + .095f + rib * .032f, .785f, z + .55f, .003f, .004f, .046f, seam, 0f, material = 9f)
+            draw(sphere, x - .095f, .535f, z + .145f, .043f, .046f, .092f, glove, .08f, rotationY = -38f, material = 9f)
+            draw(sphere, x - .135f, .46f, z + .085f, .036f, .058f, .039f, glove, .08f, material = 9f)
+            for (stitch in -1..1) draw(sphere, x + .065f + stitch * .042f, .654f, z + .208f, .003f, .003f, .060f, seam, 0f, material = 9f)
+            draw(sphere, x + .065f, .59f, z + .355f, .102f, .054f, .064f, glove, .05f, material = 9f)
+            draw(sphere, x + .065f, .59f, z + .398f, .097f, .051f, .055f, floatArrayOf(.016f, .07f, .13f, 1f), .05f, material = 9f)
+            for (rib in -3..3) draw(sphere, x + .065f + rib * .023f, .638f, z + .398f, .003f, .004f, .033f, seam, 0f, material = 9f)
         }
 
         private fun drawPoolNumber(number: Int, centerX: Float, centerZ: Float) {
