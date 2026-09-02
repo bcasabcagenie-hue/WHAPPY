@@ -914,7 +914,7 @@ export default function Home() {
       />
       {space === "services" && <SuperHub search={search} go={go} orderCount={orders.length} onOrders={()=>setOrdersOpen(true)} notify={notify} />}
       {space === "twin" && <TwinEngineStudio userId={userId||"local-preview"} userName={auth.currentUser?.displayName||profileName||"Vous"} consent={consent} setConsent={setConsent} notify={notify} cloud={Boolean(userId)}/>}
-      {space === "business" && <>{(founderProfile || demoMode) && <HappyFounderDashboard ownerId={userId||"happy-demo"} userName={businessName} search={search} notify={notify} demo={demoMode}/>}<div id="business-studio"><BusinessStudio userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div><div id="business-growth"><BusinessGrowthTools userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div></>}
+      {space === "business" && <>{(founderProfile || demoMode) && <HappyFounderDashboard ownerId={userId||"happy-demo"} userName={businessName} search={search} notify={notify} demo={demoMode}/>}<div id="business-studio"><BusinessStudio userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode}/></div><div id="business-growth"><BusinessGrowthTools userId={userId||"demo-user"} userName={businessName} search={search} notify={notify} demo={demoMode} onOfferPublished={(listing) => setCustomListings((current) => current.some((item) => item.id === listing.id) ? current : [{ ...listing }, ...current])}/></div></>}
       {space === "games" && <GamesSpace notify={notify} demo={demoMode} />}
     </section>
 
@@ -1373,7 +1373,7 @@ function LiveSpace({ setModal, setLiveIndex }: { setModal: (type: "live") => voi
 }
 
 function MarketSpace({ search, filter, setFilter, items, shopCount, saved, setSaved, notify, setModal, onOpenShop, onOpen }: { search:string; filter:string; setFilter:(v:string)=>void; items:Listing[]; shopCount:number; saved:Record<string,boolean>; setSaved:React.Dispatch<React.SetStateAction<Record<string, boolean>>>; notify:(text:string)=>void; setModal:(type:"sell")=>void; onOpenShop:()=>void; onOpen:(item:Listing)=>void }) {
-  const filters=["Tout","Tech","Mode","Maison","Services","Troc"];
+  const filters=["Tout","Tech","Mode","Maison","Produits","Services","Troc"];
   const [sort,setSort]=useState<"near"|"trust">("near");
   const [nearby,setNearby]=useState(false);
   const distance = (place: string) => {

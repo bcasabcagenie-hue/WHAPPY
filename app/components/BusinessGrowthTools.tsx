@@ -18,6 +18,7 @@ import {
   type BusinessSettings,
   type LeadStage,
 } from "@/lib/whappy-business";
+import { publishListing } from "@/lib/whappy-data";
 
 const demoOffers: BusinessOffer[] = [
   { id: "demo-offer-1", ownerId: "demo-user", kind: "product", title: "Montre Kongo One", description: "Montre connectée, livraison possible à Brazzaville.", price: 42000, currency: "XAF", status: "active" },
@@ -37,7 +38,9 @@ function formatPrice(value: number, currency: BusinessCurrency) {
   return `${new Intl.NumberFormat("fr-FR").format(value)} ${currencySymbols[currency]}`;
 }
 
-export function BusinessGrowthTools({ userId, userName, search, notify, demo = false }: { userId: string; userName: string; search: string; notify: (text: string) => void; demo?: boolean }) {
+type MarketplaceOffer = { id: string | number; title: string; price: string; place: string; seller: string; mark: string; tone: string; category: string; mode: "vente"; trust: number; ownerId?: string; status: "active" };
+
+export function BusinessGrowthTools({ userId, userName, search, notify, demo = false, onOfferPublished }: { userId: string; userName: string; search: string; notify: (text: string) => void; demo?: boolean; onOfferPublished?: (listing: MarketplaceOffer) => void }) {
   const [tab, setTab] = useState<"catalog" | "prospects" | "settings">("catalog");
   const [offers, setOffers] = useState<BusinessOffer[]>([]);
   const [leads, setLeads] = useState<BusinessLead[]>([]);
@@ -102,9 +105,25 @@ export function BusinessGrowthTools({ userId, userName, search, notify, demo = f
     if (!offer.title) { notify("Donnez un nom à votre produit ou service"); return; }
     setBusy(true);
     try {
-      if (demo) setOffers((current) => [{ ...offer, id: `demo-offer-${Date.now()}`, ownerId: userId }, ...current]);
-      else await createBusinessOffer(userId, offer);
-      notify(`${offer.kind === "product" ? "Produit" : "Service"} ajouté au catalogue`); setModal(null); setTab("catalog");
+      let offerId = `demo-offer-${Date.now()}`;
+      if (demo) setOffers((current) => [{ ...offer, id: offerId, ownerId: userId }, ...current]);
+      else offerId = await createBusinessOffer(userId, offer);
+      const listing: MarketplaceOffer = {
+        id: `business-${offerId}`, title: offer.title,
+        price: offer.price ? formatPrice(offer.price, offer.currency) : "Prix à discuter",
+        place: "Boutique Business", seller: userName,
+        mark: userName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "BU",
+        tone: offer.kind === "product" ? "blue" : "violet",
+        category: offer.kind === "product" ? "Produits" : "Services", mode: "vente", trust: 100, ownerId: userId, status: "active",
+      };
+      if (demo) onOfferPublished?.(listing);
+      else {
+        try {
+          const persisted = await publishListing(userId, { title: listing.title, price: listing.price, place: listing.place, seller: listing.seller, mark: listing.mark, category: listing.category, mode: listing.mode, sellerPhone: "" });
+          onOfferPublished?.({ ...listing, id: persisted.id });
+        } catch { notify("Offre ajoutée au catalogue, mais publication Marketplace à réessayer"); }
+      }
+      notify(`${offer.kind === "product" ? "Produit" : "Service"} ajouté au catalogue et à la Marketplace`); setModal(null); setTab("catalog");
     } catch { notify("L’offre n’a pas pu être enregistrée"); } finally { setBusy(false); }
   }
 
