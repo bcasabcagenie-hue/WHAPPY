@@ -115,7 +115,11 @@ struct WapiCommerceView: View {
     @State private var catalogueCategory = ""
     @State private var availableOnly = false
     @State private var checkEventID = ""
+    @State private var eventSearch = ""
+    @State private var eventCategory = ""
+    @State private var eventAvailabilityOnly = false
     private var current: String { route.isEmpty ? initialRoute : route }
+    private var ticketbulk: Bool { current == "events" || current == "myTickets" }
     private var loadKey: String { "\(current)|\(pageID)|\(search)|\(city)" }
     var body: some View {
         ScrollView {
@@ -130,8 +134,8 @@ struct WapiCommerceView: View {
                 if model.cursor != nil { Button("Charger la suite") { Task { await model.load(current, pageID: pageID, search: search, city: city, append: true) } }.disabled(model.busy) }
             }.padding(16)
         }
-        .background(Color.whappyBackground)
-        .navigationTitle(current == "events" || current == "myTickets" ? "Ticketbulk" : current == "storefront" ? model.page.string("name") : current == "billing" ? "Facturation Business" : "Boutiques & menus")
+        .background(ticketbulk ? Color(red: 0.94, green: 0.97, blue: 0.98) : Color.whappyBackground)
+        .navigationTitle(ticketbulk ? "TicketBulk" : current == "storefront" ? model.page.string("name") : current == "billing" ? "Facturation Business" : "Boutiques & menus")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { if current == "storefront" { route = "directory" } else if current == "myTickets" { route = "events" } else { Task { await reload() } } } label: { Image(systemName: current == "storefront" || current == "myTickets" ? "square.grid.2x2" : "arrow.clockwise") } } }
         .task { await model.loadPages() }
@@ -144,10 +148,22 @@ struct WapiCommerceView: View {
             WapiCommerceEditorIOS(kind: editor ?? "product", page: model.page, product: product, invoiceProducts: model.products, pages: model.pages, checkEventID: checkEventID) { editor = nil; Task { await reload() } }
         }
         .sheet(item: $ticket) { WapiTicketIOS(ticket: $0) { ticket = nil; Task { await reload() } } }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if ticketbulk {
+                HStack(spacing: 0) {
+                    ticketTab("Découvrir", "safari", selected: current == "events") { route = "events" }
+                    ticketTab("Mes billets", "ticket", selected: current == "myTickets") { route = "myTickets" }
+                    ticketTab("Organiser", "plus.circle.fill", selected: false) { editor = "event" }
+                }.padding(.vertical, 8).background(.ultraThinMaterial)
+            }
+        }
         .onChange(of: pageID) { _, _ in catalogueSearch = ""; catalogueCategory = ""; availableOnly = false }
         .navigationDestination(item: $conversationID) { ConversationView(conversationID: $0) }
     }
     private func reload() async { await model.load(current, pageID: pageID, search: search, city: city) }
+    private func ticketTab(_ title: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { VStack(spacing: 3) { Image(systemName: symbol); Text(title).font(.caption2.weight(.semibold)) }.frame(maxWidth: .infinity).foregroundStyle(selected ? Color.whappyBlue : Color.secondary) }.buttonStyle(.plain)
+    }
     private var directory: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Trouvez votre prochaine adresse").font(.title2.bold())
@@ -224,27 +240,58 @@ struct WapiCommerceView: View {
     }
     private var events: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { Button("Mes billets") { route = "myTickets" }; Spacer(); Button("Créer un événement") { editor = "event" } }
-            ForEach(model.rows) { event in
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 11) { Image(systemName: "ticket.fill").font(.title2).foregroundStyle(.cyan); VStack(alignment: .leading, spacing: 3) { Text("TICKETBULK").font(.headline.weight(.heavy)); Text("Événements, billets et contrôle d’entrée").font(.caption).foregroundStyle(.white.opacity(0.72)) } }
+                HStack { Button("Mes billets") { route = "myTickets" }.buttonStyle(.bordered); Spacer(); Button("Créer un événement") { editor = "event" }.buttonStyle(.borderedProminent) }
+            }.padding(18).foregroundStyle(.white).background(Color(red: 0.03, green: 0.16, blue: 0.28), in: RoundedRectangle(cornerRadius: 24))
+            TextField("Rechercher un concert, une formation, un lieu…", text: $eventSearch).textFieldStyle(.roundedBorder)
+            let eventCategories = Array(Set(model.rows.map { $0.string("category").isEmpty ? "Événement" : $0.string("category") })).sorted()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    eventChip("", title: "Tous", count: filteredEvents.count)
+                    ForEach(eventCategories, id: \.self) { label in eventChip(label, title: label, count: filteredEvents.filter { ($0.string("category").isEmpty ? "Événement" : $0.string("category")) == label }.count) }
+                }
+            }
+            Toggle("Places disponibles uniquement", isOn: $eventAvailabilityOnly).font(.subheadline).tint(Color.whappyBlue)
+            ForEach(filteredEvents) { event in
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(event.date.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(Color.whappyBlue).bold()
-                    Text(event.string("title")).font(.title2.bold())
-                    Text("\(event.string("venue")) · \(event.string("organizer"))").foregroundStyle(.secondary)
-                    Text(event.string("description"))
-                    Text("\(max(0, event.number("capacity") - event.number("reserved"))) places restantes · Gratuit").font(.caption)
+                    HStack(spacing: 12) {
+                        CommercePhoto(url: event.string("posterUrl"), size: 78, symbol: "ticket")
+                        VStack(alignment: .leading, spacing: 4) { Text(event.string("category").isEmpty ? "ÉVÉNEMENT" : event.string("category").uppercased()).font(.caption.weight(.heavy)).foregroundStyle(Color.whappyBlue); Text(event.string("title")).font(.title3.bold()).lineLimit(2); Text(event.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    Text("\(event.string("venue")) · \(event.string("organizer"))").font(.subheadline).foregroundStyle(.secondary)
+                    if !event.string("description").isEmpty { Text(event.string("description")).font(.subheadline).lineLimit(3) }
+                    let remaining = max(0, event.number("capacity") - event.number("reserved")); let occupancy = event.number("capacity") > 0 ? Double(event.number("reserved")) / Double(event.number("capacity")) : 0
+                    ProgressView(value: min(1, occupancy)).tint(remaining == 0 ? .red : .green)
+                    HStack { Text("\(event.string("ticketLabel").isEmpty ? "Accès général" : event.string("ticketLabel")) · gratuit").font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue); Spacer(); Text("\(remaining) / \(event.number("capacity")) places").font(.caption).foregroundStyle(.secondary) }
                     if event.string("ownerId") == Auth.auth().currentUser?.uid {
-                        Text("\(event.number("reserved")) billets · \(event.number("checkedIn")) entrées").bold()
-                        Button("Contrôler un billet") { checkEventID = event.id; editor = "check" }
+                        HStack { Label("\(event.number("reserved")) billets · \(event.number("checkedIn")) entrées", systemImage: "person.2.fill").font(.caption.bold()); Spacer(); Button("Scanner") { checkEventID = event.id; editor = "check" } }
+                            .padding(10).background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
                         if event.string("status") == "published" { Button("Fermer les inscriptions") { Task { await mutate { _ = try await WapiCommerceModel.call("closeEvent", ["eventId": event.id]); await reload() } } }.disabled(mutationBusy) }
                     }
                     let hasTicket = ["issued", "used"].contains(event.string("myTicketStatus"))
                     let reservable = event.string("status") == "published" && event.date > Date() && event.number("reserved") < event.number("capacity")
-                    if hasTicket || reservable { Button(hasTicket ? "Afficher mon billet" : "Obtenir mon billet") { Task { await mutate { let result = try await WapiCommerceModel.call("reserveTicket", ["eventId": event.id]); if let data = result["ticket"] as? [String: Any] { ticket = WapiCommerceRecord(data: data) }; await reload() } } }.buttonStyle(.borderedProminent).disabled(mutationBusy) }
+                    if hasTicket || reservable { Button { Task { await mutate { let result = try await WapiCommerceModel.call("reserveTicket", ["eventId": event.id]); if let data = result["ticket"] as? [String: Any] { ticket = WapiCommerceRecord(data: data) }; await reload() } } } label: { Label(hasTicket ? "Afficher mon billet" : "Réserver mon billet", systemImage: hasTicket ? "qrcode" : "ticket.fill") }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity).disabled(mutationBusy) }
                     else { Text(event.number("reserved") >= event.number("capacity") ? "Complet" : "Inscriptions fermées").foregroundStyle(.secondary) }
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(.white, in: RoundedRectangle(cornerRadius: 22))
             }
             if !model.busy && model.rows.isEmpty && model.error == nil { Text("Pas d’événement dans cette sélection. Créez le vôtre avec votre page Business.").foregroundStyle(.secondary) }
+            else if !model.busy && filteredEvents.isEmpty && model.error == nil { Text("Aucun événement ne correspond à ces filtres.").foregroundStyle(.secondary); Button("Réinitialiser") { eventSearch = ""; eventCategory = ""; eventAvailabilityOnly = false } }
         }
+    }
+    private var filteredEvents: [WapiCommerceRecord] {
+        model.rows.filter { event in
+            let remaining = max(0, event.number("capacity") - event.number("reserved"))
+            let category = event.string("category").isEmpty ? "Événement" : event.string("category")
+            let content = "\(event.string("title")) \(event.string("description")) \(event.string("venue")) \(category) \(event.string("organizer"))"
+            return (eventSearch.isEmpty || content.matchesWhappySearch(eventSearch)) && (eventCategory.isEmpty || category == eventCategory) && (!eventAvailabilityOnly || remaining > 0)
+        }
+    }
+    private func eventChip(_ value: String, title: String, count: Int) -> some View {
+        Button { eventCategory = eventCategory == value ? "" : value } label: {
+            Text("\(title) · \(count)").font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(minHeight: 42)
+                .foregroundStyle(eventCategory == value ? Color.white : Color.primary).background(eventCategory == value ? Color.whappyBlue : Color.white, in: Capsule())
+        }.buttonStyle(.plain).accessibilityAddTraits(eventCategory == value ? [.isSelected] : [])
     }
     private var billing: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -287,7 +334,7 @@ struct WapiCommerceView: View {
     private var tickets: some View {
         VStack(alignment: .leading, spacing: 16) {
             ForEach(model.rows) { item in Button { ticket = item } label: {
-                VStack(alignment: .leading, spacing: 8) { Text(item.string("title")).font(.title3.bold()); Text(item.date.formatted(date: .abbreviated, time: .shortened)); Text(item.string("status") == "used" ? "Déjà utilisé" : item.string("status") == "cancelled" ? "Réservation annulée" : "Afficher mon QR").foregroundStyle(Color.whappyBlue) }.frame(maxWidth: .infinity, alignment: .leading).padding(20).background(.white, in: RoundedRectangle(cornerRadius: 20))
+                HStack(spacing: 12) { CommercePhoto(url: item.string("posterUrl"), size: 58, symbol: "ticket"); VStack(alignment: .leading, spacing: 5) { Text(item.string("title")).font(.headline); Text(item.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary); Text(item.string("status") == "used" ? "Billet déjà validé" : item.string("status") == "cancelled" ? "Réservation annulée" : "QR prêt à présenter").font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue) }; Spacer(); Image(systemName: "qrcode").foregroundStyle(Color.whappyBlue) }.frame(maxWidth: .infinity, alignment: .leading).padding(15).background(.white, in: RoundedRectangle(cornerRadius: 20))
             }.buttonStyle(.plain) }
             if !model.busy && model.rows.isEmpty && model.error == nil { Text("Vos billets réservés seront conservés ici.").foregroundStyle(.secondary) }
         }
@@ -322,17 +369,19 @@ struct CommercePhoto: View {
 private struct WapiCommerceEditorIOS: View {
     let kind: String; let page: WapiCommerceRecord; let product: WapiCommerceRecord; let invoiceProducts: [WapiCommerceRecord]; let pages: [WapiCommerceRecord]; let checkEventID: String; let saved: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""; @State private var description = ""; @State private var category = "Menu"
+    @State private var name = ""; @State private var description = ""; @State private var category = "Menu"; @State private var ticketLabel = "Accès général"
     @State private var amount = ""; @State private var currency = "XAF"; @State private var address = ""; @State private var hours = ""
     @State private var available = true; @State private var selectedPage = ""; @State private var capacity = "100"
     @State private var date = Date().addingTimeInterval(86400); @State private var stableID = UUID().uuidString.lowercased()
+    @State private var doorsAt = Date().addingTimeInterval(82800); @State private var addDoorsAt = false
+    @State private var agenda = ""; @State private var contact = ""; @State private var terms = ""
     @State private var customerName = ""; @State private var invoiceNote = ""; @State private var invoiceDueAt = Date().addingTimeInterval(7 * 86400); @State private var invoiceItems: [String: Int] = [:]
     @State private var photo: PhotosPickerItem?; @State private var photoData: Data?; @State private var busy = false; @State private var message: String?
     @State private var scanning = false
     @State private var initialized = false
     @State private var baseline: [String] = []
     @State private var confirmDiscard = false
-    private var snapshot: [String] { [name, description, category, amount, currency, address, hours, String(available), selectedPage, capacity, String(date.timeIntervalSince1970), photoData == nil ? "" : "photo", customerName, invoiceNote, String(invoiceDueAt.timeIntervalSince1970), invoiceItems.description] }
+    private var snapshot: [String] { [name, description, category, ticketLabel, amount, currency, address, hours, String(available), selectedPage, capacity, String(date.timeIntervalSince1970), String(doorsAt.timeIntervalSince1970), String(addDoorsAt), agenda, contact, terms, photoData == nil ? "" : "photo", customerName, invoiceNote, String(invoiceDueAt.timeIntervalSince1970), invoiceItems.description] }
     private var hasEdits: Bool { initialized && ["product", "store", "event", "invoice"].contains(kind) && baseline != snapshot }
     private func requestClose() { guard !busy else { return }; if hasEdits { confirmDiscard = true } else { dismiss() } }
     var body: some View {
@@ -347,21 +396,29 @@ private struct WapiCommerceEditorIOS: View {
                         field(kind == "event" ? "Nom de l’événement" : "Nom de l’article", $name)
                         TextField("Description", text: $description, axis: .vertical).lineLimit(3...8).textFieldStyle(.roundedBorder)
                     }
-                    if kind == "product" {
-                        if let photoData, let preview = UIImage(data: photoData) { Image(uiImage: preview).resizable().scaledToFit().frame(maxWidth: .infinity).frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 16)).accessibilityLabel("Photo de l’article sélectionnée") }
-                        else if !product.string("imageUrl").isEmpty { CommercePhoto(url: product.string("imageUrl"), size: 140, symbol: "photo") }
-                        PhotosPicker(selection: $photo, matching: .images) { Label(photoData == nil ? "Choisir la photo" : "Photo prête · changer", systemImage: "photo") }.disabled(busy)
-                        field("Rubrique · plats, desserts, services…", $category)
-                        field("Prix · \(currency)", $amount).keyboardType(.decimalPad)
-                        Picker("Devise", selection: $currency) { ForEach(["XAF", "XOF", "EUR", "USD", "CDF"], id: \.self) { Text($0) } }.pickerStyle(.segmented)
+                    if ["product", "event"].contains(kind) {
+                        if let photoData, let preview = UIImage(data: photoData) { Image(uiImage: preview).resizable().scaledToFill().frame(maxWidth: .infinity).frame(height: 180).clipped().clipShape(RoundedRectangle(cornerRadius: 16)).accessibilityLabel(kind == "event" ? "Affiche de l’événement sélectionnée" : "Photo de l’article sélectionnée") }
+                        else if !product.string(kind == "event" ? "posterUrl" : "imageUrl").isEmpty { CommercePhoto(url: product.string(kind == "event" ? "posterUrl" : "imageUrl"), size: 140, symbol: "photo") }
+                        PhotosPicker(selection: $photo, matching: .images) { Label(photoData == nil ? (kind == "event" ? "Ajouter l’affiche" : "Choisir la photo") : (kind == "event" ? "Affiche prête · changer" : "Photo prête · changer"), systemImage: "photo") }.disabled(busy)
+                        field(kind == "event" ? "Catégorie · concert, sport, formation…" : "Rubrique · plats, desserts, services…", $category)
+                        if kind == "product" {
+                            field("Prix · \(currency)", $amount).keyboardType(.decimalPad)
+                            Picker("Devise", selection: $currency) { ForEach(["XAF", "XOF", "EUR", "USD", "CDF"], id: \.self) { Text($0) } }.pickerStyle(.segmented)
+                        }
                     }
                     if ["store", "event"].contains(kind) { field(kind == "event" ? "Lieu et adresse" : "Adresse de l’établissement", $address) }
                     if kind == "store" { field("Horaires d’ouverture", $hours) }
                     if ["store", "product"].contains(kind) { Toggle(kind == "store" ? "Publier dans Marketplace" : "Disponible", isOn: $available) }
                     if kind == "event" {
                         DatePicker("Date et heure", selection: $date, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                        Toggle("Ajouter l’heure d’ouverture", isOn: $addDoorsAt).tint(Color.whappyBlue)
+                        if addDoorsAt { DatePicker("Ouverture", selection: $doorsAt, in: Date()...date, displayedComponents: [.date, .hourAndMinute]) }
                         field("Nombre de places", $capacity).keyboardType(.numberPad)
-                        Text("Billets gratuits · un billet par compte. Réservations et entrées vérifiées par WAPI.").font(.subheadline).foregroundStyle(.secondary)
+                        field("Nom du billet · Accès général, VIP…", $ticketLabel)
+                        TextField("Programme · facultatif", text: $agenda, axis: .vertical).lineLimit(3...8).textFieldStyle(.roundedBorder)
+                        field("Contact organisateur · facultatif", $contact)
+                        TextField("Consignes d’accès · facultatif", text: $terms, axis: .vertical).lineLimit(2...6).textFieldStyle(.roundedBorder)
+                        Label("Un QR unique est généré pour chaque réservation. Le paiement sera disponible lorsque Mobile Money sera configuré.", systemImage: "qrcode").font(.caption).foregroundStyle(.green)
                     }
                     if kind == "invoice" {
                         field("Client ou entreprise", $customerName)
@@ -405,7 +462,7 @@ private struct WapiCommerceEditorIOS: View {
         } message: { Text("Vos modifications n’ont pas encore été enregistrées. Continuez pour les conserver.") }
         .onAppear {
             guard !initialized else { return } // Gallery/scanner return must not reset the form.
-            name = product.string("name"); description = product.string("description"); category = product.string("category").isEmpty ? "Menu" : product.string("category"); currency = product.string("currency").isEmpty ? "XAF" : product.string("currency"); amount = product.id.isEmpty ? "" : WapiCommercePrice.input(product.number("priceMinor"), currency); address = page.string("address"); hours = page.string("hours"); available = kind == "store" ? page.bool("published") : product.id.isEmpty || product.bool("available"); selectedPage = pages.first?.id ?? ""; if !product.string("productId").isEmpty { stableID = product.string("productId") }
+            name = product.string("name"); description = product.string("description"); category = product.string("category").isEmpty ? (kind == "event" ? "Culture · spectacle" : "Menu") : product.string("category"); ticketLabel = product.string("ticketLabel").isEmpty ? "Accès général" : product.string("ticketLabel"); currency = product.string("currency").isEmpty ? "XAF" : product.string("currency"); amount = product.id.isEmpty ? "" : WapiCommercePrice.input(product.number("priceMinor"), currency); address = page.string("address"); hours = page.string("hours"); available = kind == "store" ? page.bool("published") : product.id.isEmpty || product.bool("available"); selectedPage = pages.first?.id ?? ""; if !product.string("productId").isEmpty { stableID = product.string("productId") }
             baseline = snapshot; initialized = true
         }
         .onChange(of: photo) { _, item in
@@ -434,7 +491,7 @@ private struct WapiCommerceEditorIOS: View {
                 var input: [String: Any] = ["pageId": page.id, "productId": stableID, "name": name, "description": description, "category": category, "priceMinor": price, "currency": currency, "available": available]
                 if let photoData { input["photoBase64"] = photoData.base64EncodedString() }
                 _ = try await WapiCommerceModel.call("saveProduct", input)
-            } else if kind == "event" { _ = try await WapiCommerceModel.call("createEvent", ["eventId": stableID, "pageId": selectedPage, "title": name, "description": description, "venue": address, "startsAt": Int64(date.timeIntervalSince1970 * 1000), "capacity": Int(capacity) ?? 0]) }
+            } else if kind == "event" { var input: [String: Any] = ["eventId": stableID, "pageId": selectedPage, "title": name, "description": description, "category": category, "ticketLabel": ticketLabel, "venue": address, "startsAt": Int64(date.timeIntervalSince1970 * 1000), "agenda": agenda, "contact": contact, "terms": terms, "capacity": Int(capacity) ?? 0]; if addDoorsAt { input["doorsAt"] = Int64(doorsAt.timeIntervalSince1970 * 1000) }; if let photoData { input["posterBase64"] = photoData.base64EncodedString() }; _ = try await WapiCommerceModel.call("createEvent", input) }
             else if kind == "invoice" { _ = try await WapiCommerceModel.call("createInvoice", ["invoiceId": stableID, "pageId": page.id, "customerName": customerName, "note": invoiceNote, "dueAt": Int64(invoiceDueAt.timeIntervalSince1970 * 1000), "items": invoiceItems.map { ["productId": $0.key, "quantity": $0.value] }]) }
             else if kind == "check" { let result = try await WapiCommerceModel.call("checkTicket", ["code": name, "eventId": checkEventID]); message = result["status"] as? String == "accepted" ? "Entrée validée · \(result["title"] ?? "")" : "Billet déjà utilisé · entrée refusée"; return }
             saved(); dismiss()
@@ -459,11 +516,13 @@ private struct WapiTicketIOS: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
-                    Text("TICKETBULK").font(.headline).foregroundStyle(Color.whappyBlue)
+                    HStack(spacing: 10) { Image(systemName: "ticket.fill").foregroundStyle(.cyan); VStack(alignment: .leading, spacing: 2) { Text("TICKETBULK").font(.headline.weight(.heavy)); Text("Billet personnel · QR sécurisé").font(.caption).foregroundStyle(.white.opacity(0.72)) }; Spacer() }
+                        .padding(16).foregroundStyle(.white).background(Color(red: 0.03, green: 0.16, blue: 0.28), in: RoundedRectangle(cornerRadius: 18))
                     Text(ticket.string("title")).font(.title.bold())
+                    Text(ticket.string("ticketLabel").isEmpty ? "Accès général" : ticket.string("ticketLabel")).font(.subheadline.bold()).foregroundStyle(Color.whappyBlue)
                     Text(ticket.date.formatted(date: .abbreviated, time: .shortened)); Text(ticket.string("venue"))
                     if !valid { Text(ticket.string("status") == "used" ? "Billet déjà utilisé" : "Réservation annulée").foregroundStyle(.secondary) }
-                    else if let qr { Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(width: 260, height: 260).padding(16).background(.white) }
+                    else if let qr { Image(uiImage: qr).interpolation(.none).resizable().scaledToFit().frame(width: 230, height: 230).padding(15).background(.white, in: RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gray.opacity(0.18))) }
                     if valid {
                         Text("Ne partagez pas ce QR : il donne accès à votre place.").font(.caption).foregroundStyle(.secondary)
                         Button("Copier mon code") { UIPasteboard.general.string = ticket.string("code") }

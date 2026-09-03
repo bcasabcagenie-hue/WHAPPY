@@ -1,6 +1,7 @@
 package com.whappy.chat
 
 import android.Manifest
+import android.content.Intent
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.graphics.Bitmap
@@ -10,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -105,7 +107,7 @@ private fun CommerceSystemBars() {
 }
 
 @Composable
-internal fun WapiCommerceLaunchers(onContact: (WhappyBusinessPage) -> Unit) {
+internal fun WapiCommerceLaunchers(onContact: (WhappyBusinessPage) -> Unit, onOpenBusiness: (() -> Unit)? = null) {
     var module by rememberSaveable { mutableStateOf<String?>(null) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf("directory" to "Boutiques & menus", "events" to "Ticketbulk").forEach { (route, title) ->
@@ -118,12 +120,12 @@ internal fun WapiCommerceLaunchers(onContact: (WhappyBusinessPage) -> Unit) {
             }
         }
     }
-    module?.let { WapiCommerceApp(it, { module = null }, onContact) }
+    module?.let { WapiCommerceApp(it, { module = null }, onContact, onOpenBusiness = onOpenBusiness) }
 }
 
 /** Each mini-app owns a full-screen route, not a form placed over the marketplace. */
 @Composable
-internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContact: (WhappyBusinessPage) -> Unit, gateway: WapiCommerceGateway = ::commerce) {
+internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContact: (WhappyBusinessPage) -> Unit, onOpenBusiness: (() -> Unit)? = null, gateway: WapiCommerceGateway = ::commerce) {
     var route by rememberSaveable { mutableStateOf(initialRoute) }
     var pageId by rememberSaveable { mutableStateOf("") }
     var editorPage by rememberSaveable(stateSaver = commerceRecordSaver) { mutableStateOf<CommerceRecord>(emptyMap()) }
@@ -135,15 +137,21 @@ internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContac
     var error by remember { mutableStateOf<String?>(null) }
     var revision by remember { mutableIntStateOf(0) }
     var editor by rememberSaveable { mutableStateOf<String?>(null) }
+    var businessGate by rememberSaveable { mutableStateOf(false) }
     var editingProduct by rememberSaveable(stateSaver = commerceRecordSaver) { mutableStateOf<CommerceRecord>(emptyMap()) }
     var ticket by remember { mutableStateOf<CommerceRecord?>(null) }
+    var eventDetails by remember { mutableStateOf<CommerceRecord?>(null) }
     var checkEventId by rememberSaveable { mutableStateOf("") }
+    var eventSearch by rememberSaveable { mutableStateOf("") }
+    var eventCategory by rememberSaveable { mutableStateOf("") }
+    var eventAvailabilityOnly by rememberSaveable { mutableStateOf(false) }
     var catalogueSearch by rememberSaveable(pageId) { mutableStateOf("") }
     var catalogueCategory by rememberSaveable(pageId) { mutableStateOf("") }
     var availableOnly by rememberSaveable(pageId) { mutableStateOf(false) }
     val generation = remember { WapiRequestGeneration() }
     val scope = rememberCoroutineScope()
     val uid = FirebaseAuth.getInstance().currentUser?.uid
+    fun openEventEditor() { if (ownPages.isEmpty()) businessGate = true else editor = "event" }
     fun back() { if (route == initialRoute) onClose() else { route = initialRoute; response = emptyMap() } }
     suspend fun load(append: Boolean = false) {
         val request = generation.begin()
@@ -172,18 +180,19 @@ internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContac
     }
     Dialog(onDismissRequest = ::back, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         CommerceSystemBars()
-        Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F7FA)) {
+        val ticketbulk = route == "events" || route == "myTickets"
+        Surface(Modifier.fillMaxSize(), color = if (ticketbulk) Color(0xFFF1F6F8) else Color(0xFFF5F7FA)) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(Modifier.fillMaxWidth().background(Color.White).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = ::back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
+                Row(Modifier.fillMaxWidth().background(if (ticketbulk) Color(0xFF061D2D) else Color.White).padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = ::back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour", tint = if (ticketbulk) Color.White else Color.Unspecified) }
                     Column(Modifier.weight(1f)) {
-                        Text(when(route) { "events", "myTickets" -> "Ticketbulk"; "storefront" -> "La boutique"; "billing" -> "Facturation Business"; else -> "Marketplace" }, fontWeight = FontWeight.Bold, fontSize = 21.sp)
-                        Text(when(route) { "events" -> "Des rendez-vous, de vraies rencontres"; "myTickets" -> "Vos billets personnels"; "billing" -> "Factures, créances et relances à valider"; else -> "Les établissements de WAPI" }, color = WhappyMuted, fontSize = 12.sp)
+                        Text(when(route) { "events", "myTickets" -> "TicketBulk"; "storefront" -> "La boutique"; "billing" -> "Facturation Business"; else -> "Marketplace" }, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = if (ticketbulk) Color.White else Color.Unspecified)
+                        Text(when(route) { "events" -> "Découvrir"; "myTickets" -> "Mes accès"; "billing" -> "Factures, créances et relances à valider"; else -> "Les établissements de WAPI" }, color = if (ticketbulk) Color(0xFF9AC4D9) else WhappyMuted, fontSize = 12.sp)
                     }
-                    IconButton(enabled = !busy, onClick = { revision++ }) { Icon(Icons.Rounded.Refresh, "Actualiser") }
+                    IconButton(enabled = !busy, onClick = { revision++ }) { Icon(Icons.Rounded.Refresh, "Actualiser", tint = if (ticketbulk) Color.White else Color.Unspecified) }
                 }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = if (ticketbulk) 12.dp else 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     error?.let { value -> item { Text(value, color = MaterialTheme.colorScheme.error); TextButton(onClick = { revision++ }) { Text("Réessayer") } } }
                     when(route) {
                         "directory" -> {
@@ -270,18 +279,69 @@ internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContac
                             }
                         }
                         "events" -> {
-                            item { Row { Button(onClick = { route = "myTickets" }) { Text("Mes billets") }; Spacer(Modifier.width(8.dp)); OutlinedButton(onClick = { editor = "event" }) { Text("Créer un événement") } } }
-                            items(response.records("events"), key = { it.string("id") }) { event ->
-                                Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                                        Text(dateLabel(event.number("startsAt")), color = WhappyBlue, fontWeight = FontWeight.Bold)
-                                        Text(event.string("title"), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                                        Text("${event.string("venue")} · ${event.string("organizer")}", color = WhappyMuted)
-                                        Text(event.string("description"))
-                                        Text("${(event.number("capacity") - event.number("reserved")).coerceAtLeast(0)} places restantes · Gratuit", fontSize = 12.sp)
+                            item {
+                                Surface(color = Color(0xFF082A45), shape = RoundedCornerShape(24.dp)) {
+                                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Rounded.ConfirmationNumber, null, tint = Color(0xFF7CE5FF), modifier = Modifier.size(30.dp))
+                                            Column(Modifier.padding(start = 11.dp).weight(1f)) {
+                                                Text("TICKETBULK", color = Color.White, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                                                Text("Vos événements, billets et entrées au même endroit", color = Color.White.copy(alpha = .72f), fontSize = 12.sp)
+                                            }
+                                        }
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Button(onClick = { route = "myTickets" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .16f))) { Text("Mes billets") }
+                                            Button(onClick = ::openEventEditor, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0BA6D9))) { Text("Créer") }
+                                        }
+                                    }
+                                }
+                            }
+                            val allEvents = response.records("events")
+                            val eventCategories = allEvents.map { it.string("category").ifBlank { "Événement" } }.distinct().sorted()
+                            val visibleEvents = allEvents.filter { event ->
+                                val remaining = (event.number("capacity") - event.number("reserved")).coerceAtLeast(0)
+                                val haystack = "${event.string("title")} ${event.string("description")} ${event.string("venue")} ${event.string("category")} ${event.string("organizer")}".lowercase()
+                                (eventSearch.isBlank() || haystack.contains(eventSearch.trim().lowercase())) &&
+                                    (eventCategory.isBlank() || event.string("category").ifBlank { "Événement" } == eventCategory) &&
+                                    (!eventAvailabilityOnly || remaining > 0L)
+                            }
+                            item { OutlinedTextField(eventSearch, { eventSearch = it.take(100) }, Modifier.fillMaxWidth(), placeholder = { Text("Rechercher un concert, une formation, un lieu…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(16.dp)) }
+                            item {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    item { FilterChip(selected = eventCategory.isBlank(), onClick = { eventCategory = "" }, label = { Text("Tous · ${visibleEvents.size}") }) }
+                                    items(eventCategories) { label -> FilterChip(selected = eventCategory == label, onClick = { eventCategory = if (eventCategory == label) "" else label }, label = { Text(label) }) }
+                                }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Places disponibles uniquement", color = WhappyMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                    Switch(eventAvailabilityOnly, { eventAvailabilityOnly = it })
+                                }
+                            }
+                            items(visibleEvents, key = { it.string("id") }) { event ->
+                                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(23.dp)) {
+                                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            UserAvatar(event.string("posterUrl"), event.string("title"), 76.dp, shape = RoundedCornerShape(18.dp))
+                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                Text(event.string("category").ifBlank { "ÉVÉNEMENT" }.uppercase(), color = WhappyBlue, fontWeight = FontWeight.ExtraBold, fontSize = 10.sp, letterSpacing = .7.sp)
+                                                Text(event.string("title"), fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                                                Text(dateLabel(event.number("startsAt")), color = WhappyMuted, fontSize = 12.sp)
+                                            }
+                                        }
+                                        Text("${event.string("venue")} · ${event.string("organizer")}", color = WhappyMuted, fontSize = 13.sp)
+                                        if (event.string("description").isNotBlank()) Text(event.string("description"), maxLines = 3, fontSize = 13.sp)
+                                        TextButton(onClick = { eventDetails = event }, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Rounded.Info, null, modifier = Modifier.size(17.dp)); Text(" Détails de l’événement") }
+                                        val remaining = (event.number("capacity") - event.number("reserved")).coerceAtLeast(0)
+                                        val occupancy = if (event.number("capacity") <= 0) 0f else event.number("reserved").toFloat() / event.number("capacity").toFloat()
+                                        LinearProgressIndicator(occupancy.coerceIn(0f, 1f), Modifier.fillMaxWidth().height(6.dp), color = if (remaining == 0L) Color(0xFFC34040) else Color(0xFF0AA87C), trackColor = Color(0xFFE6EDF1))
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${event.string("ticketLabel").ifBlank { "Accès général" }} · gratuit", color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                            Text("$remaining / ${event.number("capacity")} places", color = WhappyMuted, fontSize = 12.sp)
+                                        }
                                         if (event.string("ownerId") == uid) {
-                                            Text("${event.number("reserved")} billets · ${event.number("checkedIn")} entrées", fontWeight = FontWeight.Bold)
-                                            TextButton(onClick = { checkEventId = event.string("id"); editor = "check" }) { Text("Contrôler un billet") }
+                                            Surface(color = Color(0xFFEAF8F4), shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Rounded.Groups, null, tint = Color(0xFF087D62)); Text(" ${event.number("reserved")} billets · ${event.number("checkedIn")} entrées", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                                TextButton(onClick = { checkEventId = event.string("id"); editor = "check" }) { Text("Scanner") }
+                                            } }
                                             if (event.string("status") == "published") TextButton(enabled = !busy, onClick = {
                                                 scope.launch { busy = true; try { gateway("closeEvent", mapOf("eventId" to event.string("id"))); revision++ } catch (e: Exception) { error = commerceError(e) } finally { busy = false } }
                                             }) { Text("Fermer les inscriptions") }
@@ -290,17 +350,22 @@ internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContac
                                         val reservable = event.string("status") == "published" && event.number("startsAt") > System.currentTimeMillis() && event.number("reserved") < event.number("capacity")
                                         if (hasTicket || reservable) Button(enabled = !busy, onClick = {
                                             scope.launch { busy = true; try { @Suppress("UNCHECKED_CAST") val result = gateway("reserveTicket", mapOf("eventId" to event.string("id")))["ticket"] as? CommerceRecord; ticket = result; revision++ } catch (e: Exception) { error = commerceError(e) } finally { busy = false } }
-                                        }) { Text(if (hasTicket) "Afficher mon billet" else "Obtenir mon billet") }
+                                        }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(if (hasTicket) Icons.Rounded.QrCode2 else Icons.Rounded.ConfirmationNumber, null); Text(if (hasTicket) "  Afficher mon billet" else "  Réserver mon billet") }
                                         else Text(if (event.number("reserved") >= event.number("capacity")) "Complet" else "Inscriptions fermées", color = WhappyMuted)
                                     }
                                 }
                             }
-                            if (!busy && error == null && response.records("events").isEmpty()) item { Text("Pas d’événement dans cette sélection. Créez le vôtre avec votre page Business.") }
+                            if (!busy && error == null && allEvents.isEmpty()) item { Text("Pas d’événement dans cette sélection. Créez le vôtre avec votre page Business.") }
+                            else if (!busy && error == null && visibleEvents.isEmpty()) item { Text("Aucun événement ne correspond à ces filtres.", color = WhappyMuted); TextButton(onClick = { eventSearch = ""; eventCategory = ""; eventAvailabilityOnly = false }) { Text("Réinitialiser") } }
                         }
                         "myTickets" -> {
                             items(response.records("tickets"), key = { it.string("id") }) { item ->
-                                Card(onClick = { ticket = item }, colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                                    Column(Modifier.fillMaxWidth().padding(20.dp)) { Text(item.string("title"), fontWeight = FontWeight.Bold, fontSize = 20.sp); Text(dateLabel(item.number("startsAt"))); Text(when(item.string("status")) { "used" -> "Déjà utilisé"; "cancelled" -> "Réservation annulée"; else -> "Afficher mon QR" }, color = WhappyBlue) }
+                                Card(onClick = { ticket = item }, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(20.dp)) {
+                                    Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        UserAvatar(item.string("posterUrl"), item.string("title"), 58.dp, shape = RoundedCornerShape(15.dp))
+                                        Column(Modifier.weight(1f)) { Text(item.string("title"), fontWeight = FontWeight.Bold, fontSize = 17.sp); Text(dateLabel(item.number("startsAt")), color = WhappyMuted, fontSize = 12.sp); Text(when(item.string("status")) { "used" -> "Billet déjà validé"; "cancelled" -> "Réservation annulée"; else -> "QR prêt à présenter" }, color = WhappyBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                                        Icon(Icons.Rounded.QrCode2, null, tint = WhappyBlue)
+                                    }
                                 }
                             }
                             if (!busy && response.records("tickets").isEmpty() && error == null) item { Text("Vos billets réservés seront conservés ici.", color = WhappyMuted) }
@@ -332,18 +397,96 @@ internal fun WapiCommerceApp(initialRoute: String, onClose: () -> Unit, onContac
                     if (response["nextCursor"] != null) item { OutlinedButton(enabled = !busy, onClick = { scope.launch { load(true) } }) { Text("Charger la suite") } }
                     item { Spacer(Modifier.height(16.dp)) }
                 }
+                if (ticketbulk) NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
+                    NavigationBarItem(selected = route == "events", onClick = { if (route != "events") { route = "events"; response = emptyMap() } }, icon = { Icon(Icons.Rounded.Explore, null) }, label = { Text("Découvrir") })
+                    NavigationBarItem(selected = route == "myTickets", onClick = { if (route != "myTickets") { route = "myTickets"; response = emptyMap() } }, icon = { Icon(Icons.Rounded.ConfirmationNumber, null) }, label = { Text("Mes billets") })
+                    NavigationBarItem(selected = false, onClick = ::openEventEditor, icon = { Icon(Icons.Rounded.AddCircle, null) }, label = { Text("Organiser") })
+                }
             }
         }
         editor?.let { kind ->
             WapiCommerceEditor(kind, pageId, editorPage, editingProduct, response.records("products"), ownPages, { editor = null }, { editor = null; revision++ }, gateway, checkEventId)
         }
         ticket?.let { WapiTicketCard(it, gateway, { ticket = null; revision++ }) { ticket = null } }
+        eventDetails?.let { event ->
+            WapiEventDetailCard(event, onClose = { eventDetails = null }, onReserve = {
+                scope.launch {
+                    busy = true; error = null
+                    try { @Suppress("UNCHECKED_CAST") val result = gateway("reserveTicket", mapOf("eventId" to event.string("id")))["ticket"] as? CommerceRecord; ticket = result; eventDetails = null; revision++ }
+                    catch (failure: Throwable) { error = commerceError(failure) }
+                    finally { busy = false }
+                }
+            })
+        }
+        if (businessGate) AlertDialog(
+            onDismissRequest = { businessGate = false },
+            icon = { Icon(Icons.Rounded.BusinessCenter, null, tint = WhappyBlue) },
+            title = { Text("Créez votre identité organisateur") },
+            text = { Text("TicketBulk organise les événements depuis une page Business WAPI. Créez-la une seule fois : vos billets, contacts et statistiques resteront séparés de votre profil personnel.") },
+            confirmButton = { TextButton(onClick = { businessGate = false; onClose(); onOpenBusiness?.invoke() }) { Text(if (onOpenBusiness != null) "Créer mon Business" else "Fermer") } },
+            dismissButton = { TextButton(onClick = { businessGate = false }) { Text("Plus tard") } },
+        )
     }
 }
 
 private fun commercePrice(amount: Long, currency: String): String {
     val value = if (currency in listOf("EUR", "USD")) amount / 100.0 else amount.toDouble()
     return java.text.NumberFormat.getNumberInstance().format(value) + " " + currency
+}
+
+/** Native event detail screen: discovery stays light while all practical information is one tap away. */
+@Composable
+private fun WapiEventDetailCard(event: CommerceRecord, onClose: () -> Unit, onReserve: () -> Unit) {
+    val context = LocalContext.current
+    val favorites = remember(context) { context.getSharedPreferences("ticketbulk_favorites", android.content.Context.MODE_PRIVATE) }
+    val eventId = event.string("id")
+    var saved by remember(eventId) { mutableStateOf(favorites.getBoolean(eventId, false)) }
+    val hasTicket = event.string("myTicketStatus") in listOf("issued", "used")
+    val remaining = (event.number("capacity") - event.number("reserved")).coerceAtLeast(0)
+    val reservable = event.string("status") == "published" && event.number("startsAt") > System.currentTimeMillis() && remaining > 0
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        CommerceSystemBars()
+        Surface(Modifier.fillMaxSize(), color = Color(0xFFF1F6F8)) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                Row(Modifier.fillMaxWidth().background(Color(0xFF061D2D)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour", tint = Color.White) }
+                    Text("Détails", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    IconButton(onClick = {
+                        saved = !saved; favorites.edit().putBoolean(eventId, saved).apply()
+                    }) { Icon(if (saved) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (saved) "Retirer des favoris" else "Ajouter aux favoris", tint = if (saved) Color(0xFFFFC13B) else Color.White) }
+                    IconButton(onClick = {
+                        val text = "${event.string("title")}\n${dateLabel(event.number("startsAt"))}\n${event.string("venue")}\nDécouvrir sur WAPI TicketBulk"
+                        runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, "Partager l’événement")) }
+                    }) { Icon(Icons.Rounded.Share, "Partager", tint = Color.White) }
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    UserAvatar(event.string("posterUrl"), event.string("title"), 180.dp, shape = RoundedCornerShape(28.dp))
+                    Text(event.string("category").ifBlank { "ÉVÉNEMENT" }.uppercase(), color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                    Text(event.string("title"), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                    Surface(color = Color.White, shape = RoundedCornerShape(20.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.CalendarMonth, null, tint = WhappyBlue); Text("  ${dateLabel(event.number("startsAt"))}", fontWeight = FontWeight.SemiBold) }
+                        if (event.number("doorsAt") > 0L) Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.DoorFront, null, tint = WhappyBlue); Text("  Ouverture : ${dateLabel(event.number("doorsAt"))}") }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.LocationOn, null, tint = WhappyBlue); Text("  ${event.string("venue")}") }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Business, null, tint = WhappyBlue); Text("  ${event.string("organizer")}") }
+                    } }
+                    if (event.string("description").isNotBlank()) SectionText("À propos", event.string("description"))
+                    if (event.string("agenda").isNotBlank()) SectionText("Programme", event.string("agenda"))
+                    if (event.string("terms").isNotBlank()) SectionText("Consignes d’accès", event.string("terms"))
+                    if (event.string("contact").isNotBlank()) SectionText("Contact", event.string("contact"))
+                    Surface(color = Color(0xFFE4F7F0), shape = RoundedCornerShape(18.dp)) { Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.ConfirmationNumber, null, tint = Color(0xFF087D62)); Column(Modifier.padding(start = 10.dp).weight(1f)) { Text(event.string("ticketLabel").ifBlank { "Accès général" }, fontWeight = FontWeight.Bold); Text("Gratuit · QR personnel à présenter", color = Color(0xFF176451), fontSize = 12.sp) }; Text("$remaining places", color = Color(0xFF087D62), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    } }
+                }
+                val action = when { hasTicket -> "BILLET DÉJÀ RÉSERVÉ"; reservable -> "RÉSERVER MON BILLET"; remaining == 0L -> "ÉVÉNEMENT COMPLET"; else -> "INSCRIPTIONS FERMÉES" }
+                Button(enabled = reservable, onClick = onReserve, modifier = Modifier.fillMaxWidth().padding(16.dp).height(54.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Rounded.QrCode2, null); Text("  $action", fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionText(title: String, text: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold); Text(text, color = WhappyMuted, lineHeight = 20.sp) }
 }
 
 @Composable
@@ -353,7 +496,8 @@ private fun WapiCommerceEditor(kind: String, pageId: String, page: CommerceRecor
     val clipboard = LocalClipboardManager.current
     var name by rememberSaveable { mutableStateOf(product.string("name")) }
     var description by rememberSaveable { mutableStateOf(product.string("description")) }
-    var category by rememberSaveable { mutableStateOf(product.string("category").ifBlank { "Menu" }) }
+    var category by rememberSaveable { mutableStateOf(product.string("category").ifBlank { if (kind == "event") "Culture · spectacle" else "Menu" }) }
+    var ticketLabel by rememberSaveable { mutableStateOf("Accès général") }
     var amount by rememberSaveable { mutableStateOf(if (product.isEmpty()) "" else WapiCommercePolicy.priceInput(product.number("priceMinor"), product.string("currency"))) }
     var currency by rememberSaveable { mutableStateOf(product.string("currency").ifBlank { "XAF" }) }
     var address by rememberSaveable { mutableStateOf(page.string("address")) }
@@ -362,6 +506,10 @@ private fun WapiCommerceEditor(kind: String, pageId: String, page: CommerceRecor
     var selectedPage by rememberSaveable { mutableStateOf(pages.firstOrNull()?.string("id").orEmpty()) }
     var capacity by rememberSaveable { mutableStateOf("100") }
     var date by rememberSaveable { mutableLongStateOf(System.currentTimeMillis() + 86_400_000L) }
+    var doorsAt by rememberSaveable { mutableLongStateOf(0L) }
+    var agenda by rememberSaveable { mutableStateOf("") }
+    var contact by rememberSaveable { mutableStateOf("") }
+    var terms by rememberSaveable { mutableStateOf("") }
     var customerName by rememberSaveable { mutableStateOf("") }
     var invoiceNote by rememberSaveable { mutableStateOf("") }
     var invoiceDueAt by rememberSaveable { mutableLongStateOf(System.currentTimeMillis() + 7 * 86_400_000L) }
@@ -376,7 +524,7 @@ private fun WapiCommerceEditor(kind: String, pageId: String, page: CommerceRecor
     var message by remember { mutableStateOf<String?>(null) }
     var scan by remember { mutableStateOf(false) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
-    fun snapshot() = listOf(name, description, category, amount, currency, address, hours, available.toString(), selectedPage, capacity, date.toString(), photoUri.orEmpty(), customerName, invoiceNote, invoiceDueAt.toString(), invoiceItems.toString())
+    fun snapshot() = listOf(name, description, category, ticketLabel, amount, currency, address, hours, available.toString(), selectedPage, capacity, date.toString(), doorsAt.toString(), agenda, contact, terms, photoUri.orEmpty(), customerName, invoiceNote, invoiceDueAt.toString(), invoiceItems.toString())
     val baseline = rememberSaveable { snapshot() }
     fun requestClose() { if (!busy) { if (kind in listOf("product", "store", "event") && baseline != snapshot()) confirmDiscard = true else close() } }
     val stableId = rememberSaveable { product.string("productId").ifBlank { UUID.randomUUID().toString() } }
@@ -439,7 +587,7 @@ private fun WapiCommerceEditor(kind: String, pageId: String, page: CommerceRecor
             when (kind) {
                 "store" -> gateway("saveStorefront", mapOf("pageId" to pageId, "address" to address, "hours" to hours, "published" to available))
                 "product" -> gateway("saveProduct", mapOf("pageId" to pageId, "productId" to stableId, "name" to name, "description" to description, "category" to category, "priceMinor" to (WapiCommercePolicy.priceMinor(amount, currency) ?: error("Saisissez un prix valide, par exemple 12,50 en EUR ou 5500 en XAF.")), "currency" to currency, "available" to available, "photoBase64" to photo))
-                "event" -> gateway("createEvent", mapOf("eventId" to stableId, "pageId" to selectedPage, "title" to name, "description" to description, "venue" to address, "startsAt" to date, "capacity" to (capacity.toIntOrNull() ?: 0)))
+                "event" -> gateway("createEvent", mapOf("eventId" to stableId, "pageId" to selectedPage, "title" to name, "description" to description, "category" to category, "ticketLabel" to ticketLabel, "venue" to address, "startsAt" to date, "doorsAt" to doorsAt.takeIf { it > 0L }, "agenda" to agenda, "contact" to contact, "terms" to terms, "capacity" to (capacity.toIntOrNull() ?: 0), "posterBase64" to photo))
                 "invoice" -> gateway("createInvoice", mapOf("pageId" to pageId, "invoiceId" to stableId, "customerName" to customerName, "note" to invoiceNote, "dueAt" to invoiceDueAt, "items" to invoiceItems.map { (productId, quantity) -> mapOf("productId" to productId, "quantity" to quantity) }))
                 "check" -> { val result = gateway("checkTicket", mapOf("code" to name, "eventId" to checkEventId)); message = if (result["status"] == "accepted") "Entrée validée · ${result["title"]}" else "Billet déjà utilisé · entrée refusée"; return@launch }
             }
@@ -462,17 +610,19 @@ private fun WapiCommerceEditor(kind: String, pageId: String, page: CommerceRecor
                         key("editor-name") { OutlinedTextField(name, { name = it.take(100) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text(if (kind == "event") "Nom de l’événement" else "Nom de l’article") }, singleLine = true) }
                         key("editor-description") { OutlinedTextField(description, { description = it.take(1000) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Description") }, minLines = 3) }
                     }
-                    if (kind == "product") {
+                    if (kind in listOf("product", "event")) {
                         key("editor-photo") {
-                            photoPreview?.let { Image(it.asImageBitmap(), "Photo de l’article sélectionnée", Modifier.fillMaxWidth().height(180.dp), contentScale = ContentScale.Fit) }
-                                ?: if (product.string("imageUrl").isNotBlank()) UserAvatar(product.string("imageUrl"), name, 140.dp, shape = RoundedCornerShape(16.dp)) else Unit
+                            photoPreview?.let { Image(it.asImageBitmap(), if (kind == "event") "Affiche de l’événement sélectionnée" else "Photo de l’article sélectionnée", Modifier.fillMaxWidth().height(180.dp), contentScale = ContentScale.Crop) }
+                                ?: if (product.string(if (kind == "event") "posterUrl" else "imageUrl").isNotBlank()) UserAvatar(product.string(if (kind == "event") "posterUrl" else "imageUrl"), name, 140.dp, shape = RoundedCornerShape(16.dp)) else Unit
                         }
-                        OutlinedButton(enabled = !busy, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.Photo, null); Text(if (photo == null) " Choisir la photo" else " Photo prête · changer") }
+                        OutlinedButton(enabled = !busy, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.Photo, null); Text(if (photo == null) if (kind == "event") " Ajouter l’affiche" else " Choisir la photo" else if (kind == "event") " Affiche prête · changer" else " Photo prête · changer") }
                         // Independent state keys prevent image-loading branches from restoring
                         // the price's horizontal text scroller into the multiline category field.
-                        key("editor-category") { OutlinedTextField(category, { category = it.take(60) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Rubrique · plats, desserts, services…") }) }
-                        key("editor-price") { OutlinedTextField(amount, { amount = it.take(14) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Prix · $currency") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true) }
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) { listOf("XAF", "XOF", "EUR", "USD", "CDF").forEachIndexed { index, unit -> SegmentedButton(enabled = !busy, selected = currency == unit, onClick = { currency = unit }, shape = SegmentedButtonDefaults.itemShape(index, 5), icon = {}) { Text(unit, fontSize = 11.sp) } } }
+                        key("editor-category") { OutlinedTextField(category, { category = it.take(60) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text(if (kind == "event") "Catégorie · concert, sport, formation…" else "Rubrique · plats, desserts, services…") }) }
+                        if (kind == "product") {
+                            key("editor-price") { OutlinedTextField(amount, { amount = it.take(14) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Prix · $currency") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true) }
+                            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) { listOf("XAF", "XOF", "EUR", "USD", "CDF").forEachIndexed { index, unit -> SegmentedButton(enabled = !busy, selected = currency == unit, onClick = { currency = unit }, shape = SegmentedButtonDefaults.itemShape(index, 5), icon = {}) { Text(unit, fontSize = 11.sp) } } }
+                        }
                     }
                     if (kind in listOf("store", "event")) key("editor-address") { OutlinedTextField(address, { address = it.take(160) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text(if (kind == "event") "Lieu et adresse" else "Adresse de l’établissement") }) }
                     if (kind == "store") key("editor-hours") { OutlinedTextField(hours, { hours = it.take(200) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Horaires d’ouverture") }, placeholder = { Text("Lun–sam · 09:00–20:00") }) }
@@ -482,8 +632,16 @@ private fun WapiCommerceEditor(kind: String, pageId: String, page: CommerceRecor
                             val cal = Calendar.getInstance().apply { timeInMillis = date }
                             DatePickerDialog(context, { _, y, m, d -> cal.set(y, m, d); TimePickerDialog(context, { _, h, min -> cal.set(Calendar.HOUR_OF_DAY, h); cal.set(Calendar.MINUTE, min); date = cal.timeInMillis }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show() }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
                         }) { Text(dateLabel(date)) }
+                        OutlinedButton(enabled = !busy, onClick = {
+                            val cal = Calendar.getInstance().apply { timeInMillis = if (doorsAt > 0L) doorsAt else date - 3_600_000L }
+                            DatePickerDialog(context, { _, y, m, d -> cal.set(y, m, d); TimePickerDialog(context, { _, h, min -> cal.set(Calendar.HOUR_OF_DAY, h); cal.set(Calendar.MINUTE, min); doorsAt = cal.timeInMillis.coerceAtMost(date) }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show() }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                        }) { Icon(Icons.Rounded.DoorFront, null); Text(if (doorsAt > 0L) " Ouverture : ${dateLabel(doorsAt)}" else " Ajouter l’heure d’ouverture") }
                         key("editor-capacity") { OutlinedTextField(capacity, { capacity = it.filter(Char::isDigit).take(5) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Nombre de places") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
-                        Text("Billets gratuits · un billet par compte. Les réservations et entrées sont vérifiées par WAPI.", color = WhappyMuted)
+                        key("editor-ticket-label") { OutlinedTextField(ticketLabel, { ticketLabel = it.take(60) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Nom du billet · Accès général, VIP…") }, singleLine = true) }
+                        key("editor-agenda") { OutlinedTextField(agenda, { agenda = it.take(1800) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Programme · facultatif") }, minLines = 3) }
+                        key("editor-contact") { OutlinedTextField(contact, { contact = it.take(120) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Contact organisateur · facultatif") }, singleLine = true) }
+                        key("editor-terms") { OutlinedTextField(terms, { terms = it.take(800) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Consignes d’accès · facultatif") }, minLines = 2) }
+                        Surface(color = Color(0xFFEAF8F4), shape = RoundedCornerShape(15.dp)) { Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.QrCode2, null, tint = Color(0xFF087D62)); Text(" Un QR unique sera généré pour chaque réservation. Le paiement pourra être ajouté lorsque Mobile Money sera configuré.", color = Color(0xFF176451), fontSize = 12.sp) } }
                     }
                     if (kind == "invoice") {
                         key("invoice-customer") { OutlinedTextField(customerName, { customerName = it.take(100) }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text("Client ou entreprise") }, singleLine = true) }
@@ -542,12 +700,15 @@ private fun WapiTicketCard(ticket: CommerceRecord, gateway: WapiCommerceGateway,
     Dialog(onDismissRequest = { if (!busy) close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth().padding(22.dp), shape = RoundedCornerShape(28.dp), color = Color.White) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("TICKETBULK", color = WhappyBlue, fontWeight = FontWeight.Bold)
+                Surface(color = Color(0xFF082A45), shape = RoundedCornerShape(18.dp)) { Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.ConfirmationNumber, null, tint = Color(0xFF7CE5FF)); Column(Modifier.padding(start = 10.dp)) { Text("TICKETBULK", color = Color.White, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp); Text("Billet personnel · QR sécurisé", color = Color.White.copy(alpha = .7f), fontSize = 11.sp) }
+                } }
                 Text(ticket.string("title"), fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text(ticket.string("ticketLabel").ifBlank { "Accès général" }, color = WhappyBlue, fontWeight = FontWeight.Bold)
                 Text(dateLabel(ticket.number("startsAt"))); Text(ticket.string("venue"))
                 if (!valid) Text(if (ticket.string("status") == "used") "Billet déjà utilisé" else "Réservation annulée", color = WhappyMuted)
                 else {
-                    Image(qr.asImageBitmap(), "QR personnel du billet", Modifier.size(240.dp))
+                    Surface(shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color(0xFFDDE7ED))) { Image(qr.asImageBitmap(), "QR personnel du billet", Modifier.padding(14.dp).size(220.dp)) }
                     Text("Ne partagez pas ce QR : il donne accès à votre place.", fontSize = 12.sp, color = WhappyMuted)
                     TextButton(onClick = { clipboard.setText(AnnotatedString(ticket.string("code"))) }) { Text("Copier mon code") }
                     if (ticket.number("startsAt") > System.currentTimeMillis()) TextButton(enabled = !busy, onClick = { confirmCancel = true }) { Text("Annuler ma réservation", color = MaterialTheme.colorScheme.error) }

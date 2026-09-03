@@ -34,7 +34,8 @@ function database(initial) {
 const event = { title: 'Rencontre WAPI', venue: 'Brazzaville', ownerId: 'organizer', status: 'published', startsAt: Date.now() + 86400000, capacity: 1, reserved: 0, checkedIn: 0 };
 test('strict event validation rejects past dates, fractional capacity and missing fields', () => {
   const now = Date.now();
-  assert.equal(validateEvent({ title: ' Concert ', venue: 'Salle', startsAt: now + 86400000, capacity: 50 }, now).title, 'Concert');
+  const valid = validateEvent({ title: ' Concert ', venue: 'Salle', category: 'Musique', ticketLabel: 'VIP', startsAt: now + 86400000, capacity: 50 }, now);
+  assert.equal(valid.title, 'Concert'); assert.equal(valid.category, 'Musique'); assert.equal(valid.ticketLabel, 'VIP');
   for (const capacity of [0, -1, 1.4, Infinity, '5', 10001]) assert.throws(() => integer(capacity, 1, 10000));
   assert.throws(() => validateEvent({ title: 'Concert', venue: 'Salle', startsAt: now - 1, capacity: 10 }, now));
 });

@@ -632,6 +632,67 @@ export const notifyCallStateChanged = onDocumentUpdated("calls/{callId}", async 
   });
 });
 
+/**
+ * Conversations keep a compact member snapshot so that the inbox can render
+ * instantly. Keep that snapshot in sync whenever a user changes their name,
+ * photo or verification status; otherwise an old avatar can remain until a
+ * contact is manually recreated.
+ */
+export const syncProfileInConversations = onDocumentUpdated("users/{userId}", async (event) => {
+  const before = event.data?.before.data() || {};
+  const after = event.data?.after.data() || {};
+  const userId = event.params.userId;
+  const displayName = String(after.displayName || after.phoneNumber || "Membre WAPI").trim();
+  const photoUrl = String(after.photoUrl || "").trim();
+  const verified = after.verified === true;
+  const beforeName = String(before.displayName || before.phoneNumber || "Membre WAPI").trim();
+  const beforePhotoUrl = String(before.photoUrl || "").trim();
+  const beforeVerified = before.verified === true;
+  if (displayName === beforeName && photoUrl === beforePhotoUrl && verified === beforeVerified) {
+    return;
+  }
+
+  const conversations = await db.collection("conversations")
+    .where("memberIds", "array-contains", userId)
+    .limit(1_000)
+    .get();
+  const updates = conversations.docs.flatMap((conversation) => {
+    const members = Array.isArray(conversation.get("members"))
+      ? conversation.get("members") as Record<string, unknown>[]
+      : [];
+    let changed = false;
+    const nextMembers = members.map((member) => {
+      if (String(member.uid || "") !== userId) return member;
+      if (
+        String(member.displayName || "") !== displayName ||
+        String(member.photoUrl || "") !== photoUrl ||
+        member.verified !== verified
+      ) {
+        changed = true;
+      }
+      return {
+        ...member,
+        displayName,
+        photoUrl,
+        verified,
+      };
+    });
+    return changed ? [{ reference: conversation.ref, members: nextMembers }] : [];
+  });
+
+  for (let offset = 0; offset < updates.length; offset += 450) {
+    const batch = db.batch();
+    for (const update of updates.slice(offset, offset + 450)) {
+      batch.update(update.reference, { members: update.members });
+    }
+    await batch.commit();
+  }
+  logger.info("Profils de conversation synchronisés", {
+    userId,
+    conversations: updates.length,
+  });
+});
+
 let cachedTurnUrls: { value: string; expiresAt: number } | null = null;
 
 async function publiclyReachableTurnUrls(urls: string) {
@@ -727,7 +788,7 @@ function livekitConfig() {
   if (configuration) return configuration;
   throw new HttpsError(
     "failed-precondition",
-    "Le relais média WebRTC WAPI n’est pas encore provisionné. Configurez WAPI_LIVEKIT_URL, WAPI_LIVEKIT_API_KEY et WAPI_LIVEKIT_API_SECRET.",
+    "Le service média WAPI est momentanément indisponible. Réessayez dans quelques instants.",
   );
 }
 
@@ -919,7 +980,7 @@ async function assertLiveAccess(liveId: string, userId: string) {
   return { reference, value, isHost: false };
 }
 
-export const createLiveSession = onCall(async (request) => {
+export const createLiveSession = onCall({ secrets: [livekitApiSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const hostId = request.auth.uid;
   const requestedTitle = String(request.data?.title || "").trim();
@@ -942,7 +1003,7 @@ export const createLiveSession = onCall(async (request) => {
   if (["scheduled", "live"].includes(String(current.get("status") || ""))) {
     const previousId = String(current.get("liveId") || "");
     const previous = previousId ? await db.collection("liveSessions").doc(previousId).get() : null;
-    if (previous?.exists && previous.get("status") !== "ended" && previous.get("streamProvider") === "wapi-webrtc-p2p") {
+    if (previous?.exists && previous.get("status") !== "ended") {
       throw new HttpsError("already-exists", "Un direct WAPI est déjà ouvert sur ce compte.");
     }
     if (previous?.exists && previous.get("hostId") === hostId) {
@@ -967,8 +1028,23 @@ export const createLiveSession = onCall(async (request) => {
   // internal label for notifications, accessibility and moderation records.
   const title = requestedTitle || (audioOnly ? `Radio de ${host.displayName}` : `En direct avec ${host.displayName}`);
   const live = db.collection("liveSessions").doc();
-  const signalingRoomId = `wapi-${hostId.slice(0, 12)}-${live.id}`;
+  const streamRoomId = ["wapi-live", live.id].join("-");
+  const roomService = livekitRoomService();
+  await roomService.createRoom({
+    name: streamRoomId,
+    emptyTimeout: 90,
+    departureTimeout: 20,
+    maxParticipants: 500,
+    metadata: JSON.stringify({ liveId: live.id, product: "wapi-live" }),
+  });
+  const access = await liveAccessToken({
+    roomName: streamRoomId,
+    userId: hostId,
+    displayName: host.displayName,
+    role: "host",
+  });
   const batch = db.batch();
+  try {
     batch.set(live, {
       hostId,
       hostName: host.displayName,
@@ -992,11 +1068,10 @@ export const createLiveSession = onCall(async (request) => {
       giftCount: 0,
       aiGenerated: false,
       moderationStatus: "clear",
-      streamProvider: "wapi-webrtc-p2p",
-      streamRoomId: signalingRoomId,
-      signalingRoomId,
+      streamProvider: "livekit-self-hosted",
+      streamRoomId,
       mediaStatus: "provisioned",
-      maxPeerViewers: 8,
+      maxViewers: 500,
       kingQiRoomId,
       audioOnly,
       createdAt: FieldValue.serverTimestamp(),
@@ -1008,14 +1083,18 @@ export const createLiveSession = onCall(async (request) => {
       kingQiRoomId,
       updatedAt: FieldValue.serverTimestamp(),
     });
-  await batch.commit();
+    await batch.commit();
+  } catch (error) {
+    await roomService.deleteRoom(streamRoomId).catch(() => undefined);
+    throw error;
+  }
   return {
     liveId: live.id,
     role: "host",
-    streamProvider: "wapi-webrtc-p2p",
+    streamProvider: "livekit-self-hosted",
     mediaStatus: "provisioned",
     startNow,
-    signalingRoomId,
+    ...access,
   };
 });
 
@@ -1064,15 +1143,15 @@ export const listVisibleLiveSessions = onCall(async (request) => {
   return { lives };
 });
 
-export const joinLiveSession = onCall(async (request) => {
+export const joinLiveSession = onCall({ secrets: [livekitApiSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const liveId = String(request.data?.liveId || "").trim();
   if (!liveId) throw new HttpsError("invalid-argument", "Direct WAPI invalide.");
   const accessControl = await assertLiveAccess(liveId, request.auth.uid);
   const value = accessControl.value;
   const isHost = accessControl.isHost;
-  const signalingRoomId = String(value.signalingRoomId || value.streamRoomId || "").trim();
-  if (value.streamProvider !== "wapi-webrtc-p2p" || !signalingRoomId) {
+  const streamRoomId = String(value.streamRoomId || "").trim();
+  if (value.streamProvider !== "livekit-self-hosted" || !streamRoomId) {
     throw new HttpsError("failed-precondition", "Le flux de ce direct n’est pas provisionné.");
   }
   const profile = await liveDisplayName(request.auth.uid);
@@ -1089,26 +1168,13 @@ export const joinLiveSession = onCall(async (request) => {
     }, { merge: true });
   }
   const role: LiveRole = isHost ? "host" : "viewer";
-  if (!isHost) {
-    const activePeers = await accessControl.reference.collection("peers").get();
-    const activeCount = activePeers.docs.filter((document) => !["blocked", "disconnected"].includes(String(document.get("status") || ""))).length;
-    if (activeCount >= Math.max(1, Number(value.maxPeerViewers || 8)) && !activePeers.docs.some((document) => document.id === request.auth!.uid)) {
-      throw new HttpsError("resource-exhausted", "Ce direct a atteint sa capacité WebRTC actuelle.");
-    }
-    const peer = accessControl.reference.collection("peers").doc(request.auth.uid);
-    await peer.set({
-      viewerId: request.auth.uid,
-      viewerName: profile.displayName,
-      viewerPhotoUrl: profile.photoUrl,
-      hostId: String(value.hostId || ""),
-      status: "waiting",
-      offer: null,
-      answer: null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-  }
-  return { liveId, role, streamProvider: "wapi-webrtc-p2p", signalingRoomId };
+  const access = await liveAccessToken({
+    roomName: streamRoomId,
+    userId: request.auth.uid,
+    displayName: profile.displayName,
+    role,
+  });
+  return { liveId, role, streamProvider: "livekit-self-hosted", ...access };
 });
 
 export const setLivePresence = onCall(async (request) => {
@@ -1129,6 +1195,52 @@ export const setLivePresence = onCall(async (request) => {
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   return { ok: true };
+});
+
+/**
+ * Server-owned Live chat.  The previous client-side write silently failed on
+ * restrictive networks/rules and gave the spectator no feedback.  Keeping the
+ * authorization, rate limit and displayed identity here makes comments work
+ * the same way for Android and iOS while preventing impersonation.
+ */
+export const sendLiveComment = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const liveId = String(request.data?.liveId || "").trim();
+  const text = String(request.data?.text || "").trim().replace(/\s+/g, " ");
+  if (!liveId || text.length < 1 || text.length > 280) {
+    throw new HttpsError("invalid-argument", "Votre commentaire doit contenir entre 1 et 280 caractères.");
+  }
+  const access = await assertLiveAccess(liveId, request.auth.uid);
+  if (access.value.allowComments === false) {
+    throw new HttpsError("failed-precondition", "Les commentaires sont désactivés pour ce direct.");
+  }
+  const author = await liveDisplayName(request.auth.uid);
+  const viewer = access.reference.collection("viewers").doc(request.auth.uid);
+  const comment = access.reference.collection("comments").doc();
+  await db.runTransaction(async (transaction) => {
+    const viewerSnapshot = await transaction.get(viewer);
+    if (!access.isHost && !viewerSnapshot.exists) {
+      throw new HttpsError("failed-precondition", "Rejoignez le direct avant de commenter.");
+    }
+    const previous = viewerSnapshot.get("lastCommentAt") as { toMillis?: () => number } | undefined;
+    if (previous?.toMillis && Date.now() - previous.toMillis() < 650) {
+      throw new HttpsError("resource-exhausted", "Attendez un instant avant un autre commentaire.");
+    }
+    transaction.set(comment, {
+      authorId: request.auth!.uid,
+      authorName: author.displayName,
+      authorPhotoUrl: author.photoUrl,
+      text,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    if (!access.isHost) {
+      transaction.set(viewer, {
+        lastCommentAt: FieldValue.serverTimestamp(),
+        lastSeenAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  });
+  return { ok: true, commentId: comment.id };
 });
 
 export const sendLiveReaction = onCall(async (request) => {
@@ -1210,7 +1322,11 @@ export const sendLiveGift = onCall(async (request) => {
       createdAt: FieldValue.serverTimestamp(),
     });
     transaction.set(viewer, { lastGiftAt: FieldValue.serverTimestamp() }, { merge: true });
-    transaction.update(access.reference, { giftCount: total, updatedAt: FieldValue.serverTimestamp() });
+    transaction.update(access.reference, {
+      giftCount: total,
+      ...(equipped ? { activeGiftId: giftId, activeGiftLabel: gift.label, activeGiftSymbol: gift.symbol } : {}),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
   });
   return { ok: true, equipped, total };
 });
@@ -1224,7 +1340,7 @@ export const setLiveGiftWearables = onCall(async (request) => {
   if (!snapshot.exists || snapshot.get("hostId") !== request.auth.uid || snapshot.get("status") === "ended") {
     throw new HttpsError("permission-denied", "Seul l’animateur peut régler les cadeaux portables.");
   }
-  await live.update({ allowGiftWearables: enabled, updatedAt: FieldValue.serverTimestamp() });
+  await live.update({ allowGiftWearables: enabled, ...(enabled ? {} : { activeGiftId: '', activeGiftLabel: '', activeGiftSymbol: '' }), updatedAt: FieldValue.serverTimestamp() });
   return { ok: true, enabled };
 });
 
@@ -1316,19 +1432,22 @@ export const setLiveSessionState = onCall(async (request) => {
     }
   });
   if (action === "start" && startedNow) {
-    const [started, followers] = await Promise.all([
+    const [started, followers, contacts] = await Promise.all([
       live.get(),
       db.collection("users").doc(hostId).collection("liveFollowers").limit(500).get(),
+      liveAudienceIds(hostId),
     ]);
     const followerIds = followers.docs.map((document) => document.id).filter((id) => id && id !== hostId);
     const visibility = String(started.get("visibility") || "public");
     const audienceIds = Array.isArray(started.get("audienceIds")) ? (started.get("audienceIds") as unknown[]).map(String) : [];
-    // A subscription does not bypass the host's audience choice: private
-    // rooms stay silent, and contacts-only rooms alert contacts only.
+    // Public lives are visible from the Direct screen for everyone, and alert
+    // the host's real WAPI contacts plus voluntary followers. A subscription
+    // never bypasses audience choice: private rooms stay silent and
+    // contacts-only rooms alert contacts only.
     const recipients = visibility === "public"
-      ? followerIds
+      ? [...new Set([...followerIds, ...contacts])]
       : visibility === "contacts"
-        ? followerIds.filter((id) => audienceIds.includes(id))
+        ? [...new Set([...followerIds, ...contacts])].filter((id) => audienceIds.includes(id))
         : [];
     const devices = await pushDevices(recipients);
     if (devices.length) {
@@ -1528,7 +1647,20 @@ async function finishDirectCallSession(callId: string, userId: string, status: "
   await reference.update({ status, endedBy: userId, endedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
   const roomName = String(value.streamRoomId || "");
   if (roomName) await livekitRoomService().deleteRoom(roomName).catch((error) => logger.warn("Salle d’appel direct déjà fermée", { callId, error }));
-  // Le document reste disponible brièvement pour afficher l'historique des deux
+  const devices = await pushDevices([callerId, calleeId]);
+  if (devices.length) {
+    await sendInBatches(devices, {
+      data: {
+        type: "call_cancel",
+        title: "WAPI",
+        body: status === "declined" ? "Appel refusé" : "Appel terminé",
+        callId,
+        silent: "true",
+      },
+      android: { priority: "high", ttl: 60_000, collapseKey: "direct-call-" + callId },
+    });
+  }
+  // Le document reste disponible brièvement pour afficher l’historique des deux
   // interlocuteurs, sans exposer un journal d'appel public.
   return { ok: true, status, peerId: userId === callerId ? calleeId : callerId };
 }
@@ -1630,11 +1762,31 @@ export const joinDirectCallSession = onCall({ secrets: [livekitApiSecret] }, asy
   const status = String(value.status || "");
   const roomName = String(value.streamRoomId || "");
   if (value.streamProvider !== "livekit-self-hosted" || !roomName) {
-    throw new HttpsError("failed-precondition", "Le relais WebRTC de cet appel n’est pas disponible.");
+    throw new HttpsError("failed-precondition", "Le service d’appel est momentanément indisponible.");
   }
   if (!["ringing", "accepted"].includes(status)) throw new HttpsError("failed-precondition", "Cet appel est terminé.");
+  let acceptedNow = false;
   if (request.auth.uid === calleeId && status === "ringing") {
     await reference.update({ status: "accepted", acceptedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    acceptedNow = true;
+  }
+  if (acceptedNow) {
+    // The caller owns the ongoing ringing notification/state.  Notifying the
+    // callee again here made the answering phone receive its own acceptance
+    // event while the caller could remain on the ringing screen.
+    const devices = await pushDevices([callerId]);
+    if (devices.length) {
+      await sendInBatches(devices, {
+        data: {
+          type: "call_answered",
+          title: "WAPI",
+          body: "Appel accepté",
+          callId,
+          silent: "true",
+        },
+        android: { priority: "high", ttl: 60_000, collapseKey: "direct-call-" + callId },
+      });
+    }
   }
   const profile = await liveDisplayName(request.auth.uid);
   const access = await liveAccessToken({ roomName, userId: request.auth.uid, displayName: profile.displayName, role: "speaker", product: "wapi-direct-call" });
@@ -3313,6 +3465,104 @@ export const endBusinessSaleRoom = onCall(async (request) => {
 });
 
 const poolAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const poolAiUid = "wapi-pool-ai";
+const poolAiProfile = {
+  uid: poolAiUid,
+  displayName: "WAPI IA",
+  photoUrl: "",
+  avatarMode: "icon",
+  avatarIcon: "robot",
+  rating: 1100,
+  victories: 0,
+  defeats: 0,
+  points: 0,
+  trophies: 0,
+  matchesPlayed: 0,
+  bestRun: 0,
+  country: "WAPI",
+};
+
+function poolAiShot(balls: ReturnType<typeof sanitizePoolBalls>, group: PoolGroup) {
+  const cue = balls.find((ball) => ball.id === 0);
+  const visible = balls.filter((ball) => !ball.pocketed && ball.id !== 0);
+  const grouped = visible.filter((ball) =>
+    group === "open"
+      ? ball.id !== 8
+      : group === "solids"
+      ? ball.id >= 1 && ball.id <= 7
+      : group === "stripes"
+      ? ball.id >= 9 && ball.id <= 15
+      : ball.id === 8,
+  );
+  const target = grouped.length ? grouped[0] : visible[0];
+  if (!cue || !target) return { angle: 0, power: 45, sideSpin: 0, followSpin: 0 };
+  const distance = Math.hypot(target.x - cue.x, target.y - cue.y);
+  return {
+    angle: Math.atan2(target.y - cue.y, target.x - cue.x),
+    power: Math.max(38, Math.min(74, 42 + distance * 42)),
+    sideSpin: 0,
+    followSpin: .12,
+  };
+}
+
+async function playPoolAiTurn(roomId: string) {
+  const room = db.collection("gameRooms").doc(roomId);
+  let repeat = false;
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    const ids = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+    const humanUid = ids.find((id: string) => id !== poolAiUid) || "";
+    if (!snapshot.exists || value.status !== "playing" || value.mode !== "ai" || value.turnUid !== poolAiUid || !humanUid) return;
+    const groups = value.groups && typeof value.groups === "object" ? value.groups as Record<string, PoolGroup> : {};
+    let balls = sanitizePoolBalls(value.balls);
+    if (String(value.ballInHandUid || "") === poolAiUid) {
+      balls = balls.map((ball) => ball.id === 0 ? { ...ball, x: .23, y: .5, pocketed: false } : ball);
+    }
+    const shot = poolAiShot(balls, groups[poolAiUid] || "open");
+    const simulation = simulatePoolShot(balls, shot);
+    const resolution = resolvePoolShot(balls, groups[poolAiUid] || "open", groups[humanUid] || "open", simulation);
+    const winnerUid = resolution.shooterWon === true ? poolAiUid : resolution.shooterWon === false ? humanUid : "";
+    const nextTurn = resolution.keepTurn ? poolAiUid : humanUid;
+    const revision = Number(value.shotRevision || 0) + 1;
+    const legalPockets = resolution.foul ? 0 : simulation.pocketedIds.filter((id) => id !== 8 &&
+      ((resolution.shooterGroup === "solids" && id >= 1 && id <= 7) ||
+       (resolution.shooterGroup === "stripes" && id >= 9 && id <= 15))).length;
+    const run = Number(value.runs?.[poolAiUid] || 0) + legalPockets;
+    const bestRuns = { ...(value.bestRuns || {}), [poolAiUid]: Math.max(Number(value.bestRuns?.[poolAiUid] || 0), run) };
+    if (winnerUid) {
+      const profile = db.collection("gameProfiles").doc(humanUid + "_billard");
+      const previous = await transaction.get(profile);
+      const award = poolMatchAward(winnerUid === humanUid, Number(bestRuns[humanUid] || 0));
+      transaction.set(profile, {
+        uid: humanUid, gameId: "billard", matchesPlayed: FieldValue.increment(1),
+        victories: FieldValue.increment(award.victories), defeats: FieldValue.increment(award.defeats),
+        points: FieldValue.increment(award.points),
+        bestRun: Math.max(Number(previous.get("bestRun") || 0), award.bestRun),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.set(db.collection("poolResults").doc(roomId), {
+        roomId, playerIds: ids, winnerUid, shots: revision, bestRuns, pointsAwarded: award.points,
+        monetaryValue: 0, completedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    transaction.update(room, {
+      runs: { ...(value.runs || {}), [poolAiUid]: resolution.keepTurn ? run : 0, ...(resolution.keepTurn ? {} : { [humanUid]: 0 }) },
+      bestRuns, authority: "wapi-server", shotRevision: revision, shotBy: poolAiUid,
+      shotAngle: shot.angle, shotPower: shot.power, shotSideSpin: shot.sideSpin, shotFollowSpin: shot.followSpin,
+      shotStartBalls: balls, balls: simulation.balls, ballStateRevision: revision,
+      groups: { ...groups, [poolAiUid]: resolution.shooterGroup, [humanUid]: resolution.opponentGroup },
+      turnUid: nextTurn, winnerUid, status: winnerUid ? "finished" : "playing",
+      ballInHandUid: resolution.foul && !winnerUid ? humanUid : "",
+      turnDeadlineMs: winnerUid ? 0 : Date.now() + 45_000,
+      lastAction: "WAPI IA · " + resolution.message, lastSimulationFrames: simulation.frames,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    repeat = !winnerUid && resolution.keepTurn;
+  });
+  if (repeat) await playPoolAiTurn(roomId);
+}
+
 function poolRoomCode() {
   return Array.from({ length: 6 }, () => poolAlphabet[Math.floor(Math.random() * poolAlphabet.length)]).join("");
 }
@@ -3321,6 +3571,28 @@ function poolRoomId(value: unknown) {
   const roomId = String(value || "").trim().toUpperCase();
   if (!/^[A-Z2-9]{6}$/.test(roomId)) throw new HttpsError("invalid-argument", "Code de table WAPI invalide.");
   return roomId;
+}
+
+/** Payload deliberately limited to the state needed by the two game clients.
+ * It gives a player an immediate authoritative board after creating/joining,
+ * while the Firestore listener keeps the table in real time afterwards. */
+function poolRoomClientState(roomId: string, value: Record<string, unknown>) {
+  return {
+    roomId,
+    status: String(value.status || "waiting"),
+    playerIds: Array.isArray(value.playerIds) ? value.playerIds.map(String) : [],
+    playerNames: Array.isArray(value.playerNames) ? value.playerNames.map(String) : [],
+    playerProfiles: value.playerProfiles && typeof value.playerProfiles === "object" ? value.playerProfiles : {},
+    groups: value.groups && typeof value.groups === "object" ? value.groups : {},
+    turnUid: String(value.turnUid || ""),
+    winnerUid: String(value.winnerUid || ""),
+    ballInHandUid: String(value.ballInHandUid || ""),
+    balls: Array.isArray(value.balls) ? value.balls : initialPoolBalls(),
+    ballStateRevision: Number(value.ballStateRevision || 0),
+    shotRevision: Number(value.shotRevision || 0),
+    turnDeadlineMs: Number(value.turnDeadlineMs || 0),
+    lastAction: String(value.lastAction || "Table WAPI prête."),
+  };
 }
 
 /** Creates a server-owned pool table. Mobile clients never author the initial
@@ -3359,6 +3631,29 @@ export const createPoolMatch = onCall(async (request) => {
   throw new HttpsError("resource-exhausted", "Impossible de réserver une table. Réessayez.");
 });
 
+/** Creates an immediately playable, server-resolved table against WAPI IA. */
+export const createPoolAiMatch = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const userId = request.auth.uid;
+  const profile = await poolPlayerIdentity(userId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const roomId = poolRoomCode();
+    const room = db.collection("gameRooms").doc(roomId);
+    if ((await room.get()).exists) continue;
+    await room.create({
+      game: "pool", engineVersion: 2, authority: "wapi-server", mode: "ai", status: "playing", visibility: "private",
+      hostId: userId, playerIds: [userId, poolAiUid], playerNames: [profile.displayName, poolAiProfile.displayName],
+      playerProfiles: { [userId]: profile, [poolAiUid]: poolAiProfile },
+      groups: { [userId]: "open", [poolAiUid]: "open" }, runs: { [userId]: 0, [poolAiUid]: 0 },
+      turnUid: userId, winnerUid: "", ballInHandUid: "", balls: initialPoolBalls(), ballStateRevision: 0,
+      shotRevision: 0, lastAction: "WAPI IA est prête · à vous de casser.", turnDeadlineMs: Date.now() + 45_000,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { roomId, status: "playing", mode: "ai" };
+  }
+  throw new HttpsError("resource-exhausted", "Impossible de préparer une table IA. Réessayez.");
+});
+
 export const joinPoolMatch = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const userId = request.auth.uid;
@@ -3383,7 +3678,51 @@ export const joinPoolMatch = onCall(async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
     });
   });
-  return { roomId, status: "playing" };
+  const current = await room.get();
+  return { roomId, status: "playing", room: poolRoomClientState(roomId, (current.data() || {}) as Record<string, unknown>) };
+});
+
+/** Lets a joined player recover the complete current board if their local
+ * listener was interrupted while entering the game. */
+export const getPoolMatchState = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const roomId = poolRoomId(request.data?.roomId);
+  const room = await db.collection("gameRooms").doc(roomId).get();
+  const value = room.data() || {};
+  const playerIds = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+  if (!room.exists || value.game !== "pool") throw new HttpsError("not-found", "Cette table n’existe plus.");
+  if (!playerIds.includes(request.auth.uid)) throw new HttpsError("permission-denied", "Vous ne faites pas partie de cette table.");
+  return { room: poolRoomClientState(roomId, value as Record<string, unknown>) };
+});
+
+/** A quit is final for the current match.  The room is never silently kept
+ * active, so reopening Wapi Pool cannot restore a table the player left. */
+export const leavePoolMatch = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const roomId = poolRoomId(request.data?.roomId);
+  const room = db.collection("gameRooms").doc(roomId);
+  let status = "abandoned";
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    if (!snapshot.exists || value.game !== "pool") return;
+    const playerIds = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+    if (!playerIds.includes(request.auth!.uid)) throw new HttpsError("permission-denied", "Vous ne faites pas partie de cette table.");
+    const opponentId = playerIds.find((id: string) => id !== request.auth!.uid) || "";
+    const names = Array.isArray(value.playerNames) ? value.playerNames.map(String) : [];
+    const leaverName = names[playerIds.indexOf(request.auth!.uid)] || "Un joueur";
+    status = opponentId ? "finished" : "abandoned";
+    transaction.update(room, {
+      status,
+      winnerUid: opponentId,
+      ballInHandUid: "",
+      turnDeadlineMs: 0,
+      lastAction: opponentId ? `${leaverName} a quitté la partie · victoire de l’adversaire.` : "Table fermée par son créateur.",
+      updatedAt: FieldValue.serverTimestamp(),
+      endedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true, roomId, status };
 });
 
 /** Finds a real waiting player or creates a public table. A later invocation
@@ -3573,5 +3912,63 @@ export const submitPoolShot = onCall({ timeoutSeconds: 30, memory: "512MiB" }, a
     });
     response = { ok: true, roomId, revision, nextTurn, winnerUid, foul: resolution.foul, message: resolution.message };
   });
+  if (response.nextTurn === poolAiUid && !response.winnerUid) {
+    await playPoolAiTurn(roomId);
+  }
   return response;
+});
+
+/** Creates a user-owned request for a local WAPI service.  The request is
+ * server-written so it can later be matched to a verified Business provider
+ * without exposing a writable public collection to clients. */
+export const createServiceRequest = onCall(async request => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const type = String(request.data?.type || "").trim().toLowerCase();
+  const details = String(request.data?.details || "").trim();
+  const city = String(request.data?.city || "").trim();
+  if (!["transport", "delivery", "assistance"].includes(type)) {
+    throw new HttpsError("invalid-argument", "Choisissez un service WAPI.");
+  }
+  if (details.length < 5 || details.length > 800) {
+    throw new HttpsError("invalid-argument", "Décrivez votre demande entre 5 et 800 caractères.");
+  }
+  if (city.length > 80) throw new HttpsError("invalid-argument", "Ville invalide.");
+  const identity = await gamePlayerIdentity(request.auth.uid);
+  const requestRef = db.collection("serviceRequests").doc();
+  await requestRef.set({
+    userId: request.auth.uid,
+    requesterName: identity.displayName,
+    type,
+    details,
+    city,
+    status: "requested",
+    assignedBusinessId: "",
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return { requestId: requestRef.id, status: "requested" };
+});
+
+/** Returns only the authenticated person's requests.  Service matching is
+ * intentionally deferred to verified Business accounts. */
+export const myServiceRequests = onCall(async request => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const snapshot = await db.collection("serviceRequests")
+    .where("userId", "==", request.auth.uid)
+    .orderBy("createdAt", "desc")
+    .limit(40)
+    .get();
+  return {
+    requests: snapshot.docs.map(document => {
+      const value = document.data();
+      return {
+        id: document.id,
+        type: String(value.type || "assistance"),
+        details: String(value.details || ""),
+        city: String(value.city || ""),
+        status: String(value.status || "requested"),
+        createdAtMillis: value.createdAt?.toMillis?.() || 0,
+      };
+    }),
+  };
 });

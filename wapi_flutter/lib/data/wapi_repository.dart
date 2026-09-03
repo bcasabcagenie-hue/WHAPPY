@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
@@ -96,6 +97,8 @@ class WapiMessage {
     required this.kind,
     required this.mediaUrl,
     required this.mediaName,
+    required this.mediaSizeBytes,
+    required this.mediaSha256,
     required this.durationSeconds,
     required this.replyToId,
     required this.replyText,
@@ -109,6 +112,8 @@ class WapiMessage {
   final String kind;
   final String mediaUrl;
   final String mediaName;
+  final int mediaSizeBytes;
+  final String mediaSha256;
   final int durationSeconds;
   final String replyToId;
   final String replyText;
@@ -125,6 +130,8 @@ class WapiMessage {
       kind: (data['kind'] as String?) ?? 'text',
       mediaUrl: (data['mediaUrl'] as String?) ?? '',
       mediaName: (data['mediaName'] as String?) ?? '',
+      mediaSizeBytes: (data['mediaSizeBytes'] as num?)?.toInt() ?? 0,
+      mediaSha256: (data['mediaSha256'] as String?) ?? '',
       durationSeconds: (data['duration'] as num?)?.round() ?? 0,
       replyToId: (data['replyToId'] as String?) ?? '',
       replyText: (data['replyText'] as String?) ?? '',
@@ -140,44 +147,63 @@ class WapiMessage {
 class WapiStory {
   const WapiStory({
     required this.id,
+    required this.authorId,
     required this.authorName,
+    required this.authorPhotoUrl,
     required this.text,
     required this.createdAt,
     required this.mediaUrl,
     required this.mediaType,
+    required this.viewCount,
+    required this.viewedByCurrentUser,
   });
 
   final String id;
+  final String authorId;
   final String authorName;
+  final String authorPhotoUrl;
   final String text;
   final DateTime? createdAt;
   final String mediaUrl;
   final String mediaType;
+  final int viewCount;
+  final bool viewedByCurrentUser;
 
   factory WapiStory.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
     final stamp = data['createdAt'];
     return WapiStory(
       id: doc.id,
+      authorId: (data['authorId'] as String?) ?? '',
       authorName: (data['authorName'] as String?) ?? 'Contact WAPI',
+      authorPhotoUrl: (data['authorPhotoUrl'] as String?) ?? '',
       text: (data['caption'] as String?) ?? '',
       createdAt: stamp is Timestamp ? stamp.toDate() : null,
       mediaUrl: (data['mediaUrl'] as String?) ?? '',
       mediaType: (data['mediaType'] as String?) ?? 'text',
+      viewCount: (data['viewCount'] as num?)?.toInt() ?? 0,
+      viewedByCurrentUser: data['viewedByCurrentUser'] == true,
     );
   }
 
   factory WapiStory.fromMap(Map<String, dynamic> data) {
     final rawCreatedAt = data['createdAt'];
+    final createdAtMillis = (data['createdAtMillis'] as num?)?.toInt() ?? 0;
     return WapiStory(
       id: (data['id'] as String?) ?? '',
+      authorId: (data['authorId'] as String?) ?? '',
       authorName: (data['authorName'] as String?) ?? 'Contact WAPI',
+      authorPhotoUrl: (data['authorPhotoUrl'] as String?) ?? '',
       text: (data['caption'] as String?) ?? '',
       createdAt: rawCreatedAt is String
           ? DateTime.tryParse(rawCreatedAt)
+          : createdAtMillis > 0
+          ? DateTime.fromMillisecondsSinceEpoch(createdAtMillis)
           : null,
       mediaUrl: (data['mediaUrl'] as String?) ?? '',
       mediaType: (data['mediaType'] as String?) ?? 'text',
+      viewCount: (data['viewCount'] as num?)?.toInt() ?? 0,
+      viewedByCurrentUser: data['viewedByCurrentUser'] == true,
     );
   }
 }
@@ -215,16 +241,48 @@ class WapiRepository {
     final callable = FirebaseFunctions.instanceFor(
       region: 'europe-west1',
     ).httpsCallable('listVisibleStories');
+    var latest = const <WapiStory>[];
     while (true) {
-      final result = await callable.call<Map<String, dynamic>>();
-      final rawStories = List<Map<String, dynamic>>.from(
-        (result.data['stories'] as List? ?? const []).map(
-          (story) => Map<String, dynamic>.from(story as Map),
-        ),
-      );
-      yield rawStories.map(WapiStory.fromMap).toList(growable: false);
-      await Future<void>.delayed(const Duration(seconds: 20));
+      try {
+        final result = await callable.call<Map<String, dynamic>>().timeout(
+          const Duration(seconds: 15),
+        );
+        final rawStories = List<Map<String, dynamic>>.from(
+          (result.data['stories'] as List? ?? const []).map(
+            (story) => Map<String, dynamic>.from(story as Map),
+          ),
+        );
+        latest = rawStories.map(WapiStory.fromMap).toList(growable: false);
+        yield latest;
+      } catch (_) {
+        // A temporary mobile-network failure must not remove the complete
+        // Stories rail or leave the screen permanently in an error state.
+        if (latest.isNotEmpty) yield latest;
+      }
+      await Future<void>.delayed(const Duration(seconds: 8));
     }
+  }
+
+  Future<void> recordStoryView(String storyId) async {
+    await FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('recordStoryView')
+        .call<Map<String, dynamic>>({'storyId': storyId});
+  }
+
+  Future<List<Map<String, dynamic>>> storyViewers(String storyId) async {
+    final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('listStoryViewers')
+        .call<Map<String, dynamic>>({'storyId': storyId});
+    return (result.data['viewers'] as List? ?? const [])
+        .whereType<Map>()
+        .map((value) => Map<String, dynamic>.from(value))
+        .toList(growable: false);
+  }
+
+  Future<void> deleteStory(String storyId) async {
+    await FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('deleteStory')
+        .call<Map<String, dynamic>>({'storyId': storyId});
   }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> profile(String userId) =>
@@ -638,10 +696,18 @@ class WapiRepository {
       'createdAt': FieldValue.serverTimestamp(),
     };
     if (source.kind != 'text') {
+      if (source.mediaSizeBytes <= 0 ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(source.mediaSha256)) {
+        throw StateError(
+          'Ce média ancien ne peut pas encore être transféré. Téléchargez-le puis envoyez-le à nouveau.',
+        );
+      }
       messageData.addAll({
         'kind': source.kind,
         'mediaUrl': source.mediaUrl,
         'mediaName': source.mediaName,
+        'mediaSizeBytes': source.mediaSizeBytes,
+        'mediaSha256': source.mediaSha256,
         'duration': source.durationSeconds.clamp(0, 600),
       });
       if (source.kind == 'video') {
@@ -682,6 +748,11 @@ class WapiRepository {
     final path =
         'conversations/$conversationId/${user.uid}/${message.id}-$safeName';
     final object = _storage.ref(path);
+    final mediaSizeBytes = await file.length();
+    if (mediaSizeBytes <= 0) {
+      throw StateError('Le fichier média est vide.');
+    }
+    final mediaSha256 = (await sha256.bind(file.openRead()).first).toString();
     await object.putFile(file, SettableMetadata(contentType: contentType));
     final url = await object.getDownloadURL();
     final label = switch (kind) {
@@ -696,6 +767,8 @@ class WapiRepository {
       'kind': kind,
       'mediaUrl': url,
       'mediaName': safeName,
+      'mediaSizeBytes': mediaSizeBytes,
+      'mediaSha256': mediaSha256,
       'duration': durationSeconds.clamp(0, 600),
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -723,7 +796,16 @@ class WapiRepository {
     final ref = _storage.ref(
       'profiles/${user.uid}/avatar-${DateTime.now().millisecondsSinceEpoch}.jpg',
     );
-    await ref.putFile(file, SettableMetadata(contentType: contentType));
+    await ref.putFile(
+      file,
+      SettableMetadata(
+        contentType: contentType,
+        // Every avatar has a new storage path. Keeping it immutable lets
+        // Android display the new photo instantly without serving an older
+        // bitmap from the network cache.
+        cacheControl: 'public,max-age=31536000,immutable',
+      ),
+    );
     final url = await ref.getDownloadURL();
     await _db.collection('users').doc(user.uid).set({
       'uid': user.uid,
@@ -759,35 +841,23 @@ class WapiRepository {
     required String fileName,
     String caption = '',
   }) async {
-    final audience = await _storyAudience(user.uid);
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final storagePath =
         'stories/${user.uid}/${DateTime.now().millisecondsSinceEpoch}-$safeName';
     final ref = _storage.ref(storagePath);
     await ref.putFile(file, SettableMetadata(contentType: contentType));
-    final url = await ref.getDownloadURL();
-    final authorName = user.displayName ?? user.phoneNumber ?? 'Membre WAPI';
-    final document = await _db.collection('stories').add({
-      'authorId': user.uid,
-      'authorName': authorName,
-      'mediaUrl': url,
-      'mediaType': mediaType,
-      'caption': caption.trim().take(600),
-      'storagePath': storagePath,
-      'audienceIds': audience,
-      'createdAt': FieldValue.serverTimestamp(),
-      'expiresAt': Timestamp.fromDate(
-        DateTime.now().add(const Duration(hours: 24)),
-      ),
-    });
-    return WapiStory(
-      id: document.id,
-      authorName: authorName,
-      text: caption.trim().take(600),
-      createdAt: DateTime.now(),
-      mediaUrl: url,
-      mediaType: mediaType,
-    );
+    try {
+      final url = await ref.getDownloadURL();
+      return await _publishStory({
+        'caption': caption.trim().take(600),
+        'mediaType': mediaType,
+        'mediaUrl': url,
+        'storagePath': storagePath,
+      });
+    } catch (_) {
+      await ref.delete().catchError((_) {});
+      rethrow;
+    }
   }
 
   Future<String> ensureDirectConversation({
@@ -860,45 +930,16 @@ class WapiRepository {
     if (value.isEmpty) {
       throw ArgumentError('Le texte de la Story ne peut pas être vide.');
     }
-    final audience = await _storyAudience(user.uid);
-    final authorName = user.displayName ?? user.phoneNumber ?? 'Membre WAPI';
-    final document = await _db.collection('stories').add({
-      'authorId': user.uid,
-      'authorName': authorName,
-      'mediaUrl': '',
-      'mediaType': 'text',
-      'caption': value,
-      'storagePath': '',
-      'audienceIds': audience,
-      'createdAt': FieldValue.serverTimestamp(),
-      'expiresAt': Timestamp.fromDate(
-        DateTime.now().add(const Duration(hours: 24)),
-      ),
-    });
-    return WapiStory(
-      id: document.id,
-      authorName: authorName,
-      text: value,
-      createdAt: DateTime.now(),
-      mediaUrl: '',
-      mediaType: 'text',
-    );
+    return _publishStory({'caption': value, 'mediaType': 'text'});
   }
 
-  Future<List<String>> _storyAudience(String userId) async {
-    final audience = <String>{userId};
-    final conversations = await _db
-        .collection('conversations')
-        .where('memberIds', arrayContains: userId)
-        .get();
-    for (final conversation in conversations.docs) {
-      audience.addAll(
-        List<String>.from(
-          conversation.data()['memberIds'] as List? ?? const <String>[],
-        ),
-      );
-    }
-    return audience.take(500).toList(growable: false);
+  Future<WapiStory> _publishStory(Map<String, dynamic> payload) async {
+    final requestId =
+        'story_${DateTime.now().microsecondsSinceEpoch}_${payload['mediaType'] ?? 'text'}';
+    final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('publishStory')
+        .call<Map<String, dynamic>>({...payload, 'clientRequestId': requestId});
+    return WapiStory.fromMap(result.data);
   }
 }
 

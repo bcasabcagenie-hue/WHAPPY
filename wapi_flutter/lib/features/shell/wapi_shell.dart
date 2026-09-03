@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
@@ -18,7 +19,12 @@ import '../../app/wapi_theme.dart';
 import '../../data/wapi_repository.dart';
 import '../../services/wapi_notifications.dart';
 import '../calls/wapi_call_page.dart';
+import '../commerce/wapi_commerce_page.dart';
+import '../games/wapi_games_page.dart';
 import '../live/wapi_live_page.dart';
+import '../services/wapi_services_page.dart';
+import '../ticketbulk/wapi_ticketbulk_page.dart';
+import '../wia/wia_chat_page.dart';
 
 class WapiShell extends StatefulWidget {
   const WapiShell({super.key, required this.user, this.initialConversationId});
@@ -166,8 +172,6 @@ class _WapiAppBar extends StatelessWidget implements PreferredSizeWidget {
     titleSpacing: 16,
     title: Row(
       children: [
-        Image.asset('assets/branding/wapi_mark.png', width: 38, height: 38),
-        const SizedBox(width: 10),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -221,6 +225,7 @@ class _HomePage extends StatelessWidget {
         final phone =
             (profile['phoneNumber'] as String?) ?? user.phoneNumber ?? '';
         final photo = (profile['photoUrl'] as String?) ?? user.photoURL ?? '';
+        final verified = profile['verified'] == true;
         return ListView(
           padding: const EdgeInsets.only(bottom: 30),
           children: [
@@ -228,9 +233,13 @@ class _HomePage extends StatelessWidget {
               name: name,
               phone: phone,
               photoUrl: photo,
-              onTap: () => _push(
+              verified: verified,
+              onTap: () => _showAccountSwitcher(
                 context,
-                _ProfilePage(user: user, repository: repository),
+                name: name,
+                phone: phone,
+                photoUrl: photo,
+                verified: verified,
               ),
             ),
             const SizedBox(height: 12),
@@ -314,12 +323,29 @@ class _HomePage extends StatelessWidget {
                   accent: const Color(0xFF00A77A),
                   onTap: () => _push(
                     context,
-                    const _FeedPage(
-                      title: 'Marché',
-                      collection: 'listings',
-                      icon: Icons.storefront_outlined,
-                    ),
+                    WapiCommercePage(user: user, initialTab: 1),
                   ),
+                ),
+                _HomeRow(
+                  icon: Icons.confirmation_number_rounded,
+                  title: 'TicketBulk',
+                  detail: 'Événements, billets QR et contrôle d’accès',
+                  accent: const Color(0xFF087D62),
+                  onTap: () => _push(context, WapiTicketBulkPage(user: user)),
+                ),
+                _HomeRow(
+                  icon: Icons.sports_esports_rounded,
+                  title: 'WAPI Games',
+                  detail: 'King QI, Wapi Pool et profils joueurs',
+                  accent: const Color(0xFF00A884),
+                  onTap: () => _push(context, WapiGamesPage(user: user)),
+                ),
+                _HomeRow(
+                  icon: Icons.volunteer_activism_rounded,
+                  title: 'Services WAPI',
+                  detail: 'Transport, livraison et assistance',
+                  accent: const Color(0xFFF29B22),
+                  onTap: () => _push(context, WapiServicesPage(user: user)),
                 ),
               ],
             ),
@@ -331,7 +357,7 @@ class _HomePage extends StatelessWidget {
                   title: 'WAPI Business',
                   detail: 'Pages, catalogue, offres et publicité',
                   accent: const Color(0xFFF29B22),
-                  onTap: () => _push(context, _BusinessPage(user: user)),
+                  onTap: () => _push(context, WapiCommercePage(user: user)),
                 ),
                 _HomeRow(
                   icon: Icons.auto_awesome_rounded,
@@ -360,6 +386,90 @@ class _HomePage extends StatelessWidget {
 
   void _push(BuildContext context, Widget page) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+
+  Future<void> _showAccountSwitcher(
+    BuildContext context, {
+    required String name,
+    required String phone,
+    required String photoUrl,
+    required bool verified,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('businessPages')
+            .where('ownerId', isEqualTo: user.uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          final pages = snapshot.data?.docs ?? const [];
+          return ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            children: [
+              const Text(
+                'Choisir un compte',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Passez de votre profil personnel à une page Business sans mélanger vos identités.',
+                style: TextStyle(color: WapiColors.muted),
+              ),
+              const SizedBox(height: 16),
+              _AccountChoice(
+                name: name,
+                detail: phone.isEmpty ? 'Compte personnel WAPI' : phone,
+                photoUrl: photoUrl,
+                verified: verified,
+                personal: true,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _push(
+                    context,
+                    _ProfilePage(user: user, repository: repository),
+                  );
+                },
+              ),
+              const SizedBox(height: 9),
+              ...pages.map((document) {
+                final page = document.data();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 9),
+                  child: _AccountChoice(
+                    name: (page['name'] as String?)?.trim().isNotEmpty == true
+                        ? page['name'] as String
+                        : 'Business WAPI',
+                    detail:
+                        ((page['category'] as String?) ?? 'Business') +
+                        ' · ' +
+                        ((page['city'] as String?) ?? 'WAPI'),
+                    photoUrl: (page['logoUrl'] as String?) ?? '',
+                    verified: page['verified'] == true,
+                    personal: false,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _push(context, WapiCommercePage(user: user));
+                    },
+                  ),
+                );
+              }),
+              if (pages.isEmpty)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _push(context, WapiCommercePage(user: user));
+                  },
+                  icon: const Icon(Icons.add_business_outlined),
+                  label: const Text('Créer une page Business'),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _HomeIdentity extends StatelessWidget {
@@ -367,12 +477,14 @@ class _HomeIdentity extends StatelessWidget {
     required this.name,
     required this.phone,
     required this.photoUrl,
+    required this.verified,
     required this.onTap,
   });
 
   final String name;
   final String phone;
   final String photoUrl;
+  final bool verified;
   final VoidCallback onTap;
 
   @override
@@ -404,18 +516,33 @@ class _HomeIdentity extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (verified) ...[
+                        const SizedBox(width: 5),
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF2088D6),
+                          size: 18,
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    phone.isEmpty ? 'Compte WAPI' : phone,
+                    (phone.isEmpty ? 'Compte personnel WAPI' : phone) +
+                        ' · toucher pour changer',
                     style: const TextStyle(
                       color: WapiColors.muted,
                       fontSize: 13,
@@ -449,6 +576,69 @@ class _HomeIdentity extends StatelessWidget {
             const Icon(Icons.chevron_right_rounded, color: WapiColors.muted),
           ],
         ),
+      ),
+    ),
+  );
+}
+
+class _AccountChoice extends StatelessWidget {
+  const _AccountChoice({
+    required this.name,
+    required this.detail,
+    required this.photoUrl,
+    required this.verified,
+    required this.personal,
+    required this.onTap,
+  });
+  final String name;
+  final String detail;
+  final String photoUrl;
+  final bool verified;
+  final bool personal;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: EdgeInsets.zero,
+    child: ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+      leading: CircleAvatar(
+        backgroundColor: personal
+            ? WapiColors.blueSoft
+            : const Color(0xFFEAF8F4),
+        backgroundImage: photoUrl.isEmpty ? null : NetworkImage(photoUrl),
+        child: photoUrl.isEmpty
+            ? Icon(
+                personal ? Icons.person_rounded : Icons.storefront_rounded,
+                color: personal ? WapiColors.blue : const Color(0xFF087D62),
+              )
+            : null,
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+          if (verified) ...[
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.verified_rounded,
+              color: Color(0xFF2088D6),
+              size: 17,
+            ),
+          ],
+        ],
+      ),
+      subtitle: Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Icon(
+        personal ? Icons.person_outline_rounded : Icons.business_center_rounded,
+        color: personal ? WapiColors.blue : const Color(0xFF087D62),
       ),
     ),
   );
@@ -601,8 +791,8 @@ class _CallsPage extends StatelessWidget {
     appBar: const _WapiAppBar(title: 'Appels', subtitle: 'Audio et vidéo'),
     body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('calls')
-          .where('calleeId', isEqualTo: user.uid)
+          .collection('directCallSessions')
+          .where('memberIds', arrayContains: user.uid)
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
@@ -630,31 +820,45 @@ class _CallsPage extends StatelessWidget {
           itemCount: calls.length,
           itemBuilder: (context, index) {
             final call = calls[index].data();
+            final incoming = call['calleeId'] == user.uid;
+            final peerId = incoming
+                ? (call['callerId'] as String?) ?? ''
+                : (call['calleeId'] as String?) ?? '';
+            final peerName = incoming
+                ? (call['callerName'] as String?) ?? 'Contact WAPI'
+                : (call['calleeName'] as String?) ?? 'Contact WAPI';
+            final peerPhotoUrl = incoming
+                ? (call['callerPhotoUrl'] as String?) ?? ''
+                : (call['calleePhotoUrl'] as String?) ?? '';
             return Card(
               margin: const EdgeInsets.only(bottom: 10),
               child: ListTile(
-                onTap: call['status'] == 'ringing'
+                onTap: incoming && call['status'] == 'ringing'
                     ? () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => WapiCallPage.incoming(
                             user: user,
                             incomingCallId: snapshot.data!.docs[index].id,
-                            peerId: (call['callerId'] as String?) ?? '',
-                            peerName:
-                                (call['callerName'] as String?) ??
-                                'Contact WAPI',
+                            peerId: peerId,
+                            peerName: peerName,
+                            peerPhotoUrl: peerPhotoUrl,
                             video: call['video'] == true,
                           ),
                         ),
                       )
                     : null,
-                leading: const CircleAvatar(
+                leading: CircleAvatar(
                   backgroundColor: WapiColors.blueSoft,
                   foregroundColor: WapiColors.blue,
-                  child: Icon(Icons.call_received),
+                  backgroundImage: peerPhotoUrl.isEmpty
+                      ? null
+                      : NetworkImage(peerPhotoUrl),
+                  child: peerPhotoUrl.isEmpty
+                      ? Icon(incoming ? Icons.call_received : Icons.call_made)
+                      : null,
                 ),
                 title: Text(
-                  (call['callerName'] as String?) ?? 'Appel WAPI',
+                  peerName,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: Text(
@@ -679,19 +883,9 @@ class _CallsPage extends StatelessWidget {
 class _AssistantPage extends StatelessWidget {
   const _AssistantPage({required this.user});
   final User user;
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: const _WapiAppBar(
-      title: 'Assistant WAPI',
-      subtitle: 'Privé et contrôlé',
-    ),
-    body: const _StateMessage(
-      icon: Icons.smart_toy_outlined,
-      title: 'Assistant en migration',
-      body:
-          'L’interface Flutter est prête. Le service assistant sera activé dès qu’une API POST JSON valide sera disponible, sans réponse locale inventée.',
-    ),
-  );
+  Widget build(BuildContext context) => WiaChatPage(user: user);
 }
 
 class _ChannelsPage extends StatelessWidget {
@@ -1301,6 +1495,7 @@ class _RadioPageState extends State<_RadioPage> {
   }
 }
 
+// ignore: unused_element
 class _FeedPage extends StatelessWidget {
   const _FeedPage({
     required this.title,
@@ -1453,16 +1648,10 @@ class _ContactsPage extends StatelessWidget {
                 : (item['phoneNumber'] as String?) ?? 'Membre WAPI');
             final phone = (item['phoneNumber'] as String?) ?? '';
             return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: WapiColors.blueSoft,
-                foregroundColor: WapiColors.blue,
-                backgroundImage:
-                    (item['photoUrl'] as String?)?.isNotEmpty == true
-                    ? NetworkImage(item['photoUrl'] as String)
-                    : null,
-                child: (item['photoUrl'] as String?)?.isNotEmpty == true
-                    ? null
-                    : Text(name.substring(0, 1).toUpperCase()),
+              leading: _LiveProfileAvatar(
+                userId: uid,
+                fallbackUrl: (item['photoUrl'] as String?) ?? '',
+                name: name,
               ),
               title: Text(
                 name,
@@ -1532,38 +1721,74 @@ class _ContactsPage extends StatelessWidget {
 
   Future<void> _showMyQr(BuildContext context) => showModalBottomSheet<void>(
     context: context,
-    builder: (sheetContext) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Mon code WAPI',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text('Scannez ce code pour ouvrir une discussion avec vous.'),
-            const SizedBox(height: 20),
-            QrImageView(
-              data: 'wapi://contact/${user.uid}',
-              version: QrVersions.auto,
-              size: 236,
-              eyeStyle: const QrEyeStyle(
-                eyeShape: QrEyeShape.square,
-                color: WapiColors.blue,
+    builder: (sheetContext) {
+      final code = 'wapi://contact/${user.uid}';
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Mon code WAPI',
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
-              dataModuleStyle: const QrDataModuleStyle(
-                dataModuleShape: QrDataModuleShape.square,
-                color: WapiColors.ink,
+              const SizedBox(height: 8),
+              const Text(
+                'Présentez ce QR à votre contact : il ouvre directement votre profil WAPI.',
+                textAlign: TextAlign.center,
               ),
-            ),
-          ],
+              const SizedBox(height: 18),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: WapiColors.line),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: QrImageView(
+                    data: code,
+                    version: QrVersions.auto,
+                    size: 218,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: WapiColors.blue,
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: WapiColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                user.phoneNumber?.isNotEmpty == true
+                    ? user.phoneNumber!
+                    : 'Code personnel WAPI',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: code));
+                  if (sheetContext.mounted) {
+                    ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      const SnackBar(content: Text('Code WAPI copié.')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy_rounded),
+                label: const Text('Copier mon code'),
+              ),
+            ],
+          ),
         ),
-      ),
-    ),
+      );
+    },
   );
 
   Future<void> _showAddContact(BuildContext context) async {
@@ -1592,7 +1817,13 @@ class _ContactsPage extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () => Navigator.of(sheetContext).pop('scan'),
               icon: const Icon(Icons.qr_code_scanner_outlined),
-              label: const Text('Scanner un code WAPI'),
+              label: const Text('Numériser un code WAPI'),
+            ),
+            const SizedBox(height: 6),
+            TextButton.icon(
+              onPressed: () => _showMyQr(sheetContext),
+              icon: const Icon(Icons.qr_code_2_rounded),
+              label: const Text('Afficher mon code personnel'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1651,27 +1882,119 @@ class _ContactQrScanner extends StatefulWidget {
 
 class _ContactQrScannerState extends State<_ContactQrScanner> {
   bool _handled = false;
+  late final MobileScannerController _scanner = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.qrCode, BarcodeFormat.code128],
+  );
+
+  @override
+  void dispose() {
+    _scanner.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openSettings() async {
+    await openAppSettings();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: const _WapiAppBar(
-      title: 'Scanner un code WAPI',
-      subtitle: 'Cadrez le QR de votre contact',
+    backgroundColor: Colors.black,
+    appBar: _WapiAppBar(
+      title: 'Numériser un code WAPI',
+      subtitle: 'Cadrez le QR personnel de votre contact',
+      actions: [
+        ValueListenableBuilder<MobileScannerState>(
+          valueListenable: _scanner,
+          builder: (context, state, _) => IconButton(
+            onPressed: state.torchState == TorchState.unavailable
+                ? null
+                : _scanner.toggleTorch,
+            tooltip: 'Lampe',
+            icon: Icon(
+              state.torchState == TorchState.on
+                  ? Icons.flash_on_rounded
+                  : Icons.flash_off_rounded,
+            ),
+          ),
+        ),
+      ],
     ),
-    body: MobileScanner(
-      onDetect: (capture) {
-        if (_handled) return;
-        String? value;
-        for (final barcode in capture.barcodes) {
-          final candidate = barcode.rawValue;
-          if (candidate != null && candidate.startsWith('wapi://contact/')) {
-            value = candidate;
-            break;
-          }
-        }
-        if (value == null || !value.startsWith('wapi://contact/')) return;
-        _handled = true;
-        Navigator.of(context).pop(value);
-      },
+    body: Stack(
+      fit: StackFit.expand,
+      children: [
+        MobileScanner(
+          controller: _scanner,
+          errorBuilder: (context, error) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.no_photography_outlined,
+                    color: Colors.white,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'La caméra est nécessaire pour numériser un code WAPI.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton(
+                    onPressed: _openSettings,
+                    child: const Text('Autoriser la caméra'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          overlayBuilder: (context, constraints) => Center(
+            child: Container(
+              width: constraints.maxWidth * .70,
+              height: constraints.maxWidth * .70,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFF19A5FF), width: 3),
+              ),
+            ),
+          ),
+          onDetect: (capture) {
+            if (_handled) return;
+            final value = capture.barcodes
+                .map((barcode) => barcode.rawValue?.trim() ?? '')
+                .firstWhere(
+                  (candidate) => candidate.startsWith('wapi://contact/'),
+                  orElse: () => '',
+                );
+            if (value.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Ce code ne correspond pas à un contact WAPI.'),
+                ),
+              );
+              return;
+            }
+            _handled = true;
+            Navigator.of(context).pop(value);
+          },
+        ),
+        const Align(
+          alignment: Alignment.bottomCenter,
+          child: SafeArea(
+            minimum: EdgeInsets.all(24),
+            child: Text(
+              'Le code est scanné automatiquement.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -1772,16 +2095,49 @@ class _TwinPage extends StatelessWidget {
   }
 }
 
-class _InboxPage extends StatelessWidget {
+class _InboxPage extends StatefulWidget {
   const _InboxPage({required this.user, required this.repository});
   final User user;
   final WapiRepository repository;
+
+  @override
+  State<_InboxPage> createState() => _InboxPageState();
+}
+
+class _InboxPageState extends State<_InboxPage> {
+  bool _showRecents = false;
+
+  Future<void> _refresh() async {
+    // The conversation stream is live. Keeping a short refresh affordance makes
+    // pull-to-refresh predictable without replacing the active Firestore stream.
+    await Future<void>.delayed(const Duration(milliseconds: 280));
+  }
+
+  void _openConversation(WapiConversation conversation) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ChatPage(
+          user: widget.user,
+          repository: widget.repository,
+          conversation: conversation,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: _WapiAppBar(
-      title: 'Messages',
-      subtitle: 'Vos échanges',
+      title: _showRecents ? 'Récents' : 'Messages',
+      subtitle: _showRecents ? 'Vos échanges récents' : 'Vos échanges',
       actions: [
+        IconButton(
+          onPressed: () => setState(() => _showRecents = !_showRecents),
+          icon: Icon(
+            _showRecents ? Icons.forum_outlined : Icons.history_rounded,
+          ),
+          tooltip: _showRecents ? 'Discussions' : 'Afficher Récents',
+        ),
         IconButton(
           onPressed: () => _createGroup(context),
           icon: const Icon(Icons.group_add_outlined),
@@ -1790,7 +2146,7 @@ class _InboxPage extends StatelessWidget {
       ],
     ),
     body: StreamBuilder<List<WapiConversation>>(
-      stream: repository.conversations(user.uid),
+      stream: widget.repository.conversations(widget.user.uid),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const _StateMessage(
@@ -1810,68 +2166,188 @@ class _InboxPage extends StatelessWidget {
             body: 'Ajoutez un contact pour démarrer une discussion WAPI.',
           );
         }
-        return ListView.separated(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: conversations.length,
-          separatorBuilder: (_, _) => const Divider(height: 1, indent: 80),
-          itemBuilder: (context, index) {
-            final item = conversations[index];
-            return ListTile(
-              leading: CircleAvatar(
-                radius: 26,
-                backgroundColor: WapiColors.blueSoft,
-                foregroundColor: WapiColors.blue,
-                backgroundImage: item.avatarUrl.isNotEmpty
-                    ? NetworkImage(item.avatarUrl)
-                    : null,
-                child: item.avatarUrl.isNotEmpty
-                    ? null
-                    : Icon(
-                        item.isGroup
-                            ? Icons.groups_2_outlined
-                            : Icons.person_outline,
-                      ),
-              ),
-              title: Text(
-                item.title,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              subtitle: Text(
-                item.preview.isEmpty ? 'Aucun message' : item.preview,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (item.updatedAt != null)
-                    Text(
-                      '${item.updatedAt!.hour.toString().padLeft(2, '0')}:${item.updatedAt!.minute.toString().padLeft(2, '0')}',
-                      style: const TextStyle(
-                        color: WapiColors.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  const SizedBox(height: 5),
-                  if (item.unread) const Badge(smallSize: 9),
-                ],
-              ),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => _ChatPage(
-                    user: user,
-                    repository: repository,
-                    conversation: item,
-                  ),
+        return _showRecents
+            ? _recentPage(conversations)
+            : NotificationListener<OverscrollNotification>(
+                onNotification: (notification) {
+                  if (notification.overscroll < -18) {
+                    setState(() => _showRecents = true);
+                  }
+                  return false;
+                },
+                child: RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: _conversationList(conversations, revealRecent: true),
                 ),
-              ),
-            );
-          },
-        );
+              );
       },
     ),
   );
+
+  Widget _recentPage(List<WapiConversation> conversations) {
+    final cutoff = DateTime.now().subtract(const Duration(days: 7));
+    final recent = conversations
+        .where(
+          (item) => item.updatedAt == null || item.updatedAt!.isAfter(cutoff),
+        )
+        .toList();
+    return Column(
+      children: [
+        GestureDetector(
+          onVerticalDragEnd: (details) {
+            if ((details.primaryVelocity ?? 0) < -220) {
+              setState(() => _showRecents = false);
+            }
+          },
+          child: Container(
+            width: double.infinity,
+            color: WapiColors.blueSoft,
+            padding: const EdgeInsets.fromLTRB(16, 11, 10, 11),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.history_rounded,
+                  color: WapiColors.blue,
+                  size: 20,
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    '${recent.length} discussion${recent.length > 1 ? 's' : ''} active${recent.length > 1 ? 's' : ''} cette semaine',
+                    style: const TextStyle(
+                      color: WapiColors.blueDark,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _showRecents = false),
+                  child: const Text('Discussions'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: _conversationList(recent, revealRecent: false)),
+      ],
+    );
+  }
+
+  Widget _conversationList(
+    List<WapiConversation> conversations, {
+    required bool revealRecent,
+  }) {
+    final unread = conversations.where((item) => item.unread).length;
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: conversations.length + (revealRecent ? 1 : 0),
+      separatorBuilder: (_, index) => index == 0 && revealRecent
+          ? const SizedBox(height: 0)
+          : const Divider(height: 1, indent: 80),
+      itemBuilder: (context, index) {
+        if (revealRecent && index == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+            child: InkWell(
+              onTap: () => setState(() => _showRecents = true),
+              borderRadius: BorderRadius.circular(14),
+              child: Ink(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: WapiColors.blueSoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: WapiColors.blue,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Tirez vers le bas pour afficher Récents'),
+                    ),
+                    if (unread > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          '$unread non lu${unread > 1 ? 's' : ''}',
+                          style: const TextStyle(
+                            color: WapiColors.blueDark,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    else
+                      const Icon(Icons.history_rounded, color: WapiColors.blue),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        final item = conversations[revealRecent ? index - 1 : index];
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 3,
+          ),
+          leading: item.isGroup
+              ? CircleAvatar(
+                  radius: 26,
+                  backgroundColor: WapiColors.blueSoft,
+                  foregroundColor: WapiColors.blue,
+                  backgroundImage: item.avatarUrl.isNotEmpty
+                      ? NetworkImage(item.avatarUrl)
+                      : null,
+                  child: item.avatarUrl.isNotEmpty
+                      ? null
+                      : const Icon(Icons.groups_2_outlined),
+                )
+              : _LiveProfileAvatar(
+                  userId: item.peerId,
+                  fallbackUrl: item.avatarUrl,
+                  name: item.title,
+                  radius: 26,
+                ),
+          title: Text(
+            item.title,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            item.preview.isEmpty ? 'Aucun message' : item.preview,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (item.updatedAt != null)
+                Text(
+                  '${item.updatedAt!.hour.toString().padLeft(2, '0')}:${item.updatedAt!.minute.toString().padLeft(2, '0')}',
+                  style: const TextStyle(color: WapiColors.muted, fontSize: 11),
+                ),
+              const SizedBox(height: 5),
+              if (item.unread) const Badge(smallSize: 9),
+            ],
+          ),
+          onTap: () => _openConversation(item),
+        );
+      },
+    );
+  }
 
   Future<void> _createGroup(BuildContext context) async {
     final title = TextEditingController();
@@ -1883,7 +2359,7 @@ class _InboxPage extends StatelessWidget {
         child: SizedBox(
           height: MediaQuery.sizeOf(sheetContext).height * .78,
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: repository.profile(user.uid),
+            stream: widget.repository.profile(widget.user.uid),
             builder: (context, snapshot) {
               final contacts = _savedContacts(
                 snapshot.data?.data()?['contacts'] as Map?,
@@ -1954,8 +2430,8 @@ class _InboxPage extends StatelessWidget {
                                       )
                                       .toList();
                                   try {
-                                    await repository.createGroup(
-                                      user: user,
+                                    await widget.repository.createGroup(
+                                      user: widget.user,
                                       title: title.text,
                                       invitedMembers: members,
                                     );
@@ -2011,15 +2487,79 @@ class _ChatPageState extends State<_ChatPage> {
   final _recorder = AudioRecorder();
   final _player = AudioPlayer();
   final _messageScrollController = ScrollController();
+  final _composerFocusNode = FocusNode();
   StreamSubscription<List<WapiMessage>>? _messagesSubscription;
+  StreamSubscription<PlayerState>? _audioStateSubscription;
+  StreamSubscription<Duration>? _audioPositionSubscription;
+  StreamSubscription<Duration?>? _audioDurationSubscription;
   bool _sending = false;
   bool _recording = false;
+  int _recordingSeconds = 0;
+  Timer? _recordingTicker;
+  bool _showEmojiPanel = false;
   bool _markingRead = false;
   bool _markReadQueued = false;
   String? _latestIncomingMessageId;
   String? _lastRenderedMessageId;
   bool _positionedInitialMessages = false;
   WapiMessage? _replyingTo;
+  String? _playingAudioMessageId;
+  Duration _audioPosition = Duration.zero;
+  Duration _audioDuration = Duration.zero;
+
+  static const _composerEmojis = <String>[
+    '😀',
+    '😁',
+    '😅',
+    '😂',
+    '🤣',
+    '🥰',
+    '😍',
+    '😎',
+    '🤩',
+    '😘',
+    '🤔',
+    '🙌',
+    '🤝',
+    '🙏',
+    '👍',
+    '👎',
+    '💪',
+    '❤️',
+    '💚',
+    '💯',
+    '🔥',
+    '🎉',
+    '👏',
+    '😮',
+    '😢',
+    '😡',
+    '😴',
+    '🤗',
+    '🤭',
+    '✅',
+    '❌',
+    '⭐',
+    '✨',
+    '🎁',
+    '🎤',
+    '📷',
+    '📹',
+    '📍',
+    '📞',
+    '💸',
+    '🎮',
+    '💬',
+    '🌍',
+    '💙',
+    '🚀',
+    '☀️',
+    '🌙',
+    '🍀',
+    '🎵',
+    '🏆',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -2027,6 +2567,22 @@ class _ChatPageState extends State<_ChatPage> {
     _messagesSubscription = widget.repository
         .messages(widget.conversation.id)
         .listen(_markVisibleMessagesRead);
+    _audioStateSubscription = _player.playerStateStream.listen((state) {
+      if (!mounted || _playingAudioMessageId == null) return;
+      if (!state.playing ||
+          state.processingState == ProcessingState.completed) {
+        setState(() => _playingAudioMessageId = null);
+      }
+    });
+    _audioPositionSubscription = _player.positionStream.listen((position) {
+      if (mounted && _playingAudioMessageId != null) {
+        setState(() => _audioPosition = position);
+      }
+    });
+    _audioDurationSubscription = _player.durationStream.listen((duration) {
+      if (mounted && duration != null)
+        setState(() => _audioDuration = duration);
+    });
   }
 
   void _markVisibleMessagesRead(List<WapiMessage> messages) {
@@ -2096,7 +2652,12 @@ class _ChatPageState extends State<_ChatPage> {
   @override
   void dispose() {
     _messagesSubscription?.cancel();
+    _audioStateSubscription?.cancel();
+    _audioPositionSubscription?.cancel();
+    _audioDurationSubscription?.cancel();
+    _recordingTicker?.cancel();
     _messageScrollController.dispose();
+    _composerFocusNode.dispose();
     _composer.dispose();
     _recorder.dispose();
     _player.dispose();
@@ -2160,32 +2721,15 @@ class _ChatPageState extends State<_ChatPage> {
 
   Future<void> _toggleRecording() async {
     if (_recording) {
-      final path = await _recorder.stop();
-      if (mounted) setState(() => _recording = false);
-      SystemSound.play(SystemSoundType.click);
-      if (path == null) return;
-      setState(() => _sending = true);
-      try {
-        await widget.repository.sendMediaMessage(
-          conversationId: widget.conversation.id,
-          user: widget.user,
-          file: File(path),
-          kind: 'audio',
-          contentType: 'audio/mp4',
-          fileName: 'note-vocale-${DateTime.now().millisecondsSinceEpoch}.m4a',
-        );
-      } catch (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Note vocale non envoyée : $error')),
-          );
-        }
-      } finally {
-        if (mounted) setState(() => _sending = false);
-      }
+      await _finishRecording();
       return;
     }
-    if (!await _recorder.hasPermission()) {
+    await _startRecording();
+  }
+
+  Future<void> _startRecording() async {
+    final permitted = await _recorder.hasPermission();
+    if (!permitted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -2197,19 +2741,170 @@ class _ChatPageState extends State<_ChatPage> {
       }
       return;
     }
-    final directory = await getTemporaryDirectory();
-    await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc),
-      path:
-          '${directory.path}/wapi-${DateTime.now().millisecondsSinceEpoch}.m4a',
-    );
-    if (mounted) setState(() => _recording = true);
-    SystemSound.play(SystemSoundType.click);
+    try {
+      final directory = await getTemporaryDirectory();
+      if (!await directory.exists()) await directory.create(recursive: true);
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path:
+            '${directory.path}/wapi-${DateTime.now().millisecondsSinceEpoch}.m4a',
+      );
+      if (!await _recorder.isRecording()) {
+        throw StateError('Le microphone n’a pas démarré.');
+      }
+      _recordingTicker?.cancel();
+      _recordingSeconds = 0;
+      _recordingTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _recording) setState(() => _recordingSeconds++);
+      });
+      if (mounted) setState(() => _recording = true);
+      SystemSound.play(SystemSoundType.click);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Enregistrement impossible : $error')),
+        );
+      }
+    }
   }
 
-  Future<void> _playAudio(String url) async {
-    await _player.setUrl(url);
-    await _player.play();
+  Future<void> _cancelRecording() async {
+    _recordingTicker?.cancel();
+    try {
+      await _recorder.cancel();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _recording = false;
+          _recordingSeconds = 0;
+        });
+      }
+    }
+  }
+
+  Future<void> _finishRecording() async {
+    _recordingTicker?.cancel();
+    final seconds = _recordingSeconds;
+    final path = await _recorder.stop();
+    if (mounted) {
+      setState(() {
+        _recording = false;
+        _recordingSeconds = 0;
+      });
+    }
+    SystemSound.play(SystemSoundType.click);
+    if (path == null) return;
+    final file = File(path);
+    if (!await file.exists() || await file.length() < 256) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La note vocale est vide. Réessayez.')),
+        );
+      }
+      return;
+    }
+    if (seconds < 1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Maintenez le micro au moins une seconde.'),
+          ),
+        );
+      }
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await widget.repository.sendMediaMessage(
+        conversationId: widget.conversation.id,
+        user: widget.user,
+        file: file,
+        kind: 'audio',
+        contentType: 'audio/mp4',
+        fileName: 'note-vocale-${DateTime.now().millisecondsSinceEpoch}.m4a',
+        durationSeconds: seconds,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Note vocale non envoyée : $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _toggleAudio(WapiMessage message) async {
+    if (message.mediaUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cette note vocale est indisponible.')),
+      );
+      return;
+    }
+    try {
+      if (_playingAudioMessageId == message.id && _player.playing) {
+        await _player.pause();
+        if (mounted) setState(() => _playingAudioMessageId = null);
+        return;
+      }
+      _audioPosition = Duration.zero;
+      _audioDuration = Duration.zero;
+      await _player.setUrl(message.mediaUrl);
+      await _player.play();
+      if (mounted) setState(() => _playingAudioMessageId = message.id);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossible de lire cette note vocale pour le moment.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _toggleEmojiPanel() {
+    final showing = !_showEmojiPanel;
+    setState(() => _showEmojiPanel = showing);
+    if (showing) {
+      _composerFocusNode.unfocus();
+    } else {
+      _composerFocusNode.requestFocus();
+    }
+  }
+
+  void _insertEmoji(String emoji) {
+    final selection = _composer.selection;
+    final start = selection.isValid ? selection.start : _composer.text.length;
+    final end = selection.isValid ? selection.end : _composer.text.length;
+    final next = _composer.text.replaceRange(start, end, emoji);
+    _composer.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+    setState(() {});
+  }
+
+  void _openMemberProfile({
+    required String userId,
+    required String fallbackName,
+    required String fallbackPhotoUrl,
+  }) {
+    if (userId.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ContactProfilePage(
+          user: widget.user,
+          repository: widget.repository,
+          profileId: userId,
+          fallbackName: fallbackName,
+          fallbackPhotoUrl: fallbackPhotoUrl,
+        ),
+      ),
+    );
   }
 
   Future<void> _messageActions(WapiMessage message) async {
@@ -2417,26 +3112,44 @@ class _ChatPageState extends State<_ChatPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Row(
-        children: [
-          CircleAvatar(
-            radius: 19,
-            backgroundColor: WapiColors.blueSoft,
-            backgroundImage: widget.conversation.avatarUrl.isNotEmpty
-                ? NetworkImage(widget.conversation.avatarUrl)
-                : null,
-            child: widget.conversation.avatarUrl.isNotEmpty
-                ? null
-                : Icon(
-                    widget.conversation.isGroup
-                        ? Icons.groups_2_outlined
-                        : Icons.person_outline,
-                    color: WapiColors.blue,
-                  ),
+      title: InkWell(
+        onTap: widget.conversation.isGroup
+            ? _editGroup
+            : () => _openMemberProfile(
+                userId: widget.conversation.peerId,
+                fallbackName: widget.conversation.title,
+                fallbackPhotoUrl: widget.conversation.avatarUrl,
+              ),
+        borderRadius: BorderRadius.circular(28),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              widget.conversation.isGroup
+                  ? CircleAvatar(
+                      radius: 19,
+                      backgroundColor: WapiColors.blueSoft,
+                      backgroundImage: widget.conversation.avatarUrl.isNotEmpty
+                          ? NetworkImage(widget.conversation.avatarUrl)
+                          : null,
+                      child: widget.conversation.avatarUrl.isNotEmpty
+                          ? null
+                          : const Icon(
+                              Icons.groups_2_outlined,
+                              color: WapiColors.blue,
+                            ),
+                    )
+                  : _LiveProfileAvatar(
+                      userId: widget.conversation.peerId,
+                      fallbackUrl: widget.conversation.avatarUrl,
+                      name: widget.conversation.title,
+                      radius: 19,
+                    ),
+              const SizedBox(width: 10),
+              Expanded(child: _chatTitle()),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(child: _chatTitle()),
-        ],
+        ),
       ),
       actions: widget.conversation.isGroup
           ? [
@@ -2501,32 +3214,47 @@ class _ChatPageState extends State<_ChatPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (!mine) ...[
-                          CircleAvatar(
-                            radius: 17,
-                            backgroundColor: WapiColors.blueSoft,
-                            backgroundImage:
-                                widget
-                                        .conversation
-                                        .memberPhotoUrls[message.senderId]
-                                        ?.isNotEmpty ==
-                                    true
-                                ? NetworkImage(
-                                    widget.conversation.memberPhotoUrls[message
-                                        .senderId]!,
-                                  )
-                                : null,
-                            child:
-                                widget
-                                        .conversation
-                                        .memberPhotoUrls[message.senderId]
-                                        ?.isNotEmpty ==
-                                    true
-                                ? null
-                                : const Icon(
-                                    Icons.person_outline,
-                                    color: WapiColors.blue,
-                                    size: 19,
-                                  ),
+                          InkWell(
+                            onTap: () => _openMemberProfile(
+                              userId: message.senderId,
+                              fallbackName:
+                                  widget.conversation.memberNames[message
+                                      .senderId] ??
+                                  widget.conversation.title,
+                              fallbackPhotoUrl:
+                                  widget.conversation.memberPhotoUrls[message
+                                      .senderId] ??
+                                  '',
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            child: CircleAvatar(
+                              radius: 17,
+                              backgroundColor: WapiColors.blueSoft,
+                              backgroundImage:
+                                  widget
+                                          .conversation
+                                          .memberPhotoUrls[message.senderId]
+                                          ?.isNotEmpty ==
+                                      true
+                                  ? NetworkImage(
+                                      widget
+                                          .conversation
+                                          .memberPhotoUrls[message.senderId]!,
+                                    )
+                                  : null,
+                              child:
+                                  widget
+                                          .conversation
+                                          .memberPhotoUrls[message.senderId]
+                                          ?.isNotEmpty ==
+                                      true
+                                  ? null
+                                  : const Icon(
+                                      Icons.person_outline,
+                                      color: WapiColors.blue,
+                                      size: 19,
+                                    ),
+                            ),
                           ),
                           const SizedBox(width: 8),
                         ],
@@ -2634,25 +3362,84 @@ class _ChatPageState extends State<_ChatPage> {
                                   ),
                                 if (message.kind == 'audio')
                                   InkWell(
-                                    onTap: () => _playAudio(message.mediaUrl),
+                                    onTap: () => _toggleAudio(message),
+                                    borderRadius: BorderRadius.circular(12),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(
-                                          Icons.play_arrow_rounded,
-                                          color: mine
-                                              ? Colors.white
-                                              : WapiColors.blue,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          message.durationSeconds > 0
-                                              ? '${message.durationSeconds}s · Note vocale'
-                                              : 'Écouter la note vocale',
-                                          style: TextStyle(
+                                        Container(
+                                          width: 36,
+                                          height: 36,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: mine
+                                                ? Colors.white.withValues(
+                                                    alpha: .2,
+                                                  )
+                                                : WapiColors.blueSoft,
+                                          ),
+                                          child: Icon(
+                                            _playingAudioMessageId == message.id
+                                                ? Icons.pause_rounded
+                                                : Icons.play_arrow_rounded,
                                             color: mine
                                                 ? Colors.white
-                                                : WapiColors.ink,
+                                                : WapiColors.blue,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 9),
+                                        Flexible(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.mic_rounded,
+                                                    size: 15,
+                                                    color: mine
+                                                        ? Colors.white
+                                                        : WapiColors.blue,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    'Note vocale',
+                                                    style: TextStyle(
+                                                      color: mine
+                                                          ? Colors.white
+                                                          : WapiColors.ink,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              _VoiceWaveform(
+                                                color: mine
+                                                    ? Colors.white
+                                                    : WapiColors.blue,
+                                                active:
+                                                    _playingAudioMessageId ==
+                                                    message.id,
+                                                durationSeconds:
+                                                    message.durationSeconds,
+                                                progress:
+                                                    _playingAudioMessageId ==
+                                                            message.id &&
+                                                        _audioDuration
+                                                                .inMilliseconds >
+                                                            0
+                                                    ? _audioPosition
+                                                              .inMilliseconds /
+                                                          _audioDuration
+                                                              .inMilliseconds
+                                                    : 0,
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
@@ -2721,6 +3508,7 @@ class _ChatPageState extends State<_ChatPage> {
             },
           ),
         ),
+        if (_showEmojiPanel) _emojiPanel(),
         SafeArea(
           top: false,
           child: Padding(
@@ -2761,6 +3549,42 @@ class _ChatPageState extends State<_ChatPage> {
                       ],
                     ),
                   ),
+                if (_recording)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFEEF0),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.fiber_manual_record_rounded,
+                          color: Color(0xFFD92D3A),
+                          size: 17,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Enregistrement  ${_recordingSeconds ~/ 60}:${(_recordingSeconds % 60).toString().padLeft(2, '0')}',
+                            style: const TextStyle(
+                              color: Color(0xFF9E1B2B),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _cancelRecording,
+                          child: const Text('Annuler'),
+                        ),
+                      ],
+                    ),
+                  ),
                 Row(
                   children: [
                     IconButton(
@@ -2797,14 +3621,36 @@ class _ChatPageState extends State<_ChatPage> {
                       icon: const Icon(Icons.add_circle_outline),
                       tooltip: 'Joindre',
                     ),
+                    IconButton(
+                      onPressed: _sending ? null : _toggleEmojiPanel,
+                      icon: Icon(
+                        _showEmojiPanel
+                            ? Icons.keyboard_alt_outlined
+                            : Icons.emoji_emotions_outlined,
+                      ),
+                      color: WapiColors.blue,
+                      tooltip: _showEmojiPanel ? 'Clavier' : 'Emoji',
+                    ),
                     Expanded(
                       child: TextField(
                         controller: _composer,
+                        focusNode: _composerFocusNode,
                         minLines: 1,
                         maxLines: 5,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
-                        decoration: const InputDecoration(hintText: 'Message'),
+                        onTap: () {
+                          if (_showEmojiPanel) {
+                            setState(() => _showEmojiPanel = false);
+                          }
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'Message',
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 13,
+                            vertical: 11,
+                          ),
+                        ),
                       ),
                     ),
                     IconButton(
@@ -2874,6 +3720,38 @@ class _ChatPageState extends State<_ChatPage> {
     );
   }
 
+  Widget _emojiPanel() => Container(
+    height: 244,
+    width: double.infinity,
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(top: BorderSide(color: WapiColors.line)),
+    ),
+    child: GridView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      itemCount: _composerEmojis.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 9,
+        mainAxisSpacing: 4,
+        crossAxisSpacing: 4,
+      ),
+      itemBuilder: (context, index) {
+        final emoji = _composerEmojis[index];
+        return Semantics(
+          button: true,
+          label: 'Ajouter $emoji',
+          child: InkWell(
+            onTap: () => _insertEmoji(emoji),
+            borderRadius: BorderRadius.circular(12),
+            child: Center(
+              child: Text(emoji, style: const TextStyle(fontSize: 25)),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
   void _startCall({required bool video}) {
     if (widget.conversation.peerId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2891,6 +3769,7 @@ class _ChatPageState extends State<_ChatPage> {
           user: widget.user,
           peerId: widget.conversation.peerId,
           peerName: widget.conversation.title,
+          peerPhotoUrl: widget.conversation.avatarUrl,
           video: video,
         ),
       ),
@@ -3217,6 +4096,261 @@ class _ChatPageState extends State<_ChatPage> {
   }
 }
 
+class _VoiceWaveform extends StatelessWidget {
+  const _VoiceWaveform({
+    required this.color,
+    required this.active,
+    required this.durationSeconds,
+    required this.progress,
+  });
+
+  final Color color;
+  final bool active;
+  final int durationSeconds;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    const bars = <double>[7, 12, 8, 17, 10, 20, 13, 8, 16, 11, 19, 8];
+    final totalSeconds = durationSeconds > 0 ? durationSeconds : 0;
+    final listened = (totalSeconds * progress.clamp(0, 1)).floor();
+    final label = active && totalSeconds > 0
+        ? '${listened}s / ${totalSeconds}s'
+        : totalSeconds > 0
+        ? '${totalSeconds}s'
+        : 'Vocal';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...bars.indexed.map(
+          (entry) => AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 3.5,
+            height: active ? entry.$2 + 3 : entry.$2,
+            margin: const EdgeInsets.only(right: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(
+                alpha: active && entry.$1 / bars.length <= progress ? 1 : .42,
+              ),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ContactProfilePage extends StatelessWidget {
+  const _ContactProfilePage({
+    required this.user,
+    required this.repository,
+    required this.profileId,
+    required this.fallbackName,
+    required this.fallbackPhotoUrl,
+  });
+
+  final User user;
+  final WapiRepository repository;
+  final String profileId;
+  final String fallbackName;
+  final String fallbackPhotoUrl;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: const _WapiAppBar(
+      title: 'Profil',
+      subtitle: 'Informations du contact',
+    ),
+    body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: repository.profile(profileId),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() ?? const <String, dynamic>{};
+        final profileName = (data['displayName'] as String?)?.trim();
+        final name = profileName?.isNotEmpty == true
+            ? profileName!
+            : fallbackName.isNotEmpty
+            ? fallbackName
+            : 'Membre WAPI';
+        final profilePhoto = (data['photoUrl'] as String?)?.trim() ?? '';
+        final photoUrl = profilePhoto.isNotEmpty
+            ? profilePhoto
+            : fallbackPhotoUrl;
+        final phone = (data['phoneNumber'] as String?)?.trim() ?? '';
+        final bio =
+            (data['bio'] as String?)?.trim() ??
+            (data['statusText'] as String?)?.trim() ??
+            '';
+        final verified = data['verified'] == true;
+        final online = data['isOnline'] == true;
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+          children: [
+            Center(
+              child: InkWell(
+                onTap: photoUrl.isEmpty
+                    ? null
+                    : () => _showPhoto(context, photoUrl, name),
+                borderRadius: BorderRadius.circular(58),
+                child: CircleAvatar(
+                  radius: 56,
+                  backgroundColor: WapiColors.blueSoft,
+                  backgroundImage: photoUrl.isEmpty
+                      ? null
+                      : NetworkImage(photoUrl),
+                  child: photoUrl.isEmpty
+                      ? Text(
+                          name.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(
+                            color: WapiColors.blue,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    name,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (verified) ...[
+                  const SizedBox(width: 6),
+                  const Icon(
+                    Icons.verified_rounded,
+                    size: 21,
+                    color: WapiColors.blue,
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text(
+              online ? 'En ligne' : 'Compte WAPI',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: online ? WapiColors.blue : WapiColors.muted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    label: const Text('Message'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _startCall(context, name, video: false),
+                    icon: const Icon(Icons.call_outlined),
+                    label: const Text('Appeler'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Card(
+              child: Column(
+                children: [
+                  if (phone.isNotEmpty)
+                    ListTile(
+                      leading: const Icon(Icons.phone_outlined),
+                      title: const Text('Téléphone'),
+                      subtitle: Text(phone),
+                    ),
+                  ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('À propos'),
+                    subtitle: Text(
+                      bio.isNotEmpty ? bio : 'Ce contact utilise WAPI.',
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.videocam_outlined),
+                    title: const Text('Appel vidéo'),
+                    subtitle: const Text('Démarrer un appel vidéo WAPI'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _startCall(context, name, video: true),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  void _startCall(BuildContext context, String name, {required bool video}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WapiCallPage.outgoing(
+          user: user,
+          peerId: profileId,
+          peerName: name,
+          video: video,
+        ),
+      ),
+    );
+  }
+
+  void _showPhoto(BuildContext context, String photoUrl, String name) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog.fullscreen(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(
+              color: Colors.black,
+              child: InteractiveViewer(
+                child: Center(
+                  child: Image.network(photoUrl, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  tooltip: 'Fermer la photo de $name',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _UpdatesPage extends StatelessWidget {
   const _UpdatesPage({required this.user, required this.repository});
   final User user;
@@ -3225,7 +4359,7 @@ class _UpdatesPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: _WapiAppBar(
       title: 'Actus',
-      subtitle: 'Statuts de vos contacts',
+      subtitle: 'Statuts, créateurs et tendances',
       actions: [
         IconButton(
           onPressed: () => _composeStory(context),
@@ -3248,13 +4382,114 @@ class _UpdatesPage extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         final stories = snapshot.data!;
+        final latestByAuthor = <String, WapiStory>{};
+        for (final story in stories) {
+          latestByAuthor.putIfAbsent(story.authorId, () => story);
+        }
+        final storyRail = latestByAuthor.values.toList(growable: false);
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF075DE6), Color(0xFF0A3FCC)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33075DE6),
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Colors.white,
+                    size: 27,
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Votre moment, maintenant',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Une photo, une vidéo ou un mot reste visible 24 h.',
+                          style: TextStyle(
+                            color: Color(0xFFDDEBFF),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _composeStory(context),
+                    icon: const Icon(Icons.add, color: Color(0xFF075DE6)),
+                    style: IconButton.styleFrom(backgroundColor: Colors.white),
+                    tooltip: 'Créer un statut',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             _StoryPublisher(onTap: () => _composeStory(context)),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 112,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: storyRail.length + 1,
+                separatorBuilder: (_, _) => const SizedBox(width: 14),
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return _StoryRailAvatar(
+                      label: 'Mon statut',
+                      photoUrl: user.photoURL ?? '',
+                      action: true,
+                      onTap: () => _composeStory(context),
+                    );
+                  }
+                  final story = storyRail[index - 1];
+                  return _StoryRailAvatar(
+                    label: story.authorId == user.uid
+                        ? 'Mon statut'
+                        : story.authorName,
+                    photoUrl: story.authorPhotoUrl,
+                    viewed: story.viewedByCurrentUser,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => _StoryViewer(
+                          story: story,
+                          user: user,
+                          repository: repository,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 18),
             Text(
-              'Récentes',
+              stories.isEmpty
+                  ? 'Statuts de vos contacts'
+                  : 'À regarder maintenant',
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -3274,15 +4509,20 @@ class _UpdatesPage extends StatelessWidget {
                   child: ListTile(
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => _StoryViewer(story: story),
+                        builder: (_) => _StoryViewer(
+                          story: story,
+                          user: user,
+                          repository: repository,
+                        ),
                       ),
                     ),
                     leading: CircleAvatar(
                       backgroundColor: WapiColors.blueSoft,
                       foregroundColor: WapiColors.blue,
-                      child: Text(
-                        story.authorName.substring(0, 1).toUpperCase(),
-                      ),
+                      backgroundImage: _imageProvider(story.authorPhotoUrl),
+                      child: story.authorPhotoUrl.isEmpty
+                          ? Text(story.authorName.substring(0, 1).toUpperCase())
+                          : null,
                     ),
                     title: Text(
                       story.authorName,
@@ -3293,7 +4533,22 @@ class _UpdatesPage extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: const Icon(Icons.chevron_right),
+                    trailing: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _storyTimeLabel(story.createdAt),
+                          style: const TextStyle(
+                            color: WapiColors.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        const Icon(Icons.chevron_right),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -3302,128 +4557,221 @@ class _UpdatesPage extends StatelessWidget {
       },
     ),
   );
-  void _composeStory(BuildContext context) {
-    final controller = TextEditingController();
-    showModalBottomSheet<void>(
+  Future<void> _composeStory(BuildContext context) async {
+    final media = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 92,
+    );
+    if (media == null || !context.mounted) return;
+    await _showStoryEditor(context, media: media, video: false);
+  }
+
+  Future<void> _showStoryEditor(
+    BuildContext context, {
+    required XFile media,
+    required bool video,
+  }) async {
+    final caption = TextEditingController();
+    var selectedMedia = media;
+    var selectedVideo = video;
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          20,
-          20,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Nouveau statut',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text('Visible pendant 24 heures.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              maxLength: 600,
-              minLines: 3,
-              maxLines: 6,
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: 'Partagez une pensée…',
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * .88,
+            child: Column(
               children: [
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _publishStoryMedia(context, controller.text, video: false);
-                  },
-                  icon: const Icon(Icons.photo_outlined),
-                  label: const Text('Photo'),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 10, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Annuler',
+                      ),
+                      const SizedBox(width: 4),
+                      const Expanded(
+                        child: Text(
+                          'Votre Story',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final picked = await ImagePicker().pickImage(
+                            source: ImageSource.gallery,
+                            imageQuality: 92,
+                          );
+                          if (picked != null) {
+                            setSheetState(() {
+                              selectedMedia = picked;
+                              selectedVideo = false;
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.photo_outlined, size: 19),
+                        label: const Text('Photo'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final picked = await ImagePicker().pickVideo(
+                            source: ImageSource.gallery,
+                          );
+                          if (picked != null) {
+                            setSheetState(() {
+                              selectedMedia = picked;
+                              selectedVideo = true;
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.videocam_outlined, size: 19),
+                        label: const Text('Vidéo'),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 10),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _publishStoryMedia(context, controller.text, video: true);
-                  },
-                  icon: const Icon(Icons.videocam_outlined),
-                  label: const Text('Vidéo'),
+                Container(height: 1, color: WapiColors.line),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                  child: TextField(
+                    controller: caption,
+                    maxLength: 600,
+                    minLines: 1,
+                    maxLines: 3,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      hintText: 'Ajouter du texte à votre Story…',
+                      border: InputBorder.none,
+                      counterText: '',
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B1724),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: selectedVideo
+                        ? const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: Colors.white,
+                                size: 58,
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                'Vidéo sélectionnée',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Image.file(
+                            File(selectedMedia.path),
+                            fit: BoxFit.contain,
+                          ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _publishStoryMedia(
+                          context,
+                          caption.text,
+                          media: selectedMedia,
+                          video: selectedVideo,
+                        );
+                      },
+                      icon: const Icon(Icons.send_rounded),
+                      label: const Text('Publier la Story'),
+                    ),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: () async {
-                  try {
-                    final story = await repository.publishTextStory(
-                      user: user,
-                      text: controller.text,
-                    );
-                    if (sheetContext.mounted) {
-                      Navigator.pop(sheetContext);
-                    }
-                    if (context.mounted) {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => _StoryViewer(story: story),
-                        ),
-                      );
-                    }
-                  } catch (error) {
-                    if (sheetContext.mounted) {
-                      ScaffoldMessenger.of(sheetContext).showSnackBar(
-                        SnackBar(
-                          content: Text('Publication impossible : $error'),
-                        ),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.send),
-                label: const Text('Publier'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
-    ).whenComplete(controller.dispose);
+    );
+    caption.dispose();
   }
 
   Future<void> _publishStoryMedia(
     BuildContext context,
     String caption, {
+    required XFile media,
     required bool video,
   }) async {
-    final picker = ImagePicker();
-    final media = video
-        ? await picker.pickVideo(source: ImageSource.gallery)
-        : await picker.pickImage(source: ImageSource.gallery, imageQuality: 92);
-    if (media == null) return;
+    final file = File(media.path);
+    final bytes = await file.length();
+    final maximumBytes = video ? 50 * 1024 * 1024 : 12 * 1024 * 1024;
+    if (bytes <= 0 || bytes > maximumBytes) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              video
+                  ? 'Cette vidéo dépasse la limite de 50 Mo pour une Story.'
+                  : 'Cette photo dépasse la limite de 12 Mo pour une Story.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     try {
       final story = await repository.publishMediaStory(
         user: user,
-        file: File(media.path),
+        file: file,
         mediaType: video ? 'video' : 'image',
-        contentType: video ? 'video/mp4' : 'image/jpeg',
+        contentType: media.mimeType?.trim().isNotEmpty == true
+            ? media.mimeType!.trim()
+            : video
+            ? 'video/mp4'
+            : 'image/jpeg',
         fileName: media.name,
         caption: caption,
       );
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (context.mounted) {
-        await Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => _StoryViewer(story: story)));
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                _StoryViewer(story: story, user: user, repository: repository),
+          ),
+        );
       }
     } catch (error) {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
@@ -3431,6 +4779,77 @@ class _UpdatesPage extends StatelessWidget {
       }
     }
   }
+}
+
+class _StoryRailAvatar extends StatelessWidget {
+  const _StoryRailAvatar({
+    required this.label,
+    required this.photoUrl,
+    required this.onTap,
+    this.viewed = false,
+    this.action = false,
+  });
+
+  final String label;
+  final String photoUrl;
+  final VoidCallback onTap;
+  final bool viewed;
+  final bool action;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: action ? 'Créer mon statut' : 'Voir le statut de $label',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(40),
+      child: SizedBox(
+        width: 70,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: action
+                    ? const LinearGradient(
+                        colors: [WapiColors.blueDark, WapiColors.blue],
+                      )
+                    : LinearGradient(
+                        colors: viewed
+                            ? [WapiColors.line, WapiColors.line]
+                            : const [
+                                Color(0xFF00C2FF),
+                                Color(0xFF7567FF),
+                                Color(0xFFFF5CA8),
+                              ],
+                      ),
+              ),
+              child: CircleAvatar(
+                radius: 28,
+                backgroundColor: WapiColors.blueSoft,
+                backgroundImage: _imageProvider(photoUrl),
+                child: photoUrl.isEmpty
+                    ? Icon(
+                        action ? Icons.add_rounded : Icons.person_outline,
+                        color: action ? WapiColors.blue : WapiColors.muted,
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _WapiVideoPlayer extends StatefulWidget {
@@ -3519,10 +4938,143 @@ class _WapiVideoPlayerState extends State<_WapiVideoPlayer> {
   }
 }
 
-class _StoryViewer extends StatelessWidget {
-  const _StoryViewer({required this.story});
+class _StoryViewer extends StatefulWidget {
+  const _StoryViewer({
+    required this.story,
+    required this.user,
+    required this.repository,
+  });
 
   final WapiStory story;
+  final User user;
+  final WapiRepository repository;
+
+  @override
+  State<_StoryViewer> createState() => _StoryViewerState();
+}
+
+class _StoryViewerState extends State<_StoryViewer> {
+  WapiStory get story => widget.story;
+  bool get _isAuthor => story.authorId == widget.user.uid;
+  Timer? _progressTimer;
+  double _progress = 0;
+
+  String get _publishedAt => _storyTimeLabel(story.createdAt);
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_isAuthor && !story.viewedByCurrentUser && story.id.isNotEmpty) {
+      unawaited(widget.repository.recordStoryView(story.id).catchError((_) {}));
+    }
+    if (story.mediaType != 'video') {
+      _progressTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (!mounted) return;
+        final next = _progress + .0125;
+        if (next >= 1) {
+          _progressTimer?.cancel();
+          Navigator.of(context).pop();
+          return;
+        }
+        setState(() => _progress = next);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _showViewers() async {
+    try {
+      final viewers = await widget.repository.storyViewers(story.id);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.white,
+        builder: (context) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              Text(
+                viewers.length.toString() + ' vues',
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (viewers.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 28),
+                  child: Text('Personne n’a encore vu ce statut.'),
+                )
+              else
+                ...viewers.map(
+                  (viewer) => ListTile(
+                    leading: CircleAvatar(
+                      backgroundImage: _imageProvider(
+                        _text(viewer['photoUrl']),
+                      ),
+                      child: _text(viewer['photoUrl']).isEmpty
+                          ? Text(_initial(_text(viewer['displayName'])))
+                          : null,
+                    ),
+                    title: Text(
+                      _text(viewer['displayName'], fallback: 'Contact WAPI'),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Les vues ne sont pas disponibles pour le moment.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteStory() async {
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer ce statut ?'),
+        content: const Text('Il ne sera plus visible par vos contacts.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (remove != true) return;
+    try {
+      await widget.repository.deleteStory(story.id);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Suppression impossible pour le moment.'),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -3536,6 +5088,20 @@ class _StoryViewer extends StatelessWidget {
           children: [
             Positioned.fill(child: _storyBody()),
             Positioned(
+              top: 5,
+              left: 14,
+              right: 14,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: story.mediaType == 'video' ? null : _progress,
+                  minHeight: 3,
+                  backgroundColor: Colors.white24,
+                  valueColor: const AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+            ),
+            Positioned(
               top: 12,
               left: 16,
               right: 16,
@@ -3544,18 +5110,44 @@ class _StoryViewer extends StatelessWidget {
                   CircleAvatar(
                     backgroundColor: Colors.white24,
                     foregroundColor: Colors.white,
-                    child: Text(story.authorName.substring(0, 1).toUpperCase()),
+                    backgroundImage: _imageProvider(story.authorPhotoUrl),
+                    child: story.authorPhotoUrl.isEmpty
+                        ? Text(_initial(story.authorName))
+                        : null,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      story.authorName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          story.authorName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          _publishedAt,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .72),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  if (_isAuthor)
+                    IconButton(
+                      onPressed: _deleteStory,
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.white,
+                      ),
+                      tooltip: 'Supprimer le statut',
+                    ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close, color: Colors.white),
@@ -3564,18 +5156,47 @@ class _StoryViewer extends StatelessWidget {
                 ],
               ),
             ),
+            if (story.text.isNotEmpty)
+              Positioned(
+                left: 24,
+                right: 24,
+                bottom: _isAuthor ? 72 : 58,
+                child: Text(
+                  story.text,
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    shadows: [Shadow(color: Colors.black87, blurRadius: 8)],
+                  ),
+                ),
+              ),
             Positioned(
               left: 24,
               right: 24,
               bottom: 32,
-              child: Text(
-                'Glissez vers le bas pour fermer',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: .75),
-                  fontSize: 12,
-                ),
-              ),
+              child: _isAuthor
+                  ? TextButton.icon(
+                      onPressed: _showViewers,
+                      icon: const Icon(
+                        Icons.visibility_outlined,
+                        color: Colors.white,
+                      ),
+                      label: Text(
+                        story.viewCount.toString() + ' vues',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    )
+                  : Text(
+                      'Glissez vers le bas pour fermer',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .75),
+                        fontSize: 12,
+                      ),
+                    ),
             ),
           ],
         ),
@@ -3627,6 +5248,104 @@ class _StoryViewer extends StatelessWidget {
     );
   }
 }
+
+/// Conversation documents deliberately carry a compact member snapshot so the
+/// inbox opens instantly.  This small live lookup wins over that snapshot when
+/// a contact replaces their avatar, avoiding an old image lingering while the
+/// server synchronises every past conversation.
+class _LiveProfileAvatar extends StatelessWidget {
+  const _LiveProfileAvatar({
+    required this.userId,
+    required this.fallbackUrl,
+    required this.name,
+    this.radius = 20,
+  });
+
+  final String userId;
+  final String fallbackUrl;
+  final String name;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: userId.isEmpty
+            ? null
+            : FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(userId)
+                  .snapshots(),
+        builder: (context, snapshot) {
+          final current = (snapshot.data?.data()?['photoUrl'] as String?)
+              ?.trim();
+          final photoUrl = current?.isNotEmpty == true
+              ? current!
+              : fallbackUrl.trim();
+          final initial = _initial(name);
+          return Semantics(
+            image: true,
+            label: 'Photo de profil de $name',
+            child: CircleAvatar(
+              radius: radius,
+              backgroundColor: WapiColors.blueSoft,
+              child: ClipOval(
+                child: photoUrl.isEmpty
+                    ? Center(
+                        child: Text(
+                          initial,
+                          style: TextStyle(
+                            color: WapiColors.blue,
+                            fontSize: radius,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    : Image.network(
+                        photoUrl,
+                        width: radius * 2,
+                        height: radius * 2,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        errorBuilder: (_, _, _) => Center(
+                          child: Text(
+                            initial,
+                            style: TextStyle(
+                              color: WapiColors.blue,
+                              fontSize: radius,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          );
+        },
+      );
+}
+
+ImageProvider? _imageProvider(String value) =>
+    value.trim().isEmpty ? null : NetworkImage(value.trim());
+
+String _storyTimeLabel(DateTime? value) {
+  if (value == null) return 'À l’instant';
+  final date = value.toLocal();
+  final now = DateTime.now();
+  final difference = now.difference(date);
+  if (difference.inMinutes < 1) return 'À l’instant';
+  if (difference.inMinutes < 60) return 'Il y a ${difference.inMinutes} min';
+  final clock =
+      '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  if (now.year == date.year && now.month == date.month && now.day == date.day) {
+    return 'Aujourd’hui · $clock';
+  }
+  return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')} · $clock';
+}
+
+String _initial(String value) =>
+    value.trim().isEmpty ? '?' : value.trim().substring(0, 1).toUpperCase();
+String _text(Object? value, {String fallback = ''}) =>
+    value is String && value.trim().isNotEmpty ? value.trim() : fallback;
 
 class _StoryFallback extends StatelessWidget {
   const _StoryFallback({required this.icon, required this.label});
@@ -3689,6 +5408,7 @@ class _StoryPublisher extends StatelessWidget {
   );
 }
 
+// ignore: unused_element
 class _BusinessPage extends StatelessWidget {
   const _BusinessPage({required this.user});
   final User user;
@@ -3915,6 +5635,7 @@ class _ProfilePageState extends State<_ProfilePage> {
             user.photoURL ??
             '';
         final hasPhoto = _pendingPhoto != null || photoUrl.isNotEmpty;
+        final isVerified = data['verified'] == true;
         final isFounder =
             phone.replaceAll(RegExp(r'[^0-9+]'), '') == '+242065465808';
         return ListView(
@@ -3967,12 +5688,14 @@ class _ProfilePageState extends State<_ProfilePage> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 5),
-                    const Icon(
-                      Icons.verified,
-                      color: Color(0xFF87909D),
-                      size: 18,
-                    ),
+                    if (isVerified) ...[
+                      const SizedBox(width: 5),
+                      const Icon(
+                        Icons.verified_rounded,
+                        color: Color(0xFF2088D6),
+                        size: 18,
+                      ),
+                    ],
                   ],
                 ),
                 subtitle: Text(phone.isEmpty ? 'Profil à compléter' : phone),

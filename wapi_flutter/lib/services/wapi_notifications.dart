@@ -107,17 +107,29 @@ class WapiNotifications {
         message.notification?.body ??
         'Nouvelle activité';
     final conversationId = data['conversationId']?.toString() ?? '';
+    final liveId = data['liveId']?.toString() ?? '';
     final badgeCount = int.tryParse(data['badgeCount']?.toString() ?? '') ?? 1;
     final isMessage = type == 'message' && conversationId.isNotEmpty;
-    final isIncomingCall = type == 'incoming_call' && data['callId'] != null;
+    final isIncomingCall =
+        (type == 'incoming_call' || type == 'direct_call') &&
+        data['callId'] != null;
     final id = isMessage
         ? _stableId(conversationId)
+        : liveId.isNotEmpty
+        ? _stableId('live:' + liveId)
         : _stableId(data['callId']?.toString() ?? body);
     final payload = data['callId'] != null
-        ? 'call:${data['callId']}'
+        ? 'call:' + data['callId'].toString()
         : conversationId.isNotEmpty
-        ? 'conversation:$conversationId'
+        ? 'conversation:' + conversationId
+        : liveId.isNotEmpty
+        ? 'live:' + liveId
         : null;
+    if ((type == 'call_answered' || type == 'call_cancel') &&
+        data['callId'] != null) {
+      await _notifications.cancel(id);
+      return;
+    }
 
     if (isIncomingCall) {
       await _notifications.show(

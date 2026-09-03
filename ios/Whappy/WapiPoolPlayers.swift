@@ -5,6 +5,18 @@ import FirebaseFunctions
 
 private let poolIcons = [("cue", "🎱"), ("crown", "👑"), ("fox", "🦊"), ("lion", "🦁"), ("robot", "🤖")]
 
+private struct WapiPoolCue: Identifiable {
+    let id: String; let name: String; let tier: String
+    let powerMultiplier: Double; let aim: Int; let spin: Int; let tempo: Int
+}
+private let wapiPoolCues = [
+    WapiPoolCue(id: "maple", name: "Érable Atelier", tier: "Classique", powerMultiplier: 1.00, aim: 0, spin: 0, tempo: 0),
+    WapiPoolCue(id: "walnut", name: "Noyer Signature", tier: "Précision", powerMultiplier: 1.04, aim: 2, spin: 1, tempo: 1),
+    WapiPoolCue(id: "carbon", name: "Carbone Vector", tier: "Performance", powerMultiplier: 1.07, aim: 3, spin: 3, tempo: 2),
+    WapiPoolCue(id: "obsidian", name: "Obsidienne WAPI", tier: "Fondateur", powerMultiplier: 1.09, aim: 4, spin: 4, tempo: 3),
+]
+private func wapiPoolCue(_ id: String) -> WapiPoolCue { wapiPoolCues.first(where: { $0.id == id }) ?? wapiPoolCues[0] }
+
 struct WapiPoolPlayer: Codable {
     var displayName = "Vous"
     var photoUrl = ""
@@ -102,27 +114,28 @@ private struct PoolPlayerScoreIOS: View {
     let seconds: Int
     private var ids: [Int] { remaining.filter { WapiPoolRules.group(of: $0) == group && group != 0 }.sorted() }
     var body: some View {
-        HStack(spacing: 8) {
-            PoolAvatarIOS(player: player)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(player.displayName).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text(group == 0 ? "Groupe à attribuer" : "\(ids.count) restantes · \(group == 1 ? "pleines" : "rayées")").font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.75).foregroundStyle(.white.opacity(0.75))
+        HStack(spacing: 7) {
+            PoolAvatarIOS(player: player, size: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(player.displayName).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 2)
+                    if active { Text("\(max(seconds, 0)) s").font(.system(size: 8, weight: .bold)).foregroundStyle(Color(red: 0.56, green: 0.95, blue: 0.72)) }
+                }
+                Text(group == 0 ? "Après la casse" : "\(ids.count) · \(group == 1 ? "pleines" : "rayées")").font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.75).foregroundStyle(.white.opacity(0.75))
                 if active {
-                    HStack(spacing: 5) {
-                        ProgressView(value: Double(min(max(seconds, 0), 30)), total: 30).tint(Color(red: 0.28, green: 0.89, blue: 0.57)).frame(height: 4)
-                        Text("\(max(seconds, 0)) s").font(.system(size: 9, weight: .bold)).foregroundStyle(Color(red: 0.56, green: 0.95, blue: 0.72))
-                    }
+                    ProgressView(value: Double(min(max(seconds, 0), 30)), total: 30).tint(Color(red: 0.28, green: 0.89, blue: 0.57)).frame(height: 3)
                 }
                 if group != 0 {
                     HStack(spacing: 3) {
                         ForEach(ids.isEmpty ? [8] : ids, id: \.self) { id in
-                            PoolScoreBallIOS(id: id)
+                            PoolScoreBallIOS(id: id).scaleEffect(0.82)
                         }
                     }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(9).foregroundStyle(.white).background(Color(red: 0.025, green: 0.10, blue: 0.18).opacity(0.96))
-            .clipShape(RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(active ? Color.cyan : .white.opacity(0.2), lineWidth: active ? 2 : 1))
+        }.padding(horizontal: 7, vertical: 5).foregroundStyle(.white).background(Color(red: 0.025, green: 0.10, blue: 0.18).opacity(0.96))
+            .clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(active ? Color.cyan : .white.opacity(0.2), lineWidth: active ? 1.5 : 1))
     }
 }
 
@@ -252,9 +265,9 @@ struct WapiIOSPoolArena: View {
     @State private var shots = 0
     @State private var aiTask: Task<Void, Never>?
     @State private var notice = ""
-    @State private var fineAimStart: Float?
     @AppStorage("wapi.pool.table.theme") private var tableTheme = "competitionBlue"
     @AppStorage("wapi.pool.cue.style") private var cueStyle = "maple"
+    @State private var cueLocker = false
     @State private var cupActive = false
     @State private var cupWins = 0
     @State private var turnSeconds = 30
@@ -264,27 +277,14 @@ struct WapiIOSPoolArena: View {
     var body: some View {
         ZStack {
             Color(red: 0.01, green: 0.035, blue: 0.08).ignoresSafeArea()
-            WapiIOS3DTabletop(scene: "Billard WAPI", dieValue: 1, poolAngle: angle, poolPower: Int(power), poolSideSpin: side, poolFollowSpin: follow, poolShotRevision: revision,
+            WapiIOS3DTabletop(scene: "Billard WAPI", dieValue: 1, poolAngle: angle, poolPower: min(100, Int((power * wapiPoolCue(cueStyle).powerMultiplier).rounded())), poolSideSpin: side, poolFollowSpin: follow, poolShotRevision: revision,
                              poolTableTheme: tableTheme, poolCueStyle: cueStyle,
                              cueInHand: cueInHand, poolInputEnabled: canPlay,
                              onPoolAim: { angle = $0 }, onPoolPlacement: { placementValid = $0 },
                              onPoolOutcome: settle, onPoolRemaining: { remaining = $0 }).id(session)
-                .padding(.top, 72).padding(.bottom, 46)
-            HStack {
-                Spacer()
-                VStack(spacing: 10) {
-                    ForEach(0..<9) { tick in
-                        Capsule().fill(tick == 4 ? Color.cyan : .white.opacity(0.35)).frame(width: tick == 4 ? 24 : 16, height: tick == 4 ? 3 : 1)
-                    }
-                }.frame(width: 38, height: 142).background(.black.opacity(0.8)).clipShape(Capsule())
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { gesture in
-                        guard canPlay, !cueInHand else { return }
-                        if fineAimStart == nil { fineAimStart = angle }
-                        let raw = (fineAimStart ?? angle) + Float(gesture.translation.height) * 0.003
-                        angle = atan2(sin(raw), cos(raw))
-                    }.onEnded { _ in fineAimStart = nil })
-                    .opacity(canPlay && !cueInHand ? 1 : 0.4).accessibilityLabel("Visée précise")
-            }.padding(.trailing, 10)
+                // The cloth stays readable: aim is a direct gesture on the
+                // table and the only persistent side control is power.
+                .padding(.leading, 82).padding(.top, 58).padding(.trailing, 18).padding(.bottom, 10)
             HStack {
                 WapiIOSPoolVerticalPowerRail(power: $power, enabled: canPlay && !cueInHand, onRelease: strike)
                     .frame(width: 64, height: 270)
@@ -294,10 +294,8 @@ struct WapiIOSPoolArena: View {
                 HStack(spacing: 10) {
                     Button { dismiss() } label: { Image(systemName: "chevron.left").font(.headline).frame(width: 36, height: 44) }.tint(.white).accessibilityLabel("Quitter le billard")
                     Button { editor = true } label: { PoolPlayerScoreIOS(player: profile.player, group: humanGroup, remaining: remaining, active: humanTurn && winner == nil, seconds: humanTurn ? turnSeconds : 30) }.buttonStyle(.plain).disabled(moving || !humanTurn)
-                    VStack(spacing: 2) {
-                        Text(winner ?? (cueInHand ? "Blanche en main" : moving ? "Tir en cours" : humanTurn ? "À vous" : "Tour IA")).font(.caption.bold())
-                        Text("\(localScore) pts · local").font(.system(size: 10))
-                    }.foregroundStyle(.white).frame(maxWidth: 105)
+                    Circle().fill(winner != nil ? .yellow : (humanTurn ? .cyan : .gray)).frame(width: 8, height: 8)
+                        .accessibilityLabel(winner ?? (cueInHand ? "Blanche en main" : moving ? "Tir en cours" : humanTurn ? "À vous" : "Tour IA"))
                     PoolPlayerScoreIOS(player: WapiPoolPlayer(name: mode == "ai" ? "IA · Billard" : "Entraînement", icon: mode == "ai" ? "robot" : "cue"), group: aiGroup, remaining: remaining, active: !humanTurn && winner == nil, seconds: !humanTurn ? turnSeconds : 30)
                 }.padding(.horizontal, 12)
                 Spacer(minLength: 0)
@@ -312,11 +310,7 @@ struct WapiIOSPoolArena: View {
                             Button("Bleu nuit") { tableTheme = "navy" }
                             Button("Vert tournoi") { tableTheme = "emerald" }
                         }
-                        Menu("Queue") {
-                            Button("Érable") { cueStyle = "maple" }
-                            Button("Noyer") { cueStyle = "walnut" }
-                            Button("Carbone") { cueStyle = "carbon" }
-                        }
+                        Button("Atelier · \(wapiPoolCue(cueStyle).name)") { cueLocker = true }
                         Button("Recommencer") { reset(mode) }
                         Button("Mon profil et mes records") { editor = true }
                     } label: { Image(systemName: "line.3.horizontal").font(.title3).frame(width: 44, height: 44) }.tint(.white).disabled(moving || !humanTurn)
@@ -358,6 +352,7 @@ struct WapiIOSPoolArena: View {
                 humanTurn = false
             }
             .fullScreenCover(isPresented: $editor) { PoolProfileEditorIOS(store: profile) }
+            .sheet(isPresented: $cueLocker) { WapiPoolCueLockerIOS(selection: $cueStyle) }
             .onDisappear { aiTask?.cancel() }
     }
     private func reset(_ nextMode: String) {
@@ -413,6 +408,32 @@ struct WapiIOSPoolArena: View {
     }
 }
 
+private struct WapiPoolCueLockerIOS: View {
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+    private var founder: Bool { isWhappyFounderPhone(Auth.auth().currentUser?.phoneNumber ?? "") }
+    var body: some View {
+        NavigationStack {
+            List(wapiPoolCues) { cue in
+                HStack(spacing: 14) {
+                    Capsule().fill(cue.id == "carbon" ? .black : cue.id == "obsidian" ? Color.indigo : cue.id == "walnut" ? Color.brown : Color.orange)
+                        .frame(width: 92, height: 10).overlay(Capsule().stroke(.white.opacity(0.55), lineWidth: 1))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(cue.name).font(.headline)
+                        Text("\(cue.tier) · Force +\(Int((cue.powerMultiplier - 1) * 100))% · Visée +\(cue.aim) · Effet +\(cue.spin)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(selection == cue.id ? "Équipée" : (founder ? "Offert" : "Équiper")) { selection = cue.id }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                }.padding(.vertical, 5)
+            }
+            .navigationTitle("Atelier Wapi Pool")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
+            .safeAreaInset(edge: .bottom) { if founder { Text("Accès Fondateur : toutes les queues sont offertes sur ce compte.").font(.caption.weight(.semibold)).foregroundStyle(Color.whappyBlue).padding(12).frame(maxWidth: .infinity).background(.thinMaterial) } }
+        }
+    }
+}
+
 private struct WapiPoolOpeningIOS: View {
     var body: some View {
         ZStack {
@@ -454,11 +475,10 @@ private struct WapiIOSPoolVerticalPowerRail: View {
                     Spacer(minLength: 31)
                 }
                 VStack {
-                    Text("\(Int(power))%").font(.system(size: 10, weight: .black)).foregroundStyle(.white)
-                    Spacer()
+                    Spacer(minLength: 14)
                     Rectangle().fill(LinearGradient(colors: [Color(red: 0.92, green: 0.77, blue: 0.52), Color(red: 0.42, green: 0.12, blue: 0.04)], startPoint: .top, endPoint: .bottom))
                         .frame(width: 9, height: 92).clipShape(Capsule())
-                    Text("TIREZ").font(.system(size: 8, weight: .bold)).tracking(0.7).foregroundStyle(.white.opacity(0.72))
+                    Spacer(minLength: 14)
                 }.padding(.vertical, 9)
             }
             .contentShape(RoundedRectangle(cornerRadius: 25))

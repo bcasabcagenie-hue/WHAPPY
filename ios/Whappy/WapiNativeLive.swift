@@ -50,6 +50,28 @@ final class WapiLiveDirectory: ObservableObject {
     @Published var errorMessage: String?
 
     private let functions = Functions.functions(region: "europe-west1")
+    private var refreshTask: Task<Void, Never>?
+
+    deinit { refreshTask?.cancel() }
+
+    /// The directory cannot use a broad Firestore listener because contacts
+    /// lives have per-user visibility rules.  Refreshing the server-filtered
+    /// directory while this screen is visible makes a newly started live appear
+    /// without requiring the viewer to close and reopen WAPI.
+    func startUpdates() {
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refresh()
+                try? await Task.sleep(for: .seconds(8))
+            }
+        }
+    }
+
+    func stopUpdates() {
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
 
     func refresh() async {
         guard Auth.auth().currentUser != nil else { return }
@@ -360,7 +382,8 @@ struct LiveView: View {
                 .disabled(creating)
             }
         }
-        .task { await directory.refresh() }
+        .task { directory.startUpdates(); await directory.refresh() }
+        .onDisappear { directory.stopUpdates() }
         .refreshable { await directory.refresh() }
         .fullScreenCover(item: $selected) { WapiNativeLiveRoom(listing: $0) { selected = nil; Task { await directory.refresh() } } }
         .alert("Live WAPI", isPresented: Binding(get: { directory.errorMessage != nil }, set: { if !$0 { directory.errorMessage = nil } })) { Button("Compris") { directory.errorMessage = nil } } message: { Text(directory.errorMessage ?? "") }

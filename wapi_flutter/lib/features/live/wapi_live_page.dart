@@ -13,9 +13,10 @@ import '../../app/wapi_theme.dart';
 import 'wapi_live_models.dart';
 
 class WapiLivePage extends StatefulWidget {
-  const WapiLivePage({super.key, required this.user});
+  const WapiLivePage({super.key, required this.user, this.initialLiveId});
 
   final User user;
+  final String? initialLiveId;
 
   @override
   State<WapiLivePage> createState() => _WapiLivePageState();
@@ -31,6 +32,10 @@ class _WapiLivePageState extends State<WapiLivePage> {
   void initState() {
     super.initState();
     _lives = _loadLives();
+    final liveId = widget.initialLiveId;
+    if (liveId != null && liveId.isNotEmpty) {
+      unawaited(_openRequestedLive(liveId));
+    }
     _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted && !_opening) _refreshLives();
     });
@@ -160,12 +165,37 @@ class _WapiLivePageState extends State<WapiLivePage> {
     }
   }
 
+  Future<void> _openRequestedLive(String liveId) async {
+    try {
+      final lives = await _lives;
+      if (!mounted) return;
+      WapiLiveListing? selected;
+      for (final live in lives) {
+        if (live.id == liveId) {
+          selected = live;
+          break;
+        }
+      }
+      if (selected == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ce direct n’est plus disponible.')),
+        );
+        return;
+      }
+      await _join(selected);
+    } catch (_) {
+      if (mounted) _showError(StateError('Direct indisponible'));
+    }
+  }
+
   Future<void> _createLive() async {
     final draft = await showModalBottomSheet<_LiveDraft>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => const _CreateLiveSheet(),
+      builder: (_) => _CreateLiveSheet(
+        defaultTitle: 'En direct avec ${widget.user.displayName ?? 'WAPI'}',
+      ),
     );
     if (draft == null || !mounted) return;
     setState(() => _opening = true);
@@ -487,7 +517,9 @@ class _LiveDraft {
 }
 
 class _CreateLiveSheet extends StatefulWidget {
-  const _CreateLiveSheet();
+  const _CreateLiveSheet({required this.defaultTitle});
+
+  final String defaultTitle;
 
   @override
   State<_CreateLiveSheet> createState() => _CreateLiveSheetState();
@@ -498,6 +530,12 @@ class _CreateLiveSheetState extends State<_CreateLiveSheet> {
   String _category = 'Discussion';
   String _visibility = 'public';
   String _hostMode = 'personal';
+
+  @override
+  void initState() {
+    super.initState();
+    _title.text = widget.defaultTitle;
+  }
 
   @override
   void dispose() {
@@ -543,8 +581,8 @@ class _CreateLiveSheetState extends State<_CreateLiveSheet> {
               maxLength: 120,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
-                labelText: 'Titre du direct',
-                hintText: 'Ex. Questions-réponses avec Cyril',
+                labelText: 'Titre du direct (facultatif)',
+                hintText: 'Un titre sera créé automatiquement',
                 prefixIcon: Icon(Icons.title_rounded),
               ),
               onChanged: (_) => setState(() {}),
@@ -628,17 +666,17 @@ class _CreateLiveSheetState extends State<_CreateLiveSheet> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _title.text.trim().length < 3
-                    ? null
-                    : () => Navigator.pop(
-                        context,
-                        _LiveDraft(
-                          title: _title.text.trim(),
-                          category: _category,
-                          visibility: _visibility,
-                          hostMode: _hostMode,
-                        ),
-                      ),
+                onPressed: () => Navigator.pop(
+                  context,
+                  _LiveDraft(
+                    title: _title.text.trim().isEmpty
+                        ? widget.defaultTitle
+                        : _title.text.trim(),
+                    category: _category,
+                    visibility: _visibility,
+                    hostMode: _hostMode,
+                  ),
+                ),
                 icon: const Icon(Icons.videocam_rounded),
                 label: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 4),
@@ -709,9 +747,14 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
   String? _fatalError;
   int _viewerCount = 0;
   int _reactionCount = 0;
+  int _giftCount = 0;
   int _reactionSequence = 0;
+  bool _sendingGift = false;
   final List<_FloatingReaction> _floatingReactions = [];
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _liveSubscription;
+  String _activeGiftSymbol = '';
+  String _activeGiftLabel = '';
+  bool _wearablesEnabled = false;
 
   bool get _isHost => widget.credentials.isHost;
 
@@ -739,6 +782,10 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
           setState(() {
             _viewerCount = (data['viewerCount'] as num?)?.toInt() ?? 0;
             _reactionCount = (data['reactionCount'] as num?)?.toInt() ?? 0;
+            _giftCount = (data['giftCount'] as num?)?.toInt() ?? 0;
+            _wearablesEnabled = data['allowGiftWearables'] == true;
+            _activeGiftSymbol = data['activeGiftSymbol'] as String? ?? '';
+            _activeGiftLabel = data['activeGiftLabel'] as String? ?? '';
           });
           if (!_isHost && data['status'] == 'ended' && !_closing) {
             setState(() => _fatalError = 'Ce direct est maintenant terminé.');
@@ -979,6 +1026,15 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
             const Center(child: CircularProgressIndicator(color: Colors.white)),
           if (_fatalError != null)
             _LiveFatalError(message: _fatalError!, onClose: _leaveNow),
+          if (_activeGiftSymbol.isNotEmpty)
+            Positioned(
+              top: 92,
+              right: 18,
+              child: _WearableGiftBadge(
+                symbol: _activeGiftSymbol,
+                label: _activeGiftLabel,
+              ),
+            ),
         ],
       ),
     ),
@@ -1020,7 +1076,7 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
               ),
               const SizedBox(height: 2),
               Text(
-                '$_connectionLabel · $_viewerCount spectateur${_viewerCount > 1 ? 's' : ''} · $_reactionCount réaction${_reactionCount > 1 ? 's' : ''}',
+                '$_connectionLabel · $_viewerCount spectateur${_viewerCount > 1 ? 's' : ''} · $_reactionCount réaction${_reactionCount > 1 ? 's' : ''} · $_giftCount cadeau${_giftCount > 1 ? 'x' : ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white70, fontSize: 11),
@@ -1043,30 +1099,74 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
         ),
         const SizedBox(width: 8),
         if (_isHost)
-          InkWell(
-            onTap: _showAudience,
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: Colors.black38,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              InkWell(
+                onTap: _toggleWearables,
                 borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.admin_panel_settings_outlined,
-                    size: 16,
-                    color: Colors.white,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 7,
                   ),
-                  SizedBox(width: 5),
-                  Text(
-                    'Studio',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  decoration: BoxDecoration(
+                    color: _wearablesEnabled
+                        ? const Color(0xFF42D392).withValues(alpha: .2)
+                        : Colors.black38,
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                ],
+                  child: Row(
+                    children: [
+                      Icon(
+                        _wearablesEnabled
+                            ? Icons.checkroom_rounded
+                            : Icons.checkroom_outlined,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _wearablesEnabled ? 'Effets ON' : 'Effets',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: _showAudience,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black38,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.admin_panel_settings_outlined,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: 5),
+                      Text(
+                        'Studio',
+                        style: TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           )
         else
           PopupMenuButton<String>(
@@ -1249,6 +1349,12 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
                 onTap: _showReactionPicker,
               ),
               _LiveControl(
+                icon: Icons.card_giftcard_rounded,
+                label: 'Cadeau',
+                active: true,
+                onTap: _showGiftPicker,
+              ),
+              _LiveControl(
                 icon: Icons.logout_rounded,
                 label: 'Quitter',
                 active: true,
@@ -1263,25 +1369,140 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     if (text.isEmpty) return;
     _comment.clear();
     try {
-      await FirebaseFirestore.instance
-          .collection('liveSessions')
-          .doc(widget.liveId)
-          .collection('comments')
-          .add({
-            'authorId': widget.user.uid,
-            'authorName':
-                widget.user.displayName ??
-                widget.user.phoneNumber ??
-                'Membre WAPI',
-            'text': text,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
+      await _functions
+          .httpsCallable('sendLiveComment')
+          .call<Map<String, dynamic>>({'liveId': widget.liveId, 'text': text});
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'Commentaire non envoyé.')),
+        );
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Commentaire non envoyé.')),
         );
       }
+    }
+  }
+
+  Future<void> _toggleWearables() async {
+    final next = !_wearablesEnabled;
+    try {
+      await _functions
+          .httpsCallable('setLiveGiftWearables')
+          .call<Map<String, dynamic>>({
+            'liveId': widget.liveId,
+            'enabled': next,
+          });
+      if (mounted) {
+        setState(() {
+          _wearablesEnabled = next;
+          if (!next) {
+            _activeGiftSymbol = '';
+            _activeGiftLabel = '';
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              next
+                  ? 'Les cadeaux peuvent maintenant être portés 🎁'
+                  : 'Les effets portables sont désactivés.',
+            ),
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'Réglage indisponible.')),
+        );
+    }
+  }
+
+  Future<void> _showGiftPicker() async {
+    if (_sendingGift) return;
+    final gift = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF151A22),
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Envoyer un cadeau à l’animateur',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Les cadeaux sont gratuits pour le moment et apparaissent en direct.',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                alignment: WrapAlignment.spaceAround,
+                runSpacing: 12,
+                spacing: 8,
+                children: const [
+                  _GiftChoice(value: 'crown', glyph: '👑', label: 'Couronne'),
+                  _GiftChoice(value: 'glasses', glyph: '😎', label: 'Lunettes'),
+                  _GiftChoice(value: 'halo', glyph: '✨', label: 'Halo'),
+                  _GiftChoice(value: 'trophy', glyph: '🏆', label: 'Trophée'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (gift != null) await _sendGift(gift);
+  }
+
+  Future<void> _sendGift(String giftId) async {
+    if (_sendingGift) return;
+    setState(() => _sendingGift = true);
+    HapticFeedback.mediumImpact();
+    try {
+      final result = await _functions
+          .httpsCallable('sendLiveGift')
+          .call<Map<String, dynamic>>({
+            'liveId': widget.liveId,
+            'giftId': giftId,
+          });
+      if (!mounted) return;
+      setState(
+        () => _giftCount =
+            (result.data['total'] as num?)?.toInt() ?? _giftCount + 1,
+      );
+      _addFloatingReaction(
+        giftId == 'crown'
+            ? '👑'
+            : giftId == 'glasses'
+            ? '😎'
+            : giftId == 'halo'
+            ? '✨'
+            : '🏆',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cadeau envoyé à l’animateur 🎁')),
+      );
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'Cadeau non envoyé.')),
+        );
+    } finally {
+      if (mounted) setState(() => _sendingGift = false);
     }
   }
 
@@ -1748,6 +1969,41 @@ class _FloatingReactionBubble extends StatelessWidget {
   );
 }
 
+class _WearableGiftBadge extends StatelessWidget {
+  const _WearableGiftBadge({required this.symbol, required this.label});
+
+  final String symbol;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: const Color(0xFF151A22).withValues(alpha: .9),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: const Color(0xFF42D392).withValues(alpha: .7)),
+      boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 14)],
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(symbol, style: const TextStyle(fontSize: 25)),
+          const SizedBox(width: 6),
+          Text(
+            '$label porté',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ReactionChoice extends StatelessWidget {
   const _ReactionChoice({
     required this.value,
@@ -1773,6 +2029,45 @@ class _ReactionChoice extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(color: Colors.white70, fontSize: 10),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _GiftChoice extends StatelessWidget {
+  const _GiftChoice({
+    required this.value,
+    required this.glyph,
+    required this.label,
+  });
+
+  final String value;
+  final String glyph;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => Navigator.pop(context, value),
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(glyph, style: const TextStyle(fontSize: 30)),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 10),
+            textAlign: TextAlign.center,
           ),
         ],
       ),

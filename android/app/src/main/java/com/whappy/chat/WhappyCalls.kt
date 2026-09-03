@@ -1343,7 +1343,6 @@ fun WhappyCallOverlay(controller: WhappyCallController) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(callDirection, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Text("🔒 Session WAPI chiffrée", color = Color.White.copy(alpha = .72f), fontSize = 9.sp)
-                Text(call.transportLabel, color = Color.White.copy(alpha = .58f), fontSize = 8.sp)
             }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

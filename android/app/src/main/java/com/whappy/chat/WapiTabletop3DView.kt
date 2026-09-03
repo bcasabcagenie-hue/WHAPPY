@@ -52,6 +52,10 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
     var onSquareTapped: ((Int) -> Unit)? = null
     var onLudoPawnTapped: ((Int) -> Unit)? = null
     var onPoolGesture: ((Float, Float, Boolean) -> Unit)? = null
+    /** Start/end points of an intentional cue pull, with a 10–100 power value. */
+    var onPoolPullShot: ((Float, Float, Float, Float, Int) -> Unit)? = null
+    private var poolPullOrigin: FloatArray? = null
+    private var poolPullArmed = false
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             if (tabletopRenderer.scene != Scene.POOL) tabletopRenderer.zoomBy(detector.scaleFactor)
@@ -157,14 +161,25 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 previousX = event.x
                 previousY = event.y
                 tabletopRenderer.beginOrbit()
-                if (tabletopRenderer.scene == Scene.POOL) dispatchPoolGesture(event, released = false)
+                if (tabletopRenderer.scene == Scene.POOL) {
+                    // Aiming and striking are separate gestures.  Before this
+                    // guard, any swipe on the cloth was treated as a shot,
+                    // making it impossible to deliberately line up a ball.
+                    poolPullArmed = tabletopRenderer.isPoolCuePullStart(event.x, event.y)
+                    poolPullOrigin = if (poolPullArmed) {
+                        tabletopRenderer.pickPoolPoint(event.x, event.y)
+                    } else {
+                        null
+                    }
+                    if (!poolPullArmed) dispatchPoolGesture(event, released = false)
+                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (touchInput.cancelled) return true
                 touchInput.move(event.x, event.y)
                 if (tabletopRenderer.scene == Scene.POOL) {
-                    dispatchPoolGesture(event, released = false)
+                    if (!poolPullArmed) dispatchPoolGesture(event, released = false)
                     requestGameFrame()
                     return true
                 }
@@ -184,7 +199,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 tabletopRenderer.endOrbit()
                 requestGameFrame()
                 if (tabletopRenderer.scene == Scene.POOL) {
-                    if (!touchInput.cancelled) dispatchPoolGesture(event, released = true)
+                    if (!touchInput.cancelled) {
+                        if (poolPullArmed) dispatchPoolPullShot(event)
+                        else dispatchPoolGesture(event, released = true)
+                    }
+                    poolPullOrigin = null
+                    poolPullArmed = false
                 } else if (tapped) {
                     if (tabletopRenderer.scene == Scene.LUDO) {
                         tabletopRenderer.pickLudoPawn(event.x, event.y)?.let { pawn ->
@@ -201,6 +221,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             MotionEvent.ACTION_CANCEL -> {
                 touchInput.cancel()
                 tabletopRenderer.endOrbit()
+                poolPullOrigin = null
+                poolPullArmed = false
                 return true
             }
         }
@@ -216,6 +238,23 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.pickPoolPoint(event.x, event.y)?.let { point ->
             onPoolGesture?.invoke(point[0], point[1], released)
         }
+    }
+
+    /**
+     * Pool uses the same physical gesture as a real cue: drag backwards then
+     * release. A small tap is only an aiming gesture and can never fire a
+     * shot. Keeping this detection beside the ray-caster makes it identical
+     * for Compose and Flutter platform-view hosts.
+     */
+    private fun dispatchPoolPullShot(event: MotionEvent) {
+        val start = poolPullOrigin ?: return
+        val end = tabletopRenderer.pickPoolPoint(event.x, event.y) ?: return
+        val dx = start[0] - end[0]
+        val dy = start[1] - end[1]
+        val distance = sqrt(dx * dx + dy * dy)
+        if (distance < .045f) return
+        val power = (distance * 260f + 12f).toInt().coerceIn(10, 100)
+        post { onPoolPullShot?.invoke(start[0], start[1], end[0], end[1], power) }
     }
 
     private data class Mesh(val vertices: FloatBuffer, val count: Int)
@@ -481,7 +520,14 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                         float sampleZ = dot(texture2D(uTexture, fract(feltUv + vec2(0.0, 0.006))).rgb, vec3(0.299, 0.587, 0.114));
                         float weave = sin(vWorld.x * 118.0) * sin(vWorld.z * 118.0);
                         float fibre = (hash(vWorld.xz * 125.0) - 0.5) * 0.045;
-                        albedo *= 0.68 + scanLuma * 0.78 + weave * 0.012 + fibre * 0.55;
+                        // Directional nap makes the cloth change very subtly
+                        // with the camera/light, like brushed worsted rather
+                        // than a flat blue painted plane.
+                        vec2 napAxis = normalize(vec2(0.82, 0.57));
+                        float nap = sin(dot(vWorld.xz, napAxis) * 410.0) * 0.010;
+                        float railShade = smoothstep(1.56, 2.28, max(abs(vWorld.z), abs(vWorld.x) * 0.48));
+                        albedo *= 0.68 + scanLuma * 0.78 + weave * 0.012 + fibre * 0.55 + nap;
+                        albedo *= 1.0 - railShade * 0.075;
                         float facing = smoothstep(0.12, 0.74, abs(n.y));
                         n = normalize(n + vec3((scanLuma - sampleX) * 1.15, 0.0, (scanLuma - sampleZ) * 1.15) * facing);
                     } else if (uMaterial > 2.5 && uMaterial < 3.5) {
@@ -662,6 +708,29 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 (worldX / 10.2f + .5f).coerceIn(.055f, .945f),
                 (worldZ / 5.10f + .5f).coerceIn(.065f, .935f),
             )
+        }
+
+        /**
+         * A shot can begin only on the visible cue, behind the white ball.
+         * This preserves a natural two-stage interaction: point on the cloth
+         * to aim, then pull the cue back and release to strike.
+         */
+        fun isPoolCuePullStart(screenX: Float, screenY: Float): Boolean {
+            if (poolMoving || poolCueInHand) return false
+            val point = pickPoolPoint(screenX, screenY) ?: return false
+            val cue = poolBalls.firstOrNull { it.size >= 6 && it[2].toInt() == 0 && it[5] < .5f } ?: return false
+            val cueX = (cue[0] - .5f) * WAPI_POOL_WORLD_WIDTH
+            val cueZ = (cue[1] - .5f) * WAPI_POOL_WORLD_HEIGHT
+            val pointX = (point[0] - .5f) * WAPI_POOL_WORLD_WIDTH
+            val pointZ = (point[1] - .5f) * WAPI_POOL_WORLD_HEIGHT
+            val directionX = cos(poolAim)
+            val directionZ = sin(poolAim)
+            val relativeX = pointX - cueX
+            val relativeZ = pointZ - cueZ
+            // Positive means behind the cue ball, in the rendered shaft area.
+            val behind = -(relativeX * directionX + relativeZ * directionZ)
+            val lateral = abs(relativeX * directionZ - relativeZ * directionX)
+            return behind in .12f..3.55f && lateral <= .28f
         }
 
         /** Hit-tests only the pawns that the rule engine marked as legal. */
@@ -994,6 +1063,16 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 "obsidian" -> floatArrayOf(.22f, .10f, .42f, 1f)
                 else -> floatArrayOf(.40f, .145f, .060f, 1f)
             }
+            // The competition cloth follows the classic blue-table reference:
+            // a deep blue bed inside a warm lacquered mahogany cabinet.  The
+            // cue's material remains independent, so changing a queue never
+            // turns the whole table into the same colour.
+            val frameWood = if (poolTableTheme == "competitionBlue") {
+                floatArrayOf(.34f, .026f, .012f, 1f)
+            } else wood
+            val frameHighlight = if (poolTableTheme == "competitionBlue") {
+                floatArrayOf(.72f, .090f, .030f, 1f)
+            } else woodLight
             val felt = when (poolTableTheme) {
                 "navy" -> floatArrayOf(.018f, .17f, .43f, 1f)
                 "emerald" -> floatArrayOf(.015f, .37f, .27f, 1f)
@@ -1024,7 +1103,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             draw(cube, 0f, -.34f, 3.12f, 4.48f, .025f, .018f, apronHighlight, .72f, material = 3f)
             listOf(-4.30f, 4.30f).forEach { x ->
                 listOf(-2.28f, 2.28f).forEach { z ->
-                    draw(cube, x, -1.02f, z, .33f, .74f, .33f, wood, .24f, material = 1f)
+                    draw(cube, x, -1.02f, z, .33f, .74f, .33f, frameWood, .24f, material = 1f)
                     draw(cube, x, -1.43f, z, .48f, .08f, .48f, apron, .18f, material = 1f)
                     draw(cylinder, x, -.56f, z, .11f, .035f, .11f, apronHighlight, .82f, material = 3f)
                 }
@@ -1033,7 +1112,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             draw(cube, 0f, -.56f, 2.93f, 4.82f, .026f, .028f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
             draw(cube, -5.48f, -.56f, 0f, .028f, .026f, 2.53f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
             draw(cube, 5.48f, -.56f, 0f, .028f, .026f, 2.53f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
-            draw(cube, 0f, -.24f, 0f, 5.15f, .30f, 2.82f, wood, .38f, material = 1f, poolCutout = true)
+            draw(cube, 0f, -.24f, 0f, 5.15f, .30f, 2.82f, frameWood, .38f, material = 1f, poolCutout = true)
             // A regulation playing surface is 2:1. The previous 1.7:1 table
             // looked squat and immediately read as a prototype.
             draw(cube, 0f, .02f, 0f, 4.65f, .11f, 2.25f, felt, .20f, material = 2f, poolCutout = true)
@@ -1041,12 +1120,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             // to cover the openings and made the six pockets look decorative.
             listOf(-2.43f, 2.43f).forEach { x ->
                 listOf(-2.55f, 2.55f).forEach { z ->
-                    draw(rail, x, .24f, z, 2.03f, .24f, .25f, woodLight, .45f, material = 1f, poolCutout = true)
+                    draw(rail, x, .24f, z, 2.03f, .24f, .25f, frameHighlight, .45f, material = 1f, poolCutout = true)
                     draw(poolCushion, x, .26f, z.sign * 2.31f, 1.98f, .15f, .11f, cushion, .08f, rotationY = if (z < 0) 0f else 180f, material = 2f)
                 }
             }
             listOf(-4.91f, 4.91f).forEach { x ->
-                draw(rail, x, .24f, 0f, 1.78f, .24f, .25f, woodLight, .45f, rotationY = 90f, material = 1f, poolCutout = true)
+                draw(rail, x, .24f, 0f, 1.78f, .24f, .25f, frameHighlight, .45f, rotationY = 90f, material = 1f, poolCutout = true)
                 draw(poolCushion, x.sign * 4.70f, .26f, 0f, 1.72f, .15f, .11f, cushion, .08f, rotationY = if (x < 0) 90f else -90f, material = 2f)
             }
             val pockets = WapiPoolPresentation.pockets
@@ -1060,6 +1139,10 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 draw(flushPocketLip, x, .133f, z, surround, .065f, surround, pocketLeather, .04f, material = 4f)
                 draw(pocketLiner, x, .131f, z, opening, .55f, opening, floatArrayOf(.019f, .008f, .005f, 1f), 0f, material = 8f)
                 draw(cylinder, x, -.42f, z, opening, .010f, opening, floatArrayOf(.001f, .001f, .002f, 1f), 0f, material = 8f)
+                // Layered leather/net rings make the opening read as a deep
+                // ball pocket rather than a black decal on the playing bed.
+                draw(torus, x, -.04f, z, opening * .78f, .012f, opening * .78f, floatArrayOf(.075f, .027f, .012f, 1f), .05f, material = 8f)
+                draw(torus, x, -.22f, z, opening * .54f, .010f, opening * .54f, floatArrayOf(.048f, .015f, .008f, 1f), .03f, material = 8f)
             }
             // Angled rubber jaws frame the pocket mouths instead of allowing
             // balls to visually pass through a square wooden corner.
@@ -1090,47 +1173,33 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 floatArrayOf(.46f, .03f, .06f, 1f),
                 floatArrayOf(.008f, .012f, .018f, 1f),
             )
-            // Mechanical ball-return assembly: three compact nested chrome
-            // U tracks behind the head rail.  The U closes only at its far
-            // end, like a real return channel; joining both ends made it look
-            // like a fence in the on-device camera.
+            // Mechanical ball-return assembly: three clean nested chrome U
+            // tracks behind the head rail.  Boxes are deliberately used here
+            // rather than rotated cylinders: the former orientation made the
+            // tracks collapse into a distracting metal fence on some GPUs.
             val returnBed = floatArrayOf(.012f, .024f, .042f, 1f)
             val returnWell = floatArrayOf(.005f, .010f, .019f, 1f)
-            val returnRail = floatArrayOf(.55f, .64f, .75f, 1f)
-            val returnJoint = floatArrayOf(.82f, .89f, .97f, 1f)
+            val returnRail = floatArrayOf(.72f, .80f, .89f, 1f)
+            val returnJoint = floatArrayOf(.95f, .97f, 1f, 1f)
             val returnBaseZ = -3.24f
             draw(cube, 0f, .22f, returnBaseZ, 3.70f, .17f, .60f, returnBed, .18f, material = 1f)
             draw(cube, 0f, .30f, returnBaseZ, 3.48f, .028f, .43f, returnWell, .05f, material = 8f)
             repeat(3) { index ->
-                val halfWidth = 3.34f - index * .18f
+                val halfWidth = 3.48f - index * .20f
                 val y = .46f + index * .105f
-                val backZ = -3.50f + index * .045f
+                val rearZ = -3.52f + index * .045f
                 val frontZ = -3.16f + index * .045f
-                val tubeRadius = .033f
-                val left = -halfWidth + .14f
-                val right = halfWidth - .15f
-                val arcX = halfWidth + .02f
-                // The two long parallel tubes and five tiny bevels create a
-                // rounded U elbow without visible cross-braces.
-                draw(cylinder, (left + right) / 2f, y, frontZ, tubeRadius, right - left, tubeRadius, returnRail, .84f, rotationZ = 90f, material = 3f)
-                draw(cylinder, (left + right) / 2f, y, backZ, tubeRadius, right - left, tubeRadius, returnRail, .84f, rotationZ = 90f, material = 3f)
-                val elbow = listOf(
-                    floatArrayOf(right, frontZ),
-                    floatArrayOf(arcX, frontZ + .075f),
-                    floatArrayOf(arcX + .035f, (frontZ + backZ) / 2f),
-                    floatArrayOf(arcX, backZ - .075f),
-                    floatArrayOf(right, backZ),
-                )
-                elbow.zipWithNext().forEach { (from, to) ->
-                    val dx = to[0] - from[0]
-                    val dz = to[1] - from[1]
-                    val length = kotlin.math.sqrt(dx * dx + dz * dz)
-                    val angle = Math.toDegrees(kotlin.math.atan2(dz.toDouble(), dx.toDouble())).toFloat()
-                    draw(cylinder, (from[0] + to[0]) / 2f, y, (from[1] + to[1]) / 2f, tubeRadius, length, tubeRadius, returnRail, .84f, rotationZ = 90f, rotationY = -angle, material = 3f)
-                }
-                elbow.forEach { point -> draw(sphere, point[0], y, point[1], .039f, .039f, .039f, returnJoint, .78f, material = 3f) }
-                draw(sphere, left, y, frontZ, .039f, .039f, .039f, returnJoint, .78f, material = 3f)
-                draw(sphere, left, y, backZ, .039f, .039f, .039f, returnJoint, .78f, material = 3f)
+                val turnX = halfWidth
+                val tube = .030f
+                draw(cube, 0f, y, frontZ, halfWidth, tube, tube, returnRail, .86f, material = 3f)
+                draw(cube, 0f, y, rearZ, halfWidth, tube, tube, returnRail, .86f, material = 3f)
+                draw(cube, turnX, y, (frontZ + rearZ) / 2f, tube, tube, .21f, returnRail, .86f, material = 3f)
+                // Rounded joints soften the three U-turns without creating
+                // any vertical bars across the whole rail.
+                draw(sphere, turnX, y, frontZ, .041f, .041f, .041f, returnJoint, .82f, material = 3f)
+                draw(sphere, turnX, y, rearZ, .041f, .041f, .041f, returnJoint, .82f, material = 3f)
+                draw(sphere, -halfWidth, y, frontZ, .036f, .036f, .036f, returnJoint, .82f, material = 3f)
+                draw(sphere, -halfWidth, y, rearZ, .036f, .036f, .036f, returnJoint, .82f, material = 3f)
             }
             val returnedBalls = poolBalls.filter { it.size >= 6 && it[2].toInt() > 0 && it[5] >= .5f }
                 .map { it[2].toInt() }.sorted().take(15)
@@ -1189,6 +1258,12 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 } else {
                     draw(sphere, x, .295f, z, .145f, .145f, .145f, color, .88f, rotationX = rotationX, rotationZ = rotationZ, material = 5f)
                 }
+                // Tight studio-light reflections ground every ball in the
+                // same overhead lighting as the polished rails.  The glint
+                // stays fixed to the camera light, as real resin does while
+                // the printed stripe rotates beneath it.
+                draw(sphere, x - .047f, .393f, z - .052f, .026f, .015f, .026f, floatArrayOf(.96f, .99f, 1f, .64f), .96f, material = 3f)
+                draw(sphere, x - .070f, .366f, z - .073f, .010f, .007f, .010f, floatArrayOf(.94f, .98f, 1f, .34f), .90f, material = 3f)
                 if (id != 0) {
                     // Numbered cap: a raised white plate and an actual compact
                     // seven-segment numeral, readable from the game camera.

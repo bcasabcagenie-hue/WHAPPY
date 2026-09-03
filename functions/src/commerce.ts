@@ -63,10 +63,45 @@ function publicInvoice(id: string, invoice: Input, now: number) {
   };
 }
 export function validateEvent(data: Input, now: number) {
+  const startsAt = integer(data.startsAt, now + 60_000, now + 730 * 86_400_000);
+  const doorsAt = data.doorsAt === undefined || data.doorsAt === null ? 0 : integer(data.doorsAt, now, startsAt);
   return { title: text(data.title, 100, true), venue: text(data.venue, 160, true),
     description: text(data.description ?? "", 1200),
-    startsAt: integer(data.startsAt, now + 60_000, now + 730 * 86_400_000),
+    category: text(data.category ?? "Événement", 60, true),
+    ticketLabel: text(data.ticketLabel ?? "Accès général", 60, true),
+    agenda: text(data.agenda ?? "", 1800),
+    contact: text(data.contact ?? "", 120),
+    terms: text(data.terms ?? "", 800),
+    doorsAt,
+    startsAt,
     capacity: integer(data.capacity, 1, 10000), priceMinor: 0, currency: "XAF" };
+}
+
+/** Only public event data ever reaches the discovery mini-app. */
+function publicEvent(eventId: string, event: Input, myTicketStatus: string | null = null) {
+  return {
+    id: eventId,
+    ownerId: String(event.ownerId || ""),
+    pageId: String(event.pageId || ""),
+    organizer: String(event.organizer || "Organisateur WAPI"),
+    organizerLogoUrl: String(event.organizerLogoUrl || ""),
+    title: String(event.title || "Événement WAPI"),
+    venue: String(event.venue || ""),
+    description: String(event.description || ""),
+    category: String(event.category || "Événement"),
+    ticketLabel: String(event.ticketLabel || "Accès général"),
+    posterUrl: String(event.posterUrl || ""),
+    agenda: String(event.agenda || ""),
+    contact: String(event.contact || ""),
+    terms: String(event.terms || ""),
+    doorsAt: Number(event.doorsAt || 0),
+    startsAt: Number(event.startsAt || 0),
+    capacity: Number(event.capacity || 0),
+    reserved: Number(event.reserved || 0),
+    checkedIn: Number(event.checkedIn || 0),
+    status: String(event.status || "closed"),
+    myTicketStatus,
+  };
 }
 export function reservationID(eventId: string, uid: string): string {
   return createHash("sha256").update(`${eventId}:${uid}`).digest("hex");
@@ -346,13 +381,23 @@ export async function handleCommerce(db: Firestore, uid: string, data: Input) {
     const pageId = id(data.pageId); const page = await ownPage(pageId);
     const ref = db.collection("ticketbulkEvents").doc(id(data.eventId));
     const event = validateEvent(data, Date.now());
+    let posterUrl = "";
+    if (data.posterBase64) {
+      let poster;
+      try { poster = decodeGroupPhotoBase64(data.posterBase64); } catch { return fail("Choisissez une affiche JPEG, PNG ou WebP de moins de 5 Mo."); }
+      if (poster) {
+        const hash = createHash("sha256").update(poster.bytes).digest("hex");
+        posterUrl = await saveCatalogPhoto(getStorage().bucket(), `ticketbulkEvents/${uid}/${ref.id}/${hash}.${poster.extension}`, poster);
+      }
+    }
     await db.runTransaction(async tx => {
       const existing = await tx.get(ref);
       if (existing.exists) {
         if (existing.get("ownerId") !== uid) throw new HttpsError("permission-denied", "Référence déjà utilisée.");
         return; // idempotent creation after a lost network response
       }
-      tx.create(ref, { ...event, pageId, organizer: page.get("name"), ownerId: uid, status: "published", reserved: 0, checkedIn: 0, createdAt: FieldValue.serverTimestamp() });
+      tx.create(ref, { ...event, pageId, organizer: page.get("name"), organizerLogoUrl: page.get("logoUrl") || "", posterUrl,
+        ownerId: uid, status: "published", reserved: 0, checkedIn: 0, createdAt: FieldValue.serverTimestamp() });
     });
     return { eventId: ref.id };
   }
@@ -362,7 +407,7 @@ export async function handleCommerce(db: Firestore, uid: string, data: Input) {
     const docs = await query.get();
     const ownTickets = docs.empty ? [] : await db.getAll(...docs.docs.map(doc => db.collection("ticketbulkTickets").doc(reservationID(doc.id, uid))));
     return { events: docs.docs.filter(doc => doc.get("ownerId") === uid || (doc.get("status") === "published" && doc.get("startsAt") > Date.now()))
-      .map(doc => ({ ...doc.data(), id: doc.id, myTicketStatus: ownTickets.find(ticket => ticket.get("eventId") === doc.id)?.get("status") || null }))
+      .map(doc => publicEvent(doc.id, doc.data(), ownTickets.find(ticket => ticket.get("eventId") === doc.id)?.get("status") || null))
       .sort((a, b) => Number((a as Input).startsAt) - Number((b as Input).startsAt)),
       nextCursor: docs.size === 40 ? docs.docs[39].id : null };
   }
@@ -386,6 +431,7 @@ export async function handleCommerce(db: Firestore, uid: string, data: Input) {
       canReserve(event.data()!, Date.now());
       const token = randomUUID();
       const ticket = { eventId, userId: uid, ownerId: event.get("ownerId"), title: event.get("title"), venue: event.get("venue"), startsAt: event.get("startsAt"),
+        organizer: event.get("organizer") || "Organisateur WAPI", category: event.get("category") || "Événement", ticketLabel: event.get("ticketLabel") || "Accès général", posterUrl: event.get("posterUrl") || "",
         status: "issued", token, code: `wapi://ticketbulk/${ref.id}?token=${token}`, issuedAt: Date.now() };
       if (existing.exists) tx.update(ref, { ...ticket, cancelledAt: null });
       else tx.create(ref, ticket);

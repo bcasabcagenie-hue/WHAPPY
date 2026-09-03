@@ -122,6 +122,7 @@ internal class WapiGame3DView(context: Context) : GLSurfaceView(context) {
                 "checkers" -> drawBoard(true, seconds)
                 "cards", "poker" -> drawCards(scene == "poker", seconds)
                 "sky" -> drawSky(seconds)
+                "arcade" -> drawArcade(seconds)
                 else -> drawLudo(seconds)
             }
         }
@@ -168,17 +169,68 @@ internal class WapiGame3DView(context: Context) : GLSurfaceView(context) {
         }
 
         private fun drawCards(poker: Boolean, seconds: Float) {
-            drawCube(0f, -.16f, 0f, 5.1f, .22f, 3.25f, floatArrayOf(.04f, .16f, .13f, 1f))
-            drawCube(0f, .08f, 0f, 4.75f, .08f, 2.9f, floatArrayOf(.02f, .42f, .26f, 1f))
-            val cardColor = floatArrayOf(.95f, .97f, 1f, 1f)
-            val cardBack = floatArrayOf(.04f, .32f, .86f, 1f)
-            val count = if (poker) 5 else 4
-            for (index in 0 until count) {
-                val x = (index - (count - 1) / 2f) * 1.15f
-                drawCube(x, .28f, if (poker) .25f else 0f, .46f, .075f, .72f, cardColor, rotationY = sin(seconds + index) * 2.5f)
+            val walnut = floatArrayOf(.10f, .035f, .014f, 1f)
+            val woodEdge = floatArrayOf(.34f, .11f, .035f, 1f)
+            val felt = if (poker) floatArrayOf(.018f, .27f, .17f, 1f) else floatArrayOf(.025f, .14f, .35f, 1f)
+            val brass = floatArrayOf(.93f, .66f, .18f, 1f)
+            val cardFace = floatArrayOf(.96f, .975f, 1f, 1f)
+            val cardBack = if (poker) floatArrayOf(.18f, .035f, .055f, 1f) else floatArrayOf(.035f, .20f, .62f, 1f)
+
+            // A weighted casino table: apron, legs and a raised felt bed.
+            drawCube(0f, -.34f, 0f, 5.35f, .18f, 3.55f, walnut)
+            drawCube(0f, -.05f, 0f, 5.05f, .12f, 3.25f, woodEdge)
+            drawCube(0f, .10f, 0f, 4.78f, .075f, 2.95f, felt)
+            listOf(-4.35f to -2.65f, 4.35f to -2.65f, -4.35f to 2.65f, 4.35f to 2.65f).forEach { (x, z) ->
+                drawCube(x, -.75f, z, .22f, .42f, .22f, walnut)
+                drawSphere(x, -1.18f, z, .17f, floatArrayOf(.07f, .08f, .09f, 1f), 0f)
             }
-            drawCube(3.45f, .33f, -1.45f, .52f, .24f, .72f, cardBack, rotationY = -12f)
-            drawCube(3.52f, .37f, -1.35f, .52f, .24f, .72f, cardBack, rotationY = -8f)
+            // Fine inlaid betting line and dealer marker make the surface read
+            // as an actual gaming table, not a green rectangle.
+            drawCube(0f, .185f, .52f, 3.55f, .008f, .018f, brass)
+            drawSphere(0f, .21f, -1.68f, .24f, brass, 0f)
+            drawSphere(0f, .232f, -1.68f, .17f, floatArrayOf(.98f, .96f, .82f, 1f), 0f)
+
+            val count = if (poker) 5 else 2
+            for (index in 0 until count) {
+                val x = (index - (count - 1) / 2f) * 1.06f
+                val z = if (poker) .18f else .38f
+                val tilt = sin(seconds * .55f + index) * 1.4f
+                // Layered cards have an edge, a face, a suit pip and a shadow.
+                drawCube(x + .045f, .205f, z + .055f, .48f, .018f, .71f, floatArrayOf(.015f, .02f, .03f, .48f), rotationY = tilt)
+                drawCube(x, .255f, z, .46f, .026f, .69f, cardFace, rotationY = tilt)
+                drawCube(x - .28f, .286f, z - .43f, .055f, .006f, .075f, if (index % 2 == 0) floatArrayOf(.82f, .06f, .09f, 1f) else floatArrayOf(.06f, .08f, .12f, 1f), rotationY = tilt)
+            }
+            // Opponent cards and a deck sit in their own physical wells.
+            for (index in 0 until 2) {
+                val x = if (index == 0) -1.0f else 1.0f
+                drawCube(x, .25f, -1.12f, .46f, .042f, .69f, cardBack, rotationY = if (index == 0) -5f else 5f)
+                drawCube(x, .296f, -1.12f, .40f, .006f, .62f, brass, rotationY = if (index == 0) -5f else 5f)
+            }
+            repeat(7) { level ->
+                drawSphere(3.58f, .22f + level * .075f, -1.42f, .29f, if (level % 2 == 0) brass else floatArrayOf(.78f, .10f, .12f, 1f), seconds * 8f)
+                drawSphere(-3.58f, .22f + level * .075f, -1.42f, .29f, if (level % 2 == 0) floatArrayOf(.10f, .38f, .85f, 1f) else floatArrayOf(.94f, .94f, .96f, 1f), -seconds * 8f)
+            }
+        }
+
+        private fun drawArcade(seconds: Float) {
+            val midnight = floatArrayOf(.018f, .035f, .10f, 1f)
+            val blue = floatArrayOf(.05f, .40f, .95f, 1f)
+            val violet = floatArrayOf(.46f, .14f, .88f, 1f)
+            val gold = floatArrayOf(1f, .68f, .10f, 1f)
+            drawCube(0f, -1.22f, 0f, 7.2f, .12f, 7.2f, midnight)
+            // Three floating play platforms make quiz and duel rounds feel
+            // like an arena with depth, while keeping the answer UI above it.
+            listOf(-2.9f to blue, 0f to violet, 2.9f to blue).forEachIndexed { index, (x, color) ->
+                val bob = sin(seconds * 1.5f + index) * .12f
+                drawCube(x, -.58f + bob, 0f, 1.16f, .13f, 2.15f, color)
+                drawCube(x, -.42f + bob, 0f, .90f, .025f, 1.78f, floatArrayOf(.04f, .08f, .18f, 1f))
+                drawSphere(x, -.17f + bob, 0f, .24f, gold, seconds * 28f)
+            }
+            repeat(10) { index ->
+                val angle = seconds * .45f + index * (Math.PI * 2.0 / 10.0)
+                val radius = 4.3f + sin(seconds + index) * .25f
+                drawSphere((cos(angle) * radius).toFloat(), .25f + sin(seconds * 1.8f + index).toFloat() * .28f, (sin(angle) * radius).toFloat(), .075f, if (index % 2 == 0) blue else violet, seconds * 18f)
+            }
         }
 
         private fun drawLudo(seconds: Float) {
@@ -198,13 +250,58 @@ internal class WapiGame3DView(context: Context) : GLSurfaceView(context) {
         }
 
         private fun drawSky(seconds: Float) {
-            drawCube(0f, -.20f, 0f, 5.2f, .18f, 3.2f, floatArrayOf(.04f, .10f, .22f, 1f))
-            for (index in 0 until 7) {
-                val x = -3.8f + index * 1.25f
-                val height = 1.0f + (index % 3) * .55f
-                drawCube(x, height / 2f, (index % 2) * .8f - .4f, .42f, height, .42f, floatArrayOf(.05f, .63f, .96f, 1f), rotationY = seconds * 18f + index * 12f)
+            val sky = floatArrayOf(.025f, .11f, .25f, 1f)
+            val runway = floatArrayOf(.035f, .20f, .34f, 1f)
+            val runwayEdge = floatArrayOf(.08f, .62f, .92f, 1f)
+            val glow = floatArrayOf(.20f, .82f, 1f, 1f)
+            val gold = floatArrayOf(1f, .58f, .10f, 1f)
+
+            // Deep suspended arena: the long floor makes the perspective readable.
+            drawCube(0f, -1.15f, 0f, 7.4f, .12f, 12f, sky)
+            drawCube(0f, -.98f, 0f, 4.55f, .10f, 11.5f, runway)
+            drawCube(-4.58f, -.72f, 0f, .09f, .38f, 11.6f, runwayEdge)
+            drawCube(4.58f, -.72f, 0f, .09f, .38f, 11.6f, runwayEdge)
+
+            // Lane markers and speed lights recede into the distance.
+            for (depth in 0 until 12) {
+                val z = -5.4f + depth * 1.0f
+                val width = .055f + depth * .007f
+                drawCube(-1.52f, -.82f, z, width, .025f, .30f, glow)
+                drawCube(0f, -.82f, z, width, .025f, .30f, glow)
+                drawCube(1.52f, -.82f, z, width, .025f, .30f, glow)
+                if (depth % 2 == 0) {
+                    drawCube(-5.0f, -.55f, z, .06f, .12f, .18f, gold)
+                    drawCube(5.0f, -.55f, z, .06f, .12f, .18f, gold)
+                }
             }
-            drawSphere(0f, .65f, 0f, .32f, floatArrayOf(1f, .78f, .05f, 1f), seconds * 60f)
+
+            // A skyline of illuminated towers gives the course scale and depth.
+            for (index in 0 until 10) {
+                val side = if (index % 2 == 0) -1f else 1f
+                val z = -4.8f + (index / 2) * 2.0f
+                val height = 1.1f + (index % 3) * .48f
+                val towerColor = if (index % 3 == 0) floatArrayOf(.06f, .40f, .72f, 1f) else floatArrayOf(.07f, .27f, .50f, 1f)
+                drawCube(side * (5.3f + (index % 2) * .4f), height / 2f - .72f, z, .32f, height, .48f, towerColor, rotationY = seconds * 3f + index * 9f)
+                drawCube(side * (5.3f + (index % 2) * .4f), height + .05f, z, .08f, .08f, .08f, glow, rotationY = seconds * 20f)
+            }
+
+            // Floating gates and clouds make the world feel spatial instead of flat.
+            for (index in 0 until 4) {
+                val z = -3.6f + index * 3.0f
+                val gateColor = if (index % 2 == 0) glow else gold
+                drawCube(-2.15f, .48f, z, .10f, 1.8f, .10f, gateColor, rotationY = seconds * 8f)
+                drawCube(2.15f, .48f, z, .10f, 1.8f, .10f, gateColor, rotationY = -seconds * 8f)
+                drawCube(0f, 1.34f, z, 2.25f, .10f, .10f, gateColor, rotationY = seconds * 8f)
+            }
+            for (index in 0 until 5) {
+                val cloudX = -3.6f + index * 1.8f
+                val cloudZ = -4.5f + (index % 2) * 3.5f
+                drawSphere(cloudX, 2.6f + (index % 3) * .28f, cloudZ, .38f + (index % 2) * .16f, floatArrayOf(.45f, .82f, 1f, .30f), seconds * 2f)
+            }
+
+            // The golden energy core is the player vehicle, centered on the active lane.
+            drawSphere(0f, 1.0f, 1.8f, .42f, gold, seconds * 80f)
+            drawCube(0f, -.65f, 1.8f, .30f, .08f, .72f, glow, rotationY = seconds * 28f)
         }
 
         private fun drawCube(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, color: FloatArray, rotationY: Float = 0f) {

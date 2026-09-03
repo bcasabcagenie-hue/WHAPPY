@@ -121,6 +121,10 @@ internal fun WapiNativeLiveRoomDialog(
     val rtcEngine = remember(live.id, reconnectAttempt) { WapiLiveRtcEngine(context, scope) }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var connecting by remember { mutableStateOf(true) }
+    // Firestore access to a contacts-only Live is granted by joinLiveSession.
+    // Do not subscribe to comments/viewers before that server authorization
+    // completes, otherwise Android can keep a denied listener after joining.
+    var sessionAuthorized by remember(live.id, reconnectAttempt) { mutableStateOf(false) }
     var connectionLabel by remember { mutableStateOf("Connexion sécurisée…") }
     var fatalError by remember { mutableStateOf<String?>(null) }
     var isHost by remember { mutableStateOf(expectedHost) }
@@ -173,15 +177,18 @@ internal fun WapiNativeLiveRoomDialog(
             microphoneEnabled = expectedHost
             cameraEnabled = expectedHost && !live.audioOnly
             connecting = false
+            sessionAuthorized = true
             connectionLabel = "En direct"
         } catch (error: Throwable) {
             connecting = false
+            sessionAuthorized = false
             fatalError = wapiUserFacingError(error, "Le direct")
             rtcEngine.close()
         }
     }
 
-    DisposableEffect(live.id, reconnectAttempt) {
+    DisposableEffect(live.id, reconnectAttempt, sessionAuthorized) {
+        if (!sessionAuthorized) return@DisposableEffect onDispose { }
         liveListener = firestore.collection("liveSessions").document(live.id)
             .addSnapshotListener { snapshot, _ ->
                 val data = snapshot?.data ?: return@addSnapshotListener
@@ -264,14 +271,14 @@ internal fun WapiNativeLiveRoomDialog(
         commentDraft = ""
         scope.launch {
             runCatching {
-                firestore.collection("liveSessions").document(live.id).collection("comments").add(
-                    mapOf(
-                        "authorId" to auth.currentUser?.uid.orEmpty(),
-                        "authorName" to (auth.currentUser?.displayName ?: auth.currentUser?.phoneNumber ?: "Membre WAPI"),
-                        "text" to text,
-                        "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
-                    ),
-                ).await()
+                functions.getHttpsCallable("sendLiveComment")
+                    .call(mapOf("liveId" to live.id, "text" to text))
+                    .await()
+            }.onFailure { error ->
+                // Never make a comment disappear silently. Restore the text
+                // and surface a clear reason in the Live header.
+                commentDraft = text
+                connectionLabel = wapiUserFacingError(error, "Le commentaire")
             }
         }
     }

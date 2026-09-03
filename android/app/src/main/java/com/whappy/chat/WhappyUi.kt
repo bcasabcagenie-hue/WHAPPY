@@ -30,6 +30,7 @@ import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
 import android.util.LruCache
 import android.util.Patterns
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -87,6 +88,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -3524,6 +3526,20 @@ private fun game3dScene(gameName: String): String = when (gameName) {
     else -> "ludo"
 }
 
+/**
+ * Physical 3D stage shared by the card games.  Rules and cards remain in
+ * Compose, while the felt, table depth and dealer space are rendered by the
+ * same OpenGL layer as WAPI Sky and the tabletop games.
+ */
+@Composable
+private fun WapiArcade3DStage(scene: String, modifier: Modifier = Modifier) {
+    AndroidView(
+        factory = { context -> WapiGame3DView(context).apply { setScene(scene) } },
+        update = { view -> view.setScene(scene) },
+        modifier = modifier,
+    )
+}
+
 private fun gameIcon(gameName: String): ImageVector = when (gameName) {
     "King QI" -> Icons.Rounded.SmartToy
     "Ludo WAPI" -> Icons.Rounded.GridView
@@ -3552,7 +3568,9 @@ private fun GamesScreen(
     var ludoMode by rememberSaveable { mutableStateOf("ai") }
     var ludoAiDifficulty by rememberSaveable { mutableStateOf("medium") }
     var ludoSessionStarted by rememberSaveable { mutableStateOf(false) }
-    var poolMode by rememberSaveable { mutableStateOf("training") }
+    // Pool opens on its preparation screen first: the player selects the
+    // table, queue and game mode before entering the full-screen match.
+    var poolMode by rememberSaveable { mutableStateOf("ai") }
     var poolAiDifficulty by rememberSaveable { mutableStateOf("medium") }
     var poolSessionStarted by rememberSaveable { mutableStateOf(false) }
     var gameFilter by rememberSaveable { mutableStateOf("Tous") }
@@ -3893,7 +3911,10 @@ private fun GamesScreen(
             GameModeCard(game.first, game.second, categoryForGame(game.first), gameIcon(game.first), selected == game.first) {
                 selected = game.first
                 if (game.first == "Ludo WAPI") ludoSessionStarted = false
-                if (game.first == "Wapi Pool") poolSessionStarted = false
+                if (game.first == "Wapi Pool") {
+                    poolMode = "ai"
+                    poolSessionStarted = false
+                }
                 gameOpen = true
                 WhappySounds.gameOpen()
                 WhappySounds.haptic(context)
@@ -3905,7 +3926,10 @@ private fun GamesScreen(
         Surface(Modifier.fillMaxSize(), color = Color(0xFF030812)) {
             Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize()) {
-                    WapiGameArenaHeader(
+                    // Pool is a landscape game, not a page inside the app.
+                    // Its own compact HUD supplies the exit action so the
+                    // physical table can use the whole display.
+                    if (selected != "Wapi Pool") WapiGameArenaHeader(
                         title = selected,
                         subtitle = if (selected == "King QI") "ARÈNE VOCALE" else "PARTIE EN COURS",
                         xp = xp,
@@ -4014,9 +4038,23 @@ private fun GamesScreen(
                                         onStart = { poolSessionStarted = true },
                                     )
                                 } else if (poolMode == "wapi") {
-                                    WapiOnlinePoolArena(userId = currentUserId, userName = accountName)
+                                    WapiOnlinePoolArena(
+                                        userId = currentUserId,
+                                        userName = accountName,
+                                        onExit = { gameOpen = false },
+                                    )
                                 } else {
-                                    Billiards3D(mode = poolMode, aiDifficulty = poolAiDifficulty, onXp = { xp += it }, onWin = ::celebrateWin)
+                                    Billiards3D(
+                                        mode = poolMode,
+                                        aiDifficulty = poolAiDifficulty,
+                                        onXp = { xp += it },
+                                        onWin = ::celebrateWin,
+                                        onExit = { gameOpen = false },
+                                        onPlayWithFriend = {
+                                            poolMode = "wapi"
+                                            poolSessionStarted = true
+                                        },
+                                    )
                                 }
                             }
                             "Échecs" -> StrategyBoardGame(checkers = false, onXp = { xp += it }, onWin = ::celebrateWin)
@@ -4270,80 +4308,124 @@ private fun WapiPoolModePicker(
     onDifficultySelected: (String) -> Unit,
     onStart: () -> Unit,
 ) {
-    var launching by remember { mutableStateOf(false) }
-    LaunchedEffect(launching) {
-        if (launching) {
-            delay(650L)
-            onStart()
-        }
+    val context = LocalContext.current
+    val equipmentPrefs = remember(context) { context.getSharedPreferences("wapi_pool_equipment", android.content.Context.MODE_PRIVATE) }
+    var tableTheme by rememberSaveable { mutableStateOf(equipmentPrefs.getString("tableTheme", "competitionBlue") ?: "competitionBlue") }
+    var cueStyle by rememberSaveable { mutableStateOf(equipmentPrefs.getString("cueStyle", "maple") ?: "maple") }
+    var editingEquipment by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(tableTheme, cueStyle) {
+        equipmentPrefs.edit().putString("tableTheme", tableTheme).putString("cueStyle", cueStyle).apply()
     }
     val modes = listOf(
         Triple("training", "ENTRAÎNEMENT", "Table libre, coups illimités et remise en place instantanée."),
         Triple("ai", "CONTRE L’IA", "Une vraie alternance des tours avec quatre niveaux."),
         Triple("wapi", "JOUEURS WAPI", "Créez ou rejoignez une table synchronisée en temps réel."),
     )
-    Box(
+    BoxWithConstraints(
         Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF095E4C), Color(0xFF06231E), Color(0xFF010806)))),
         contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.widthIn(max = 760.dp).fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(54.dp).clip(CircleShape).background(Color(0xFF101923)).border(2.dp, Color(0xFF5BE3FF), CircleShape), contentAlignment = Alignment.Center) {
-                    Text("8", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
-                }
-                Column {
-                    Text("WAPI POOL", color = Color(0xFF72F2C8), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
-                    Text("La table des compétiteurs", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
-                }
-            }
-            Surface(color = Color.White.copy(alpha = .06f), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .12f))) {
-                Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("🎱", fontSize = 30.sp)
-                    Column(Modifier.weight(1f)) {
-                        Text(if (launching) "Préparation de votre table" else "Moteur de table Wapi Pool", color = Color.White, fontWeight = FontWeight.Bold)
-                        Text("Visée précise, puissance progressive, poches physiques et retour de billes compact.", color = Color.White.copy(alpha = .70f), fontSize = 11.sp)
+        // A pool lobby must stay readable on a narrow phone, a folded device
+        // and a tablet.  Three fixed cards in one Row previously overflowed
+        // in the folded portrait viewport and caused visual clipping.
+        val compactLayout = maxWidth < 720.dp
+        Column(
+            Modifier.widthIn(max = 980.dp).fillMaxSize().navigationBarsPadding()
+                .padding(horizontal = if (compactLayout) 18.dp else 30.dp, vertical = 14.dp),
+        ) {
+            // Only the content scrolls.  The action that opens the game stays
+            // docked at the bottom, otherwise it disappears on short phones.
+            Column(
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                WapiPoolLogo(Modifier.fillMaxWidth())
+                Surface(color = Color.White.copy(alpha = .06f), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .12f))) {
+                    Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("🎱", fontSize = 30.sp)
+                        Column(Modifier.weight(1f)) {
+                            Text("Moteur de table Wapi Pool", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Visée précise, puissance progressive, poches physiques et retour de billes compact.", color = Color.White.copy(alpha = .70f), fontSize = 11.sp)
+                        }
                     }
-                    if (launching) CircularProgressIndicator(Modifier.size(24.dp), color = Color(0xFF72F2C8), strokeWidth = 3.dp)
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                modes.forEach { mode ->
-                    val active = selectedMode == mode.first
-                    Surface(
-                        onClick = { onModeSelected(mode.first) },
-                        modifier = Modifier.weight(1f).height(136.dp),
-                        color = if (active) Color(0xFF087D62) else Color.White.copy(alpha = .075f),
-                        shape = RoundedCornerShape(21.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (active) Color(0xFF72F2C8) else Color.White.copy(alpha = .14f)),
-                    ) {
-                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Icon(if (mode.first == "training") Icons.Rounded.Bolt else if (mode.first == "ai") Icons.Rounded.SmartToy else Icons.Rounded.Groups, null, tint = if (active) Color(0xFF72F2C8) else Color.White.copy(alpha = .72f))
-                            Text(mode.second, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text(mode.third, color = Color.White.copy(alpha = .68f), fontSize = 10.sp, lineHeight = 14.sp)
+                Surface(
+                    onClick = { editingEquipment = true },
+                    color = Color(0xFF0A2B47),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, Color(0xFF378BC4)),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("🎱", fontSize = 26.sp)
+                        Column(Modifier.padding(start = 11.dp).weight(1f)) {
+                            Text("Atelier des queues", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("${wapiPoolCue(cueStyle).name} · ${when (tableTheme) { "navy" -> "Tapis bleu nuit"; "emerald" -> "Tapis vert tournoi"; else -> "Tapis bleu compétition" }}", color = Color(0xFFAAD7F2), fontSize = 11.sp)
+                        }
+                        Text("MODIFIER", color = Color(0xFF72F2C8), fontWeight = FontWeight.ExtraBold, fontSize = 10.sp)
+                    }
+                }
+                if (compactLayout) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        modes.forEach { mode -> WapiPoolModeCard(mode, selectedMode == mode.first, Modifier.fillMaxWidth().height(96.dp)) { onModeSelected(mode.first) } }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        modes.forEach { mode -> WapiPoolModeCard(mode, selectedMode == mode.first, Modifier.weight(1f).height(136.dp)) { onModeSelected(mode.first) } }
+                    }
+                }
+                if (selectedMode == "ai") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("easy" to "FACILE", "medium" to "MOYEN", "hard" to "DIFFICILE", "ultra" to "ULTRA").forEach { option ->
+                            FilterChip(
+                                selected = selectedDifficulty == option.first,
+                                onClick = { onDifficultySelected(option.first) },
+                                label = { Text(option.second, fontSize = 9.sp, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = Color.White.copy(alpha = .06f),
+                                    labelColor = Color.White.copy(alpha = .72f),
+                                    selectedContainerColor = Color(0xFF087D62),
+                                    selectedLabelColor = Color.White,
+                                ),
+                            )
                         }
                     }
                 }
             }
-            if (selectedMode == "ai") {
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf("easy" to "FACILE", "medium" to "MOYEN", "hard" to "DIFFICILE", "ultra" to "ULTRA").forEach { option ->
-                        FilterChip(
-                            selected = selectedDifficulty == option.first,
-                            onClick = { onDifficultySelected(option.first) },
-                            label = { Text(option.second, fontSize = 9.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = Color.White.copy(alpha = .06f),
-                                labelColor = Color.White.copy(alpha = .72f),
-                                selectedContainerColor = Color(0xFF087D62),
-                                selectedLabelColor = Color.White,
-                            ),
-                        )
-                    }
-                }
+            Spacer(Modifier.height(10.dp))
+            Button(onClick = onStart, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A9C78))) {
+                Text(if (selectedMode == "wapi") "OUVRIR LE LOBBY WAPI" else "ENTRER SUR LA TABLE", fontWeight = FontWeight.Bold)
             }
-            Button(onClick = { launching = true }, enabled = !launching, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A9C78))) {
-                Text(if (launching) "CHARGEMENT…" else if (selectedMode == "wapi") "OUVRIR LE LOBBY WAPI" else "ENTRER SUR LA TABLE", fontWeight = FontWeight.Bold)
-            }
+        }
+    }
+    if (editingEquipment) PoolEquipmentSheet(
+        tableTheme = tableTheme,
+        cueStyle = cueStyle,
+        founder = WhappyIdentity.isFounder(FirebaseAuth.getInstance().currentUser?.phoneNumber),
+        onTableTheme = { tableTheme = it },
+        onCueStyle = { cueStyle = it },
+        onDismiss = { editingEquipment = false },
+    )
+}
+
+@Composable
+private fun WapiPoolModeCard(
+    mode: Triple<String, String, String>,
+    active: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        color = if (active) Color(0xFF087D62) else Color.White.copy(alpha = .075f),
+        shape = RoundedCornerShape(21.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (active) Color(0xFF72F2C8) else Color.White.copy(alpha = .14f)),
+    ) {
+        val icon = if (mode.first == "training") Icons.Rounded.Bolt else if (mode.first == "ai") Icons.Rounded.SmartToy else Icons.Rounded.Groups
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(icon, null, tint = if (active) Color(0xFF72F2C8) else Color.White.copy(alpha = .72f))
+            Text(mode.second, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(mode.third, color = Color.White.copy(alpha = .68f), fontSize = 10.sp, lineHeight = 14.sp)
         }
     }
 }
@@ -4466,8 +4548,8 @@ internal fun WapiPoolPowerRail(
             .width(66.dp)
             .height(282.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xEA061B3B), Color(0xF0020A16))))
-            .border(1.dp, Color(0xFF3D9CFF).copy(alpha = if (dragging) .72f else .30f), RoundedCornerShape(24.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xEA261016), Color(0xF0090710))))
+            .border(1.dp, Color(0xFFFF5360).copy(alpha = if (dragging) .88f else .38f), RoundedCornerShape(24.dp))
             .semantics { contentDescription = "Puissance du tir"; stateDescription = if (enabled) "Prêt" else "Patientez" }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
@@ -4508,13 +4590,17 @@ internal fun WapiPoolPowerRail(
             val tipY = top + displayedPull * travel
             val centreX = size.width / 2f
             drawLine(Color.Black.copy(alpha = .44f), Offset(centreX, top), Offset(centreX, bottom), 18f, StrokeCap.Round)
+            // The power rail is intentionally red at every level: pulling it
+            // down increases the intensity from burgundy to signal red rather
+            // than changing to unrelated blue/yellow colours.
             val railColor = when {
-                power >= 82 -> Color(0xFFFF5C6C)
-                power >= 58 -> Color(0xFFFFB547)
-                else -> Color(0xFF25A7FF)
+                power >= 84 -> Color(0xFFFF3345)
+                power >= 58 -> Color(0xFFE82737)
+                else -> Color(0xFFA91427)
             }
-            drawLine(railColor.copy(alpha = .20f), Offset(centreX, top + 2f), Offset(centreX, bottom - 2f), 10f, StrokeCap.Round)
-            drawLine(railColor.copy(alpha = .78f), Offset(centreX, top), Offset(centreX, top + (bottom - top) * power / 100f), 5f, StrokeCap.Round)
+            drawLine(Color(0xFF5C0A19).copy(alpha = .86f), Offset(centreX, top + 2f), Offset(centreX, bottom - 2f), 12f, StrokeCap.Round)
+            drawLine(railColor.copy(alpha = .22f), Offset(centreX, top + 2f), Offset(centreX, bottom - 2f), 8f, StrokeCap.Round)
+            drawLine(railColor, Offset(centreX, top), Offset(centreX, top + (bottom - top) * power / 100f), 5.5f, StrokeCap.Round)
             repeat(5) { index ->
                 val y = top + (bottom - top) * index / 4f
                 drawLine(Color.White.copy(alpha = .15f), Offset(size.width * .15f, y), Offset(size.width * .85f, y), 1.2f)
@@ -4525,14 +4611,14 @@ internal fun WapiPoolPowerRail(
             drawLine(if (enabled) Color(0xFFE8C891) else Color(0xFF8B8275), Offset(centreX, tipY + 6f), Offset(centreX, shaftEnd), 7f, StrokeCap.Round)
             drawLine(if (enabled) Color(0xFF6B250F) else Color(0xFF54413A), Offset(centreX, shaftEnd), Offset(centreX, buttEnd), 11f, StrokeCap.Round)
             drawLine(Color(0xFFD9B35D), Offset(centreX, shaftEnd - 3f), Offset(centreX, shaftEnd + 5f), 12f, StrokeCap.Butt)
-            drawLine(Color(0xFF1F78A7), Offset(centreX, tipY), Offset(centreX, tipY + 7f), 9f, StrokeCap.Round)
+            drawLine(Color(0xFFFF4857), Offset(centreX, tipY), Offset(centreX, tipY + 7f), 9f, StrokeCap.Round)
             if (dragging) {
                 drawCircle(Color.White.copy(alpha = .16f), size.width * .29f, Offset(centreX, buttEnd))
                 drawCircle(Color.White.copy(alpha = .88f), size.width * .11f, Offset(centreX, buttEnd))
             }
         }
-        Text("${power.coerceIn(0, 100)}%", Modifier.align(Alignment.TopCenter).padding(top = 8.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
-        Text("TIREZ", Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp), color = Color.White.copy(alpha = .72f), fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
+        // The illuminated fill and the cue position communicate power more
+        // clearly than a percentage and an extra label over the game board.
     }
 }
 
@@ -5118,7 +5204,14 @@ internal fun wapiPoolBallsMoving(balls: List<WapiPoolBall>): Boolean = balls.any
 
 /** Native top-down pool physics: aim by dragging the cue, then release to strike. */
 @Composable
-internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit, onWin: () -> Unit) {
+internal fun Billiards3D(
+    mode: String,
+    aiDifficulty: String,
+    onXp: (Int) -> Unit,
+    onWin: () -> Unit,
+    onExit: () -> Unit = {},
+    onPlayWithFriend: () -> Unit = {},
+) {
     val context = LocalContext.current
     val profile = rememberPoolProfile()
     var editingPlayer by remember { mutableStateOf(false) }
@@ -5157,6 +5250,8 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
     var turnSeconds by remember(mode) { mutableIntStateOf(30) }
     var message by remember { mutableStateOf("Orientez la queue sur la table, réglez le point d’impact puis tirez la jauge à gauche.") }
     val remainingBalls = poolBalls.count { it.id != 0 && !it.pocketed }
+    val equippedCue = wapiPoolCue(cueStyle)
+    val effectivePower = (power * equippedCue.powerMultiplier).toInt().coerceIn(10, 100)
 
     fun resetTable() {
         strokeJob?.cancel(); cueStriking = false; cueStroke = 0f
@@ -5182,7 +5277,7 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
         strokeJob = strokeScope.launch {
         try {
         Animatable(0f).animateTo(1f, tween(120)) { cueStroke = value }
-        val speed = 3.0f + power / 100f * 8.6f
+        val speed = 3.0f + effectivePower / 100f * 8.6f
         pocketedAtShotStart = poolBalls.count { it.pocketed }
         ballsAtShotStart = poolBalls
         pocketedIdsThisShot = emptySet()
@@ -5198,8 +5293,8 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
         }
         shots += 1
         physicsRunning = true
-        message = if (aiShot) "L’IA exécute son tir · puissance $power %" else "Tir en cours · puissance $power %"
-        WhappySounds.billiardCue(context, power)
+        message = if (aiShot) "L’IA exécute son tir · puissance $effectivePower %" else "Tir en cours · ${equippedCue.name} · puissance $effectivePower %"
+        WhappySounds.billiardCue(context, effectivePower)
         WhappySounds.haptic(context)
         } finally { cueStriking = false; cueStroke = 0f }
         }
@@ -5366,7 +5461,7 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
         WapiPoolTabletop3D(
             balls = poolBalls,
             aimAngle = aimAngle,
-            power = power,
+            power = effectivePower,
             sideSpin = sideSpin,
             followSpin = followSpin,
             moving = physicsRunning,
@@ -5374,7 +5469,10 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
             cueInHand = cueBallInHand,
             tableTheme = tableTheme,
             cueStyle = cueStyle,
-            modifier = Modifier.padding(top = 66.dp, bottom = 40.dp),
+            // The table owns the screen.  A narrow safe frame reserves room
+            // for the score and the physical controls without placing text
+            // over the cloth.
+            modifier = Modifier.padding(start = 82.dp, top = 58.dp, end = 18.dp, bottom = 10.dp),
             onAim = { x, y ->
                 if (cueStriking || (mode == "ai" && !playerTurn)) return@WapiPoolTabletop3D
                 if (cueBallInHand) {
@@ -5394,7 +5492,6 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
             onRelease = { },
         )
         val canPlay = !physicsRunning && !cueStriking && matchWinner == null && (mode != "ai" || playerTurn)
-        PoolAimWheel(aimAngle, canPlay && !cueBallInHand, { aimAngle = it }, Modifier.align(Alignment.CenterEnd).padding(end = 20.dp, top = 44.dp))
         PoolMatchScoreboard(
             left = profile.player,
             right = if (mode == "ai") PoolPlayerCard("IA · " + when (aiDifficulty) {
@@ -5405,7 +5502,7 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
             leftSeconds = if (playerTurn) turnSeconds else 30, rightSeconds = if (!playerTurn && mode == "ai") turnSeconds else 30,
             status = matchWinner ?: when { cueBallInHand -> "Placez la blanche"; physicsRunning -> "Tir en cours"; mode == "training" -> "$score pts · local"; playerTurn -> "À vous"; else -> "Tour IA" },
             onEditProfile = { editingPlayer = true },
-            modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 14.dp, vertical = 8.dp),
+            modifier = Modifier.align(Alignment.TopCenter).padding(start = 66.dp, end = 18.dp, top = 8.dp),
         )
         if (cueBallInHand) {
             val cue = poolBalls.first { it.id == 0 }
@@ -5438,19 +5535,30 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
             onPowerChange = { power = it }, onStrike = { strike() },
             modifier = Modifier.align(Alignment.CenterStart).padding(start = 18.dp, top = 48.dp),
         )
-        if (groupAnnouncement != null) {
-            Surface(Modifier.align(Alignment.Center).padding(horizontal = 24.dp), color = Color(0xF8071C31), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF63D8FF))) {
-                Text(groupAnnouncement.orEmpty(), Modifier.padding(horizontal = 22.dp, vertical = 14.dp), color = Color.White, fontWeight = FontWeight.Bold)
-            }
+        // One unobtrusive state chip replaces the old stack of status labels.
+        groupAnnouncement?.let { announcement ->
+            Surface(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+                color = Color(0xED071C31),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFF63D8FF)),
+            ) { Text(announcement, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
         }
-        if (mode == "ai" && matchWinner == null && !physicsRunning) {
-            TextButton(onClick = { cupActive = !cupActive; cupWins = 0; resetTable() }, Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)) {
-                Text(if (cupActive) "Coupe IA · $cupWins/3" else "Lancer la Coupe IA", color = Color.White)
-            }
-        }
-        TextButton(onClick = { editingEquipment = true }, Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 8.dp)) {
-            Text("Table & queue", color = Color.White, fontSize = 11.sp)
-        }
+        FilledIconButton(
+            onClick = { editingEquipment = true },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xD908151B), contentColor = Color.White),
+        ) { Icon(Icons.Rounded.Settings, contentDescription = "Choisir une queue et un tapis") }
+        FilledIconButton(
+            onClick = onExit,
+            modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xD908151B), contentColor = Color.White),
+        ) { Icon(Icons.Rounded.Close, contentDescription = "Quitter Wapi Pool") }
+        FilledIconButton(
+            onClick = onPlayWithFriend,
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xD908151B), contentColor = Color.White),
+        ) { Icon(Icons.Rounded.Groups, contentDescription = "Jouer avec un ami WAPI") }
         FilledIconButton(
             onClick = ::resetTable, enabled = !physicsRunning && !cueStriking,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 8.dp),
@@ -5458,7 +5566,10 @@ internal fun Billiards3D(mode: String, aiDifficulty: String, onXp: (Int) -> Unit
         ) { Icon(Icons.Rounded.RestartAlt, contentDescription = "Recommencer") }
     }
     if (editingPlayer) PoolPlayerEditor(profile) { editingPlayer = false }
-    if (editingEquipment) PoolEquipmentSheet(tableTheme, cueStyle, { tableTheme = it }, { cueStyle = it }) { editingEquipment = false }
+    if (editingEquipment) PoolEquipmentSheet(
+        tableTheme, cueStyle, WhappyIdentity.isFounder(FirebaseAuth.getInstance().currentUser?.phoneNumber),
+        { tableTheme = it }, { cueStyle = it },
+    ) { editingEquipment = false }
 }
 
 private fun initialStrategyBoard(checkers: Boolean, checkersSize: Int = 8): List<String> = if (checkers) {
@@ -5675,10 +5786,59 @@ private fun WapiCheckersPiece(piece: String, selected: Boolean, size: Dp) {
 @Composable
 private fun WapiCardDuel(onXp: (Int) -> Unit, onWin: () -> Unit) {
     val context = LocalContext.current
-    var round by rememberSaveable { mutableIntStateOf(0) }; var player by rememberSaveable { mutableIntStateOf(0) }; var rival by rememberSaveable { mutableIntStateOf(0) }; var playerScore by rememberSaveable { mutableIntStateOf(0) }; var rivalScore by rememberSaveable { mutableIntStateOf(0) }; var message by rememberSaveable { mutableStateOf("Tirez une carte. La plus forte remporte la manche.") }
-    val names = listOf("2","3","4","5","6","7","8","9","10","V","D","R","A")
-    fun draw() { round += 1; player = ((System.currentTimeMillis() / 31L) % 13L).toInt() + 2; rival = ((System.currentTimeMillis() / 47L + round) % 13L).toInt() + 2; WhappySounds.cardFlip(context); when { player > rival -> { playerScore++; onXp(10); WhappySounds.reward(context); message = "Manche gagnée · +10 XP" }; rival > player -> { rivalScore++; WhappySounds.gameInvalid(context); message = "L’adversaire gagne cette manche." }; else -> message = "Égalité parfaite." }; WhappySounds.haptic(context); if (playerScore == 5) { onWin(); onXp(100); message = "VICTOIRE DU DUEL · +100 XP" } }
-    Card(Modifier.fillMaxSize(), shape = RoundedCornerShape(0.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF121A47))) { Column(Modifier.fillMaxSize().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Text("WAPI CARDS", color = WhappySky, fontWeight = FontWeight.Bold, fontSize = 10.sp); Text("$playerScore  —  $rivalScore", Modifier.padding(vertical = 8.dp), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) { listOf(player to "VOUS", rival to "RIVAL").forEachIndexed { index, card -> Card(Modifier.size(112.dp, 164.dp).graphicsLayer { rotationY = if (round == 0) 180f else if (index == 0) -8f else 8f; rotationX = 4f; shadowElevation = 28f; cameraDistance = 18f }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(card.second, color = WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold); Text(if (card.first == 0) "W" else names[(card.first - 2).coerceIn(0, 12)], color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 38.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally)); Text(if (index == 0) "◆" else "♥", color = if (index == 0) WhappyBlue else Color(0xFFE53935), fontSize = 22.sp) } } } }; Text(message, Modifier.padding(vertical = 10.dp), color = Color.White.copy(alpha = .84f), fontSize = 12.sp); Button(onClick = ::draw, enabled = playerScore < 5, modifier = Modifier.width(320.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("TIRER LES CARTES", fontWeight = FontWeight.Bold) }; OutlinedButton(onClick = { round = 0; player = 0; rival = 0; playerScore = 0; rivalScore = 0; message = "Nouvelle partie." }, Modifier.padding(top = 8.dp).width(320.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") } } }
+    var round by rememberSaveable { mutableIntStateOf(0) }
+    var player by rememberSaveable { mutableIntStateOf(0) }
+    var rival by rememberSaveable { mutableIntStateOf(0) }
+    var playerScore by rememberSaveable { mutableIntStateOf(0) }
+    var rivalScore by rememberSaveable { mutableIntStateOf(0) }
+    var message by rememberSaveable { mutableStateOf("Tirez une carte. La plus forte remporte la manche.") }
+    val names = listOf("2", "3", "4", "5", "6", "7", "8", "9", "10", "V", "D", "R", "A")
+    fun draw() {
+        round += 1
+        player = ((System.currentTimeMillis() / 31L) % 13L).toInt() + 2
+        rival = ((System.currentTimeMillis() / 47L + round) % 13L).toInt() + 2
+        WhappySounds.cardFlip(context)
+        when {
+            player > rival -> { playerScore++; onXp(10); WhappySounds.reward(context); message = "Manche gagnée · +10 XP" }
+            rival > player -> { rivalScore++; WhappySounds.gameInvalid(context); message = "L’adversaire gagne cette manche." }
+            else -> message = "Égalité parfaite."
+        }
+        WhappySounds.haptic(context)
+        if (playerScore == 5) { onWin(); onXp(100); message = "VICTOIRE DU DUEL · +100 XP" }
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF071126))) {
+        WapiArcade3DStage("cards", Modifier.fillMaxSize())
+        Column(
+            Modifier.fillMaxSize().background(Color(0x8F071126)).padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("TABLE WAPI CARDS", color = Color(0xFF9AC6FF), fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp)
+            Text("$playerScore  —  $rivalScore", Modifier.padding(vertical = 8.dp), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                listOf(player to "VOUS", rival to "RIVAL").forEachIndexed { index, card ->
+                    val face = if (index == 0) WhappyBlue else Color(0xFFE53935)
+                    Card(
+                        Modifier.size(112.dp, 164.dp).graphicsLayer {
+                            rotationY = if (round == 0) 180f else if (index == 0) -8f else 8f
+                            rotationX = 4f; shadowElevation = 28f; cameraDistance = 18f
+                        },
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (round == 0) Color(0xFF163E78) else Color.White),
+                    ) {
+                        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Text(card.second, color = if (round == 0) Color.White.copy(alpha = .7f) else WhappyMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text(if (card.first == 0) "W" else names[(card.first - 2).coerceIn(0, 12)], color = if (round == 0) Color.White else face, fontSize = 38.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            Text(if (round == 0) "✦" else if (index == 0) "◆" else "♥", color = if (round == 0) Color.White else face, fontSize = 22.sp)
+                        }
+                    }
+                }
+            }
+            Text(message, Modifier.padding(vertical = 10.dp), color = Color.White.copy(alpha = .90f), fontSize = 12.sp)
+            Button(onClick = ::draw, enabled = playerScore < 5, modifier = Modifier.width(320.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("TIRER LES CARTES", fontWeight = FontWeight.Bold) }
+            OutlinedButton(onClick = { round = 0; player = 0; rival = 0; playerScore = 0; rivalScore = 0; message = "Nouvelle partie." }, Modifier.padding(top = 8.dp).width(320.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("REJOUER") }
+        }
+    }
 }
 
 private data class WapiPokerCard(val rank: Int, val suit: String) {
@@ -5781,7 +5941,9 @@ private fun WapiPokerTable(onXp: (Int) -> Unit, onWin: () -> Unit) {
 
     LaunchedEffect(Unit) { deal() }
     Card(Modifier.fillMaxSize(), shape = RoundedCornerShape(0.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF092E2A))) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxSize()) {
+            WapiArcade3DStage("poker", Modifier.fillMaxSize().graphicsLayer { alpha = .72f })
+            Column(Modifier.fillMaxSize().background(Color(0xA6092E2A)).padding(horizontal = 28.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("WAPI POKER", color = Color(0xFF68F0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold); Text("Texas Hold’em", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold); Text("Contre l’IA · jetons virtuels uniquement", color = Color.White.copy(alpha = .68f), fontSize = 10.sp) }
                 Text("POT $pot", color = Color(0xFFFFD166), fontWeight = FontWeight.Bold)
@@ -5796,6 +5958,7 @@ private fun WapiPokerTable(onXp: (Int) -> Unit, onWin: () -> Unit) {
                 Button(onClick = { act("raise") }, enabled = !finished && player.isNotEmpty(), modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB703))) { Text("RELANCER", fontSize = 10.sp, color = WhappyDark) }
             }
             if (finished) OutlinedButton(onClick = ::deal, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("NOUVELLE MAIN") }
+            }
         }
     }
 }
@@ -5810,19 +5973,22 @@ private fun PokerCardView(card: WapiPokerCard, hidden: Boolean, modifier: Modifi
 
 @Composable
 private fun ArcadeChallengeCard(selected: String, round: Int, answer: String?, onAnswer: (String) -> Unit, onNext: () -> Unit) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Text(selected, color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Text("Manche $round · question 1/3", color = WhappyMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Text("Quel espace WAPI permet de diffuser en direct ?", color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp)
+    Card(Modifier.fillMaxWidth().heightIn(min = 440.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF071126)), border = BorderStroke(1.dp, Color.White.copy(alpha = .16f))) {
+        Box(Modifier.fillMaxSize()) {
+            WapiArcade3DStage("arcade", Modifier.fillMaxSize().graphicsLayer { alpha = .78f })
+            Column(Modifier.fillMaxSize().background(Color(0x9B071126)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(selected.uppercase(), color = Color(0xFF8EBCFF), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Manche $round · question 1/3", color = Color.White.copy(alpha = .70f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("Quel espace WAPI permet de diffuser en direct ?", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp)
             listOf("Le Live", "Le Marché", "Les Services").forEach { option ->
-                OutlinedButton(onClick = { onAnswer(option) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = if (answer == option) WhappyBlue else WhappyDark)) {
+                OutlinedButton(onClick = { onAnswer(option) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xCC0E213B), contentColor = if (answer == option) Color(0xFF8EBCFF) else Color.White)) {
                     Text(option, Modifier.weight(1f), textAlign = TextAlign.Start)
                     if (answer == option) Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(17.dp))
                 }
             }
-            if (answer != null) Text(if (answer == "Le Live") "Bonne réponse · +25 XP" else "Pas grave. Rejouez pour progresser.", color = WhappyBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            if (answer != null) Text(if (answer == "Le Live") "Bonne réponse · +25 XP" else "Pas grave. Rejouez pour progresser.", color = Color(0xFF8EBCFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Button(enabled = answer != null, onClick = onNext, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Rounded.PlayArrow, null); Text("  Question suivante", fontWeight = FontWeight.Bold) }
+            }
         }
     }
 }
@@ -10292,6 +10458,7 @@ private fun MarketScreen(
     var showingOrders by rememberSaveable { mutableStateOf(false) }
     var delivery by rememberSaveable { mutableStateOf("") }
     var marketFeedback by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedCategory by rememberSaveable { mutableStateOf("Tout") }
     var savedIds by remember { mutableStateOf(prefs.getStringSet("market_favorites", emptySet()).orEmpty().toSet()) }
     var cart by remember {
         mutableStateOf(prefs.getString("market_cart", "").orEmpty().split(";").mapNotNull { token ->
@@ -10299,7 +10466,21 @@ private fun MarketScreen(
         }.toMap())
     }
     var orders by remember { mutableStateOf(prefs.getStringSet("market_orders", emptySet()).orEmpty().toList().sortedDescending()) }
-    val products = (localItems + listings).filter { SearchNormalizer.matches(search, it.title, it.seller, it.place) }
+    val allProducts = localItems + listings
+    val products = allProducts
+        .filter { SearchNormalizer.matches(search, it.title, it.seller, it.place, it.category, it.description) }
+        .filter { listing ->
+            when (selectedCategory) {
+                "À la une" -> listing.boostStatus == "active"
+                "Restaurants" -> listing.category.contains("restaurant", true) || listing.category.contains("menu", true)
+                "Services" -> listing.mode == "service"
+                "Emplois" -> listing.mode == "job"
+                "Troc" -> listing.mode == "trade"
+                "Enchères" -> listing.mode == "auction"
+                else -> true
+            }
+        }
+        .sortedWith(compareByDescending<WhappyListing> { it.boostStatus == "active" }.thenBy { it.title.lowercase() })
 
     fun saveCart(next: Map<String, Int>) {
         cart = next.filterValues { it > 0 }
@@ -10310,14 +10491,22 @@ private fun MarketScreen(
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Marketplace", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = WhappyDark)
-                    Text("Boutiques, menus et événements", color = WhappyMuted, fontSize = 13.sp)
+                    Text("Marché WAPI", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = WhappyDark)
+                    Text("Trouver, comparer, discuter et réserver près de vous.", color = WhappyMuted, fontSize = 13.sp)
                 }
                 IconButton(onClick = { showingOrders = true }) { Icon(Icons.AutoMirrored.Rounded.ReceiptLong, "Mes listes") }
                 IconButton(onClick = { showingCart = true }) { Icon(Icons.Rounded.ShoppingCart, "Ma sélection") }
             }
         }
-        item { WapiCommerceLaunchers(onContactBusiness) }
+        item { MarketPulseCard(products, businessPages.size, onOpenBusiness) }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(end = 8.dp)) {
+                items(listOf("Tout", "À la une", "Restaurants", "Services", "Emplois", "Troc", "Enchères"), key = { it }) { category ->
+                    FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) })
+                }
+            }
+        }
+        item { WapiCommerceLaunchers(onContactBusiness, onOpenBusiness) }
         item {
             Button(
                 onClick = {
@@ -10329,17 +10518,19 @@ private fun MarketScreen(
             ) { Icon(Icons.Rounded.Add, null); Text(" Publier avec mon Business") }
         }
         item { WapiPublicSaleRoomsRail() }
-        item { Text("Annonces WAPI", color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (selectedCategory == "Tout") "À découvrir" else selectedCategory, color = WhappyDark, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${products.size} annonce${if (products.size > 1) "s" else ""}", color = WhappyMuted, fontSize = 12.sp)
+            }
+        }
         marketFeedback?.let { value -> item { Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(15.dp)) { Text(value, Modifier.padding(13.dp), color = WhappyDark, fontWeight = FontWeight.SemiBold) } } }
         item { OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), placeholder = { Text("Rechercher un produit ou une boutique") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(18.dp), singleLine = true) }
         if (products.isEmpty()) item { EmptyState("Aucune annonce", "Publiez la première offre de cette catégorie.") }
         items(products, key = { it.id }) { product ->
-            Card(Modifier.wapiClickable { selected = product }, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = CardDefaults.outlinedCardBorder()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(product.photoUrls.firstOrNull().orEmpty(), product.title, 76.dp, shape = RoundedCornerShape(18.dp))
-                    Column(Modifier.weight(1f).padding(start = 14.dp)) { Text(product.title, fontWeight = FontWeight.Bold, color = WhappyDark); Text(product.price, Modifier.padding(top = 5.dp), color = WhappyBlue, fontWeight = FontWeight.Bold); Text("${product.place} · ${product.seller}", Modifier.padding(top = 4.dp), color = WhappyMuted, fontSize = 11.sp); if(product.mode=="trade") Text("TROC ACCEPTÉ", Modifier.padding(top=5.dp), color=WhappyBlue, fontSize=9.sp, fontWeight=FontWeight.Bold); if (product.boostStatus == "active") Text("SPONSORISÉ", Modifier.padding(top = 4.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
-                    IconButton(onClick = { savedIds = if (product.id in savedIds) savedIds - product.id else savedIds + product.id; prefs.edit().putStringSet("market_favorites", savedIds).apply() }) { Icon(if (product.id in savedIds) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Favori", tint = if (product.id in savedIds) WhappyBlue else WhappyMuted) }
-                }
+            MarketListingCard(product, product.id in savedIds, onOpen = { selected = product }) {
+                savedIds = if (product.id in savedIds) savedIds - product.id else savedIds + product.id
+                prefs.edit().putStringSet("market_favorites", savedIds).apply()
             }
         }
     }
@@ -10358,7 +10549,6 @@ private fun MarketScreen(
         )
     }
     if (showingCart) {
-        val allProducts = localItems + listings
         AlertDialog(
             onDismissRequest = { showingCart = false },
             title = { Text("Ma sélection · ${cart.values.sum()} article(s)", fontWeight = FontWeight.Bold) },
@@ -10377,6 +10567,84 @@ private fun MarketScreen(
         text = { LazyColumn(Modifier.fillMaxWidth().height(400.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { if (orders.isEmpty()) item { Text("Aucune sélection enregistrée sur cet appareil.", color = WhappyMuted) }; items(orders, key = { it }) { raw -> val parts = raw.split("|", limit = 3); Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(15.dp)) { Column(Modifier.padding(13.dp)) { Row { Text(parts.getOrElse(1) { "Commande" }, Modifier.weight(1f), color = WhappyDark, fontWeight = FontWeight.Bold); Text("Non transmise", color = WhappyBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold) }; Text(parts.getOrElse(2) { "" }, Modifier.padding(top = 6.dp), color = WhappyMuted, fontSize = 11.sp) } } } } },
         confirmButton = { TextButton(onClick = { showingOrders = false }) { Text("Fermer") } },
     )
+}
+
+@Composable
+private fun MarketPulseCard(
+    listings: List<WhappyListing>,
+    pageCount: Int,
+    onOpenBusiness: () -> Unit,
+) {
+    val featured = listings.count { it.boostStatus == "active" }
+    Card(
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.cardColors(containerColor = WhappyBlue),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Le marché autour de vous", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Vos achats, vos services, vos opportunités.", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold, lineHeight = 25.sp)
+                }
+                Icon(Icons.Rounded.Storefront, null, tint = Color.White, modifier = Modifier.size(42.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                MarketMetric("Annonces", listings.size.toString(), Modifier.weight(1f))
+                MarketMetric("À la une", featured.toString(), Modifier.weight(1f))
+                MarketMetric("Boutiques", pageCount.toString(), Modifier.weight(1f))
+            }
+            OutlinedButton(
+                onClick = onOpenBusiness,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            ) { Icon(Icons.Rounded.BusinessCenter, null, Modifier.size(18.dp)); Text("  Gérer mon Business") }
+        }
+    }
+}
+
+@Composable
+private fun MarketMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier.background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(15.dp)).padding(horizontal = 10.dp, vertical = 9.dp),
+    ) {
+        Text(value, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text(label, color = Color.White.copy(alpha = 0.76f), fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun MarketListingCard(
+    product: WhappyListing,
+    saved: Boolean,
+    onOpen: () -> Unit,
+    onSave: () -> Unit,
+) {
+    Card(
+        Modifier.wapiClickable(onClick = onOpen),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column {
+            Box {
+                UserAvatar(product.photoUrls.firstOrNull().orEmpty(), product.title, 150.dp, shape = RoundedCornerShape(0.dp), modifier = Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    val label = when (product.mode) { "trade" -> "TROC"; "auction" -> "ENCHÈRE"; "job" -> "EMPLOI"; "service" -> "SERVICE"; else -> "VENTE" }
+                    Text(label, Modifier.background(WhappyDark.copy(alpha = 0.72f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 5.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onSave, modifier = Modifier.background(Color.White.copy(alpha = 0.92f), CircleShape)) { Icon(if (saved) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Favori", tint = if (saved) WhappyBlue else WhappyDark) }
+                }
+            }
+            Column(Modifier.padding(15.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(product.title, Modifier.weight(1f), color = WhappyDark, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                    if (product.boostStatus == "active") Text("À LA UNE", Modifier.background(WhappyBlue.copy(alpha = 0.10f), RoundedCornerShape(9.dp)).padding(horizontal = 7.dp, vertical = 5.dp), color = WhappyBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(product.price.ifBlank { "Prix à discuter" }, Modifier.padding(top = 7.dp), color = WhappyBlue, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("${product.seller} · ${product.place}", Modifier.padding(top = 5.dp), color = WhappyMuted, fontSize = 12.sp, maxLines = 1)
+                if (product.description.isNotBlank()) Text(product.description, Modifier.padding(top = 8.dp), color = WhappyMuted, fontSize = 12.sp, maxLines = 2)
+            }
+        }
+    }
 }
 
 @Composable
@@ -10824,7 +11092,7 @@ private fun BusinessScreen(
             .count { it.isNotBlank() } * 100 / 7
     } ?: 0
     LazyColumn(Modifier.fillMaxSize().background(WapiCanvas), contentPadding = PaddingValues(WapiMobile.screen, 10.dp, WapiMobile.screen, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { WapiCommerceLaunchers(onContactBusiness) }
+        item { WapiCommerceLaunchers(onContactBusiness, onOpenBusiness = { creatingPage = true }) }
         item {
             BusinessWorkspaceHero(
                 page = activePage,

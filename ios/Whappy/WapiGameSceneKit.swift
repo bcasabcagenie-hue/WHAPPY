@@ -820,25 +820,57 @@ enum WapiGameSceneKit {
         scene.rootNode.addChildNode(cue)
     }
 
-    /** Compact three-lane U return behind the head rail. Potted balls travel
-     * into its numbered slots rather than disappearing or filling a long,
-     * implausible straight decorative bar. */
+    /** Three compact nested chrome U-tracks behind the head rail.  The old
+     * implementation used many upright braces; on a small screen this read
+     * as a white fence instead of a ball return.  Each lane is now a clean,
+     * continuous U with rounded elbows and no visual clutter. */
     private static func addPoolReturnTrack(to scene: SCNScene) {
         let track = SCNNode()
         track.name = "wapi.pool.returnTrack"
-        let bed = SCNBox(width: 4.62, height: 0.14, length: 0.78, chamferRadius: 0.07)
+        let bed = SCNBox(width: 4.82, height: 0.13, length: 0.58, chamferRadius: 0.07)
         bed.firstMaterial = material(color: UIColor(red: 0.018, green: 0.035, blue: 0.065, alpha: 1), metalness: 0.38, roughness: 0.22)
-        let bedNode = SCNNode(geometry: bed); bedNode.position = SCNVector3(0, 0.25, -2.76); track.addChildNode(bedNode)
-        let metal = material(color: UIColor(red: 0.54, green: 0.62, blue: 0.70, alpha: 1), metalness: 0.82, roughness: 0.20)
-        for z in [-3.02, -2.77, -2.52] as [Float] {
-            let guide = SCNBox(width: 4.18, height: 0.065, length: 0.065, chamferRadius: 0.032)
-            guide.firstMaterial = metal
-            let guideNode = SCNNode(geometry: guide); guideNode.position = SCNVector3(0, 0.42, z); track.addChildNode(guideNode)
+        let bedNode = SCNNode(geometry: bed); bedNode.position = SCNVector3(0, 0.25, -3.05); track.addChildNode(bedNode)
+        let metal = material(color: UIColor(red: 0.48, green: 0.56, blue: 0.68, alpha: 1), metalness: 0.92, roughness: 0.18)
+        func tube(from: SCNVector3, to: SCNVector3, diameter: CGFloat = 0.060) {
+            let dx = to.x - from.x; let dz = to.z - from.z
+            let length = sqrt(dx * dx + dz * dz)
+            guard length > 0.005 else { return }
+            let segment = SCNBox(width: CGFloat(length), height: diameter, length: diameter, chamferRadius: diameter * 0.5)
+            segment.firstMaterial = metal
+            let node = SCNNode(geometry: segment)
+            node.position = SCNVector3((from.x + to.x) * 0.5, from.y, (from.z + to.z) * 0.5)
+            node.eulerAngles.y = -atan2(dz, dx)
+            track.addChildNode(node)
         }
-        for x in [-2.07, 2.07] as [Float] {
-            let end = SCNBox(width: 0.065, height: 0.065, length: 0.55, chamferRadius: 0.032)
-            end.firstMaterial = metal
-            let endNode = SCNNode(geometry: end); endNode.position = SCNVector3(x, 0.42, -2.76); track.addChildNode(endNode)
+        func joint(_ point: SCNVector3) {
+            let node = SCNNode(geometry: SCNSphere(radius: 0.031))
+            node.geometry?.firstMaterial = metal; node.position = point; track.addChildNode(node)
+        }
+        for index in 0..<3 {
+            let inset = Float(index) * 0.17
+            let halfWidth: Float = 2.26 - inset
+            let y: Float = 0.42 + Float(index) * 0.105
+            let frontZ: Float = -3.17 + Float(index) * 0.045
+            let rearZ: Float = frontZ + 0.34
+            let elbowX = halfWidth - 0.15
+            let leftFront = SCNVector3(-halfWidth, y, frontZ)
+            let rightFront = SCNVector3(elbowX, y, frontZ)
+            let rightRear = SCNVector3(elbowX, y, rearZ)
+            let leftRear = SCNVector3(-halfWidth + 0.25, y, rearZ)
+            // Four short bevels approximate the rounded elbow while retaining
+            // stable SceneKit geometry on older iPhones and iPads.
+            let elbowPoints = [
+                rightFront,
+                SCNVector3(halfWidth - 0.04, y, frontZ + 0.08),
+                SCNVector3(halfWidth + 0.02, y, frontZ + 0.17),
+                SCNVector3(halfWidth - 0.04, y, rearZ - 0.08),
+                rightRear,
+            ]
+            tube(from: leftFront, to: elbowPoints[0])
+            for point in elbowPoints { joint(point) }
+            for segment in 0..<(elbowPoints.count - 1) { tube(from: elbowPoints[segment], to: elbowPoints[segment + 1]) }
+            tube(from: rightRear, to: leftRear)
+            joint(leftFront); joint(leftRear)
         }
         scene.rootNode.addChildNode(track)
     }
@@ -874,6 +906,7 @@ enum WapiGameSceneKit {
         switch cueStyle {
         case "walnut": shaft = UIColor(red: 0.36, green: 0.13, blue: 0.04, alpha: 1); grip = UIColor(red: 0.10, green: 0.022, blue: 0.008, alpha: 1)
         case "carbon": shaft = UIColor(red: 0.09, green: 0.12, blue: 0.15, alpha: 1); grip = UIColor(red: 0.015, green: 0.02, blue: 0.027, alpha: 1)
+        case "obsidian": shaft = UIColor(red: 0.25, green: 0.10, blue: 0.50, alpha: 1); grip = UIColor(red: 0.035, green: 0.012, blue: 0.085, alpha: 1)
         default: shaft = UIColor(red: 0.93, green: 0.76, blue: 0.43, alpha: 1); grip = UIColor(red: 0.12, green: 0.035, blue: 0.012, alpha: 1)
         }
         root.childNode(withName: "wapi.pool.cue.shaft", recursively: true)?.geometry?.firstMaterial?.diffuse.contents = shaft

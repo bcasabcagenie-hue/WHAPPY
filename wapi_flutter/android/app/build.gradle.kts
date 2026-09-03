@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.gradle.api.tasks.Sync
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("../../android/keystore.properties")
@@ -54,6 +55,45 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
         }
+    }
+
+    // WAPI Pool uses the tested OpenGL renderer that pre-dates the Flutter
+    // migration.  Keep a single source of truth in the native game module and
+    // copy only the renderer/rules that the Flutter platform view needs at
+    // build time.  Importing the whole legacy Android application would also
+    // pull its obsolete Compose screens into the Flutter APK.
+    sourceSets {
+        getByName("main").java.srcDir(layout.buildDirectory.dir("generated/source/wapiPool3d/main/kotlin"))
+        getByName("main").res.srcDir(layout.buildDirectory.dir("generated/res/wapiPool3d/main"))
+    }
+}
+
+val prepareWapiPool3d by tasks.registering(Sync::class) {
+    from("../../../android/app/src/main/java/com/whappy/chat") {
+        include("WapiTabletop3DView.kt")
+        include("WapiPoolPresentation.kt")
+        include("WapiTabletopInput.kt")
+        include("WapiTabletopPicking.kt")
+        include("WapiGameRules.kt")
+    }
+    into(layout.buildDirectory.dir("generated/source/wapiPool3d/main/kotlin/com/whappy/chat"))
+}
+
+val prepareWapiPool3dTextures by tasks.registering(Sync::class) {
+    from("../../../android/app/src/main/res/drawable-nodpi") {
+        include("wapi_game_walnut_texture.webp")
+        include("wapi_game_felt_texture.webp")
+    }
+    into(layout.buildDirectory.dir("generated/res/wapiPool3d/main/drawable-nodpi"))
+}
+
+tasks.configureEach {
+    if (name != "prepareWapiPool3d" && name != "prepareWapiPool3dTextures" &&
+        (name.contains("Kotlin", ignoreCase = true) ||
+            name.contains("Resource", ignoreCase = true) ||
+            name.contains("SourceSet", ignoreCase = true))) {
+        dependsOn(prepareWapiPool3d)
+        dependsOn(prepareWapiPool3dTextures)
     }
 }
 

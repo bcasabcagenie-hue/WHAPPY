@@ -1,17 +1,19 @@
-# wapi_flutter
+# WAPI Flutter
 
-A new Flutter project.
+Le client Flutter est la cible unique de migration Android et iOS. Il utilise
+les mêmes projets Firebase, collections, fonctions callable et règles d'accès
+que les clients Kotlin et Swift : aucune donnée n'est copiée ou remplacée.
 
-## Getting Started
+Les clients natifs restent la référence de production tant que la parité d'un
+parcours n'a pas été validée sur Android et iOS. Le détail de cet engagement
+est dans MIGRATION_PARITY.md.
 
-This project is a starting point for a Flutter application.
+## Vérifier le client
 
-A few resources to get you started if this is your first Flutter project:
+    flutter pub get
+    flutter analyze
+    flutter test
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Le module TicketBulk est le premier mini-produit migré : découverte
+d'événements, création conditionnée par un compte Business, affiche, capacité,
+réservation et QR personnel utilisent directement wapiCommerce.

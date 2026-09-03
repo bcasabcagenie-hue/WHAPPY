@@ -101,11 +101,31 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Center(
-                    child: Image.asset(
-                      'assets/branding/wapi_mark.png',
-                      width: 72,
-                      height: 72,
+                  const Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'WAPI',
+                          style: TextStyle(
+                            color: WapiColors.ink,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -1.4,
+                          ),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.only(left: 4, bottom: 7),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: WapiColors.blue,
+                              shape: BoxShape.circle,
+                            ),
+                            child: SizedBox(width: 8, height: 8),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 24),

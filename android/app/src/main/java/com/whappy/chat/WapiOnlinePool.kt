@@ -1,5 +1,7 @@
 package com.whappy.chat
 
+import android.content.ClipData
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,10 +79,14 @@ private fun remotePoolBalls(raw: Any?): List<WapiPoolBall> {
  * reconcile with the immutable official board returned by WAPI.
  */
 @Composable
-fun WapiOnlinePoolArena(userId: String, userName: String) {
+fun WapiOnlinePoolArena(userId: String, userName: String, onExit: () -> Unit = {}) {
     val context = LocalContext.current
     val profile = rememberPoolProfile()
     var editingPlayer by remember { mutableStateOf(false) }
+    val equipmentPrefs = remember(context) { context.getSharedPreferences("wapi_pool_equipment", Context.MODE_PRIVATE) }
+    var tableTheme by rememberSaveable { mutableStateOf(equipmentPrefs.getString("tableTheme", "competitionBlue") ?: "competitionBlue") }
+    var cueStyle by rememberSaveable { mutableStateOf(equipmentPrefs.getString("cueStyle", "maple") ?: "maple") }
+    var editingEquipment by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val firestore = remember { FirebaseFirestore.getInstance() }
     val functions = remember { FirebaseFunctions.getInstance("europe-west1") }
@@ -92,6 +98,10 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
     var balls by remember { mutableStateOf(initialPoolBalls()) }
     var aimAngle by rememberSaveable { mutableFloatStateOf(0f) }
     var power by rememberSaveable { mutableIntStateOf(55) }
+    // The equipped cue is applied before the request reaches the authoritative
+    // simulator. The server still accepts only the normal 10–100 range.
+    val equippedCue = wapiPoolCue(cueStyle)
+    val effectivePower = (power * equippedCue.powerMultiplier).toInt().coerceIn(10, 100)
     var sideSpin by rememberSaveable { mutableFloatStateOf(0f) }
     var followSpin by rememberSaveable { mutableFloatStateOf(0f) }
     var busy by remember { mutableStateOf(false) }
@@ -112,49 +122,73 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
     var authoritativeRevision by remember { mutableLongStateOf(0L) }
     var reconnectChecked by remember { mutableStateOf(false) }
 
+    LaunchedEffect(tableTheme, cueStyle) {
+        equipmentPrefs.edit().putString("tableTheme", tableTheme).putString("cueStyle", cueStyle).apply()
+    }
+
+    fun applyRoomState(data: Map<*, *>) {
+        val ids = (data["playerIds"] as? List<*>)?.map { it.toString() }.orEmpty()
+        val names = (data["playerNames"] as? List<*>)?.map { it.toString() }.orEmpty()
+        val profiles = data["playerProfiles"] as? Map<*, *>
+        players = ids.mapIndexed { index, id ->
+            WapiPoolPlayer(
+                id,
+                poolPlayerCard(
+                    profiles?.get(id) as? Map<*, *> ?: emptyMap<String, Any>(),
+                    names.getOrNull(index) ?: "Joueur ${index + 1}",
+                ),
+            )
+        }
+        roomStatus = data["status"]?.toString().orEmpty()
+        turnUid = data["turnUid"]?.toString().orEmpty()
+        winnerUid = data["winnerUid"]?.toString().orEmpty()
+        ballInHandUid = data["ballInHandUid"]?.toString().orEmpty()
+        turnDeadlineMs = (data["turnDeadlineMs"] as? Number)?.toLong() ?: 0L
+        groups = (data["groups"] as? Map<*, *>)?.mapNotNull { (key, value) ->
+            val uid = key?.toString().orEmpty()
+            val group = runCatching { WapiPoolGroup.valueOf(value?.toString().orEmpty().uppercase()) }.getOrNull()
+            if (uid.isBlank() || group == null) null else uid to group
+        }?.toMap().orEmpty()
+        message = data["lastAction"]?.toString()?.takeIf { it.isNotBlank() } ?: message
+        val remoteBoardRevision = (data["ballStateRevision"] as? Number)?.toLong() ?: 0L
+        remotePoolBalls(data["balls"]).takeIf { it.isNotEmpty() }?.let {
+            authoritativeBalls = it
+            authoritativeRevision = remoteBoardRevision
+        }
+        val shotRevision = (data["shotRevision"] as? Number)?.toLong() ?: 0L
+        if (shotRevision > observedShotRevision) {
+            observedShotRevision = shotRevision
+            remotePoolBalls(data["shotStartBalls"]).takeIf { it.isNotEmpty() }?.let { balls = it }
+            pendingShot = WapiPoolShot(
+                revision = shotRevision,
+                shooterId = data["shotBy"]?.toString().orEmpty(),
+                angle = (data["shotAngle"] as? Number)?.toFloat() ?: 0f,
+                power = ((data["shotPower"] as? Number)?.toInt() ?: 45).coerceIn(10, 100),
+                sideSpin = ((data["shotSideSpin"] as? Number)?.toFloat() ?: 0f).coerceIn(-1f, 1f),
+                followSpin = ((data["shotFollowSpin"] as? Number)?.toFloat() ?: 0f).coerceIn(-1f, 1f),
+            )
+        } else if (remoteBoardRevision > boardRevision && !physicsRunning) {
+            balls = authoritativeBalls
+            boardRevision = remoteBoardRevision
+        }
+    }
+
+    suspend fun hydrateRoom(code: String): Boolean {
+        val response = functions.getHttpsCallable("getPoolMatchState")
+            .call(mapOf("roomId" to code)).await().data as? Map<*, *> ?: return false
+        val state = response["room"] as? Map<*, *> ?: return false
+        applyRoomState(state)
+        return true
+    }
+
     DisposableEffect(roomCode) {
         if (roomCode.isBlank()) return@DisposableEffect onDispose { }
         val registration = firestore.collection("gameRooms").document(roomCode).addSnapshotListener { snapshot, error ->
             if (error != null || snapshot == null || !snapshot.exists()) {
-                message = "Table introuvable ou connexion interrompue."
+                message = "La table est momentanément indisponible. Votre partie reste protégée ; réessayez dans un instant."
                 return@addSnapshotListener
             }
-            val ids = (snapshot.get("playerIds") as? List<*>)?.map { it.toString() }.orEmpty()
-            val names = (snapshot.get("playerNames") as? List<*>)?.map { it.toString() }.orEmpty()
-            val profiles = snapshot.get("playerProfiles") as? Map<*, *>
-            players = ids.mapIndexed { index, id -> WapiPoolPlayer(id, poolPlayerCard(profiles?.get(id) as? Map<*, *> ?: emptyMap<String, Any>(), names.getOrNull(index) ?: "Joueur ${index + 1}")) }
-            roomStatus = snapshot.getString("status").orEmpty()
-            turnUid = snapshot.getString("turnUid").orEmpty()
-            winnerUid = snapshot.getString("winnerUid").orEmpty()
-            ballInHandUid = snapshot.getString("ballInHandUid").orEmpty()
-            turnDeadlineMs = snapshot.getLong("turnDeadlineMs") ?: 0L
-            groups = (snapshot.get("groups") as? Map<*, *>)?.mapNotNull { (key, value) ->
-                val uid = key?.toString().orEmpty()
-                val group = runCatching { WapiPoolGroup.valueOf(value?.toString().orEmpty().uppercase()) }.getOrNull()
-                if (uid.isBlank() || group == null) null else uid to group
-            }?.toMap().orEmpty()
-            message = snapshot.getString("lastAction") ?: message
-            val remoteBoardRevision = snapshot.getLong("ballStateRevision") ?: 0L
-            remotePoolBalls(snapshot.get("balls")).takeIf { it.isNotEmpty() }?.let {
-                authoritativeBalls = it
-                authoritativeRevision = remoteBoardRevision
-            }
-            val shotRevision = snapshot.getLong("shotRevision") ?: 0L
-            if (shotRevision > observedShotRevision) {
-                observedShotRevision = shotRevision
-                remotePoolBalls(snapshot.get("shotStartBalls")).takeIf { it.isNotEmpty() }?.let { balls = it }
-                pendingShot = WapiPoolShot(
-                    revision = shotRevision,
-                    shooterId = snapshot.getString("shotBy").orEmpty(),
-                    angle = (snapshot.getDouble("shotAngle") ?: 0.0).toFloat(),
-                    power = (snapshot.getLong("shotPower") ?: 45L).toInt().coerceIn(10, 100),
-                    sideSpin = (snapshot.getDouble("shotSideSpin") ?: 0.0).toFloat().coerceIn(-1f, 1f),
-                    followSpin = (snapshot.getDouble("shotFollowSpin") ?: 0.0).toFloat().coerceIn(-1f, 1f),
-                )
-            } else if (remoteBoardRevision > boardRevision && !physicsRunning) {
-                balls = authoritativeBalls
-                boardRevision = remoteBoardRevision
-            }
+            applyRoomState(snapshot.data ?: emptyMap<String, Any>())
         }
         onDispose { registration.remove() }
     }
@@ -193,8 +227,10 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
             runCatching {
                 val data = functions.getHttpsCallable("createPoolMatch").call(mapOf("visibility" to "private")).await().data as? Map<*, *>
                     ?: error("invalid-server-response")
-                roomCode = data["roomId"]?.toString().orEmpty()
-                require(roomCode.length == 6)
+                val code = data["roomId"]?.toString().orEmpty()
+                require(code.length == 6)
+                hydrateRoom(code)
+                roomCode = code
             }.onFailure { message = "Impossible de créer la table. Vérifiez la connexion." }
             busy = false
         }
@@ -206,9 +242,11 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
         scope.launch {
             busy = true
             runCatching {
-                functions.getHttpsCallable("joinPoolMatch").call(mapOf("roomId" to code)).await()
+                val data = functions.getHttpsCallable("joinPoolMatch").call(mapOf("roomId" to code)).await().data as? Map<*, *>
+                    ?: error("invalid-server-response")
+                (data["room"] as? Map<*, *>)?.let(::applyRoomState) ?: hydrateRoom(code)
                 roomCode = code
-            }.onFailure { message = "Code invalide, table déjà complète ou indisponible." }
+            }.onFailure { message = "Impossible de rejoindre cette table. Vérifiez le code ou demandez à votre ami de créer une nouvelle partie." }
             busy = false
         }
     }
@@ -221,10 +259,40 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
             runCatching {
                 val data = functions.getHttpsCallable("findPoolMatch").call().await().data as? Map<*, *>
                     ?: error("invalid-server-response")
-                roomCode = data["roomId"]?.toString().orEmpty()
-                require(roomCode.length == 6)
+                val code = data["roomId"]?.toString().orEmpty()
+                require(code.length == 6)
+                hydrateRoom(code)
+                roomCode = code
             }.onFailure { message = "Le matchmaking n’a pas abouti. Relancez la recherche." }
             busy = false
+        }
+    }
+
+    fun copyInvite() {
+        if (roomCode.isBlank()) return
+        val invitation = "Rejoins ma partie Wapi Pool avec le code $roomCode dans WAPI."
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+        clipboard?.setPrimaryClip(ClipData.newPlainText("Invitation Wapi Pool", invitation))
+        message = "Invitation copiée · envoyez-la à votre ami WAPI."
+        WhappySounds.pieceSelected(context)
+    }
+
+    fun exitRoom() {
+        val code = roomCode
+        if (code.isBlank() || busy) {
+            onExit()
+            return
+        }
+        scope.launch {
+            busy = true
+            runCatching {
+                functions.getHttpsCallable("leavePoolMatch").call(mapOf("roomId" to code)).await()
+            }
+            roomCode = ""
+            roomStatus = ""
+            players = emptyList()
+            busy = false
+            onExit()
         }
     }
 
@@ -255,7 +323,7 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
                     mapOf(
                         "roomId" to roomCode,
                         "angle" to aimAngle.toDouble(),
-                        "power" to power,
+                        "power" to effectivePower,
                         "sideSpin" to sideSpin.toDouble(),
                         "followSpin" to followSpin.toDouble(),
                     ),
@@ -311,11 +379,15 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
     if (roomCode.isBlank()) {
         Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF0B5A49), Color(0xFF061B17), Color(0xFF010806)))), contentAlignment = Alignment.Center) {
             Column(Modifier.width(590.dp).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("BILLARD EN LIGNE", color = Color(0xFF72F2C8), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                OutlinedButton(onClick = { editingPlayer = true }) { Text("Mon profil joueur · ${profile.player.name}", color = Color.White) }
+                WapiPoolLogo(Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OutlinedButton(onClick = { editingPlayer = true }, modifier = Modifier.weight(1f)) { Text("Mon profil · ${profile.player.name}", color = Color.White) }
+                    OutlinedButton(onClick = { editingEquipment = true }) { Text("ÉQUIPEMENT", color = Color(0xFF72F2C8), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                }
                 Text("Une table. Deux joueurs WAPI.", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
                 Text("Le code, les tours, la position des 16 billes et chaque tir sont synchronisés. Aucun adversaire fictif.", color = Color.White.copy(alpha = .70f), fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = ::exitRoom, modifier = Modifier.height(50.dp)) { Text("QUITTER", color = Color.White, fontWeight = FontWeight.Bold) }
                     Button(onClick = ::createRoom, enabled = !busy && userId.isNotBlank(), modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A9C78))) { Text("CRÉER UNE TABLE", fontWeight = FontWeight.Bold) }
                     OutlinedButton(onClick = ::joinRoom, enabled = !busy && joinCode.length == 6, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(15.dp)) { Text("REJOINDRE", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
@@ -338,7 +410,9 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
                 followSpin = followSpin,
                 moving = physicsRunning,
                 cueInHand = ballInHandUid == userId && !physicsRunning,
-                modifier = Modifier.padding(top = 66.dp, bottom = 40.dp),
+                tableTheme = tableTheme,
+                cueStyle = cueStyle,
+                modifier = Modifier.padding(start = 82.dp, top = 58.dp, end = 18.dp, bottom = 10.dp),
                 onAim = { x, y ->
                     if (busy || winnerUid.isNotBlank()) return@WapiPoolTabletop3D
                     if (turnUid == userId && !physicsRunning && ballInHandUid == userId) {
@@ -356,9 +430,17 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
                 },
                 onRelease = { },
             )
+            OutlinedButton(
+                onClick = ::exitRoom,
+                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            ) { Text("Quitter", fontWeight = FontWeight.Bold) }
+            OutlinedButton(
+                onClick = { editingEquipment = true },
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF72F2C8)),
+            ) { Text("Équipement", fontWeight = FontWeight.Bold, fontSize = 10.sp) }
             val opponent = players.firstOrNull { it.id != userId }
-            PoolAimWheel(aimAngle, roomStatus == "playing" && turnUid == userId && ballInHandUid != userId && !physicsRunning && !busy && winnerUid.isBlank(),
-                { aimAngle = it }, Modifier.align(Alignment.CenterStart).padding(start = 20.dp, top = 44.dp))
             PoolMatchScoreboard(
                 left = players.firstOrNull { it.id == userId }?.profile ?: profile.player,
                 right = opponent?.profile ?: PoolPlayerCard("En attente", icon = "cue"),
@@ -373,7 +455,7 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
                     physicsRunning -> "Tir en cours"
                     else -> "${secondsLeft}s · " + if (turnUid == userId) "À vous" else "Adversaire" },
                 onEditProfile = { editingPlayer = true },
-                modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 14.dp, vertical = 8.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 18.dp, vertical = 8.dp),
             )
             if (ballInHandUid == userId && !physicsRunning && winnerUid.isBlank()) {
                 val cue = balls.first { it.id == 0 }
@@ -383,6 +465,13 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
                 Surface(Modifier.align(Alignment.BottomCenter).padding(horizontal = 100.dp, vertical = 8.dp), color = Color(0xE6071C31), shape = RoundedCornerShape(14.dp)) {
                     Text(message, Modifier.padding(12.dp), color = Color.White, fontSize = 12.sp)
                 }
+            }
+            if (roomStatus == "waiting") {
+                OutlinedButton(
+                    onClick = ::copyInvite,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                ) { Text("Copier le code $roomCode", fontWeight = FontWeight.Bold) }
             }
             WapiPoolSpinPad(
                 sideSpin = sideSpin,
@@ -396,9 +485,17 @@ fun WapiOnlinePoolArena(userId: String, userName: String) {
                 enabled = roomStatus == "playing" && turnUid == userId && ballInHandUid != userId && !physicsRunning && !busy && winnerUid.isBlank(),
                 onPowerChange = { power = it },
                 onStrike = ::broadcastShot,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp, top = 48.dp),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 18.dp, top = 48.dp),
             )
         }
     }
     if (editingPlayer) PoolPlayerEditor(profile) { editingPlayer = false }
+    if (editingEquipment) PoolEquipmentSheet(
+        tableTheme = tableTheme,
+        cueStyle = cueStyle,
+        founder = WhappyIdentity.isFounder(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.phoneNumber),
+        onTableTheme = { tableTheme = it },
+        onCueStyle = { cueStyle = it },
+        onDismiss = { editingEquipment = false },
+    )
 }

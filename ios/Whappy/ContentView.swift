@@ -3252,19 +3252,42 @@ struct MarketView: View {
     @State private var marketplace: [Listing] = []
     @State private var loading = false
     @State private var serverMessage: String?
+    @State private var selectedMarketCategory = "Tout"
     private var filtered: [Listing] {
         let all = (marketplace + store.listings).reduce(into: [UUID: Listing]()) { $0[$1.id] = $1 }.values
         return all.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            .filter { ("\($0.title) \($0.place) \($0.seller) " + ($0.description ?? "")).matchesWhappySearch(search) }
+            .filter { ("\($0.title) \($0.place) \($0.seller) \($0.mode) " + ($0.description ?? "")).matchesWhappySearch(search) }
+            .filter { listing in
+                switch selectedMarketCategory {
+                case "À la une": return listing.boostStatus == "active"
+                case "Services": return listing.mode == "service"
+                case "Emplois": return listing.mode == "job"
+                case "Troc": return listing.mode == "trade"
+                case "Enchères": return listing.mode == "auction"
+                default: return true
+                }
+            }
     }
 
     var body: some View {
         ScrollView { LazyVStack(spacing: 12) {
+            MarketplaceHeroIOS(listings: marketplace + store.listings)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(["Tout", "À la une", "Services", "Emplois", "Troc", "Enchères"], id: \.self) { category in
+                        Button(category) { selectedMarketCategory = category }
+                            .buttonStyle(.borderedProminent)
+                            .tint(selectedMarketCategory == category ? Color.whappyBlue : .white)
+                            .foregroundStyle(selectedMarketCategory == category ? .white : Color.whappyInk)
+                            .controlSize(.small)
+                    }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
             WapiCommerceLaunchersIOS(); BusinessSaleRoomsIOSRail()
             HStack {
-                VStack(alignment: .leading, spacing: 3) { Text("Annonces Business").font(.title3.bold()); Text("Photos, troc, emplois et enchères — visibles par tous les comptes WAPI.").font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 3) { Text(selectedMarketCategory == "Tout" ? "À découvrir" : selectedMarketCategory).font(.title3.bold()); Text("Photos, troc, emplois et enchères — visibles par tous les comptes WAPI.").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
-                if loading { ProgressView() }
+                if loading { ProgressView() } else { Text("\(filtered.count)").font(.caption.bold()).foregroundStyle(Color.whappyBlue) }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
             if let serverMessage { Label(serverMessage, systemImage: "info.circle").font(.footnote).foregroundStyle(Color.whappyBlue).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.whappyBlue.opacity(0.08), in: RoundedRectangle(cornerRadius: 16)) }
             ForEach(filtered) { listing in NavigationLink(value: listing) { ListingRow(listing: listing) }.buttonStyle(WapiPressableButtonStyle()) }
@@ -3294,13 +3317,52 @@ struct MarketView: View {
 private struct ListingRow: View {
     let listing: Listing
     var body: some View {
-        HStack(spacing: 16) {
-            CommercePhoto(url: listing.photoURL ?? "", size: 82, symbol: listing.icon)
-            VStack(alignment: .leading, spacing: 5) { Text(listing.title).font(.headline).foregroundStyle(Color.whappyInk).lineLimit(2); Text(listing.price).font(.subheadline.bold()).foregroundStyle(listing.acceptsTrade ? .orange : Color.whappyBlue); Label("\(listing.place) · \(listing.seller)", systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.secondary).lineLimit(1); if listing.mode == "trade" { Text("TROC ACCEPTÉ").font(.caption2.bold()).foregroundStyle(.orange) }; if listing.boostStatus == "active" { Text("SPONSORISÉ").font(.caption2.bold()).foregroundStyle(Color.whappyBlue) } }
-            Spacer()
-            if listing.saved { Image(systemName: "bookmark.fill").foregroundStyle(Color.whappyBlue) }
-        }.padding(12).background(.white).clipShape(RoundedRectangle(cornerRadius: 20))
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                CommercePhoto(url: listing.photoURL ?? "", size: 158, symbol: listing.icon).frame(maxWidth: .infinity)
+                Text(listing.mode == "auction" ? "ENCHÈRE" : listing.mode == "trade" ? "TROC" : listing.mode == "job" ? "EMPLOI" : listing.mode == "service" ? "SERVICE" : "VENTE")
+                    .font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 6)
+                    .background(.black.opacity(0.65), in: Capsule()).padding(12)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(listing.title).font(.headline).foregroundStyle(Color.whappyInk).lineLimit(2)
+                    Spacer()
+                    if listing.boostStatus == "active" { Text("À LA UNE").font(.caption2.bold()).foregroundStyle(Color.whappyBlue).padding(6).background(Color.whappyBlue.opacity(0.10), in: Capsule()) }
+                }
+                Text(listing.price).font(.title3.bold()).foregroundStyle(listing.acceptsTrade ? .orange : Color.whappyBlue)
+                Label("\(listing.seller) · \(listing.place)", systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let description = listing.description, !description.isEmpty { Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+            }.padding(14)
+        }.background(.white).clipShape(RoundedRectangle(cornerRadius: 22)).overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.whappyInk.opacity(0.07)) }
     }
+}
+
+private struct MarketplaceHeroIOS: View {
+    let listings: [Listing]
+    private var featured: Int { listings.filter { $0.boostStatus == "active" }.count }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("MARCHÉ WAPI").font(.caption.bold()).tracking(1.2).foregroundStyle(.white.opacity(0.76))
+                    Text("Tout ce qui vous rapproche de l’essentiel.").font(.title2.bold()).foregroundStyle(.white)
+                    Text("Produits, services, restaurants et événements, dans une expérience WAPI unique.").font(.caption).foregroundStyle(.white.opacity(0.82))
+                }
+                Spacer(); Image(systemName: "storefront.fill").font(.system(size: 34)).foregroundStyle(.white)
+            }
+            HStack(spacing: 8) {
+                MarketplaceMetricIOS(value: "\(listings.count)", label: "annonces")
+                MarketplaceMetricIOS(value: "\(featured)", label: "à la une")
+                MarketplaceMetricIOS(value: "24/7", label: "découverte")
+            }
+        }.padding(20).background(LinearGradient(colors: [Color.whappyBlue, Color.whappyBlue.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 26))
+    }
+}
+
+private struct MarketplaceMetricIOS: View {
+    let value: String; let label: String
+    var body: some View { VStack(alignment: .leading, spacing: 1) { Text(value).font(.headline.bold()).foregroundStyle(.white); Text(label).font(.caption2).foregroundStyle(.white.opacity(0.72)) }.frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 13)) }
 }
 
 private struct ListingDetailView: View {

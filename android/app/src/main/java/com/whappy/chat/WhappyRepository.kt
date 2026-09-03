@@ -23,7 +23,11 @@ import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -742,13 +746,37 @@ class WhappyRepository(
         onChange: (List<WhappyLive>) -> Unit,
         onError: (Throwable) -> Unit,
     ): ListenerRegistration {
-        // Firestore rules are not filters: a broad client query would fail as
-        // soon as one private room is present. The callable returns only rooms
-        // the authenticated account may discover.
-        functions.getHttpsCallable("listVisibleLiveSessions").call()
-            .addOnSuccessListener { result -> onChange(parseVisibleLives(result.data)) }
-            .addOnFailureListener(onError)
-        return ListenerRegistration { }
+        // Firestore rules are not filters: the callable is the authority for
+        // the mixed public / contacts directory.  The old implementation read
+        // it once at app launch, therefore a friend who started afterwards was
+        // invisible until the app was reopened.  A narrow public listener wakes
+        // the directory immediately; a bounded refresh also covers contact-only
+        // lives without attempting an unsafe broad Firestore query.
+        fun refreshDirectory() {
+            functions.getHttpsCallable("listVisibleLiveSessions").call()
+                .addOnSuccessListener { result -> onChange(parseVisibleLives(result.data)) }
+                .addOnFailureListener(onError)
+        }
+        refreshDirectory()
+        val publicLives = db.collection("liveSessions")
+            .whereEqualTo("status", "live")
+            .whereEqualTo("visibility", "public")
+            .addSnapshotListener { _, error ->
+                if (error != null) onError(error) else refreshDirectory()
+            }
+        val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val contactRefresh = refreshScope.launch {
+            while (isActive) {
+                delay(12_000L)
+                runCatching { loadVisibleLives() }
+                    .onSuccess { lives -> withContext(Dispatchers.Main) { onChange(lives) } }
+                    .onFailure { error -> withContext(Dispatchers.Main) { onError(error) } }
+            }
+        }
+        return ListenerRegistration {
+            publicLives.remove()
+            contactRefresh.cancel()
+        }
     }
 
     suspend fun loadVisibleLives(): List<WhappyLive> =

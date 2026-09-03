@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/phone_auth_page.dart';
 import '../features/calls/wapi_call_page.dart';
+import '../features/live/wapi_live_page.dart';
 import '../features/shell/wapi_shell.dart';
 import '../services/wapi_notifications.dart';
 import 'wapi_theme.dart';
@@ -45,6 +49,8 @@ class _AuthenticatedWapi extends StatefulWidget {
 
 class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
   String? _conversationFromNotification;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _incomingCalls;
+  String? _activeIncomingCallId;
 
   @override
   void initState() {
@@ -52,6 +58,30 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
     WapiNotifications.initialize(
       onTap: _openNotification,
     ).then((_) => WapiNotifications.register(widget.user));
+    _watchIncomingCalls();
+  }
+
+  @override
+  void dispose() {
+    _incomingCalls?.cancel();
+    super.dispose();
+  }
+
+  void _watchIncomingCalls() {
+    _incomingCalls = FirebaseFirestore.instance
+        .collection('directCallSessions')
+        .where('calleeId', isEqualTo: widget.user.uid)
+        .limit(25)
+        .snapshots()
+        .listen((snapshot) {
+          for (final call in snapshot.docs) {
+            final data = call.data();
+            if (data['status'] == 'ringing') {
+              unawaited(_presentIncomingCall(call.id, data));
+              return;
+            }
+          }
+        });
   }
 
   Future<void> _openNotification(String payload, String? actionId) async {
@@ -62,41 +92,88 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
       }
       return;
     }
+    if (payload.startsWith('live:')) {
+      final liveId = payload.substring('live:'.length);
+      final navigator = wapiNavigatorKey.currentState;
+      if (liveId.isNotEmpty && navigator != null) {
+        await navigator.push(
+          MaterialPageRoute(
+            builder: (_) =>
+                WapiLivePage(user: widget.user, initialLiveId: liveId),
+          ),
+        );
+      }
+      return;
+    }
     if (!payload.startsWith('call:')) return;
     final callId = payload.substring('call:'.length);
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
     if (actionId == 'decline_call') {
-      await FirebaseFirestore.instance.collection('calls').doc(callId).update({
-        'status': 'declined',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await functions
+          .httpsCallable('closeDirectCallSession')
+          .call<Map<String, dynamic>>({'callId': callId, 'action': 'decline'});
       return;
     }
-    final call = await FirebaseFirestore.instance
-        .collection('calls')
-        .doc(callId)
-        .get();
-    final data = call.data();
-    if (!call.exists ||
-        data == null ||
-        data['calleeId'] != widget.user.uid ||
-        data['status'] != 'ringing') {
+    Map<String, dynamic> data;
+    try {
+      final result = await functions
+          .httpsCallable('getDirectCallSession')
+          .call<Map<String, dynamic>>({'callId': callId});
+      data = result.data;
+    } catch (_) {
       return;
     }
+    if (data['incoming'] != true) return;
+    await _presentIncomingCall(callId, data);
+  }
+
+  Future<void> _presentIncomingCall(
+    String callId,
+    Map<String, dynamic> data,
+  ) async {
+    if (!mounted ||
+        callId.isEmpty ||
+        _activeIncomingCallId == callId ||
+        data['status'] == 'ended' ||
+        data['status'] == 'declined') {
+      return;
+    }
+    final incoming =
+        data['incoming'] == true ||
+        (data['calleeId'] == null || data['calleeId'] == widget.user.uid);
+    if (!incoming) return;
     final navigator = wapiNavigatorKey.currentState;
-    if (navigator == null) {
-      return;
-    }
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => WapiCallPage.incoming(
-          user: widget.user,
-          incomingCallId: callId,
-          peerId: (data['callerId'] as String?) ?? '',
-          peerName: (data['callerName'] as String?) ?? 'Contact WAPI',
-          video: data['video'] == true,
+    if (navigator == null) return;
+    _activeIncomingCallId = callId;
+    final callerName =
+        (data['peerName'] as String?) ??
+        (data['callerName'] as String?) ??
+        'Contact WAPI';
+    final callerPhotoUrl =
+        (data['peerPhotoUrl'] as String?) ??
+        (data['callerPhotoUrl'] as String?) ??
+        '';
+    try {
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => WapiCallPage.incoming(
+            user: widget.user,
+            incomingCallId: callId,
+            peerId:
+                (data['peerId'] as String?) ??
+                (data['callerId'] as String?) ??
+                '',
+            peerName: callerName,
+            peerPhotoUrl: callerPhotoUrl,
+            video: data['video'] == true,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted && _activeIncomingCallId == callId) {
+        _activeIncomingCallId = null;
+      }
+    }
   }
 
   @override
@@ -111,8 +188,26 @@ class _LaunchScreen extends StatelessWidget {
   const _LaunchScreen();
 
   @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: CircularProgressIndicator()));
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'WAPI',
+            style: TextStyle(
+              color: Color(0xFF062233),
+              fontSize: 34,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          SizedBox(height: 10),
+          SizedBox(width: 24, child: LinearProgressIndicator(minHeight: 3)),
+        ],
+      ),
+    ),
+  );
 }
 
 class _StartupIssue extends StatelessWidget {
