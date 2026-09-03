@@ -76,6 +76,10 @@ flutter:
 
   assets:
     - assets/branding/wapi_mark.png
+    - assets/sounds/wapi_pool_cue.wav
+    - assets/sounds/wapi_pool_collision.wav
+    - assets/sounds/wapi_pool_cushion.wav
+    - assets/sounds/wapi_pool_pocket.wav
 
   # To add assets to your application, add an assets section, like this:
   # assets:

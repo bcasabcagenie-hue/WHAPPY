@@ -6,6 +6,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart';
 
 class WapiPoolTablePage extends StatefulWidget {
   const WapiPoolTablePage({
@@ -36,6 +37,15 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   int _lastShotRevision = -1;
   int _replayTicks = 0;
   final _poolStageKey = GlobalKey<_WapiPool3DStageState>();
+  final _poolAudio = _PoolAudio();
+  DateTime? _lastCollisionSound;
+  DateTime? _lastRailSound;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_poolAudio.preload());
+  }
 
   Future<void> _call(String name, Map<String, dynamic> data) async {
     await _functions.httpsCallable(name).call<Map<String, dynamic>>(data);
@@ -98,13 +108,16 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   }
 
   Future<void> _shoot({double? angle, double? power}) async {
-    if (_sending) return;
+    if (_sending || _physicsActive) return;
     final shotAngle = angle ?? _angle;
     final shotPower = (power ?? _power).clamp(10, 100).toDouble();
     setState(() {
       _angle = shotAngle;
       _power = shotPower;
     });
+    // Start this while the release gesture is still active so browser audio
+    // policies do not silence the first cue impact.
+    _poolAudio.cue(shotPower);
     setState(() => _sending = true);
     try {
       await _call('submitPoolShot', {
@@ -149,6 +162,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   @override
   void dispose() {
     _replayTimer?.cancel();
+    _poolAudio.dispose();
     super.dispose();
   }
 
@@ -210,6 +224,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         return;
       }
       final frame = _PoolPhysics.advance(current, .018);
+      _playFrameSounds(current, frame);
       _replayTicks += 1;
       if (!_PoolPhysics.isMoving(frame) || _replayTicks >= 1050) {
         timer.cancel();
@@ -221,6 +236,33 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       }
       setState(() => _replayBalls = frame);
     });
+  }
+
+  void _playFrameSounds(List<_PoolBall> before, List<_PoolBall> after) {
+    final now = DateTime.now();
+    final newlyPocketed = after.any(
+      (ball) =>
+          ball.pocketed &&
+          !before.any(
+            (previous) => previous.id == ball.id && previous.pocketed,
+          ),
+    );
+    if (newlyPocketed) {
+      _poolAudio.pocket();
+      return;
+    }
+    if (_PoolPhysics.hasBallContact(before) &&
+        (_lastCollisionSound == null ||
+            now.difference(_lastCollisionSound!).inMilliseconds > 78)) {
+      _lastCollisionSound = now;
+      _poolAudio.collision();
+    }
+    if (_PoolPhysics.hasRailContact(before, after) &&
+        (_lastRailSound == null ||
+            now.difference(_lastRailSound!).inMilliseconds > 96)) {
+      _lastRailSound = now;
+      _poolAudio.rail();
+    }
   }
 
   @override
@@ -403,9 +445,10 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                                 bottom: 18,
                                 child: _PoolPowerRail(
                                   value: _power,
-                                  enabled: !_sending,
+                                  enabled: !_sending && !_physicsActive,
                                   onChanged: (value) =>
                                       setState(() => _power = value),
+                                  onRelease: () => _shoot(),
                                 ),
                               ),
                             if (myTurn && !ballInHand && !_physicsActive)
@@ -811,10 +854,12 @@ class _PoolPowerRail extends StatelessWidget {
     required this.value,
     required this.enabled,
     required this.onChanged,
+    required this.onRelease,
   });
   final double value;
   final bool enabled;
   final ValueChanged<double> onChanged;
+  final VoidCallback onRelease;
 
   void _update(Offset position) {
     if (!enabled) return;
@@ -831,6 +876,9 @@ class _PoolPowerRail extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTapDown: (details) => _update(details.localPosition),
     onVerticalDragUpdate: (details) => _update(details.localPosition),
+    onVerticalDragEnd: (_) {
+      if (enabled) onRelease();
+    },
     child: CustomPaint(
       size: const Size(42, 160),
       painter: _PoolPowerRailPainter(value: value, enabled: enabled),
@@ -1168,6 +1216,39 @@ class _PoolTablePainter extends CustomPainter {
         boltPaint,
       );
     }
+    // Low-profile ball-return: a recessed black tray with two polished tubes
+    // and rounded ends.  It stays behind the head rail instead of becoming a
+    // tall metallic fence across the table.
+    final returnBay = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        size.width * .25,
+        size.height * .014,
+        size.width * .50,
+        size.height * .070,
+      ),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(returnBay, Paint()..color = const Color(0xFF08131C));
+    canvas.drawRRect(
+      returnBay,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size.shortestSide * .008
+        ..shader = const LinearGradient(
+          colors: [Color(0xFFEDF7FA), Color(0xFF71858C), Color(0xFFEAF4F6)],
+        ).createShader(returnBay.outerRect),
+    );
+    for (final offset in [.026, .051]) {
+      final line = Offset(size.width * .28, size.height * offset);
+      canvas.drawLine(
+        line,
+        Offset(size.width * .72, size.height * offset),
+        Paint()
+          ..color = const Color(0xFFD9E8EC)
+          ..strokeWidth = size.shortestSide * .008
+          ..strokeCap = StrokeCap.round,
+      );
+    }
     final pockets = <Offset>[
       Offset(size.width * .07, size.height * .105),
       Offset(size.width * .5, size.height * .095),
@@ -1431,6 +1512,53 @@ class _PoolBall {
   );
 }
 
+/// Short real-recorded pool samples.  The players are warmed up once so a
+/// release on the power rail has an immediate cue strike on Android and web.
+class _PoolAudio {
+  final _cue = AudioPlayer();
+  final _collision = AudioPlayer();
+  final _rail = AudioPlayer();
+  final _pocket = AudioPlayer();
+
+  Future<void> preload() async {
+    try {
+      await Future.wait([
+        _cue.setAsset('assets/sounds/wapi_pool_cue.wav'),
+        _collision.setAsset('assets/sounds/wapi_pool_collision.wav'),
+        _rail.setAsset('assets/sounds/wapi_pool_cushion.wav'),
+        _pocket.setAsset('assets/sounds/wapi_pool_pocket.wav'),
+      ]);
+    } catch (_) {
+      // Sound is an enhancement: the table stays playable if a platform
+      // cannot preload one of the optional audio assets.
+    }
+  }
+
+  void cue(double power) => _play(_cue, .30 + power.clamp(10, 100) / 100 * .55);
+  void collision() => _play(_collision, .56);
+  void rail() => _play(_rail, .45);
+  void pocket() => _play(_pocket, .80);
+
+  void _play(AudioPlayer player, double volume) {
+    unawaited(() async {
+      try {
+        await player.setVolume(volume);
+        await player.seek(Duration.zero);
+        await player.play();
+      } catch (_) {
+        // Browsers can refuse a sound before their first user interaction.
+      }
+    }());
+  }
+
+  void dispose() {
+    unawaited(_cue.dispose());
+    unawaited(_collision.dispose());
+    unawaited(_rail.dispose());
+    unawaited(_pocket.dispose());
+  }
+}
+
 /// Local visual replay of the server physics.  The server remains the only
 /// authority for the official board, score and winner; this makes a shot look
 /// continuous for both players instead of replacing the balls with the final
@@ -1451,6 +1579,35 @@ abstract final class _PoolPhysics {
   static bool isMoving(List<_PoolBall> balls) => balls.any(
     (ball) => !ball.pocketed && _hypot(ball.vx * width, ball.vy * height) > .09,
   );
+
+  static bool hasBallContact(List<_PoolBall> balls) {
+    for (var first = 0; first < balls.length; first += 1) {
+      for (var second = first + 1; second < balls.length; second += 1) {
+        final a = balls[first];
+        final b = balls[second];
+        if (a.pocketed || b.pocketed) continue;
+        if (_hypot((b.x - a.x) * width, (b.y - a.y) * height) <= radius * 2.08)
+          return true;
+      }
+    }
+    return false;
+  }
+
+  static bool hasRailContact(List<_PoolBall> before, List<_PoolBall> after) {
+    for (final ball in before) {
+      if (ball.pocketed) continue;
+      final next = after
+          .where((candidate) => candidate.id == ball.id)
+          .firstOrNull;
+      if (next == null || next.pocketed) continue;
+      if ((ball.x <= .066 && ball.vx < 0 && next.vx > 0) ||
+          (ball.x >= .934 && ball.vx > 0 && next.vx < 0) ||
+          (ball.y <= .095 && ball.vy < 0 && next.vy > 0) ||
+          (ball.y >= .905 && ball.vy > 0 && next.vy < 0))
+        return true;
+    }
+    return false;
+  }
 
   static List<_PoolBall> advance(List<_PoolBall> before, double delta) {
     final next = before.map((ball) {
