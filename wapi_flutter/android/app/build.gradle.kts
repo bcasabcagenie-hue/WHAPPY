@@ -83,6 +83,7 @@ val prepareWapiPool3dTextures by tasks.registering(Sync::class) {
     from("../../../android/app/src/main/res/drawable-nodpi") {
         include("wapi_game_walnut_texture.webp")
         include("wapi_game_felt_texture.webp")
+        include("wapi_game_felt_texture_competition.png")
     }
     into(layout.buildDirectory.dir("generated/res/wapiPool3d/main/drawable-nodpi"))
 }

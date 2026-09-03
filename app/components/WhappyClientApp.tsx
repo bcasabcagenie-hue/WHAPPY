@@ -57,8 +57,8 @@ type RequestItem = { id: string | number; title: string; details: string; place:
 type DemoOffer = { id: number; text: string; mediaUrl?: string; mediaKind?: "image" | "video"; mediaName?: string };
 
 const ANDROID_APP = {
-  url: "https://whappy-d97e7.web.app/WAPI-Android-2.1.9-native.apk",
-  version: "2.1.9 native",
+  url: "https://whappy-d97e7.web.app/WAPI-Android-2.1.53-native.apk",
+  version: "2.1.53 native",
   size: "Universel",
   minimum: "Android 8.0+",
 } as const;

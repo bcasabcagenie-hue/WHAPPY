@@ -34,8 +34,8 @@ android {
         }
         // Continuité de mise à jour avec la branche 2.1.0 déjà distribuée.
         // Android compare ce code interne avant le nom public de la version.
-        versionCode 2122
-        versionName "2.1.45-native"
+        versionCode 2123
+        versionName "2.1.53-native"
     }
 
     signingConfigs {

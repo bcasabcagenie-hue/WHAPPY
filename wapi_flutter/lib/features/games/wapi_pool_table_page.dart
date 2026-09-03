@@ -24,7 +24,10 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
   double _power = 48;
   double _angle = 0;
+  double _sideSpin = 0;
+  double _followSpin = 0;
   String _cueStyle = 'maple';
+  String _tableTheme = 'competitionBlue';
   bool _sending = false;
   Timer? _replayTimer;
   List<_PoolBall>? _replayBalls;
@@ -108,8 +111,8 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         'roomId': widget.roomId,
         'angle': shotAngle,
         'power': shotPower,
-        'sideSpin': 0,
-        'followSpin': 0,
+        'sideSpin': _sideSpin,
+        'followSpin': _followSpin,
       });
       // Animate the cue only after the authoritative table accepts the
       // gesture.  A rejected swipe can no longer look like a real shot.
@@ -316,6 +319,19 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                     )
                     .toList(),
               ),
+              PopupMenuButton<String>(
+                tooltip: 'Choisir le tapis',
+                icon: const Icon(Icons.palette_outlined),
+                onSelected: (theme) => setState(() => _tableTheme = theme),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'competitionBlue',
+                    child: Text('Bleu compétition'),
+                  ),
+                  PopupMenuItem(value: 'navy', child: Text('Bleu nuit')),
+                  PopupMenuItem(value: 'emerald', child: Text('Vert tournoi')),
+                ],
+              ),
               IconButton(
                 onPressed: _sending ? null : _leave,
                 icon: const Icon(Icons.close_rounded),
@@ -357,10 +373,13 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                               balls: balls,
                               angle: _angle,
                               power: _power,
+                              sideSpin: _sideSpin,
+                              followSpin: _followSpin,
                               moving: _physicsActive,
                               showAim: myTurn && !ballInHand && !_physicsActive,
                               cueInHand: ballInHand,
                               cueStyle: _cueStyle,
+                              tableTheme: _tableTheme,
                               onTablePoint: (position, released) {
                                 if (ballInHand) {
                                   if (released) _placeCueBall(position);
@@ -387,6 +406,19 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                                   enabled: !_sending,
                                   onChanged: (value) =>
                                       setState(() => _power = value),
+                                ),
+                              ),
+                            if (myTurn && !ballInHand && !_physicsActive)
+                              Positioned(
+                                right: 10,
+                                bottom: 10,
+                                child: _CueEnglishPad(
+                                  sideSpin: _sideSpin,
+                                  followSpin: _followSpin,
+                                  onChanged: (side, follow) => setState(() {
+                                    _sideSpin = side;
+                                    _followSpin = follow;
+                                  }),
                                 ),
                               ),
                           ],
@@ -449,7 +481,8 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                           _selectedCue.name +
                               ' · ' +
                               _power.round().toString() +
-                              '%',
+                              '% · ' +
+                              _spinLabel(_sideSpin, _followSpin),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Color(0xFFFFC83D),
@@ -597,10 +630,10 @@ class _PlayerTile extends StatelessWidget {
             ),
           ),
           if (active)
-            const Padding(
-              padding: EdgeInsets.only(top: 4),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
               child: LinearProgressIndicator(
-                value: .78,
+                value: (seconds / 45).clamp(0.0, 1.0),
                 minHeight: 4,
                 color: Color(0xFF5EE7B7),
                 backgroundColor: Color(0xFF174535),
@@ -637,7 +670,15 @@ class _ScoreBall extends StatelessWidget {
     height: 12,
     decoration: BoxDecoration(
       shape: BoxShape.circle,
-      color: _ballColor(id),
+      gradient: RadialGradient(
+        center: const Alignment(-.35, -.42),
+        colors: [
+          Colors.white,
+          _ballColor(id),
+          _ballColor(id).withValues(alpha: .92),
+        ],
+        stops: const [0, .26, 1],
+      ),
       border: Border.all(color: Colors.white, width: id > 8 ? 2.5 : .6),
       boxShadow: const [
         BoxShadow(
@@ -648,6 +689,121 @@ class _ScoreBall extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// The contact point on the cue ball is not cosmetic: the native renderer and
+/// the authoritative shot both receive these values.  Moving it left/right
+/// adds English; moving it up/down applies follow or draw.
+class _CueEnglishPad extends StatelessWidget {
+  const _CueEnglishPad({
+    required this.sideSpin,
+    required this.followSpin,
+    required this.onChanged,
+  });
+
+  final double sideSpin;
+  final double followSpin;
+  final void Function(double side, double follow) onChanged;
+
+  void _update(Offset point, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.shortestSide * .34;
+    final dx = ((point.dx - center.dx) / radius).clamp(-1.0, 1.0);
+    final dy = ((center.dy - point.dy) / radius).clamp(-1.0, 1.0);
+    if (dx * dx + dy * dy > 1) {
+      final length = math.sqrt(dx * dx + dy * dy);
+      onChanged(dx / length, dy / length);
+      return;
+    }
+    onChanged(dx, dy);
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 70,
+    height: 70,
+    child: Semantics(
+      label: 'Point d’impact sur la bille blanche',
+      child: GestureDetector(
+        onTapDown: (details) =>
+            _update(details.localPosition, const Size(70, 70)),
+        onPanUpdate: (details) =>
+            _update(details.localPosition, const Size(70, 70)),
+        child: CustomPaint(
+          painter: _CueEnglishPainter(
+            sideSpin: sideSpin,
+            followSpin: followSpin,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _CueEnglishPainter extends CustomPainter {
+  const _CueEnglishPainter({required this.sideSpin, required this.followSpin});
+  final double sideSpin;
+  final double followSpin;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.shortestSide * .34;
+    final shadow = Paint()..color = Colors.black.withValues(alpha: .32);
+    canvas.drawCircle(center.translate(2, 3), radius + 4, shadow);
+    final ball = Rect.fromCircle(center: center, radius: radius);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment(-.38, -.48),
+          colors: [Colors.white, Color(0xFFDCE7EB), Color(0xFF99AAB2)],
+          stops: [0, .34, 1],
+        ).createShader(ball)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = const Color(0xFFEAF6F5),
+    );
+    final contact =
+        center + Offset(sideSpin * radius * .63, -followSpin * radius * .63);
+    canvas.drawCircle(
+      contact,
+      radius * .16,
+      Paint()..color = const Color(0xFFE5484D),
+    );
+    canvas.drawCircle(
+      contact,
+      radius * .16,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = Colors.white,
+    );
+    final label = TextPainter(
+      text: const TextSpan(
+        text: 'EFFET',
+        style: TextStyle(
+          color: Color(0xFFEAF6F2),
+          fontWeight: FontWeight.w800,
+          fontSize: 9,
+          letterSpacing: .5,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    label.paint(canvas, Offset(center.dx - label.width / 2, size.height - 13));
+  }
+
+  @override
+  bool shouldRepaint(covariant _CueEnglishPainter oldDelegate) =>
+      oldDelegate.sideSpin != sideSpin || oldDelegate.followSpin != followSpin;
 }
 
 class _PoolPowerRail extends StatelessWidget {
@@ -750,10 +906,13 @@ class _WapiPool3DStage extends StatefulWidget {
     required this.balls,
     required this.angle,
     required this.power,
+    required this.sideSpin,
+    required this.followSpin,
     required this.moving,
     required this.showAim,
     required this.cueInHand,
     required this.cueStyle,
+    required this.tableTheme,
     required this.onTablePoint,
     required this.onCuePull,
   });
@@ -761,10 +920,13 @@ class _WapiPool3DStage extends StatefulWidget {
   final List<_PoolBall> balls;
   final double angle;
   final double power;
+  final double sideSpin;
+  final double followSpin;
   final bool moving;
   final bool showAim;
   final bool cueInHand;
   final String cueStyle;
+  final String tableTheme;
   final void Function(Offset position, bool released) onTablePoint;
   final void Function(Offset start, Offset end, double power) onCuePull;
 
@@ -792,9 +954,11 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
         .toList(),
     'aimAngle': widget.angle,
     'power': widget.power,
+    'sideSpin': widget.sideSpin,
+    'followSpin': widget.followSpin,
     'moving': widget.moving,
     'cueInHand': widget.cueInHand,
-    'tableTheme': 'competitionBlue',
+    'tableTheme': widget.tableTheme,
     'cueStyle': widget.cueStyle,
   };
 
@@ -1493,6 +1657,13 @@ bool _isPoolGroupBall(int id, String group) {
 
 String _text(Object? value, [String fallback = '']) =>
     value is String && value.isNotEmpty ? value : fallback;
+
+String _spinLabel(double side, double follow) {
+  if (side.abs() < .12 && follow.abs() < .12) return 'centre';
+  if (follow > .32) return side.abs() > .25 ? 'coulé avec effet' : 'coulé';
+  if (follow < -.32) return side.abs() > .25 ? 'rétro avec effet' : 'rétro';
+  return side.isNegative ? 'effet gauche' : 'effet droit';
+}
 
 int _seconds(Object? raw) {
   final deadline = raw is num ? raw.toInt() : 0;

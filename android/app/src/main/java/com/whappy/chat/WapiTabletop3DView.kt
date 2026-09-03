@@ -594,7 +594,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             scaleHandle = GLES20.glGetUniformLocation(program, "uScale")
             cutoutHandle = GLES20.glGetUniformLocation(program, "uPoolCutout")
             woodTexture = loadTexture(R.drawable.wapi_game_walnut_texture)
-            feltTexture = loadTexture(R.drawable.wapi_game_felt_texture)
+            feltTexture = loadTexture(R.drawable.wapi_game_felt_texture_competition)
         }
 
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -1173,10 +1173,11 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 floatArrayOf(.46f, .03f, .06f, 1f),
                 floatArrayOf(.008f, .012f, .018f, 1f),
             )
-            // Mechanical ball-return assembly: three clean nested chrome U
-            // tracks behind the head rail.  Boxes are deliberately used here
-            // rather than rotated cylinders: the former orientation made the
-            // tracks collapse into a distracting metal fence on some GPUs.
+            // Mechanical ball-return assembly: three compact polished U
+            // tracks behind the head rail.  The previous square-bar version
+            // created a tall metal fence on tablets; round tubing keeps the
+            // silhouette close to a real table return and leaves the cloth
+            // visually dominant.
             val returnBed = floatArrayOf(.012f, .024f, .042f, 1f)
             val returnWell = floatArrayOf(.005f, .010f, .019f, 1f)
             val returnRail = floatArrayOf(.72f, .80f, .89f, 1f)
@@ -1185,21 +1186,19 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             draw(cube, 0f, .22f, returnBaseZ, 3.70f, .17f, .60f, returnBed, .18f, material = 1f)
             draw(cube, 0f, .30f, returnBaseZ, 3.48f, .028f, .43f, returnWell, .05f, material = 8f)
             repeat(3) { index ->
-                val halfWidth = 3.48f - index * .20f
-                val y = .46f + index * .105f
-                val rearZ = -3.52f + index * .045f
-                val frontZ = -3.16f + index * .045f
+                val halfWidth = 3.42f - index * .19f
+                val y = .47f + index * .085f
+                val rearZ = -3.48f + index * .055f
+                val frontZ = -3.18f + index * .055f
                 val turnX = halfWidth
-                val tube = .030f
-                draw(cube, 0f, y, frontZ, halfWidth, tube, tube, returnRail, .86f, material = 3f)
-                draw(cube, 0f, y, rearZ, halfWidth, tube, tube, returnRail, .86f, material = 3f)
-                draw(cube, turnX, y, (frontZ + rearZ) / 2f, tube, tube, .21f, returnRail, .86f, material = 3f)
-                // Rounded joints soften the three U-turns without creating
-                // any vertical bars across the whole rail.
-                draw(sphere, turnX, y, frontZ, .041f, .041f, .041f, returnJoint, .82f, material = 3f)
-                draw(sphere, turnX, y, rearZ, .041f, .041f, .041f, returnJoint, .82f, material = 3f)
-                draw(sphere, -halfWidth, y, frontZ, .036f, .036f, .036f, returnJoint, .82f, material = 3f)
-                draw(sphere, -halfWidth, y, rearZ, .036f, .036f, .036f, returnJoint, .82f, material = 3f)
+                val tube = .027f
+                // Cylinder axes are rotated into X and Z to produce smooth
+                // chrome tubes instead of a ladder of rectangular posts.
+                draw(cylinder, 0f, y, frontZ, tube, halfWidth, tube, returnRail, .94f, rotationZ = 90f, material = 3f)
+                draw(cylinder, 0f, y, rearZ, tube, halfWidth, tube, returnRail, .94f, rotationZ = 90f, material = 3f)
+                draw(cylinder, turnX, y, (frontZ + rearZ) / 2f, tube, .15f, tube, returnRail, .94f, rotationX = 90f, material = 3f)
+                draw(sphere, turnX, y, frontZ, .038f, .038f, .038f, returnJoint, .90f, material = 3f)
+                draw(sphere, turnX, y, rearZ, .038f, .038f, .038f, returnJoint, .90f, material = 3f)
             }
             val returnedBalls = poolBalls.filter { it.size >= 6 && it[2].toInt() > 0 && it[5] >= .5f }
                 .map { it[2].toInt() }.sorted().take(15)
