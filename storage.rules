@@ -3,8 +3,12 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function conversationMember(conversationId) {
+      let conversation = firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data;
       return request.auth != null
-        && request.auth.uid in firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.memberIds;
+        && (request.auth.uid in conversation.get('memberIds', [])
+          || (conversation.get('conversationType', '') == 'direct'
+            && (request.auth.uid == conversation.get('ownerId', '')
+              || request.auth.uid == conversation.get('contactId', ''))));
     }
 
     match /users/{userId}/{allPaths=**} {
@@ -21,6 +25,16 @@ service firebase.storage {
         && request.resource.contentType.matches('image/(jpeg|png|webp)')
         && ((fileName.matches('logo-.*') && request.resource.size < 5 * 1024 * 1024)
           || (fileName.matches('cover-.*') && request.resource.size < 8 * 1024 * 1024));
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /businessAds/{userId}/{pageId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && request.resource.size < 8 * 1024 * 1024;
       allow update: if false;
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
@@ -75,6 +89,24 @@ service firebase.storage {
               && request.resource.size < 25 * 1024 * 1024));
       allow delete: if conversationMember(conversationId)
         && request.auth.uid == userId;
+      allow update: if false;
+    }
+
+    // Conversation media first lands in a private sender outbox. Only its
+    // uploader may read it for legacy-client compatibility; no recipient can
+    // access it until commitConversationMedia validates the participants,
+    // immutable hash and MIME type then moves it to the canonical path.
+    match /conversationUploads/{userId}/{conversationId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && ((request.resource.contentType.matches('image/.*')
+              && request.resource.size < 20 * 1024 * 1024)
+          || (request.resource.contentType.matches('audio/.*')
+              && request.resource.size < 12 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*')
+              && request.resource.size < 60 * 1024 * 1024));
+      allow delete: if request.auth != null && request.auth.uid == userId;
       allow update: if false;
     }
 

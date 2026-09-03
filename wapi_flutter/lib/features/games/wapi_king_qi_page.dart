@@ -5,6 +5,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../app/wapi_theme.dart';
+
 class WapiKingQiPage extends StatefulWidget {
   const WapiKingQiPage({super.key, required this.user, required this.roomId});
   final User user;
@@ -35,7 +37,10 @@ class _WapiKingQiPageState extends State<WapiKingQiPage> {
   }
 
   Future<void> _call(String name, Map<String, dynamic> data) async {
-    await _functions.httpsCallable(name).call<Map<String, dynamic>>(data);
+    await _functions
+        .httpsCallable(name)
+        .call<Map<String, dynamic>>(data)
+        .timeout(const Duration(seconds: 20));
   }
 
   void _notice(String text, {bool error = false}) {
@@ -54,8 +59,14 @@ class _WapiKingQiPageState extends State<WapiKingQiPage> {
     setState(() => _busy = true);
     try {
       await _call('kingQiStartTournament', {'roomId': widget.roomId});
-    } on FirebaseFunctionsException catch (error) {
-      _notice(error.message ?? 'Le tournoi ne peut pas démarrer.', error: true);
+    } catch (error) {
+      _notice(
+        wapiErrorText(
+          error is FirebaseFunctionsException ? error.message : error,
+          fallback: 'Le tournoi ne peut pas démarrer. Réessayez.',
+        ),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -73,7 +84,8 @@ class _WapiKingQiPageState extends State<WapiKingQiPage> {
           .call<Map<String, dynamic>>({
             'roomId': widget.roomId,
             'optionIndex': index,
-          });
+          })
+          .timeout(const Duration(seconds: 20));
       final correct = result.data['correct'] == true;
       final points = result.data['points'] is num
           ? (result.data['points'] as num).toInt()
@@ -83,9 +95,15 @@ class _WapiKingQiPageState extends State<WapiKingQiPage> {
             ? 'Bonne réponse · ' + points.toString() + ' points'
             : 'Réponse enregistrée.',
       );
-    } on FirebaseFunctionsException catch (error) {
+    } catch (error) {
       if (mounted) setState(() => _chosenAnswer = null);
-      _notice(error.message ?? 'Réponse impossible.', error: true);
+      _notice(
+        wapiErrorText(
+          error is FirebaseFunctionsException ? error.message : error,
+          fallback: 'Réponse impossible. Réessayez.',
+        ),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -96,8 +114,14 @@ class _WapiKingQiPageState extends State<WapiKingQiPage> {
     try {
       await _call('kingQiAdvanceTournament', {'roomId': widget.roomId});
       if (mounted) setState(() => _chosenAnswer = null);
-    } on FirebaseFunctionsException catch (error) {
-      _notice(error.message ?? 'La manche est encore en cours.', error: true);
+    } catch (error) {
+      _notice(
+        wapiErrorText(
+          error is FirebaseFunctionsException ? error.message : error,
+          fallback: 'La manche est encore en cours.',
+        ),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }

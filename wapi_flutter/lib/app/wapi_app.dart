@@ -17,6 +17,8 @@ final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
 final wapiNavigatorKey = GlobalKey<NavigatorState>();
+const _wapiLocalTestMode = bool.fromEnvironment('WAPI_LOCAL_TEST');
+const _wapiLocalTestConversationId = 'wapi-local-voice-test';
 
 class WapiApp extends ConsumerWidget {
   const WapiApp({super.key});
@@ -28,10 +30,17 @@ class WapiApp extends ConsumerWidget {
       navigatorKey: wapiNavigatorKey,
       title: 'WAPI',
       debugShowCheckedModeBanner: false,
+      restorationScopeId: 'wapi',
       theme: WapiTheme.light(),
+      themeAnimationDuration: const Duration(milliseconds: 220),
+      builder: (context, child) => MediaQuery.withClampedTextScaling(
+        minScaleFactor: .9,
+        maxScaleFactor: 1.5,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: session.when(
         loading: () => const _LaunchScreen(),
-        error: (error, _) => _StartupIssue(error: error),
+        error: (_, _) => const _StartupIssue(),
         data: (user) => user == null
             ? const PhoneAuthPage()
             : _AuthenticatedWapi(user: user),
@@ -47,7 +56,8 @@ class _AuthenticatedWapi extends StatefulWidget {
   State<_AuthenticatedWapi> createState() => _AuthenticatedWapiState();
 }
 
-class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
+class _AuthenticatedWapiState extends State<_AuthenticatedWapi>
+    with WidgetsBindingObserver {
   String? _conversationFromNotification;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _incomingCalls;
   String? _activeIncomingCallId;
@@ -55,16 +65,29 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
   @override
   void initState() {
     super.initState();
-    WapiNotifications.initialize(
-      onTap: _openNotification,
-    ).then((_) => WapiNotifications.register(widget.user));
+    WidgetsBinding.instance.addObserver(this);
+    if (!_wapiLocalTestMode) {
+      WapiNotifications.initialize(onTap: _openNotification).then((_) async {
+        await WapiNotifications.register(widget.user);
+        await WapiNotifications.syncUnreadBadge(widget.user.uid);
+      });
+    }
     _watchIncomingCalls();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _incomingCalls?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(WapiNotifications.register(widget.user));
+      unawaited(WapiNotifications.syncUnreadBadge(widget.user.uid));
+    }
   }
 
   void _watchIncomingCalls() {
@@ -74,9 +97,16 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
         .limit(25)
         .snapshots()
         .listen((snapshot) {
-          for (final call in snapshot.docs) {
+          for (final change in snapshot.docChanges) {
+            final call = change.doc;
             final data = call.data();
-            if (data['status'] == 'ringing') {
+            if (data == null) continue;
+            final status = data['status']?.toString() ?? '';
+            if (status != 'ringing' || _callExpired(data)) {
+              unawaited(WapiNotifications.dismissCall(call.id));
+              continue;
+            }
+            if (status == 'ringing') {
               unawaited(_presentIncomingCall(call.id, data));
               return;
             }
@@ -111,14 +141,16 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
     if (actionId == 'decline_call') {
       await functions
           .httpsCallable('closeDirectCallSession')
-          .call<Map<String, dynamic>>({'callId': callId, 'action': 'decline'});
+          .call<Map<String, dynamic>>({'callId': callId, 'action': 'decline'})
+          .timeout(const Duration(seconds: 12));
       return;
     }
     Map<String, dynamic> data;
     try {
       final result = await functions
           .httpsCallable('getDirectCallSession')
-          .call<Map<String, dynamic>>({'callId': callId});
+          .call<Map<String, dynamic>>({'callId': callId})
+          .timeout(const Duration(seconds: 12));
       data = result.data;
     } catch (_) {
       return;
@@ -135,7 +167,9 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
         callId.isEmpty ||
         _activeIncomingCallId == callId ||
         data['status'] == 'ended' ||
-        data['status'] == 'declined') {
+        data['status'] == 'declined' ||
+        _callExpired(data)) {
+      unawaited(WapiNotifications.dismissCall(callId));
       return;
     }
     final incoming =
@@ -176,51 +210,115 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi> {
     }
   }
 
+  bool _callExpired(Map<String, dynamic> data) {
+    final expiresAt = data['expiresAt'];
+    if (expiresAt is Timestamp) {
+      return expiresAt.millisecondsSinceEpoch <=
+          DateTime.now().millisecondsSinceEpoch;
+    }
+    final createdAt = data['createdAt'];
+    if (createdAt is Timestamp) {
+      return DateTime.now().millisecondsSinceEpoch -
+              createdAt.millisecondsSinceEpoch >
+          const Duration(minutes: 3).inMilliseconds;
+    }
+    return false;
+  }
+
   @override
-  Widget build(BuildContext context) => WapiShell(
-    key: ValueKey(_conversationFromNotification ?? 'wapi-shell'),
-    user: widget.user,
-    initialConversationId: _conversationFromNotification,
-  );
+  Widget build(BuildContext context) {
+    final initialConversation =
+        _conversationFromNotification ??
+        (_wapiLocalTestMode ? _wapiLocalTestConversationId : null);
+    return WapiShell(
+      key: ValueKey(initialConversation ?? 'wapi-shell'),
+      user: widget.user,
+      initialConversationId: initialConversation,
+    );
+  }
 }
 
 class _LaunchScreen extends StatelessWidget {
   const _LaunchScreen();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-    body: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'WAPI',
-            style: TextStyle(
-              color: Color(0xFF062233),
-              fontSize: 34,
-              letterSpacing: 1.2,
-              fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) => Scaffold(
+    body: DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFF7FBFD), Color(0xFFEAF6FC)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 92,
+              height: 92,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: WapiColors.navy.withValues(alpha: .12),
+                    blurRadius: 30,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Image.asset(
+                'assets/branding/wapi_mark.png',
+                fit: BoxFit.contain,
+              ),
             ),
-          ),
-          SizedBox(height: 10),
-          SizedBox(width: 24, child: LinearProgressIndicator(minHeight: 3)),
-        ],
+            const SizedBox(height: 20),
+            const Text(
+              'WAPI',
+              style: TextStyle(
+                color: WapiColors.navy,
+                fontSize: 31,
+                letterSpacing: 2.2,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Votre monde, réuni.',
+              style: TextStyle(color: WapiColors.muted, fontSize: 13),
+            ),
+            const SizedBox(height: 22),
+            const SizedBox(
+              width: 92,
+              child: LinearProgressIndicator(
+                minHeight: 3,
+                borderRadius: BorderRadius.all(Radius.circular(8)),
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
 }
 
 class _StartupIssue extends StatelessWidget {
-  const _StartupIssue({required this.error});
-
-  final Object error;
+  const _StartupIssue();
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('WAPI')),
-    body: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text('La session ne peut pas être restaurée.\n$error'),
+    body: const Padding(
+      padding: EdgeInsets.all(24),
+      child: Center(
+        child: Text(
+          'WAPI ne peut pas restaurer votre session pour le moment.\n\nFermez puis relancez WAPI.',
+          textAlign: TextAlign.center,
+        ),
+      ),
     ),
   );
 }

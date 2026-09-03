@@ -886,7 +886,8 @@ class _BillingApi {
   ]) async {
     final result = await _functions
         .httpsCallable('wapiCommerce')
-        .call<Map<String, dynamic>>({'action': action, ...data});
+        .call<Map<String, dynamic>>({'action': action, ...data})
+        .timeout(const Duration(seconds: 20));
     return _map(result.data);
   }
 }
@@ -902,6 +903,7 @@ List<Map<String, dynamic>> _maps(Object? value) => (value as List? ?? const [])
     .toList(growable: false);
 String _money(int amount, String currency) =>
     amount.toString() + ' ' + currency;
-String _errorText(Object error) => error is FirebaseFunctionsException
-    ? error.message ?? 'L’action n’a pas pu être finalisée.'
-    : 'L’action n’a pas pu être finalisée.';
+String _errorText(Object error) => wapiErrorText(
+  error is FirebaseFunctionsException ? error.message : error,
+  fallback: 'L’action n’a pas pu être finalisée. Réessayez.',
+);

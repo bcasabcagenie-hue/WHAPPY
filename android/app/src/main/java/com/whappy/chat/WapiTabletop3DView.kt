@@ -125,6 +125,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         power: Int,
         sideSpin: Float = 0f,
         followSpin: Float = 0f,
+        aimBonus: Int = 0,
         moving: Boolean,
         cueStroke: Float = 0f,
         cueInHand: Boolean = false,
@@ -137,6 +138,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.poolPower = power.coerceIn(1, 100)
         tabletopRenderer.poolSideSpin = sideSpin.coerceIn(-1f, 1f)
         tabletopRenderer.poolFollowSpin = followSpin.coerceIn(-1f, 1f)
+        tabletopRenderer.poolAimBonus = aimBonus.coerceIn(0, 4)
         tabletopRenderer.poolMoving = moving
         tabletopRenderer.poolCueStroke = cueStroke.coerceIn(0f, 1f)
         tabletopRenderer.poolCueInHand = cueInHand
@@ -285,6 +287,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         @Volatile var poolPower: Int = 45
         @Volatile var poolSideSpin: Float = 0f
         @Volatile var poolFollowSpin: Float = 0f
+        @Volatile var poolAimBonus: Int = 0
         @Volatile var poolMoving: Boolean = false
         @Volatile var poolCueStroke: Float = 0f
         @Volatile var poolCueInHand: Boolean = false
@@ -608,10 +611,9 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         override fun onDrawFrame(gl: GL10?) {
             val seconds = (System.nanoTime() - startedAt) / 1_000_000_000f
             if (scene == Scene.POOL) {
-                // A restrained blue room pulse gives the arena depth without
-                // making the cloth or balls flash like an arcade machine.
-                val roomPulse = .004f + (sin(seconds * .62f) + 1f) * .0025f
-                GLES20.glClearColor(.004f, .012f + roomPulse, .035f + roomPulse * 2.4f, 1f)
+                // A fixed room exposure avoids visible flashing on large
+                // Android displays while preserving the table's contrast.
+                GLES20.glClearColor(.004f, .018f, .046f, 1f)
             } else {
                 GLES20.glClearColor(.035f, .045f, .065f, 1f)
             }
@@ -1087,8 +1089,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             }
             val pocketLeather = floatArrayOf(.055f, .021f, .012f, 1f)
             val railSight = floatArrayOf(.90f, .94f, 1f, 1f)
-            val pulse = .58f + (sin(seconds * 1.10f) + 1f) * .09f
-            // Dark lounge floor, blue under-light and a physical table plinth.
+            // Neutral lounge floor and a physical table plinth.  A real table
+            // does not glow underneath or pulse while the player is aiming.
             draw(cube, 0f, -.72f, 0f, 7.8f, .05f, 4.45f, floatArrayOf(.006f, .012f, .026f, 1f), .08f)
             // The apron and legs give the table a real centre of gravity. The
             // old floating slab looked polished but had no believable weight
@@ -1108,10 +1110,6 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                     draw(cylinder, x, -.56f, z, .11f, .035f, .11f, apronHighlight, .82f, material = 3f)
                 }
             }
-            draw(cube, 0f, -.56f, -2.93f, 4.82f, .026f, .028f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
-            draw(cube, 0f, -.56f, 2.93f, 4.82f, .026f, .028f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
-            draw(cube, -5.48f, -.56f, 0f, .028f, .026f, 2.53f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
-            draw(cube, 5.48f, -.56f, 0f, .028f, .026f, 2.53f, floatArrayOf(.015f, .32f, .92f, pulse), .94f, material = 3f)
             draw(cube, 0f, -.24f, 0f, 5.15f, .30f, 2.82f, frameWood, .38f, material = 1f, poolCutout = true)
             // A regulation playing surface is 2:1. The previous 1.7:1 table
             // looked squat and immediately read as a prototype.
@@ -1173,32 +1171,33 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 floatArrayOf(.46f, .03f, .06f, 1f),
                 floatArrayOf(.008f, .012f, .018f, 1f),
             )
-            // Mechanical ball-return assembly: three compact polished U
-            // tracks behind the head rail.  The previous square-bar version
-            // created a tall metal fence on tablets; round tubing keeps the
-            // silhouette close to a real table return and leaves the cloth
-            // visually dominant.
-            val returnBed = floatArrayOf(.012f, .024f, .042f, 1f)
-            val returnWell = floatArrayOf(.005f, .010f, .019f, 1f)
-            val returnRail = floatArrayOf(.72f, .80f, .89f, 1f)
-            val returnJoint = floatArrayOf(.95f, .97f, 1f, 1f)
-            val returnBaseZ = -3.24f
-            draw(cube, 0f, .22f, returnBaseZ, 3.70f, .17f, .60f, returnBed, .18f, material = 1f)
-            draw(cube, 0f, .30f, returnBaseZ, 3.48f, .028f, .43f, returnWell, .05f, material = 8f)
+            // Mechanical ball return: three nested, rounded steel lanes
+            // behind the head rail.  It is a collector, not a decorative
+            // fence: no repeated crossbars, dark recessed well and only the
+            // two bent side returns visible from the player camera.
+            val returnWell = floatArrayOf(.006f, .012f, .022f, 1f)
+            val returnRail = floatArrayOf(.30f, .35f, .42f, 1f)
+            val returnHighlight = floatArrayOf(.73f, .80f, .88f, 1f)
+            val returnJoint = floatArrayOf(.44f, .50f, .58f, 1f)
+            val returnBaseZ = -3.14f
+            draw(cube, 0f, .31f, returnBaseZ - .18f, 3.96f, .15f, .32f, returnWell, .05f, material = 8f)
             repeat(3) { index ->
-                val halfWidth = 3.42f - index * .19f
-                val y = .47f + index * .085f
-                val rearZ = -3.48f + index * .055f
-                val frontZ = -3.18f + index * .055f
-                val turnX = halfWidth
-                val tube = .027f
-                // Cylinder axes are rotated into X and Z to produce smooth
-                // chrome tubes instead of a ladder of rectangular posts.
-                draw(cylinder, 0f, y, frontZ, tube, halfWidth, tube, returnRail, .94f, rotationZ = 90f, material = 3f)
-                draw(cylinder, 0f, y, rearZ, tube, halfWidth, tube, returnRail, .94f, rotationZ = 90f, material = 3f)
-                draw(cylinder, turnX, y, (frontZ + rearZ) / 2f, tube, .15f, tube, returnRail, .94f, rotationX = 90f, material = 3f)
-                draw(sphere, turnX, y, frontZ, .038f, .038f, .038f, returnJoint, .90f, material = 3f)
-                draw(sphere, turnX, y, rearZ, .038f, .038f, .038f, returnJoint, .90f, material = 3f)
+                val halfWidth = 3.72f - index * .18f
+                val y = .44f + index * .14f
+                val z = returnBaseZ - index * .16f
+                val tube = .031f
+                // Main polished lane plus a restrained top highlight.
+                draw(cylinder, 0f, y, z, tube, halfWidth, tube, returnRail, .86f, rotationZ = 90f, material = 3f)
+                draw(cylinder, 0f, y + .010f, z - .012f, .010f, halfWidth - .09f, .010f, returnHighlight, .95f, rotationZ = 90f, material = 3f)
+                listOf(-1f, 1f).forEach { side ->
+                    val endX = side * halfWidth
+                    draw(sphere, endX, y, z, .042f, .042f, .042f, returnJoint, .82f, material = 3f)
+                    // The short side bends make each rail read as a real U
+                    // collector while retaining a clean silhouette.
+                    if (index < 2) {
+                        draw(cylinder, endX, y + .07f, z - .08f, tube, .09f, tube, returnRail, .86f, rotationX = 90f, material = 3f)
+                    }
+                }
             }
             val returnedBalls = poolBalls.filter { it.size >= 6 && it[2].toInt() > 0 && it[5] >= .5f }
                 .map { it[2].toInt() }.sorted().take(15)
@@ -1207,13 +1206,13 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val slot = index % 5
                 // Balls sit in the actual return wells, between the front and
                 // rear rails, instead of floating on the decorative top bar.
-                val x = -2.38f + slot * 1.19f
-                val z = -3.25f + lane * .075f
+                val x = -2.70f + slot * 1.35f
+                val z = returnBaseZ - lane * .14f
                 val color = colors[(id - 1).mod(colors.size)]
                 drawSoftShadow(x, z, .105f, .065f)
-                draw(sphere, x, .47f + lane * .060f, z, .115f, .115f, .115f, color, .92f, material = if (id >= 9) 6f else 5f)
-                draw(cylinder, x, .571f + lane * .060f, z, .046f, .002f, .046f, floatArrayOf(.98f, .985f, 1f, 1f), .30f)
-                drawPoolNumber(id, x, z)
+                draw(sphere, x, .54f + lane * .14f, z, .115f, .115f, .115f, color, .92f, material = if (id >= 9) 6f else 5f)
+                draw(cylinder, x, .64f + lane * .14f, z, .046f, .002f, .046f, floatArrayOf(.98f, .985f, 1f, 1f), .30f)
+                drawPoolNumber(id, x, z, .657f + lane * .14f)
             }
             poolBalls.forEach { ball ->
                 if (ball.size < 6 || ball[5] >= .5f) return@forEach
@@ -1221,9 +1220,6 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val x = (ball[0] - .5f) * 10.2f
                 val z = (ball[1] - .5f) * 5.10f
                 val color = if (id == 0) floatArrayOf(.97f, .98f, 1f, 1f) else colors[(id - 1).mod(colors.size)]
-                val velocityX = ball.getOrElse(3) { 0f }
-                val velocityY = ball.getOrElse(4) { 0f }
-                val speed = sqrt(velocityX * velocityX + velocityY * velocityY)
                 // The stripe and number plate rotate with the actual physics
                 // velocity passed by the pool engine, rather than a generic
                 // animation unrelated to the shot.
@@ -1240,18 +1236,6 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val rotationX = rolling[2] % 360f
                 val rotationZ = rolling[3] % 360f
                 drawSoftShadow(x, z, .14f, .10f)
-                if (poolMoving && speed > .12f) {
-                    // Short velocity-linked reflections communicate speed but
-                    // remain behind the physical ball, never ahead of it.
-                    val inverse = 1f / speed.coerceAtLeast(.001f)
-                    val trailX = -velocityX * inverse
-                    val trailZ = -velocityY * inverse
-                    repeat(2) { index ->
-                        val distance = .105f + index * .075f
-                        val alpha = (.055f - index * .018f) * (speed * 5f).coerceIn(.25f, 1f)
-                        draw(cube, x + trailX * distance, .183f, z + trailZ * distance, .052f, .004f, .012f, floatArrayOf(.62f, .84f, 1f, alpha), .18f, rotationY = -Math.toDegrees(kotlin.math.atan2(trailZ, trailX).toDouble()).toFloat())
-                    }
-                }
                 if (id >= 9) {
                     draw(sphere, x, .295f, z, .145f, .145f, .145f, color, .88f, rotationX = rotationX, rotationZ = rotationZ, material = 6f)
                 } else {
@@ -1310,7 +1294,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 // contact instead of displaying a decorative fixed line.
                 val xLimit = if (directionX > .0001f) (4.70f - cueX) / directionX else if (directionX < -.0001f) (-4.70f - cueX) / directionX else 20f
                 val zLimit = if (directionZ > .0001f) (2.16f - cueZ) / directionZ else if (directionZ < -.0001f) (-2.16f - cueZ) / directionZ else 20f
-                var guideDistance = xLimit.coerceAtMost(zLimit).coerceIn(.45f, 9.8f)
+                val maximumGuide = 5.6f + poolAimBonus * .85f
+                var guideDistance = xLimit.coerceAtMost(zLimit).coerceIn(.45f, maximumGuide)
                 var guideTarget: FloatArray? = null
                 poolBalls.forEach { candidate ->
                     if (candidate.size < 3 || candidate[2] <= 0f) return@forEach
@@ -1434,7 +1419,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             for (rib in -3..3) draw(sphere, x + .065f + rib * .023f, .638f, z + .398f, .003f, .004f, .033f, seam, 0f, material = 9f)
         }
 
-        private fun drawPoolNumber(number: Int, centerX: Float, centerZ: Float) {
+        private fun drawPoolNumber(number: Int, centerX: Float, centerZ: Float, centerY: Float = .448f) {
             val ink = floatArrayOf(.008f, .012f, .020f, 1f)
             val digits = number.coerceIn(1, 15).toString()
             val patterns = mapOf(
@@ -1448,8 +1433,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             digits.forEachIndexed { index, digit ->
                 val offsetX = if (digits.length == 1) 0f else (index * 2 - 1) * .020f
                 val segments = patterns[digit].orEmpty()
-                fun horizontal(z: Float) = draw(cube, centerX + offsetX, .448f, centerZ + z * scale, .012f * scale, .002f, .0028f * scale, ink, .42f)
-                fun vertical(x: Float, z: Float) = draw(cube, centerX + offsetX + x * scale, .448f, centerZ + z * scale, .0028f * scale, .002f, .009f * scale, ink, .42f)
+                fun horizontal(z: Float) = draw(cube, centerX + offsetX, centerY, centerZ + z * scale, .012f * scale, .002f, .0028f * scale, ink, .42f)
+                fun vertical(x: Float, z: Float) = draw(cube, centerX + offsetX + x * scale, centerY, centerZ + z * scale, .0028f * scale, .002f, .009f * scale, ink, .42f)
                 if (0 in segments) horizontal(-.020f)
                 if (1 in segments) vertical(-.010f, -.010f)
                 if (2 in segments) vertical(.010f, -.010f)

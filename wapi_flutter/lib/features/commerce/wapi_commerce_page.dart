@@ -99,6 +99,20 @@ class _WapiCommercePageState extends State<WapiCommercePage> {
     await _refresh();
   }
 
+  Future<void> _createAdCampaign() async {
+    if (_pages.isEmpty) {
+      await _createBusiness();
+      return;
+    }
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _AdCampaignForm(api: _api, pages: _pages),
+      ),
+    );
+    if (created == true) await _refresh();
+  }
+
   Future<void> _listingDetails(Map<String, dynamic> listing) async {
     final mine = _string(listing['ownerId']) == widget.user.uid;
     await showModalBottomSheet<void>(
@@ -279,6 +293,7 @@ class _WapiCommercePageState extends State<WapiCommercePage> {
       index: _tab,
       children: [
         _BusinessTab(
+          userId: widget.user.uid,
           pages: _pages,
           listings: _listings,
           loading: _loading,
@@ -290,6 +305,7 @@ class _WapiCommercePageState extends State<WapiCommercePage> {
           onOpenWia: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => WiaChatPage(user: widget.user)),
           ),
+          onCreateAd: _createAdCampaign,
         ),
         _MarketplaceTab(
           listings: _listings,
@@ -322,6 +338,7 @@ class _WapiCommercePageState extends State<WapiCommercePage> {
 
 class _BusinessTab extends StatelessWidget {
   const _BusinessTab({
+    required this.userId,
     required this.pages,
     required this.listings,
     required this.loading,
@@ -331,7 +348,9 @@ class _BusinessTab extends StatelessWidget {
     required this.onCreateListing,
     required this.onOpenBilling,
     required this.onOpenWia,
+    required this.onCreateAd,
   });
+  final String userId;
   final List<Map<String, dynamic>> pages;
   final List<Map<String, dynamic>> listings;
   final bool loading;
@@ -341,6 +360,7 @@ class _BusinessTab extends StatelessWidget {
   final Future<void> Function() onCreateListing;
   final Future<void> Function() onOpenBilling;
   final VoidCallback onOpenWia;
+  final Future<void> Function() onCreateAd;
   @override
   Widget build(BuildContext context) {
     final mine = listings
@@ -456,6 +476,14 @@ class _BusinessTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _BusinessBenefits(onBilling: onOpenBilling, onWia: onOpenWia),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: onCreateAd,
+              icon: const Icon(Icons.campaign_rounded),
+              label: const Text('Créer une campagne publicitaire'),
+            ),
+            const SizedBox(height: 18),
+            _BusinessCampaigns(userId: userId, onCreate: onCreateAd),
             const SizedBox(height: 18),
             const Text(
               'MES ACTIVITÉS',
@@ -483,6 +511,848 @@ class _BusinessTab extends StatelessWidget {
     );
   }
 }
+
+class _BusinessCampaigns extends StatelessWidget {
+  const _BusinessCampaigns({required this.userId, required this.onCreate});
+
+  final String userId;
+  final Future<void> Function() onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('adCampaigns')
+          .where('ownerId', isEqualTo: userId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _CampaignEmpty(
+            icon: Icons.sync_problem_rounded,
+            title: 'Suivi momentanément indisponible',
+            body: 'WAPI réessaie automatiquement dès que le réseau revient.',
+            onCreate: onCreate,
+          );
+        }
+        if (!snapshot.hasData) {
+          return const SizedBox(
+            height: 96,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final campaigns =
+            snapshot.data!.docs
+                .map((document) => {'id': document.id, ...document.data()})
+                .toList()
+              ..sort(
+                (a, b) => _campaignMillis(
+                  b['createdAt'],
+                ).compareTo(_campaignMillis(a['createdAt'])),
+              );
+        if (campaigns.isEmpty) {
+          return _CampaignEmpty(
+            icon: Icons.campaign_outlined,
+            title: 'Lancez votre première diffusion',
+            body:
+                'Ajoutez une image, choisissez votre audience et suivez les résultats depuis ce tableau.',
+            onCreate: onCreate,
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'MES CAMPAGNES',
+                    style: TextStyle(
+                      color: WapiColors.muted,
+                      fontSize: 11,
+                      letterSpacing: .7,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Nouvelle'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            ...campaigns.take(5).map(_CampaignCard.new),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CampaignEmpty extends StatelessWidget {
+  const _CampaignEmpty({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.onCreate,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final Future<void> Function() onCreate;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF3F7F8),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0xFFDCE7EA)),
+    ),
+    child: Row(
+      children: [
+        CircleAvatar(
+          backgroundColor: const Color(0xFFDDF7F1),
+          foregroundColor: const Color(0xFF087D62),
+          child: Icon(icon),
+        ),
+        const SizedBox(width: 13),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 3),
+              Text(
+                body,
+                style: const TextStyle(color: WapiColors.muted, height: 1.3),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CampaignCard extends StatelessWidget {
+  const _CampaignCard(this.campaign);
+
+  final Map<String, dynamic> campaign;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = _string(campaign['creativeImageUrl']);
+    final impressions = _int(campaign['impressionCount']);
+    final clicks = _int(campaign['clickCount']);
+    final conversions = _int(campaign['conversionCount']);
+    final target = _int(campaign['targetImpressions']);
+    final progress = target <= 0 ? 0.0 : (impressions / target).clamp(0.0, 1.0);
+    final status = _string(campaign['status'], fallback: 'pending_payment');
+    final color = switch (status) {
+      'active' => const Color(0xFF087D62),
+      'paused' => const Color(0xFFF29900),
+      'completed' => const Color(0xFF246BCE),
+      _ => const Color(0xFF6B7280),
+    };
+    final statusLabel = switch (status) {
+      'active' => 'En diffusion',
+      'paused' => 'En pause',
+      'completed' => 'Terminée',
+      _ => 'Paiement à finaliser',
+    };
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2EAED)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0C102A43),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: SizedBox(
+              width: 74,
+              height: 74,
+              child: imageUrl.isEmpty
+                  ? const ColoredBox(
+                      color: Color(0xFFE7F4F2),
+                      child: Icon(
+                        Icons.campaign_rounded,
+                        color: Color(0xFF087D62),
+                      ),
+                    )
+                  : Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      cacheWidth: 220,
+                      gaplessPlayback: true,
+                      errorBuilder: (_, _, _) => const ColoredBox(
+                        color: Color(0xFFE7F4F2),
+                        child: Icon(
+                          Icons.image_not_supported_outlined,
+                          color: Color(0xFF087D62),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _string(campaign['title'], fallback: 'Campagne WAPI'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: .1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 5,
+                    backgroundColor: const Color(0xFFE8EEF0),
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 9),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    _CampaignMetric(label: 'Vues', value: '$impressions'),
+                    _CampaignMetric(label: 'Clics', value: '$clicks'),
+                    _CampaignMetric(label: 'Résultats', value: '$conversions'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CampaignMetric extends StatelessWidget {
+  const _CampaignMetric({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Text.rich(
+    TextSpan(
+      text: '$value ',
+      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+      children: [
+        TextSpan(
+          text: label,
+          style: const TextStyle(
+            color: WapiColors.muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+int _campaignMillis(Object? value) => value is Timestamp
+    ? value.millisecondsSinceEpoch
+    : value is num
+    ? value.toInt()
+    : 0;
+
+class _AdCampaignForm extends StatefulWidget {
+  const _AdCampaignForm({required this.api, required this.pages});
+  final _CommerceApi api;
+  final List<Map<String, dynamic>> pages;
+
+  @override
+  State<_AdCampaignForm> createState() => _AdCampaignFormState();
+}
+
+class _AdCampaignFormState extends State<_AdCampaignForm> {
+  final _title = TextEditingController();
+  final _creative = TextEditingController();
+  final _cta = TextEditingController(text: 'Découvrir');
+  final _audience = TextEditingController(
+    text: 'Clients intéressés par mon activité',
+  );
+  final _city = TextEditingController(text: 'Brazzaville');
+  final _website = TextEditingController();
+  String? _pageId;
+  String _objective = 'messages';
+  String _placement = 'inbox';
+  String _destination = 'message';
+  double _dailyBudget = 2500;
+  double _days = 7;
+  bool _submitting = false;
+  XFile? _creativeImage;
+  Uint8List? _creativeImageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageId = _string(widget.pages.first['id']);
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _creative.dispose();
+    _cta.dispose();
+    _audience.dispose();
+    _city.dispose();
+    _website.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickCreativeImage() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    setState(() {
+      _creativeImage = picked;
+      _creativeImageBytes = bytes;
+    });
+  }
+
+  Future<void> _submit() async {
+    final pageId = _pageId;
+    if (pageId == null ||
+        _title.text.trim().length < 2 ||
+        _creative.text.trim().length < 2) {
+      _snack(
+        'Ajoutez un titre et un message pour votre publicité.',
+        error: true,
+      );
+      return;
+    }
+    setState(() => _submitting = true);
+    Reference? uploadedImage;
+    try {
+      String imageUrl = '';
+      String storagePath = '';
+      final user = FirebaseAuth.instance.currentUser;
+      if (_creativeImage != null &&
+          _creativeImageBytes != null &&
+          user != null) {
+        final rawType = _creativeImage!.mimeType ?? 'image/jpeg';
+        final contentType = rawType.startsWith('image/')
+            ? rawType
+            : 'image/jpeg';
+        final extension = contentType.split('/').last == 'jpeg'
+            ? 'jpg'
+            : contentType.split('/').last;
+        storagePath =
+            'businessAds/${user.uid}/$pageId/creative-${DateTime.now().microsecondsSinceEpoch}.$extension';
+        uploadedImage = FirebaseStorage.instance.ref(storagePath);
+        await uploadedImage.putData(
+          _creativeImageBytes!,
+          SettableMetadata(
+            contentType: contentType,
+            cacheControl: 'public,max-age=86400,immutable',
+          ),
+        );
+        imageUrl = await uploadedImage.getDownloadURL();
+      }
+      final result = await widget.api.createAdCampaign({
+        'pageId': pageId,
+        'objective': _objective,
+        'placement': _placement,
+        'destination': _destination,
+        'title': _title.text,
+        'creative': _creative.text,
+        'cta': _cta.text,
+        'creativeImageUrl': imageUrl,
+        'creativeStoragePath': storagePath,
+        'audience': _audience.text,
+        'city': _city.text,
+        'website': _website.text,
+        'days': _days.round(),
+        'dailyBudget': _dailyBudget.round(),
+      });
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Campagne préparée'),
+          content: Text(
+            'Budget estimé : ${_money(result['totalBudget'])} FCFA\n\nVotre campagne sera contrôlée avant sa diffusion.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Compris'),
+            ),
+          ],
+        ),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (uploadedImage != null) {
+        await uploadedImage.delete().catchError((_) {});
+      }
+      _snack(_errorText(error), error: true);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  void _snack(String text, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: error
+            ? const Color(0xFFB42318)
+            : const Color(0xFF087D62),
+        content: Text(text),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text(
+        'Nouvelle publicité',
+        style: TextStyle(fontWeight: FontWeight.w900),
+      ),
+    ),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+      children: [
+        const Text(
+          'Faites connaître votre activité',
+          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 5),
+        const Text(
+          'Choisissez qui voir, où diffuser et combien investir. WAPI vous montre le coût avant validation.',
+          style: TextStyle(color: WapiColors.muted, height: 1.35),
+        ),
+        const SizedBox(height: 18),
+        _section('1. Identité et message'),
+        DropdownButtonFormField<String>(
+          value: _pageId,
+          decoration: const InputDecoration(
+            labelText: 'Page Business',
+            prefixIcon: Icon(Icons.business_rounded),
+          ),
+          items: widget.pages
+              .map(
+                (page) => DropdownMenuItem(
+                  value: _string(page['id']),
+                  child: Text(_string(page['name'], fallback: 'Business WAPI')),
+                ),
+              )
+              .toList(),
+          onChanged: (value) => setState(() => _pageId = value),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _title,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'Titre de la publicité',
+            hintText: 'Ex. Nouvelle collection disponible',
+            prefixIcon: Icon(Icons.title_rounded),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _creative,
+          onChanged: (_) => setState(() {}),
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Texte de l’annonce',
+            hintText: 'Expliquez votre offre et ce que le client doit faire',
+            alignLabelWithHint: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _cta,
+          maxLength: 32,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'Texte du bouton',
+            hintText: 'Découvrir, Commander, Réserver…',
+            prefixIcon: Icon(Icons.touch_app_rounded),
+          ),
+        ),
+        const SizedBox(height: 4),
+        InkWell(
+          onTap: _pickCreativeImage,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            height: 112,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F7F5),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFC7DED7)),
+            ),
+            child: _creativeImageBytes == null
+                ? const Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Color(0xFFDDF5ED),
+                        child: Icon(Icons.add_photo_alternate_rounded),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Ajouter un visuel',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Photo carrée ou paysage, nette et sans surcharge.',
+                              style: TextStyle(
+                                color: WapiColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.memory(_creativeImageBytes!, fit: BoxFit.cover),
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: IconButton.filledTonal(
+                            onPressed: () => setState(() {
+                              _creativeImage = null;
+                              _creativeImageBytes = null;
+                            }),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _AdPreview(
+          title: _title.text.isEmpty ? 'Votre publicité' : _title.text,
+          creative: _creative.text.isEmpty
+              ? 'Votre message apparaîtra ici.'
+              : _creative.text,
+          cta: _cta.text.trim().isEmpty ? 'Découvrir' : _cta.text.trim(),
+          imageBytes: _creativeImageBytes,
+        ),
+        const SizedBox(height: 18),
+        _section('2. Objectif'),
+        _chips(
+          {
+            'reach': 'Visibilité',
+            'messages': 'Messages',
+            'traffic': 'Visites',
+            'sales': 'Ventes',
+          },
+          _objective,
+          (value) => setState(() => _objective = value),
+        ),
+        const SizedBox(height: 18),
+        _section('3. Audience et diffusion'),
+        TextField(
+          controller: _audience,
+          decoration: const InputDecoration(
+            labelText: 'Audience souhaitée',
+            hintText: 'Ex. Femmes 18–45 intéressées par la mode',
+            prefixIcon: Icon(Icons.people_alt_outlined),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _city,
+          decoration: const InputDecoration(
+            labelText: 'Ville ou zone',
+            prefixIcon: Icon(Icons.location_on_outlined),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _chips(
+          {
+            'inbox': 'Messages',
+            'profile_story': 'Stories',
+            'market': 'Marketplace',
+            'live': 'Lives',
+          },
+          _placement,
+          (value) => setState(() => _placement = value),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          value: _destination,
+          decoration: const InputDecoration(
+            labelText: 'Action du bouton',
+            prefixIcon: Icon(Icons.touch_app_outlined),
+          ),
+          items: const [
+            DropdownMenuItem(
+              value: 'message',
+              child: Text('Recevoir des messages'),
+            ),
+            DropdownMenuItem(
+              value: 'page',
+              child: Text('Voir ma page Business'),
+            ),
+            DropdownMenuItem(
+              value: 'call',
+              child: Text('Appeler mon Business'),
+            ),
+            DropdownMenuItem(
+              value: 'website',
+              child: Text('Visiter mon site HTTPS'),
+            ),
+          ],
+          onChanged: (value) =>
+              setState(() => _destination = value ?? 'message'),
+        ),
+        if (_destination == 'website') ...[
+          const SizedBox(height: 10),
+          TextField(
+            controller: _website,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              labelText: 'Site HTTPS de destination',
+              prefixIcon: Icon(Icons.link_rounded),
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
+        _section('4. Budget et durée'),
+        Text(
+          'Budget quotidien : ${_money(_dailyBudget.round())} FCFA',
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        Slider(
+          value: _dailyBudget,
+          min: 500,
+          max: 50000,
+          divisions: 99,
+          label: '${_dailyBudget.round()} FCFA',
+          onChanged: (value) => setState(() => _dailyBudget = value),
+        ),
+        Text(
+          'Durée : ${_days.round()} jour${_days.round() > 1 ? 's' : ''}',
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        Slider(
+          value: _days,
+          min: 1,
+          max: 90,
+          divisions: 89,
+          label: '${_days.round()} jours',
+          onChanged: (value) => setState(() => _days = value),
+        ),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF8F4),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            'Total estimé : ${_money(_dailyBudget.round() * _days.round())} FCFA\nLa campagne reste en attente de paiement et de contrôle avant diffusion.',
+            style: const TextStyle(
+              color: Color(0xFF176451),
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          onPressed: _submitting ? null : _submit,
+          icon: _submitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.check_circle_outline),
+          label: Text(_submitting ? 'Préparation…' : 'Préparer ma campagne'),
+        ),
+      ],
+    ),
+  );
+
+  Widget _section(String title) => Padding(
+    padding: const EdgeInsets.only(bottom: 9),
+    child: Text(
+      title,
+      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+    ),
+  );
+
+  Widget _chips(
+    Map<String, String> labels,
+    String selected,
+    ValueChanged<String> onSelected,
+  ) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: labels.entries
+        .map(
+          (entry) => ChoiceChip(
+            label: Text(entry.value),
+            selected: selected == entry.key,
+            onSelected: (_) => onSelected(entry.key),
+          ),
+        )
+        .toList(),
+  );
+}
+
+class _AdPreview extends StatelessWidget {
+  const _AdPreview({
+    required this.title,
+    required this.creative,
+    required this.cta,
+    this.imageBytes,
+  });
+  final String title;
+  final String creative;
+  final String cta;
+  final Uint8List? imageBytes;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(15),
+    decoration: BoxDecoration(
+      color: const Color(0xFF062233),
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            CircleAvatar(
+              radius: 15,
+              backgroundColor: Color(0xFF0B8068),
+              child: Icon(Icons.storefront_rounded, size: 16),
+            ),
+            SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                'APERÇU DE LA PUBLICITÉ',
+                style: TextStyle(
+                  color: Color(0xFF7CE5FF),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1,
+                ),
+              ),
+            ),
+            Text(
+              'Sponsorisé',
+              style: TextStyle(color: Color(0xFF9FC2C7), fontSize: 10),
+            ),
+          ],
+        ),
+        if (imageBytes != null) ...[
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Image.memory(imageBytes!, fit: BoxFit.cover),
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          creative,
+          style: const TextStyle(color: Color(0xFFD8EFF3), height: 1.3),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.arrow_forward_rounded),
+            label: Text(cta),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+String _money(Object? value) => (int.tryParse(value?.toString() ?? '') ?? 0)
+    .toString()
+    .replaceAllMapped(RegExp(r'(?<!^)(?=(\d{3})+$)'), (match) => ' ');
 
 class _BusinessIdentityBanner extends StatelessWidget {
   const _BusinessIdentityBanner({required this.page, required this.onOpenWia});
@@ -807,6 +1677,7 @@ class _MarketplaceTab extends StatefulWidget {
 
 class _MarketplaceTabState extends State<_MarketplaceTab> {
   String _search = '';
+  String _mode = 'all';
   @override
   Widget build(BuildContext context) {
     final shown = widget.listings.where((item) {
@@ -818,8 +1689,11 @@ class _MarketplaceTabState extends State<_MarketplaceTab> {
           _string(item['category']) +
           ' ' +
           _string(item['place']);
-      return _search.isEmpty ||
-          text.toLowerCase().contains(_search.toLowerCase());
+      final matchesText =
+          _search.isEmpty || text.toLowerCase().contains(_search.toLowerCase());
+      final matchesMode =
+          _mode == 'all' || _string(item['mode'], fallback: 'sale') == _mode;
+      return matchesText && matchesMode;
     }).toList();
     return RefreshIndicator(
       onRefresh: widget.onRefresh,
@@ -864,6 +1738,34 @@ class _MarketplaceTabState extends State<_MarketplaceTab> {
               hintText: 'Rechercher une annonce',
             ),
           ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 42,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              children:
+                  const <(String, String, IconData)>[
+                    ('all', 'Tout', Icons.grid_view_rounded),
+                    ('sale', 'À vendre', Icons.shopping_bag_outlined),
+                    ('trade', 'Troc', Icons.swap_horiz_rounded),
+                    ('auction', 'Enchères', Icons.gavel_rounded),
+                    ('job', 'Emplois', Icons.work_outline_rounded),
+                    ('service', 'Services', Icons.handyman_outlined),
+                  ].map((filter) {
+                    final selected = _mode == filter.$1;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        selected: selected,
+                        onSelected: (_) => setState(() => _mode = filter.$1),
+                        avatar: Icon(filter.$3, size: 17),
+                        label: Text(filter.$2),
+                      ),
+                    );
+                  }).toList(),
+            ),
+          ),
           const SizedBox(height: 16),
           if (widget.loading && widget.listings.isEmpty)
             const Padding(
@@ -887,15 +1789,31 @@ class _MarketplaceTabState extends State<_MarketplaceTab> {
               actionLabel: 'Créer une annonce',
             )
           else
-            ...shown.map(
-              (listing) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _ListingCard(
-                  listing: listing,
-                  onTap: () => widget.onOpen(listing),
+            ...shown.indexed.map((entry) {
+              final listing = entry.$2;
+              return TweenAnimationBuilder<double>(
+                key: ValueKey(_string(listing['id'])),
+                tween: Tween(begin: 0, end: 1),
+                duration: Duration(
+                  milliseconds: 220 + entry.$1.clamp(0, 5) * 45,
                 ),
-              ),
-            ),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) => Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 12 * (1 - value)),
+                    child: child,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _ListingCard(
+                    listing: listing,
+                    onTap: () => widget.onOpen(listing),
+                  ),
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -1565,13 +2483,24 @@ class _CommerceApi {
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
     region: 'europe-west1',
   );
+  Future<Map<String, dynamic>> createAdCampaign(
+    Map<String, dynamic> data,
+  ) async {
+    final result = await _functions
+        .httpsCallable('createAdCampaign')
+        .call<Map<String, dynamic>>(data)
+        .timeout(const Duration(seconds: 25));
+    return _map(result.data);
+  }
+
   Future<Map<String, dynamic>> call(
     String action, [
     Map<String, dynamic> data = const {},
   ]) async {
     final result = await _functions
         .httpsCallable('wapiCommerce')
-        .call<Map<String, dynamic>>({'action': action, ...data});
+        .call<Map<String, dynamic>>({'action': action, ...data})
+        .timeout(const Duration(seconds: 20));
     return _map(result.data);
   }
 }
@@ -1584,6 +2513,7 @@ Map<String, dynamic> _map(Object? value) =>
     value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 String _string(Object? value, {String fallback = ''}) =>
     value is String && value.trim().isNotEmpty ? value.trim() : fallback;
+int _int(Object? value) => value is num ? value.toInt() : 0;
 String _firstPhoto(Map<String, dynamic> listing) {
   final photos = listing['photoUrls'];
   if (photos is List && photos.isNotEmpty) return _string(photos.first);
@@ -1629,9 +2559,8 @@ String _offerLabel(String mode) => mode == 'auction'
     : mode == 'trade'
     ? 'Votre proposition d’échange'
     : 'Votre offre';
-String _errorText(Object error) =>
-    error is FirebaseFunctionsException &&
-        error.message != null &&
-        error.message!.isNotEmpty
-    ? error.message!
-    : 'Cette action n’a pas pu être terminée. Vérifiez la connexion puis réessayez.';
+String _errorText(Object error) => wapiErrorText(
+  error is FirebaseFunctionsException ? error.message : error,
+  fallback:
+      'Cette action n’a pas pu être terminée. Vérifiez la connexion puis réessayez.',
+);

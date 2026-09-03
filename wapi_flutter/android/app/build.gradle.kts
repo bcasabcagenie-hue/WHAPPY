@@ -88,13 +88,27 @@ val prepareWapiPool3dTextures by tasks.registering(Sync::class) {
     into(layout.buildDirectory.dir("generated/res/wapiPool3d/main/drawable-nodpi"))
 }
 
+// Short game effects are bundled as native raw resources so SoundPool can
+// play them with low latency even after a call or a media player changed the
+// Flutter audio session.
+val prepareWapiPool3dAudio by tasks.registering(Sync::class) {
+    from("../../../android/app/src/main/res/raw") {
+        include("wapi_pool_cue.wav")
+        include("wapi_pool_collision.wav")
+        include("wapi_pool_cushion.wav")
+        include("wapi_pool_pocket.wav")
+    }
+    into(layout.buildDirectory.dir("generated/res/wapiPool3d/main/raw"))
+}
+
 tasks.configureEach {
-    if (name != "prepareWapiPool3d" && name != "prepareWapiPool3dTextures" &&
+    if (name != "prepareWapiPool3d" && name != "prepareWapiPool3dTextures" && name != "prepareWapiPool3dAudio" &&
         (name.contains("Kotlin", ignoreCase = true) ||
             name.contains("Resource", ignoreCase = true) ||
             name.contains("SourceSet", ignoreCase = true))) {
         dependsOn(prepareWapiPool3d)
         dependsOn(prepareWapiPool3dTextures)
+        dependsOn(prepareWapiPool3dAudio)
     }
 }
 

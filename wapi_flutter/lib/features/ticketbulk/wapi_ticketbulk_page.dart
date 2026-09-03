@@ -129,6 +129,28 @@ class _WapiTicketBulkPageState extends State<WapiTicketBulkPage> {
     if (changed == true) await _refresh();
   }
 
+  void _openReservedTicket(
+    BuildContext sheetContext,
+    Map<String, dynamic> event,
+  ) {
+    Navigator.pop(sheetContext);
+    final eventId = _string(event['id']);
+    Map<String, dynamic>? match;
+    for (final ticket in _tickets) {
+      if (_string(ticket['eventId']) == eventId &&
+          _string(ticket['status']) == 'issued') {
+        match = ticket;
+        break;
+      }
+    }
+    if (match != null) {
+      _showTicket(match);
+    } else {
+      setState(() => _tab = 1);
+      _toast('Votre billet est disponible dans Mes billets.');
+    }
+  }
+
   Future<void> _showEvent(Map<String, dynamic> event) {
     final remaining =
         (_integer(event['capacity']) - _integer(event['reserved'])).clamp(
@@ -187,6 +209,11 @@ class _WapiTicketBulkPageState extends State<WapiTicketBulkPage> {
                 icon: Icons.calendar_month_rounded,
                 value: _date(_integer(event['startsAt'])),
               ),
+              if (_integer(event['doorsAt']) > 0)
+                _Detail(
+                  icon: Icons.door_front_door_outlined,
+                  value: 'Ouverture · ${_date(_integer(event['doorsAt']))}',
+                ),
               _Detail(
                 icon: Icons.location_on_outlined,
                 value: _string(event['venue']),
@@ -198,6 +225,11 @@ class _WapiTicketBulkPageState extends State<WapiTicketBulkPage> {
                   fallback: 'Organisateur WAPI',
                 ),
               ),
+              if (_string(event['contact']).isNotEmpty)
+                _Detail(
+                  icon: Icons.contact_phone_outlined,
+                  value: _string(event['contact']),
+                ),
               if (_string(event['description']).isNotEmpty) ...[
                 const SizedBox(height: 18),
                 const Text(
@@ -207,6 +239,36 @@ class _WapiTicketBulkPageState extends State<WapiTicketBulkPage> {
                 const SizedBox(height: 6),
                 Text(
                   _string(event['description']),
+                  style: const TextStyle(
+                    height: 1.45,
+                    color: Color(0xFF43515B),
+                  ),
+                ),
+              ],
+              if (_string(event['agenda']).isNotEmpty) ...[
+                const SizedBox(height: 18),
+                const Text(
+                  'Programme',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _string(event['agenda']),
+                  style: const TextStyle(
+                    height: 1.45,
+                    color: Color(0xFF43515B),
+                  ),
+                ),
+              ],
+              if (_string(event['terms']).isNotEmpty) ...[
+                const SizedBox(height: 18),
+                const Text(
+                  'Conditions d’accès',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _string(event['terms']),
                   style: const TextStyle(
                     height: 1.45,
                     color: Color(0xFF43515B),
@@ -267,9 +329,9 @@ class _WapiTicketBulkPageState extends State<WapiTicketBulkPage> {
                 )
               else if (_string(event['myTicketStatus']) == 'issued')
                 OutlinedButton.icon(
-                  onPressed: null,
+                  onPressed: () => _openReservedTicket(sheetContext, event),
                   icon: Icon(Icons.verified_outlined),
-                  label: Text('Billet déjà réservé'),
+                  label: Text('Afficher mon billet'),
                 )
               else
                 FilledButton.icon(
@@ -1288,10 +1350,15 @@ class _EventFormState extends State<_EventForm> {
   final _category = TextEditingController(text: 'Événement');
   final _ticket = TextEditingController(text: 'Accès général');
   final _capacity = TextEditingController(text: '100');
+  final _agenda = TextEditingController();
+  final _contact = TextEditingController();
+  final _terms = TextEditingController();
   late String _page = _string(widget.pages.first['id']);
   DateTime _starts = DateTime.now().add(const Duration(days: 1, hours: 2));
+  late DateTime _doors = _starts.subtract(const Duration(hours: 1));
   File? _poster;
   bool _saving = false;
+  int _step = 0;
   @override
   void dispose() {
     _title.dispose();
@@ -1300,6 +1367,9 @@ class _EventFormState extends State<_EventForm> {
     _category.dispose();
     _ticket.dispose();
     _capacity.dispose();
+    _agenda.dispose();
+    _contact.dispose();
+    _terms.dispose();
     super.dispose();
   }
 
@@ -1335,16 +1405,63 @@ class _EventFormState extends State<_EventForm> {
       context: context,
       initialTime: TimeOfDay.fromDateTime(_starts),
     );
-    if (time != null && mounted)
-      setState(
-        () => _starts = DateTime(
+    if (time != null && mounted) {
+      setState(() {
+        _starts = DateTime(
           day.year,
           day.month,
           day.day,
           time.hour,
           time.minute,
+        );
+        if (!_doors.isBefore(_starts) || _doors.day != _starts.day) {
+          _doors = _starts.subtract(const Duration(hours: 1));
+        }
+      });
+    }
+  }
+
+  Future<void> _doorsPick() async {
+    final value = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_doors),
+      helpText: 'HEURE D’OUVERTURE DES PORTES',
+    );
+    if (value == null || !mounted) return;
+    final next = DateTime(
+      _starts.year,
+      _starts.month,
+      _starts.day,
+      value.hour,
+      value.minute,
+    );
+    if (!next.isBefore(_starts)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('L’ouverture des portes doit précéder le début.'),
         ),
       );
+      return;
+    }
+    setState(() => _doors = next);
+  }
+
+  void _continue() {
+    if (_step == 0 && _title.text.trim().length < 2) {
+      _notice('Ajoutez le nom de l’événement.');
+      return;
+    }
+    if (_step == 1 && _venue.text.trim().length < 2) {
+      _notice('Ajoutez le lieu ou les informations d’accès.');
+      return;
+    }
+    setState(() => _step = (_step + 1).clamp(0, 2));
+  }
+
+  void _notice(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _save() async {
@@ -1374,7 +1491,11 @@ class _EventFormState extends State<_EventForm> {
         'description': _description.text.trim(),
         'category': _category.text.trim(),
         'ticketLabel': _ticket.text.trim(),
+        'agenda': _agenda.text.trim(),
+        'contact': _contact.text.trim(),
+        'terms': _terms.text.trim(),
         'capacity': capacity,
+        'doorsAt': _doors.millisecondsSinceEpoch,
         'startsAt': _starts.millisecondsSinceEpoch,
         if (photo != null) 'posterBase64': photo,
       });
@@ -1390,132 +1511,368 @@ class _EventFormState extends State<_EventForm> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text(
-        'Créer un événement',
-        style: TextStyle(fontWeight: FontWeight.w900),
+  Widget build(BuildContext context) {
+    final pages = <Widget>[
+      ListView(
+        key: const ValueKey('event-identity'),
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+        children: [
+          const _EventStepTitle(
+            icon: Icons.auto_awesome_rounded,
+            title: 'Identité de l’événement',
+            subtitle:
+                'Une affiche claire et un titre précis inspirent confiance.',
+          ),
+          DropdownButtonFormField<String>(
+            initialValue: _page,
+            items: widget.pages
+                .map(
+                  (page) => DropdownMenuItem(
+                    value: _string(page['id']),
+                    child: Text(
+                      _string(page['name'], fallback: 'Business WAPI'),
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: _saving
+                ? null
+                : (value) => setState(() => _page = value ?? _page),
+            decoration: const InputDecoration(labelText: 'Organisateur'),
+          ),
+          const SizedBox(height: 14),
+          InkWell(
+            onTap: _saving ? null : _posterPick,
+            borderRadius: BorderRadius.circular(20),
+            child: Ink(
+              height: 190,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF8F4),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFB7DED1)),
+              ),
+              child: _poster == null
+                  ? const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_photo_alternate_outlined,
+                          color: Color(0xFF087D62),
+                          size: 38,
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Ajouter l’affiche',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF176451),
+                          ),
+                        ),
+                        Text(
+                          'Format vertical ou paysage · 5 Mo maximum',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF176451),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: Image.file(_poster!, fit: BoxFit.cover),
+                        ),
+                        Positioned(
+                          right: 10,
+                          bottom: 10,
+                          child: IconButton.filledTonal(
+                            onPressed: _posterPick,
+                            icon: const Icon(Icons.edit_rounded),
+                            tooltip: 'Changer l’affiche',
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _title,
+            maxLength: 100,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(labelText: 'Nom de l’événement'),
+          ),
+          TextField(
+            controller: _category,
+            maxLength: 60,
+            decoration: const InputDecoration(
+              labelText: 'Catégorie · concert, sport, formation…',
+            ),
+          ),
+        ],
       ),
-    ),
-    body: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
-      children: [
-        DropdownButtonFormField<String>(
-          value: _page,
-          items: widget.pages
-              .map(
-                (page) => DropdownMenuItem(
-                  value: _string(page['id']),
-                  child: Text(_string(page['name'], fallback: 'Business WAPI')),
+      ListView(
+        key: const ValueKey('event-details'),
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+        children: [
+          const _EventStepTitle(
+            icon: Icons.location_on_outlined,
+            title: 'Lieu et programme',
+            subtitle: 'Donnez toutes les informations utiles aux participants.',
+          ),
+          TextField(
+            controller: _description,
+            maxLength: 1200,
+            minLines: 3,
+            maxLines: 5,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(labelText: 'Description'),
+          ),
+          TextField(
+            controller: _venue,
+            maxLength: 160,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Lieu et adresse'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _saving ? null : _datePick,
+            icon: const Icon(Icons.calendar_month_outlined),
+            label: Text('Début · ${_date(_starts.millisecondsSinceEpoch)}'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _saving ? null : _doorsPick,
+            icon: const Icon(Icons.door_front_door_outlined),
+            label: Text(
+              'Ouverture · ${_doors.hour.toString().padLeft(2, '0')}:${_doors.minute.toString().padLeft(2, '0')}',
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _contact,
+            maxLength: 120,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Contact de l’organisateur',
+              hintText: 'Téléphone ou adresse e-mail',
+            ),
+          ),
+        ],
+      ),
+      ListView(
+        key: const ValueKey('event-tickets'),
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+        children: [
+          const _EventStepTitle(
+            icon: Icons.confirmation_number_outlined,
+            title: 'Billets et publication',
+            subtitle: 'Configurez les accès puis vérifiez le résumé.',
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _capacity,
+                  keyboardType: TextInputType.number,
+                  maxLength: 5,
+                  decoration: const InputDecoration(labelText: 'Places'),
                 ),
-              )
-              .toList(),
-          onChanged: _saving
-              ? null
-              : (value) => setState(() => _page = value ?? _page),
-          decoration: const InputDecoration(labelText: 'Organisateur'),
-        ),
-        const SizedBox(height: 14),
-        InkWell(
-          onTap: _saving ? null : _posterPick,
-          borderRadius: BorderRadius.circular(18),
-          child: Ink(
-            height: 170,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _ticket,
+                  maxLength: 60,
+                  decoration: const InputDecoration(labelText: 'Nom du billet'),
+                ),
+              ),
+            ],
+          ),
+          TextField(
+            controller: _agenda,
+            maxLength: 1800,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Programme ou agenda',
+              hintText: 'Accueil, première partie, intervenants…',
+            ),
+          ),
+          TextField(
+            controller: _terms,
+            maxLength: 800,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Conditions d’accès',
+              hintText: 'Âge minimum, tenue, objets interdits…',
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: const Color(0xFFEAF8F4),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFB7DED1)),
             ),
-            child: _poster == null
-                ? const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_photo_alternate_outlined,
-                        color: Color(0xFF087D62),
-                        size: 34,
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Ajouter une affiche',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF176451),
-                        ),
-                      ),
-                      Text(
-                        'JPEG, PNG ou WebP · 5 Mo maximum',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF176451),
-                        ),
-                      ),
-                    ],
-                  )
-                : ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Image.file(
-                      _poster!,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.verified_user_outlined,
+                  color: Color(0xFF087D62),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    '${_title.text.trim().isEmpty ? 'Votre événement' : _title.text.trim()}\n${_date(_starts.millisecondsSinceEpoch)} · ${_venue.text.trim().isEmpty ? 'Lieu à confirmer' : _venue.text.trim()}\nUn QR personnel et vérifiable sera créé pour chaque réservation.',
+                    style: const TextStyle(
+                      color: Color(0xFF176451),
+                      height: 1.4,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _title,
-          maxLength: 100,
-          decoration: const InputDecoration(labelText: 'Nom de l’événement'),
-        ),
-        TextField(
-          controller: _description,
-          maxLength: 1200,
-          minLines: 3,
-          maxLines: 5,
-          decoration: const InputDecoration(labelText: 'Description'),
-        ),
-        TextField(
-          controller: _category,
-          maxLength: 60,
-          decoration: const InputDecoration(
-            labelText: 'Catégorie · concert, sport, formation…',
+          const SizedBox(height: 12),
+          const Text(
+            'Les réservations restent gratuites jusqu’à l’activation sécurisée du Mobile Money régional.',
+            style: TextStyle(color: WapiColors.muted, fontSize: 12),
           ),
-        ),
-        TextField(
-          controller: _venue,
-          maxLength: 160,
-          decoration: const InputDecoration(labelText: 'Lieu et adresse'),
-        ),
-        OutlinedButton.icon(
-          onPressed: _saving ? null : _datePick,
-          icon: const Icon(Icons.calendar_month_outlined),
-          label: Text('Début · ' + _date(_starts.millisecondsSinceEpoch)),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _capacity,
-          keyboardType: TextInputType.number,
-          maxLength: 5,
-          decoration: const InputDecoration(labelText: 'Nombre de places'),
-        ),
-        TextField(
-          controller: _ticket,
-          maxLength: 60,
-          decoration: const InputDecoration(
-            labelText: 'Nom du billet · Accès général, VIP…',
+        ],
+      ),
+    ];
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Créer un événement'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: Text(
+                '${_step + 1}/3',
+                style: const TextStyle(
+                  color: WapiColors.muted,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
           ),
+        ],
+      ),
+      body: Column(
+        children: [
+          LinearProgressIndicator(
+            value: (_step + 1) / 3,
+            minHeight: 4,
+            color: const Color(0xFF00A884),
+            backgroundColor: const Color(0xFFE0ECE8),
+          ),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              child: pages[_step],
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: WapiColors.line)),
+              ),
+              child: Row(
+                children: [
+                  if (_step > 0) ...[
+                    OutlinedButton(
+                      onPressed: _saving ? null : () => setState(() => _step--),
+                      child: const Text('Retour'),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _saving
+                          ? null
+                          : _step < 2
+                          ? _continue
+                          : _save,
+                      icon: _saving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              _step < 2
+                                  ? Icons.arrow_forward_rounded
+                                  : Icons.publish_rounded,
+                            ),
+                      label: Text(
+                        _saving
+                            ? 'Publication…'
+                            : _step < 2
+                            ? 'Continuer'
+                            : 'Publier l’événement',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventStepTitle extends StatelessWidget {
+  const _EventStepTitle({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(0, 12, 0, 20),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          backgroundColor: const Color(0xFFEAF8F4),
+          foregroundColor: const Color(0xFF087D62),
+          child: Icon(icon),
         ),
-        const SizedBox(height: 16),
-        const Text(
-          'Un QR unique sera généré pour chaque réservation. Le paiement sera activé après la configuration Mobile Money.',
-          style: TextStyle(color: Color(0xFF176451), height: 1.35),
-        ),
-        const SizedBox(height: 20),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
-          child: Text(_saving ? 'Publication…' : 'Publier l’événement'),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(subtitle, style: const TextStyle(color: WapiColors.muted)),
+            ],
+          ),
         ),
       ],
     ),
@@ -1532,7 +1889,8 @@ class _CommerceApi {
   ]) async {
     final result = await _functions
         .httpsCallable('wapiCommerce')
-        .call<Map<String, dynamic>>({'action': action, ...data});
+        .call<Map<String, dynamic>>({'action': action, ...data})
+        .timeout(const Duration(seconds: 20));
     return _map(result.data);
   }
 }
@@ -1573,9 +1931,8 @@ String _date(int epoch) {
       date.minute.toString().padLeft(2, '0');
 }
 
-String _errorText(Object error) =>
-    error is FirebaseFunctionsException &&
-        error.message != null &&
-        error.message!.isNotEmpty
-    ? error.message!
-    : 'Une action TicketBulk n’a pas pu être terminée. Vérifiez la connexion puis réessayez.';
+String _errorText(Object error) => wapiErrorText(
+  error is FirebaseFunctionsException ? error.message : error,
+  fallback:
+      'Une action TicketBulk n’a pas pu être terminée. Vérifiez la connexion puis réessayez.',
+);

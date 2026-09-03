@@ -144,7 +144,10 @@ class _WapiLivePageState extends State<WapiLivePage> {
 
   Future<List<WapiLiveListing>> _loadLives() async {
     final result = await _functions
-        .httpsCallable('listVisibleLiveSessions')
+        .httpsCallable(
+          'listVisibleLiveSessions',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
+        )
         .call<Map<String, dynamic>>();
     final values = result.data['lives'] as List<dynamic>? ?? const [];
     return values
@@ -189,19 +192,22 @@ class _WapiLivePageState extends State<WapiLivePage> {
   }
 
   Future<void> _createLive() async {
-    final draft = await showModalBottomSheet<_LiveDraft>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => _CreateLiveSheet(
-        defaultTitle: 'En direct avec ${widget.user.displayName ?? 'WAPI'}',
-      ),
+    if (_opening) return;
+    // A live must open like a camera action, not like a long post form.
+    // Settings remain available from the room after the host is connected.
+    final draft = _LiveDraft(
+      title: 'En direct avec ${widget.user.displayName ?? 'WAPI'}',
+      category: 'Discussion',
+      visibility: 'public',
+      hostMode: 'personal',
     );
-    if (draft == null || !mounted) return;
     setState(() => _opening = true);
     try {
       final result = await _functions
-          .httpsCallable('createLiveSession')
+          .httpsCallable(
+            'createLiveSession',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+          )
           .call<Map<String, dynamic>>({
             'title': draft.title,
             'category': draft.category,
@@ -242,7 +248,10 @@ class _WapiLivePageState extends State<WapiLivePage> {
     setState(() => _opening = true);
     try {
       final result = await _functions
-          .httpsCallable('joinLiveSession')
+          .httpsCallable(
+            'joinLiveSession',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+          )
           .call<Map<String, dynamic>>({'liveId': live.id});
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -266,9 +275,10 @@ class _WapiLivePageState extends State<WapiLivePage> {
   }
 
   void _showError(Object error) {
-    final message = error is FirebaseFunctionsException
-        ? error.message ?? 'Le service Live WAPI est indisponible.'
-        : 'Impossible d’ouvrir le direct. Réessayez.';
+    final message = wapiErrorText(
+      error is FirebaseFunctionsException ? error.message : error,
+      fallback: 'Impossible d’ouvrir le direct. Réessayez.',
+    );
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -882,9 +892,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
       if (!mounted) return;
       setState(() {
         _connecting = false;
-        _fatalError = error is FirebaseFunctionsException
-            ? error.message
-            : error.toString().replaceFirst('Bad state: ', '');
+        _fatalError = wapiErrorText(
+          error is FirebaseFunctionsException ? error.message : error,
+          fallback:
+              'Le direct n’a pas pu démarrer. Vérifiez votre connexion puis réessayez.',
+        );
       });
     }
   }
@@ -1375,7 +1387,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     } on FirebaseFunctionsException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? 'Commentaire non envoyé.')),
+          SnackBar(
+            content: Text(
+              wapiErrorText(error.message, fallback: 'Commentaire non envoyé.'),
+            ),
+          ),
         );
       }
     } catch (_) {
@@ -1417,7 +1433,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     } on FirebaseFunctionsException catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? 'Réglage indisponible.')),
+          SnackBar(
+            content: Text(
+              wapiErrorText(error.message, fallback: 'Réglage indisponible.'),
+            ),
+          ),
         );
     }
   }
@@ -1499,7 +1519,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     } on FirebaseFunctionsException catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? 'Cadeau non envoyé.')),
+          SnackBar(
+            content: Text(
+              wapiErrorText(error.message, fallback: 'Cadeau non envoyé.'),
+            ),
+          ),
         );
     } finally {
       if (mounted) setState(() => _sendingGift = false);
@@ -1604,7 +1628,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     } on FirebaseFunctionsException catch (error) {
       if (!mounted || error.code == 'resource-exhausted') return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message ?? 'Réaction non envoyée.')),
+        SnackBar(
+          content: Text(
+            wapiErrorText(error.message, fallback: 'Réaction non envoyée.'),
+          ),
+        ),
       );
     }
   }
@@ -1743,7 +1771,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     } on FirebaseFunctionsException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message ?? 'Modération impossible.')),
+        SnackBar(
+          content: Text(
+            wapiErrorText(error.message, fallback: 'Modération impossible.'),
+          ),
+        ),
       );
     }
   }
@@ -1802,7 +1834,11 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
     } on FirebaseFunctionsException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message ?? 'Signalement non transmis.')),
+        SnackBar(
+          content: Text(
+            wapiErrorText(error.message, fallback: 'Signalement non transmis.'),
+          ),
+        ),
       );
     }
   }

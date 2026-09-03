@@ -44,7 +44,8 @@ class _WiaChatPageState extends State<WiaChatPage> {
     try {
       final result = await _functions
           .httpsCallable('getWepiHistory')
-          .call<Map<String, dynamic>>({'threadId': 'main'});
+          .call<Map<String, dynamic>>({'threadId': 'main'})
+          .timeout(const Duration(seconds: 15));
       final data = result.data;
       final items = (data['messages'] as List? ?? const [])
           .whereType<Map>()
@@ -92,7 +93,8 @@ class _WiaChatPageState extends State<WiaChatPage> {
                 'wia-' + DateTime.now().microsecondsSinceEpoch.toString(),
             'prompt': prompt,
             'history': history,
-          });
+          })
+          .timeout(const Duration(seconds: 30));
       final answer = (result.data['text'] as String? ?? '').trim();
       if (answer.isEmpty) throw StateError('Réponse WIA invalide.');
       if (!mounted) return;
@@ -112,6 +114,10 @@ class _WiaChatPageState extends State<WiaChatPage> {
         setState(() {
           _messages = previous;
           _error = _errorText(error);
+          _composer.text = prompt;
+          _composer.selection = TextSelection.collapsed(
+            offset: _composer.text.length,
+          );
         });
       }
     } finally {
@@ -348,9 +354,8 @@ extension _TakeLast<T> on List<T> {
       length <= count ? this : sublist(length - count);
 }
 
-String _errorText(Object error) =>
-    error is FirebaseFunctionsException &&
-        error.message != null &&
-        error.message!.isNotEmpty
-    ? error.message!
-    : 'WIA ne peut pas répondre pour le moment. Réessayez dans un instant.';
+String _errorText(Object error) => wapiErrorText(
+  error is FirebaseFunctionsException ? error.message : error,
+  fallback:
+      'WIA ne peut pas répondre pour le moment. Réessayez dans un instant.',
+);

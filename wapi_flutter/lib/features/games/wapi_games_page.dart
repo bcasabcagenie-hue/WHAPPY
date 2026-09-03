@@ -222,7 +222,10 @@ class _WapiGamesPageState extends State<WapiGamesPage> {
     Map<String, dynamic> data = const {},
   ]) async {
     final result = await _api
-        .httpsCallable(name)
+        .httpsCallable(
+          name,
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+        )
         .call<Map<String, dynamic>>(data);
     return _map(result.data);
   }
@@ -253,244 +256,252 @@ class _WapiGamesPageState extends State<WapiGamesPage> {
         ),
       ],
     ),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
-              children: [
-                const Text(
-                  'Votre profil joueur WAPI',
-                  style: TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF062233),
+    body: Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+            children: [
+              const Text(
+                'Votre profil joueur WAPI',
+                style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF062233),
+                ),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Vos records et vos salles sont synchronisés par le serveur WAPI.',
+                style: TextStyle(color: WapiColors.muted),
+              ),
+              if (_error != null) _ErrorCard(text: _error!),
+              const SizedBox(height: 18),
+              _GameCard(
+                title: 'KING QI',
+                subtitle: 'Duels, tournois et Coupe King QI',
+                icon: Icons.quiz_rounded,
+                accent: const Color(0xFFFFC83D),
+                stats: _string(_king['credits']).isEmpty
+                    ? 'Profil indisponible'
+                    : _string(_king['credits']) +
+                          ' crédits · ' +
+                          _string(_king['trophies']) +
+                          ' coupes',
+                actions: [
+                  _GameAction(
+                    label: 'Créer un tournoi',
+                    icon: Icons.add_circle_outline_rounded,
+                    onTap: _busy ? null : _createKing,
                   ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Vos records et vos salles sont synchronisés par le serveur WAPI.',
-                  style: TextStyle(color: WapiColors.muted),
-                ),
-                if (_error != null) _ErrorCard(text: _error!),
-                const SizedBox(height: 18),
-                _GameCard(
-                  title: 'KING QI',
-                  subtitle: 'Duels, tournois et Coupe King QI',
-                  icon: Icons.quiz_rounded,
-                  accent: const Color(0xFFFFC83D),
-                  stats: _string(_king['credits']).isEmpty
-                      ? 'Profil indisponible'
-                      : _string(_king['credits']) +
-                            ' crédits · ' +
-                            _string(_king['trophies']) +
-                            ' coupes',
-                  actions: [
-                    _GameAction(
-                      label: 'Créer un tournoi',
-                      icon: Icons.add_circle_outline_rounded,
-                      onTap: _busy ? null : _createKing,
-                    ),
-                    _GameAction(
-                      label: 'Rejoindre',
-                      icon: Icons.login_rounded,
-                      onTap: _busy ? null : _joinKing,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'WAPI POOL',
-                  subtitle: 'Table réelle, adversaires WAPI et entraînement',
-                  icon: Icons.sports_bar_rounded,
-                  accent: const Color(0xFF00A884),
-                  stats:
-                      _string(_pool['displayName'], fallback: 'Profil joueur') +
-                      ' · rating ' +
-                      _string(_pool['rating'], fallback: '1000'),
-                  actions: [
-                    _GameAction(
-                      label: 'Trouver un joueur',
-                      icon: Icons.radar_rounded,
-                      onTap: _busy ? null : _findPool,
-                    ),
-                    _GameAction(
-                      label: 'Jouer contre l’IA',
-                      icon: Icons.smart_toy_rounded,
-                      onTap: _busy ? null : _playPoolAi,
-                    ),
-                    _GameAction(
-                      label: 'Créer une table',
-                      icon: Icons.add_circle_outline_rounded,
-                      onTap: _busy ? null : _createPool,
-                    ),
-                    _GameAction(
-                      label: 'Rejoindre par code',
-                      icon: Icons.login_rounded,
-                      onTap: _busy ? null : _joinPool,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'ÉCHECS WAPI',
-                  subtitle: 'Vraie table, coups légaux et IA locale',
-                  icon: Icons.extension_rounded,
-                  accent: const Color(0xFF6C4AB6),
-                  stats: 'Roque, prise en passant, promotion et échec et mat',
-                  actions: [
-                    _GameAction(
-                      label: 'Jouer contre l’IA',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiChessPage(),
+                  _GameAction(
+                    label: 'Rejoindre',
+                    icon: Icons.login_rounded,
+                    onTap: _busy ? null : _joinKing,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'WAPI POOL',
+                subtitle: 'Table réelle, adversaires WAPI et entraînement',
+                icon: Icons.sports_bar_rounded,
+                accent: const Color(0xFF00A884),
+                stats:
+                    _string(_pool['displayName'], fallback: 'Profil joueur') +
+                    ' · rating ' +
+                    _string(_pool['rating'], fallback: '1000'),
+                actions: [
+                  _GameAction(
+                    label: 'Trouver un joueur',
+                    icon: Icons.radar_rounded,
+                    onTap: _busy ? null : _findPool,
+                  ),
+                  _GameAction(
+                    label: 'Jouer contre l’IA',
+                    icon: Icons.smart_toy_rounded,
+                    onTap: _busy ? null : _playPoolAi,
+                  ),
+                  _GameAction(
+                    label: 'Créer une table',
+                    icon: Icons.add_circle_outline_rounded,
+                    onTap: _busy ? null : _createPool,
+                  ),
+                  _GameAction(
+                    label: 'Rejoindre par code',
+                    icon: Icons.login_rounded,
+                    onTap: _busy ? null : _joinPool,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'ÉCHECS WAPI',
+                subtitle: 'Vraie table, coups légaux et IA locale',
+                icon: Icons.extension_rounded,
+                accent: const Color(0xFF6C4AB6),
+                stats: 'Roque, prise en passant, promotion et échec et mat',
+                actions: [
+                  _GameAction(
+                    label: 'Jouer contre l’IA',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiChessPage(),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _GameCard(
+                title: 'LUDO WAPI',
+                subtitle: 'Deux dés, pions, captures et adversaires IA',
+                icon: Icons.casino_rounded,
+                accent: const Color(0xFF304FFE),
+                stats: 'Partie locale complète · le joueur choisit ses pions',
+                actions: [
+                  _GameAction(
+                    label: 'Jouer contre l’IA',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiLudoPage(),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'DAMES WAPI',
+                subtitle: 'Damier 10 × 10, prises obligatoires et dames',
+                icon: Icons.grid_view_rounded,
+                accent: const Color(0xFFC76A2B),
+                stats: 'Jouable avec IA ou à deux sur le même appareil',
+                actions: [
+                  _GameAction(
+                    label: 'Jouer maintenant',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiDraughtsPage(),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'CARTES WAPI',
+                subtitle: 'Bataille, score sur 26 manches et table premium',
+                icon: Icons.style_rounded,
+                accent: const Color(0xFF18B884),
+                stats: 'Jouable contre l’IA ou à deux sur le même appareil',
+                actions: [
+                  _GameAction(
+                    label: 'Ouvrir la table',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiCardsPage(),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'POKER WAPI',
+                subtitle: 'Mains de cinq cartes et classement des combinaisons',
+                icon: Icons.casino_rounded,
+                accent: const Color(0xFFB42F52),
+                stats: 'Parties gratuites contre l’IA · aucun argent réel',
+                actions: [
+                  _GameAction(
+                    label: 'Distribuer',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiArcadePage(
+                                mode: WapiArcadeMode.poker,
                               ),
                             ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                _GameCard(
-                  title: 'LUDO WAPI',
-                  subtitle: 'Deux dés, pions, captures et adversaires IA',
-                  icon: Icons.casino_rounded,
-                  accent: const Color(0xFF304FFE),
-                  stats: 'Partie locale complète · le joueur choisit ses pions',
-                  actions: [
-                    _GameAction(
-                      label: 'Jouer contre l’IA',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiLudoPage(),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'DÉFI DU JOUR',
+                subtitle: 'Quiz express, chronomètre et expérience joueur',
+                icon: Icons.bolt_rounded,
+                accent: const Color(0xFFFFA000),
+                stats: '5 questions · score local · sans attente',
+                actions: [
+                  _GameAction(
+                    label: 'Relever le défi',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiArcadePage(
+                                mode: WapiArcadeMode.dailyChallenge,
                               ),
                             ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'DAMES WAPI',
-                  subtitle: 'Damier 10 × 10, prises obligatoires et dames',
-                  icon: Icons.grid_view_rounded,
-                  accent: const Color(0xFFC76A2B),
-                  stats: 'Jouable avec IA ou à deux sur le même appareil',
-                  actions: [
-                    _GameAction(
-                      label: 'Jouer maintenant',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiDraughtsPage(),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _GameCard(
+                title: 'MOTS & IDÉES',
+                subtitle:
+                    'Recomposez les mots et enchaînez les bonnes réponses',
+                icon: Icons.abc_rounded,
+                accent: const Color(0xFF2B7CD3),
+                stats: 'Défi local fluide, XP et validation instantanée',
+                actions: [
+                  _GameAction(
+                    label: 'Jouer',
+                    icon: Icons.play_arrow_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const WapiArcadePage(
+                                mode: WapiArcadeMode.words,
                               ),
                             ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'CARTES WAPI',
-                  subtitle: 'Bataille, score sur 26 manches et table premium',
-                  icon: Icons.style_rounded,
-                  accent: const Color(0xFF18B884),
-                  stats: 'Jouable contre l’IA ou à deux sur le même appareil',
-                  actions: [
-                    _GameAction(
-                      label: 'Ouvrir la table',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiCardsPage(),
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'POKER WAPI',
-                  subtitle:
-                      'Mains de cinq cartes et classement des combinaisons',
-                  icon: Icons.casino_rounded,
-                  accent: const Color(0xFFB42F52),
-                  stats: 'Parties gratuites contre l’IA · aucun argent réel',
-                  actions: [
-                    _GameAction(
-                      label: 'Distribuer',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiArcadePage(
-                                  mode: WapiArcadeMode.poker,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'DÉFI DU JOUR',
-                  subtitle: 'Quiz express, chronomètre et expérience joueur',
-                  icon: Icons.bolt_rounded,
-                  accent: const Color(0xFFFFA000),
-                  stats: '5 questions · score local · sans attente',
-                  actions: [
-                    _GameAction(
-                      label: 'Relever le défi',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiArcadePage(
-                                  mode: WapiArcadeMode.dailyChallenge,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GameCard(
-                  title: 'MOTS & IDÉES',
-                  subtitle:
-                      'Recomposez les mots et enchaînez les bonnes réponses',
-                  icon: Icons.abc_rounded,
-                  accent: const Color(0xFF2B7CD3),
-                  stats: 'Défi local fluide, XP et validation instantanée',
-                  actions: [
-                    _GameAction(
-                      label: 'Jouer',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: _busy
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WapiArcadePage(
-                                  mode: WapiArcadeMode.words,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                          ),
+                  ),
+                ],
+              ),
+            ],
           ),
+        ),
+        if (_loading)
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: LinearProgressIndicator(minHeight: 3),
+          ),
+      ],
+    ),
   );
 }
 
@@ -678,9 +689,7 @@ String _string(Object? value, {String fallback = ''}) =>
     : value is num
     ? value.toString()
     : fallback;
-String _errorText(Object error) =>
-    error is FirebaseFunctionsException &&
-        error.message != null &&
-        error.message!.isNotEmpty
-    ? error.message!
-    : 'Le service Jeux est indisponible pour le moment.';
+String _errorText(Object error) => wapiErrorText(
+  error is FirebaseFunctionsException ? error.message : error,
+  fallback: 'Le service Jeux est indisponible pour le moment.',
+);

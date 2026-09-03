@@ -1,6 +1,8 @@
 package com.whappy.chat
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.view.View
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
@@ -27,6 +29,7 @@ private data class PoolRenderState(
     val power: Int = 48,
     val sideSpin: Float = 0f,
     val followSpin: Float = 0f,
+    val aimBonus: Int = 0,
     val moving: Boolean = false,
     val cueStroke: Float = 0f,
     val cueInHand: Boolean = false,
@@ -41,6 +44,7 @@ private class WapiPool3DPlatformView(
     initial: Map<*, *>?,
 ) : PlatformView, MethodChannel.MethodCallHandler {
     private val table = WapiTabletop3DView(context)
+    private val effects = WapiPoolSoundEffects(context)
     private val channel = MethodChannel(messenger, "wapi/pool-3d/$viewId")
     private var state = PoolRenderState()
 
@@ -73,6 +77,7 @@ private class WapiPool3DPlatformView(
         table.onPoolGesture = null
         table.onPoolPullShot = null
         channel.setMethodCallHandler(null)
+        effects.release()
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -84,6 +89,14 @@ private class WapiPool3DPlatformView(
             "stroke" -> {
                 render(state.copy(cueStroke = 1f))
                 table.postDelayed({ render(state.copy(cueStroke = 0f)) }, 118L)
+                result.success(null)
+            }
+            "sound" -> {
+                val data = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
+                effects.play(
+                    kind = data["kind"] as? String ?: "collision",
+                    intensity = (data["intensity"] as? Number)?.toFloat() ?: .6f,
+                )
                 result.success(null)
             }
             else -> result.notImplemented()
@@ -98,6 +111,7 @@ private class WapiPool3DPlatformView(
             power = next.power,
             sideSpin = next.sideSpin,
             followSpin = next.followSpin,
+            aimBonus = next.aimBonus,
             moving = next.moving,
             cueStroke = next.cueStroke,
             cueInHand = next.cueInHand,
@@ -127,6 +141,7 @@ private class WapiPool3DPlatformView(
             power = number("power", previous.power.toFloat()).toInt().coerceIn(10, 100),
             sideSpin = number("sideSpin", previous.sideSpin).coerceIn(-1f, 1f),
             followSpin = number("followSpin", previous.followSpin).coerceIn(-1f, 1f),
+            aimBonus = number("aimBonus", previous.aimBonus.toFloat()).toInt().coerceIn(0, 4),
             moving = data["moving"] as? Boolean ?: previous.moving,
             cueStroke = number("cueStroke", previous.cueStroke).coerceIn(0f, 1f),
             cueInHand = data["cueInHand"] as? Boolean ?: previous.cueInHand,
@@ -134,4 +149,52 @@ private class WapiPool3DPlatformView(
             cueStyle = text("cueStyle", previous.cueStyle),
         )
     }
+}
+
+/** Low-latency Android mixer for cue, ball, cushion and pocket effects. */
+private class WapiPoolSoundEffects(context: Context) {
+    private val pool = SoundPool.Builder()
+        .setMaxStreams(7)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build(),
+        )
+        .build()
+    private val cue = pool.load(context, R.raw.wapi_pool_cue, 1)
+    private val collision = pool.load(context, R.raw.wapi_pool_collision, 1)
+    private val cushion = pool.load(context, R.raw.wapi_pool_cushion, 1)
+    private val pocket = pool.load(context, R.raw.wapi_pool_pocket, 1)
+    private val ready = mutableSetOf<Int>()
+
+    init {
+        pool.setOnLoadCompleteListener { _, sampleId, status ->
+            if (status == 0) ready += sampleId
+        }
+    }
+
+    fun play(kind: String, intensity: Float) {
+        val sample = when (kind) {
+            "cue" -> cue
+            "rail" -> cushion
+            "pocket" -> pocket
+            else -> collision
+        }
+        if (sample !in ready) return
+        val force = intensity.coerceIn(.12f, 1f)
+        val volume = when (kind) {
+            "pocket" -> .90f
+            "cue" -> .34f + force * .55f
+            else -> .24f + force * .66f
+        }
+        val rate = when (kind) {
+            "collision" -> .94f + force * .10f
+            "rail" -> .92f + force * .08f
+            else -> 1f
+        }
+        pool.play(sample, volume, volume, 1, 0, rate)
+    }
+
+    fun release() = pool.release()
 }

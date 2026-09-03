@@ -6,7 +6,7 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { defineSecret, defineString } from "firebase-functions/params";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { connect as connectTcp } from "node:net";
 import {
   AccessToken,
@@ -30,6 +30,7 @@ import {
 } from "./adRanking";
 import {
   initialPoolBalls,
+  planPoolAiShot,
   resolvePoolShot,
   sanitizePoolBalls,
   simulatePoolShot,
@@ -45,6 +46,231 @@ const db = getFirestore();
 export const wapiCommerce = onCall({ timeoutSeconds: 60 }, async request => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connectez-vous à WAPI.");
   return handleCommerce(db, request.auth.uid, request.data || {});
+});
+
+/**
+ * Finalizes a private-conversation media upload from a trusted Storage object.
+ *
+ * Older WAPI conversations did not always contain every client-side helper
+ * map used by recent releases. Finalizing on the server keeps media delivery
+ * compatible while still verifying membership, ownership, type and size.
+ */
+export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512MiB" }, async request => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const input = (request.data || {}) as Record<string, unknown>;
+  const uid = request.auth.uid;
+  const conversationId = String(input.conversationId || "").trim();
+  const messageId = String(input.messageId || "").trim();
+  const kind = String(input.kind || "").trim().toLowerCase();
+  const storagePath = String(input.storagePath || "").trim();
+  const mediaName = String(input.mediaName || "").trim().slice(0, 120);
+  const caption = String(input.caption || "").trim().slice(0, 600);
+  const suppliedHash = String(input.mediaSha256 || "").trim().toLowerCase();
+  const inlineMediaBase64 = typeof input.inlineMediaBase64 === "string"
+    ? input.inlineMediaBase64.trim()
+    : "";
+  const inlineContentType = String(input.inlineContentType || "audio/mp4").trim().toLowerCase();
+  const durationSeconds = Math.max(0, Math.min(600, Math.round(Number(input.durationSeconds || 0))));
+  const viewOnce = input.viewOnce === true;
+
+  logger.info("conversation-media-commit-start", { uid, conversationId, messageId, kind });
+
+  if (!/^[A-Za-z0-9_-]{6,180}$/.test(conversationId) || !/^[A-Za-z0-9_-]{6,180}$/.test(messageId)) {
+    throw new HttpsError("invalid-argument", "Référence de conversation invalide.");
+  }
+  if (!new Set(["image", "video", "audio"]).has(kind)) {
+    throw new HttpsError("invalid-argument", "Type de média invalide.");
+  }
+  const canonicalPrefix = `conversations/${conversationId}/${uid}/${messageId}-`;
+  const outboxPrefix = `conversationUploads/${uid}/${conversationId}/${messageId}-`;
+  const isCanonicalUpload = storagePath.startsWith(canonicalPrefix);
+  const isOutboxUpload = storagePath.startsWith(outboxPrefix);
+  if ((!isCanonicalUpload && !isOutboxUpload) || storagePath.length > 500) {
+    throw new HttpsError("permission-denied", "Ce média n’appartient pas à cette conversation.");
+  }
+  if (!mediaName || mediaName.length > 120 || !/^[0-9a-f]{64}$/.test(suppliedHash)) {
+    throw new HttpsError("invalid-argument", "Métadonnées du média invalides.");
+  }
+  if (inlineMediaBase64 && (kind !== "audio" || !isCanonicalUpload || !inlineContentType.startsWith("audio/"))) {
+    throw new HttpsError("invalid-argument", "Transfert vocal WAPI invalide.");
+  }
+
+  const conversation = db.collection("conversations").doc(conversationId);
+  const conversationSnapshot = await conversation.get();
+  if (!conversationSnapshot.exists) throw new HttpsError("not-found", "Conversation WAPI introuvable.");
+  const conversationData = conversationSnapshot.data() || {};
+  const memberIds = Array.isArray(conversationData.memberIds)
+    ? conversationData.memberIds.map(value => String(value || ""))
+    : [];
+  // Direct conversations created by early WAPI builds may not have memberIds.
+  // Their immutable members array still contains the two authenticated UIDs.
+  const legacyMemberIds = Array.isArray(conversationData.members)
+    ? conversationData.members
+      .map(value => value && typeof value === "object" ? String((value as Record<string, unknown>).uid || "") : "")
+      .filter(Boolean)
+    : [];
+  const legacyDirectMember = conversationData.conversationType === "direct"
+    && (String(conversationData.ownerId || "") === uid
+      || String(conversationData.contactId || "") === uid
+      || legacyMemberIds.includes(uid));
+  if (!memberIds.includes(uid) && !legacyDirectMember) {
+    throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+  }
+
+  const message = conversation.collection("messages").doc(messageId);
+  const existingMessage = await message.get();
+  if (existingMessage.exists) {
+    const existing = existingMessage.data() || {};
+    if (String(existing.senderId || "") === uid && String(existing.mediaSha256 || "") === suppliedHash) {
+      if (isOutboxUpload) await getStorage().bucket().file(storagePath).delete({ ignoreNotFound: true }).catch(() => undefined);
+      return { id: messageId, mediaUrl: String(existing.mediaUrl || ""), delivered: true, duplicate: true };
+    }
+    throw new HttpsError("already-exists", "Cette référence de message est déjà utilisée.");
+  }
+
+  const bucket = getStorage().bucket();
+  const sourceObject = bucket.file(storagePath);
+  const canonicalPath = isOutboxUpload
+    ? `${canonicalPrefix}${storagePath.slice(outboxPrefix.length)}`
+    : storagePath;
+  const canonicalObject = bucket.file(canonicalPath);
+  let [sourceExists] = await sourceObject.exists();
+  let [canonicalExists] = isOutboxUpload ? await canonicalObject.exists() : [sourceExists];
+  let inlineSaved = false;
+  if (!sourceExists && !canonicalExists && inlineMediaBase64) {
+    const inlineBytes = Buffer.from(inlineMediaBase64, "base64");
+    const inlineLimit = 8 * 1024 * 1024;
+    const inlineHash = createHash("sha256").update(inlineBytes).digest("hex");
+    if (inlineBytes.length < 1 || inlineBytes.length > inlineLimit || inlineHash !== suppliedHash) {
+      throw new HttpsError("invalid-argument", "La note vocale WAPI est invalide ou trop volumineuse.");
+    }
+    const downloadToken = randomUUID();
+    try {
+      await canonicalObject.save(inlineBytes, {
+        resumable: false,
+        metadata: {
+          contentType: inlineContentType,
+          cacheControl: "private,max-age=31536000,immutable",
+          metadata: {
+            wapiMediaSha256: suppliedHash,
+            wapiConversationId: conversationId,
+            wapiMessageId: messageId,
+            firebaseStorageDownloadTokens: downloadToken,
+          },
+        },
+      });
+    } catch (error) {
+      logger.error("conversation-media-inline-save-failed", {
+        uid, conversationId, messageId, error: String(error),
+      });
+      throw new HttpsError("internal", "La note vocale WAPI ne peut pas être enregistrée.");
+    }
+    sourceExists = true;
+    canonicalExists = true;
+    inlineSaved = true;
+  }
+  if (!sourceExists && !canonicalExists) throw new HttpsError("not-found", "Le média WAPI est introuvable.");
+  const inspectedObject = sourceExists ? sourceObject : canonicalObject;
+  const [metadata] = await inspectedObject.getMetadata();
+  const contentType = String(metadata.contentType || "").toLowerCase();
+  const contentMatches = kind === "image"
+    ? contentType.startsWith("image/")
+    : kind === "video"
+      ? contentType.startsWith("video/")
+      : contentType.startsWith("audio/");
+  const mediaSizeBytes = Number(metadata.size || 0);
+  const maximumSize = kind === "image" ? 20 * 1024 * 1024 : kind === "audio" ? 12 * 1024 * 1024 : 60 * 1024 * 1024;
+  if (!contentMatches || !Number.isSafeInteger(mediaSizeBytes) || mediaSizeBytes < 1 || mediaSizeBytes > maximumSize) {
+    throw new HttpsError("invalid-argument", "Le média ne respecte pas les limites WAPI.");
+  }
+  const storedHash = String(metadata.metadata?.wapiMediaSha256 || "").trim().toLowerCase();
+  if (isOutboxUpload && storedHash !== suppliedHash) {
+    throw new HttpsError("permission-denied", "L’intégrité du média WAPI ne peut pas être vérifiée.");
+  }
+  logger.info("conversation-media-upload-verified", {
+    uid, conversationId, messageId, kind, mediaSizeBytes, isOutboxUpload, inlineSaved,
+  });
+
+  let finalizedObject = inspectedObject;
+  let finalizedMetadata = metadata;
+  let copiedToCanonical = inlineSaved;
+  if (isOutboxUpload && sourceExists && !canonicalExists) {
+    try {
+      await sourceObject.copy(canonicalObject);
+    } catch (error) {
+      logger.error("conversation-media-copy-failed", {
+        uid, conversationId, messageId, kind, error: String(error),
+      });
+      throw new HttpsError("internal", "Le média WAPI ne peut pas être finalisé.");
+    }
+    finalizedObject = canonicalObject;
+    [finalizedMetadata] = await canonicalObject.getMetadata();
+    copiedToCanonical = true;
+  } else if (isOutboxUpload) {
+    finalizedObject = canonicalObject;
+    [finalizedMetadata] = await canonicalObject.getMetadata();
+  }
+  let downloadTokens = String(finalizedMetadata.metadata?.firebaseStorageDownloadTokens || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!downloadTokens.length) {
+    downloadTokens = [randomUUID()];
+    await finalizedObject.setMetadata({
+      metadata: {
+        ...(finalizedMetadata.metadata || {}),
+        firebaseStorageDownloadTokens: downloadTokens[0],
+      },
+    });
+  }
+  const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(canonicalPath)}?alt=media&token=${encodeURIComponent(downloadTokens[0])}`;
+  const label = kind === "image" ? "Photo" : kind === "video" ? "Vidéo" : "Message vocal";
+  const messageData: Record<string, unknown> = {
+    text: caption || label,
+    senderId: uid,
+    clientMessageId: messageId,
+    kind,
+    mediaUrl,
+    mediaName,
+    mediaSizeBytes,
+    mediaSha256: suppliedHash,
+    duration: durationSeconds,
+    createdAt: FieldValue.serverTimestamp(),
+  };
+  if (viewOnce) {
+    messageData.viewOnce = true;
+    messageData.viewedBy = {};
+  }
+  if (kind === "video") {
+    messageData.effect = "pop";
+    messageData.caption = caption.slice(0, 100);
+  }
+  const batch = db.batch();
+  batch.create(message, messageData);
+  batch.update(conversation, {
+    lastMessage: label,
+    lastSenderId: uid,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  try {
+    await batch.commit();
+  } catch (error) {
+    // A client may retry after a network timeout even though the first call
+    // was committed. Treat the exact same immutable media as delivered.
+    const racedMessage = await message.get();
+    const raced = racedMessage.data() || {};
+    if (racedMessage.exists && String(raced.senderId || "") === uid && String(raced.mediaSha256 || "") === suppliedHash) {
+      if (isOutboxUpload) await sourceObject.delete({ ignoreNotFound: true }).catch(() => undefined);
+      return { id: messageId, mediaUrl: String(raced.mediaUrl || mediaUrl), delivered: true, duplicate: true };
+    }
+    if (copiedToCanonical) await canonicalObject.delete({ ignoreNotFound: true }).catch(() => undefined);
+    throw error;
+  }
+  if (isOutboxUpload) await sourceObject.delete({ ignoreNotFound: true }).catch(() => undefined);
+  logger.info("conversation-media-commit-complete", {
+    uid, conversationId, messageId, kind, copiedToCanonical,
+  });
+  return { id: messageId, mediaUrl, delivered: true };
 });
 const livekitServerUrl = defineString("WAPI_LIVEKIT_URL", { default: "" });
 const livekitApiKey = defineString("WAPI_LIVEKIT_API_KEY", { default: "" });
@@ -1801,6 +2027,114 @@ export const joinDirectCallSession = onCall({ secrets: [livekitApiSecret] }, asy
   };
 });
 
+/**
+ * Configures WAPI's self-hosted, in-room voice translator.
+ *
+ * The relay receives a short-lived LiveKit participant token, never the API
+ * secret. Voice preservation is enabled only after both people explicitly
+ * consented in the call UI; otherwise the relay is not started.
+ */
+export const configureDirectCallTranslation = onCall({ secrets: [livekitApiSecret], timeoutSeconds: 30 }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const callId = String(request.data?.callId || "").trim();
+  const enabled = request.data?.enabled === true;
+  const voiceConsent = request.data?.voiceConsent === true;
+  const preserveVoice = request.data?.preserveVoice === true;
+  const targetLanguage = lingwapLanguage(request.data?.targetLanguage || "fr", "La langue cible");
+  if (!callId || targetLanguage === "auto") throw new HttpsError("invalid-argument", "Choisissez une langue d’appel valide.");
+
+  const { reference, value, callerId, calleeId } = await directCallDocument(callId, request.auth.uid);
+  const status = String(value.status || "");
+  if (!['ringing', 'accepted'].includes(status)) throw new HttpsError("failed-precondition", "Cet appel est terminé.");
+  const peerId = request.auth.uid === callerId ? calleeId : callerId;
+  await reference.update({
+    [`translationConsent.${request.auth.uid}`]: voiceConsent,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  if (!enabled) {
+    await reference.update({
+      [`translations.${request.auth.uid}`]: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  const relayUrl = lingwapRelayUrl.value().trim();
+  const relayToken = lingwapRelayToken.value().trim();
+  if (!relayUrl || !relayToken) {
+    if (!enabled) return { enabled: false, targetLanguage };
+    throw new HttpsError("failed-precondition", "La traduction vocale WAPI doit encore être activée sur le serveur.");
+  }
+
+  const latest = enabled ? (await reference.get()).data() || value : value;
+  const consents = latest.translationConsent && typeof latest.translationConsent === "object"
+    ? latest.translationConsent as Record<string, unknown>
+    : {};
+  if (enabled && preserveVoice && consents[peerId] !== true) {
+    throw new HttpsError("failed-precondition", "Votre correspondant doit aussi autoriser la restitution de sa voix.");
+  }
+
+  const roomName = String(value.streamRoomId || "");
+  if (!roomName || value.streamProvider !== "livekit-self-hosted") {
+    throw new HttpsError("failed-precondition", "La salle d’appel WAPI n’est pas disponible.");
+  }
+  let participantToken = "";
+  let serverUrl = "";
+  if (enabled) {
+    const access = await liveAccessToken({
+      roomName,
+      userId: `lingwap-${request.auth.uid}-${callId}`.slice(0, 120),
+      displayName: "Traduction WAPI",
+      role: "speaker",
+      product: "wapi-direct-call",
+    });
+    participantToken = access.participantToken;
+    serverUrl = access.serverUrl;
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${relayUrl.replace(/\/$/, "")}/v1/calls/translation`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${relayToken}`,
+        "X-WAPI-User": request.auth.uid,
+      },
+      body: JSON.stringify({
+        action: enabled ? "enable" : "disable",
+        callId,
+        roomName,
+        serverUrl,
+        participantToken,
+        requesterId: request.auth.uid,
+        sourceParticipantId: peerId,
+        targetParticipantId: request.auth.uid,
+        targetLanguage,
+        preserveVoice,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch (error) {
+    logger.warn("Relais vocal WAPI indisponible", { callId, userId: request.auth.uid, error: String(error) });
+    throw new HttpsError("unavailable", "La traduction vocale WAPI est momentanément indisponible.");
+  }
+  if (!response.ok) {
+    logger.warn("Relais vocal WAPI a refusé la session", { callId, userId: request.auth.uid, status: response.status });
+    throw new HttpsError("unavailable", "La traduction vocale WAPI ne peut pas démarrer pour le moment.");
+  }
+  if (enabled) {
+    await reference.update({
+      [`translations.${request.auth.uid}`]: {
+        targetLanguage,
+        preserveVoice,
+        enabledAt: FieldValue.serverTimestamp(),
+      },
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+  return { enabled, targetLanguage, preserveVoice };
+});
+
 export const closeDirectCallSession = onCall({ secrets: [livekitApiSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const callId = String(request.data?.callId || "").trim();
@@ -2526,6 +2860,8 @@ export const createAdCampaign = onCall(async (request) => {
   const title = text("title", 120);
   const creative = text("creative", 600);
   const cta = text("cta", 40) || (destination === "message" ? "Envoyer un message" : "Découvrir");
+  const requestedCreativeImageUrl = text("creativeImageUrl", 1200);
+  const creativeStoragePath = text("creativeStoragePath", 500);
   const audience = text("audience", 120) || "Utilisateurs WAPI de la région";
   const city = text("city", 80);
   const countryCode = text("countryCode", 2).toUpperCase();
@@ -2556,12 +2892,33 @@ export const createAdCampaign = onCall(async (request) => {
   const pageName = String(pageData.name || "Business WAPI").trim().slice(0, 120);
   const pageCategory = String(pageData.category || "Business").trim().slice(0, 80);
   const phone = String(pageData.phone || "").trim().slice(0, 40);
-  const link = String(pageData.website || "").trim().slice(0, 180);
+  const requestedWebsite = text("website", 500);
+  const link = (requestedWebsite || String(pageData.website || "")).trim().slice(0, 500);
   if (destination === "website" && !/^https:\/\//i.test(link)) {
     throw new HttpsError("failed-precondition", "Ajoutez un site HTTPS à votre page Business avant de choisir cette destination.");
   }
   if (destination === "call" && !phone) {
     throw new HttpsError("failed-precondition", "Ajoutez un numéro à votre page Business avant de choisir l’appel.");
+  }
+  let creativeImageUrl = "";
+  if (creativeStoragePath || requestedCreativeImageUrl) {
+    const expectedPrefix = `businessAds/${request.auth.uid}/${pageId}/creative-`;
+    if (!creativeStoragePath.startsWith(expectedPrefix) || !requestedCreativeImageUrl.startsWith("https://")) {
+      throw new HttpsError("invalid-argument", "Le visuel publicitaire n’est pas valide.");
+    }
+    const bucket = getStorage().bucket();
+    const imageObject = bucket.file(creativeStoragePath);
+    const [exists] = await imageObject.exists();
+    if (!exists) throw new HttpsError("failed-precondition", "Le visuel publicitaire est introuvable.");
+    const [metadata] = await imageObject.getMetadata();
+    const contentType = String(metadata.contentType || "");
+    const size = Number(metadata.size || 0);
+    if (!/^image\/(jpeg|png|webp)$/.test(contentType) || size <= 0 || size > 8 * 1024 * 1024) {
+      throw new HttpsError("invalid-argument", "Le visuel doit être une image JPEG, PNG ou WebP de moins de 8 Mo.");
+    }
+    const token = String(metadata.metadata?.firebaseStorageDownloadTokens || "").split(",")[0]?.trim();
+    if (!token) throw new HttpsError("failed-precondition", "Le lien du visuel WAPI est indisponible.");
+    creativeImageUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(creativeStoragePath)}?alt=media&token=${encodeURIComponent(token)}`;
   }
 
   const targetImpressions = deliveryMode === "impressions" ? requestedTargetImpressions : 0;
@@ -2585,6 +2942,8 @@ export const createAdCampaign = onCall(async (request) => {
     destination,
     title,
     creative,
+    creativeImageUrl,
+    creativeStoragePath,
     cta,
     audience,
     city,
@@ -2702,6 +3061,7 @@ export const getPersonalizedAds = onCall(async (request) => {
         destination: String(value.destination || "page"),
         title: String(value.title || ""),
         creative: String(value.creative || ""),
+        creativeImageUrl: String(value.creativeImageUrl || ""),
         cta: String(value.cta || "Découvrir"),
         audience: String(value.audience || "Public local"),
         city: rankedAd.city,
@@ -3482,27 +3842,62 @@ const poolAiProfile = {
   country: "WAPI",
 };
 
-function poolAiShot(balls: ReturnType<typeof sanitizePoolBalls>, group: PoolGroup) {
-  const cue = balls.find((ball) => ball.id === 0);
-  const visible = balls.filter((ball) => !ball.pocketed && ball.id !== 0);
-  const grouped = visible.filter((ball) =>
-    group === "open"
-      ? ball.id !== 8
-      : group === "solids"
-      ? ball.id >= 1 && ball.id <= 7
-      : group === "stripes"
-      ? ball.id >= 9 && ball.id <= 15
-      : ball.id === 8,
-  );
-  const target = grouped.length ? grouped[0] : visible[0];
-  if (!cue || !target) return { angle: 0, power: 45, sideSpin: 0, followSpin: 0 };
-  const distance = Math.hypot(target.x - cue.x, target.y - cue.y);
-  return {
-    angle: Math.atan2(target.y - cue.y, target.x - cue.x),
-    power: Math.max(38, Math.min(74, 42 + distance * 42)),
-    sideSpin: 0,
-    followSpin: .12,
-  };
+// The local table animates the preceding human shot before it becomes idle.
+// A staged delay prevents the IA's authoritative strike from visually
+// landing on the same instant as the human's release.
+const poolAiSettleDelayMs = 2200;
+const poolAiThinkDelayMs = 1800;
+
+function waitForPoolAi(ms: number) {
+  return new Promise<void>(resolve => setTimeout(resolve, ms));
+}
+
+/** Publishes the IA's intended line first.  Clients can therefore show the
+ * cue aiming at the table before the authoritative strike is resolved. */
+async function preparePoolAiTurn(roomId: string) {
+  const room = db.collection("gameRooms").doc(roomId);
+  let prepared = false;
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(room);
+    const value = snapshot.data() || {};
+    const ids = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
+    const humanUid = ids.find((id: string) => id !== poolAiUid) || "";
+    if (!snapshot.exists || value.status !== "playing" || value.mode !== "ai" ||
+      value.turnUid !== poolAiUid || !humanUid || value.aiState === "aiming") return;
+    const groups = value.groups && typeof value.groups === "object"
+      ? value.groups as Record<string, PoolGroup> : {};
+    let balls = sanitizePoolBalls(value.balls);
+    const hadBallInHand = String(value.ballInHandUid || "") === poolAiUid;
+    if (hadBallInHand) {
+      balls = balls.map(ball => ball.id === 0
+        ? { ...ball, x: .23, y: .5, pocketed: false, vx: 0, vy: 0 }
+        : ball);
+    }
+    const shot = planPoolAiShot(balls, groups[poolAiUid] || "open");
+    transaction.update(room, {
+      balls,
+      ballInHandUid: "",
+      ballStateRevision: hadBallInHand ? Number(value.ballStateRevision || 0) + 1 : Number(value.ballStateRevision || 0),
+      aiState: "aiming",
+      aiAimAngle: shot.angle,
+      aiAimPower: shot.power,
+      aiAimSideSpin: shot.sideSpin,
+      aiAimFollowSpin: shot.followSpin,
+      aiAimStartedAt: Date.now(),
+      aiPlannedShot: shot,
+      lastAction: "WAPI IA aligne son tir…",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    prepared = true;
+  });
+  return prepared;
+}
+
+async function stageAndPlayPoolAiTurn(roomId: string, settleDelayMs = 0) {
+  if (settleDelayMs > 0) await waitForPoolAi(settleDelayMs);
+  if (!await preparePoolAiTurn(roomId)) return;
+  await waitForPoolAi(poolAiThinkDelayMs);
+  await playPoolAiTurn(roomId);
 }
 
 async function playPoolAiTurn(roomId: string) {
@@ -3513,13 +3908,19 @@ async function playPoolAiTurn(roomId: string) {
     const value = snapshot.data() || {};
     const ids = Array.isArray(value.playerIds) ? value.playerIds.map(String) : [];
     const humanUid = ids.find((id: string) => id !== poolAiUid) || "";
-    if (!snapshot.exists || value.status !== "playing" || value.mode !== "ai" || value.turnUid !== poolAiUid || !humanUid) return;
+    if (!snapshot.exists || value.status !== "playing" || value.mode !== "ai" ||
+      value.turnUid !== poolAiUid || !humanUid || value.aiState !== "aiming") return;
     const groups = value.groups && typeof value.groups === "object" ? value.groups as Record<string, PoolGroup> : {};
     let balls = sanitizePoolBalls(value.balls);
     if (String(value.ballInHandUid || "") === poolAiUid) {
       balls = balls.map((ball) => ball.id === 0 ? { ...ball, x: .23, y: .5, pocketed: false } : ball);
     }
-    const shot = poolAiShot(balls, groups[poolAiUid] || "open");
+    let shot;
+    try {
+      shot = validatePoolShot(value.aiPlannedShot);
+    } catch (_) {
+      shot = planPoolAiShot(balls, groups[poolAiUid] || "open");
+    }
     const simulation = simulatePoolShot(balls, shot);
     const resolution = resolvePoolShot(balls, groups[poolAiUid] || "open", groups[humanUid] || "open", simulation);
     const winnerUid = resolution.shooterWon === true ? poolAiUid : resolution.shooterWon === false ? humanUid : "";
@@ -3551,6 +3952,7 @@ async function playPoolAiTurn(roomId: string) {
       bestRuns, authority: "wapi-server", shotRevision: revision, shotBy: poolAiUid,
       shotAngle: shot.angle, shotPower: shot.power, shotSideSpin: shot.sideSpin, shotFollowSpin: shot.followSpin,
       shotStartBalls: balls, balls: simulation.balls, ballStateRevision: revision,
+      aiState: "", aiPlannedShot: FieldValue.delete(), aiAimStartedAt: FieldValue.delete(),
       groups: { ...groups, [poolAiUid]: resolution.shooterGroup, [humanUid]: resolution.opponentGroup },
       turnUid: nextTurn, winnerUid, status: winnerUid ? "finished" : "playing",
       ballInHandUid: resolution.foul && !winnerUid ? humanUid : "",
@@ -3560,7 +3962,7 @@ async function playPoolAiTurn(roomId: string) {
     });
     repeat = !winnerUid && resolution.keepTurn;
   });
-  if (repeat) await playPoolAiTurn(roomId);
+  if (repeat) await stageAndPlayPoolAiTurn(roomId, 700);
 }
 
 function poolRoomCode() {
@@ -3913,7 +4315,7 @@ export const submitPoolShot = onCall({ timeoutSeconds: 30, memory: "512MiB" }, a
     response = { ok: true, roomId, revision, nextTurn, winnerUid, foul: resolution.foul, message: resolution.message };
   });
   if (response.nextTurn === poolAiUid && !response.winnerUid) {
-    await playPoolAiTurn(roomId);
+    await stageAndPlayPoolAiTurn(roomId, poolAiSettleDelayMs);
   }
   return response;
 });

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class WapiDraughtsPage extends StatefulWidget {
   const WapiDraughtsPage({super.key});
@@ -30,14 +31,16 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
     _board = List<_DraughtPiece?>.filled(100, null);
     for (var row = 0; row < 4; row++) {
       for (var col = 0; col < 10; col++) {
-        if ((row + col).isOdd)
+        if ((row + col).isOdd) {
           _board[row * 10 + col] = const _DraughtPiece(false);
+        }
       }
     }
     for (var row = 6; row < 10; row++) {
       for (var col = 0; col < 10; col++) {
-        if ((row + col).isOdd)
+        if ((row + col).isOdd) {
           _board[row * 10 + col] = const _DraughtPiece(true);
+        }
       }
     }
     _whiteTurn = true;
@@ -105,11 +108,13 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
     if (_finished || _thinking || (_versusAi && !_whiteTurn)) return;
     final chosenMove = _moves.where((move) => move.to == square).firstOrNull;
     if (chosenMove != null) {
+      HapticFeedback.mediumImpact();
       _play(chosenMove);
       return;
     }
     final piece = _board[square];
     if (piece != null && piece.white == _whiteTurn) {
+      HapticFeedback.selectionClick();
       final candidates = _movesForSide(_whiteTurn);
       setState(() {
         _selected = square;
@@ -247,191 +252,451 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
     });
   }
 
+  int get _whitePieces =>
+      _board.whereType<_DraughtPiece>().where((p) => p.white).length;
+  int get _blackPieces =>
+      _board.whereType<_DraughtPiece>().where((p) => !p.white).length;
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF5F7FB),
+    backgroundColor: const Color(0xFF071016),
     appBar: AppBar(
-      title: const Text(
-        'Dames WAPI',
-        style: TextStyle(fontWeight: FontWeight.w900),
+      backgroundColor: const Color(0xFF071016),
+      foregroundColor: Colors.white,
+      elevation: 0,
+      title: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Dames WAPI', style: TextStyle(fontWeight: FontWeight.w900)),
+          Text(
+            'Table classique · 10 × 10',
+            style: TextStyle(fontSize: 11, color: Color(0xFF9BB4C6)),
+          ),
+        ],
       ),
       actions: [
         IconButton(
+          tooltip: 'Nouvelle partie',
           onPressed: () => setState(_reset),
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],
     ),
-    body: SafeArea(
-      top: false,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF13223C),
-              borderRadius: BorderRadius.circular(22),
+    body: DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0B1A25), Color(0xFF071016)],
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          children: [
+            _DraughtsPlayerStrip(
+              icon: Icons.person_rounded,
+              name: 'Vous',
+              detail: 'Pions ivoire',
+              count: _whitePieces,
+              active: _whiteTurn && !_finished,
+              light: true,
             ),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  backgroundColor: Color(0xFFF4E2B5),
-                  child: Icon(Icons.person, color: Color(0xFF26374C)),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Vous · Pions clairs',
-                    style: TextStyle(
+            const SizedBox(height: 8),
+            _DraughtsPlayerStrip(
+              icon: _versusAi ? Icons.smart_toy_rounded : Icons.person_rounded,
+              name: _versusAi ? 'WAPI IA' : 'Joueur noir',
+              detail: _thinking ? 'Analyse du coup…' : 'Pions ébène',
+              count: _blackPieces,
+              active: !_whiteTurn && !_finished,
+              light: false,
+            ),
+            const SizedBox(height: 18),
+            AspectRatio(
+              aspectRatio: 1,
+              child: _DraughtsBoard(
+                board: _board,
+                selected: _selected,
+                moves: _moves,
+                onTap: _tap,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10232F),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF214153)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: _finished
+                          ? const Color(0xFFB98528)
+                          : const Color(0xFF167E78),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _finished
+                          ? Icons.emoji_events_rounded
+                          : Icons.touch_app_rounded,
                       color: Colors.white,
-                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                ),
-                Switch(
-                  value: _versusAi,
-                  onChanged: (value) => setState(() {
-                    _versusAi = value;
-                    _reset();
-                  }),
-                  activeThumbColor: const Color(0xFF29D3AA),
-                ),
-                Text(
-                  _versusAi ? 'IA' : '2 joueurs',
-                  style: const TextStyle(color: Color(0xFFD1DDEC)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          AspectRatio(
-            aspectRatio: 1,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xFF5D3928),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x33000000),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _status,
+                      style: const TextStyle(
+                        color: Color(0xFFE6F0F5),
+                        height: 1.25,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ],
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: GridView.builder(
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 10,
-                  ),
-                  itemCount: 100,
-                  itemBuilder: (context, index) {
-                    final dark = ((index ~/ 10) + index % 10).isOdd;
-                    final selected = _selected == index;
-                    final available = _moves.any((move) => move.to == index);
-                    final piece = _board[index];
-                    return InkWell(
-                      onTap: dark ? () => _tap(index) : null,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? const Color(0xFFF6C85E)
-                              : available
-                              ? const Color(0xFF8ECB7D)
-                              : dark
-                              ? const Color(0xFF74482E)
-                              : const Color(0xFFF1D6A1),
-                        ),
-                        child: Center(
-                          child: piece == null
-                              ? (available
-                                    ? const Icon(
-                                        Icons.circle,
-                                        size: 9,
-                                        color: Color(0xAA264B2D),
-                                      )
-                                    : null)
-                              : Container(
-                                  width: 23,
-                                  height: 23,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: piece.white
-                                          ? const [
-                                              Color(0xFFFFFFFF),
-                                              Color(0xFFC7CDD6),
-                                            ]
-                                          : const [
-                                              Color(0xFF344861),
-                                              Color(0xFF0B1522),
-                                            ],
-                                    ),
-                                    border: Border.all(
-                                      color: piece.white
-                                          ? Colors.white
-                                          : const Color(0xFF07121E),
-                                      width: 2,
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Color(0x66000000),
-                                        blurRadius: 2,
-                                        offset: Offset(1, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: piece.queen
-                                      ? Icon(
-                                          Icons.workspace_premium_rounded,
-                                          size: 14,
-                                          color: piece.white
-                                              ? const Color(0xFFB58515)
-                                              : const Color(0xFFFFD76A),
-                                        )
-                                      : null,
-                                ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D1B25),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFF1B3443)),
               ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  _finished
-                      ? Icons.emoji_events_rounded
-                      : Icons.info_outline_rounded,
-                  color: const Color(0xFF0C8A69),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _status,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF314257),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.smart_toy_outlined,
+                    color: Color(0xFF63D6C9),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Partie contre l’IA',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                  Switch(
+                    value: _versusAi,
+                    onChanged: (value) => setState(() {
+                      _versusAi = value;
+                      _reset();
+                    }),
+                    activeThumbColor: const Color(0xFF69E0D2),
+                  ),
+                ],
+              ),
             ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _DraughtsPlayerStrip extends StatelessWidget {
+  const _DraughtsPlayerStrip({
+    required this.icon,
+    required this.name,
+    required this.detail,
+    required this.count,
+    required this.active,
+    required this.light,
+  });
+
+  final IconData icon;
+  final String name;
+  final String detail;
+  final int count;
+  final bool active;
+  final bool light;
+
+  @override
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 220),
+    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+    decoration: BoxDecoration(
+      color: active ? const Color(0xFF163744) : const Color(0xFF0D1C27),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: active ? const Color(0xFF47D5C6) : const Color(0xFF1D3544),
+        width: active ? 1.5 : 1,
+      ),
+      boxShadow: active
+          ? const [BoxShadow(color: Color(0x3347D5C6), blurRadius: 14)]
+          : null,
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: light
+                  ? const [Color(0xFFFFFFFF), Color(0xFFC8D1D7)]
+                  : const [Color(0xFF314754), Color(0xFF071218)],
+            ),
+            border: Border.all(color: const Color(0x558DE0D8)),
           ),
-        ],
+          child: Icon(
+            icon,
+            size: 18,
+            color: light ? const Color(0xFF31434B) : const Color(0xFFE2F3F7),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                detail,
+                style: const TextStyle(color: Color(0xFF9FB9C7), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        Text(
+          '$count',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(width: 3),
+        const Text(
+          'pions',
+          style: TextStyle(color: Color(0xFF9FB9C7), fontSize: 11),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DraughtsBoard extends StatelessWidget {
+  const _DraughtsBoard({
+    required this.board,
+    required this.selected,
+    required this.moves,
+    required this.onTap,
+  });
+
+  final List<_DraughtPiece?> board;
+  final int? selected;
+  final List<_DraughtMove> moves;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(11),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFD1A366), Color(0xFF77411F), Color(0xFF2A160F)],
+        stops: [.0, .46, 1],
+      ),
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(color: const Color(0xFFE7C58B), width: 1.5),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0xA8000000),
+          blurRadius: 24,
+          offset: Offset(0, 14),
+        ),
+        BoxShadow(color: Color(0x553B1B0C), blurRadius: 2, spreadRadius: 3),
+      ],
+    ),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF140F0C),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFF382519), width: 3),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final pieceSize = constraints.maxWidth / 10 * .78;
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: GridView.builder(
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 10,
+              ),
+              itemCount: 100,
+              itemBuilder: (context, index) {
+                final dark = ((index ~/ 10) + index % 10).isOdd;
+                final isSelected = selected == index;
+                final canMove = moves.any((move) => move.to == index);
+                final piece = board[index];
+                return InkWell(
+                  onTap: dark ? () => onTap(index) : null,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: isSelected
+                            ? const [Color(0xFFF5C45D), Color(0xFFC67822)]
+                            : canMove
+                            ? const [Color(0xFF54806E), Color(0xFF284B40)]
+                            : dark
+                            ? const [Color(0xFF3A2119), Color(0xFF1B100E)]
+                            : const [Color(0xFFE5BF82), Color(0xFFB97B45)],
+                      ),
+                    ),
+                    child: Center(
+                      child: piece == null
+                          ? canMove
+                                ? Container(
+                                    width: pieceSize * .22,
+                                    height: pieceSize * .22,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: const Color(0xFFF6DBA6),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Color(0x99000000),
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : null
+                          : _DraughtChecker(
+                              piece: piece,
+                              size: pieceSize,
+                              selected: isSelected,
+                            ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    ),
+  );
+}
+
+class _DraughtChecker extends StatelessWidget {
+  const _DraughtChecker({
+    required this.piece,
+    required this.size,
+    required this.selected,
+  });
+
+  final _DraughtPiece piece;
+  final double size;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) => AnimatedScale(
+    duration: const Duration(milliseconds: 160),
+    scale: selected ? 1.13 : 1,
+    child: SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: piece.white
+                ? const [
+                    Color(0xFFFFFFFF),
+                    Color(0xFFD6D5CB),
+                    Color(0xFF828C92),
+                  ]
+                : const [
+                    Color(0xFF4F6068),
+                    Color(0xFF152129),
+                    Color(0xFF020608),
+                  ],
+          ),
+          border: Border.all(
+            color: piece.white
+                ? const Color(0xFFF9F1D9)
+                : const Color(0xFF78909A),
+            width: size * .055,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .7),
+              blurRadius: size * .13,
+              offset: Offset(size * .05, size * .11),
+            ),
+            BoxShadow(
+              color: piece.white
+                  ? const Color(0x77FFFFFF)
+                  : const Color(0x3349D5DF),
+              blurRadius: size * .06,
+              offset: Offset(-size * .05, -size * .05),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Container(
+            width: size * .63,
+            height: size * .63,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: piece.white
+                    ? const Color(0x8872797B)
+                    : const Color(0xAA9CB4BE),
+                width: size * .035,
+              ),
+              gradient: RadialGradient(
+                center: const Alignment(-.3, -.38),
+                colors: piece.white
+                    ? const [Color(0xFFFFFFFF), Color(0x00FFFFFF)]
+                    : const [Color(0xFF6C858F), Color(0x00000000)],
+              ),
+            ),
+            child: piece.queen
+                ? Icon(
+                    Icons.workspace_premium_rounded,
+                    size: size * .42,
+                    color: piece.white
+                        ? const Color(0xFF9E6815)
+                        : const Color(0xFFF7C95A),
+                    shadows: const [
+                      Shadow(
+                        color: Color(0x99000000),
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  )
+                : null,
+          ),
+        ),
       ),
     ),
   );

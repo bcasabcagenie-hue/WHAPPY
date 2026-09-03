@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -47,10 +48,13 @@ Future<void> wapiFirebaseBackgroundHandler(RemoteMessage message) async {
 
 class WapiNotifications {
   static bool _initialized = false;
+  static StreamSubscription<RemoteMessage>? _foregroundSubscription;
+  static StreamSubscription<String>? _tokenSubscription;
+  static String? _registeredUserId;
 
   static Future<void> initialize({WapiNotificationTap? onTap}) async {
     await _ensureInitialized(onTap: onTap);
-    FirebaseMessaging.onMessage.listen(show);
+    _foregroundSubscription ??= FirebaseMessaging.onMessage.listen(show);
   }
 
   static Future<void> _ensureInitialized({WapiNotificationTap? onTap}) async {
@@ -84,17 +88,33 @@ class WapiNotifications {
   }
 
   static Future<void> register(User user) async {
-    await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null) await _saveToken(user.uid, token);
-    FirebaseMessaging.instance.onTokenRefresh.listen(
-      (token) => _saveToken(user.uid, token),
-    );
+    try {
+      await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      final token = await FirebaseMessaging.instance.getToken().timeout(
+        const Duration(seconds: 12),
+      );
+      if (token != null) {
+        await _saveToken(user.uid, token).timeout(const Duration(seconds: 12));
+      }
+      if (_registeredUserId != user.uid || _tokenSubscription == null) {
+        await _tokenSubscription?.cancel();
+        _registeredUserId = user.uid;
+        _tokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen(
+          (token) => unawaited(_saveToken(user.uid, token)),
+        );
+      }
+    } catch (_) {
+      // Messaging registration retries when WAPI resumes. It must never block
+      // the authenticated application when the network is temporarily absent.
+    }
   }
+
+  static Future<void> dismissCall(String callId) =>
+      _notifications.cancel(_stableId(callId));
 
   static Future<void> show(RemoteMessage message) async {
     await _ensureInitialized();
@@ -200,15 +220,20 @@ class WapiNotifications {
   }
 
   static Future<void> syncUnreadBadge(String userId) async {
-    await _ensureInitialized();
-    final inbox = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .collection('notificationState')
-        .doc('inbox')
-        .get();
-    final unread = (inbox.data()?['unreadMessages'] as num?)?.toInt() ?? 0;
-    await _showMessageSummary(unread);
+    try {
+      await _ensureInitialized();
+      final inbox = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('notificationState')
+          .doc('inbox')
+          .get()
+          .timeout(const Duration(seconds: 12));
+      final unread = (inbox.data()?['unreadMessages'] as num?)?.toInt() ?? 0;
+      await _showMessageSummary(unread);
+    } catch (_) {
+      // The next inbox snapshot or app resume refreshes the badge.
+    }
   }
 
   static Future<void> clearConversation(

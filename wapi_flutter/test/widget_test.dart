@@ -17,4 +17,21 @@ void main() {
       WapiColors.blue,
     );
   });
+
+  test('les erreurs techniques restent invisibles pour les utilisateurs', () {
+    expect(
+      wapiErrorText(
+        '[firebase_storage/unauthorized] User is not authorized',
+        fallback: 'Envoi impossible. Réessayez.',
+      ),
+      'Envoi impossible. Réessayez.',
+    );
+    expect(
+      wapiErrorText(
+        '[cloud_functions/deadline-exceeded] timeout',
+        fallback: 'Connexion trop lente.',
+      ),
+      'Connexion trop lente.',
+    );
+  });
 }

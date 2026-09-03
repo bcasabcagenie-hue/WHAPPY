@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +7,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WapiConversation {
   const WapiConversation({
@@ -46,6 +49,9 @@ class WapiConversation {
     );
     final isGroup = data['conversationType'] == 'group' || memberIds.length > 2;
     final peer = members.where((member) => member['uid'] != userId).firstOrNull;
+    final peerId = (peer?['uid'] as String?)?.trim().isNotEmpty == true
+        ? peer!['uid'] as String
+        : memberIds.where((id) => id != userId).firstOrNull ?? '';
     final readBy = Map<String, dynamic>.from(
       data['readBy'] as Map? ?? const {},
     );
@@ -68,10 +74,12 @@ class WapiConversation {
           (readAt == null || updatedAt.compareTo(readAt) > 0) &&
           data['lastSenderId'] != userId,
       isGroup: isGroup,
-      peerId: isGroup ? '' : (peer?['uid'] as String?) ?? '',
+      peerId: isGroup ? '' : peerId,
       avatarUrl: isGroup
           ? (data['groupPhotoUrl'] as String?) ?? ''
-          : (peer?['photoUrl'] as String?) ?? '',
+          : (peer?['photoUrl'] as String?) ??
+                (data['contactPhotoUrl'] as String?) ??
+                '',
       memberNames: {
         for (final member in members)
           if ((member['uid'] as String?)?.isNotEmpty == true)
@@ -102,6 +110,8 @@ class WapiMessage {
     required this.durationSeconds,
     required this.replyToId,
     required this.replyText,
+    required this.viewOnce,
+    required this.viewedBy,
     required this.reactions,
   });
 
@@ -117,24 +127,126 @@ class WapiMessage {
   final int durationSeconds;
   final String replyToId;
   final String replyText;
+  final bool viewOnce;
+  final Map<String, dynamic> viewedBy;
   final Map<String, String> reactions;
 
   factory WapiMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? const <String, dynamic>{};
-    final stamp = data['createdAt'];
-    return WapiMessage(
+    return WapiMessage.fromMap(
       id: doc.id,
-      text: (data['text'] as String?) ?? '',
-      senderId: (data['senderId'] as String?) ?? '',
-      createdAt: stamp is Timestamp ? stamp.toDate() : null,
-      kind: (data['kind'] as String?) ?? 'text',
-      mediaUrl: (data['mediaUrl'] as String?) ?? '',
-      mediaName: (data['mediaName'] as String?) ?? '',
-      mediaSizeBytes: (data['mediaSizeBytes'] as num?)?.toInt() ?? 0,
-      mediaSha256: (data['mediaSha256'] as String?) ?? '',
-      durationSeconds: (data['duration'] as num?)?.round() ?? 0,
-      replyToId: (data['replyToId'] as String?) ?? '',
-      replyText: (data['replyText'] as String?) ?? '',
+      data: doc.data() ?? const <String, dynamic>{},
+    );
+  }
+
+  factory WapiMessage.fromMap({
+    required String id,
+    required Map<String, dynamic> data,
+  }) {
+    String firstString(List<String> keys) {
+      for (final key in keys) {
+        final value = data[key];
+        if (value is String && value.trim().isNotEmpty) return value.trim();
+      }
+      return '';
+    }
+
+    num? firstNumber(List<String> keys) {
+      for (final key in keys) {
+        final value = data[key];
+        if (value is num) return value;
+        if (value is String) {
+          final parsed = num.tryParse(value);
+          if (parsed != null) return parsed;
+        }
+      }
+      return null;
+    }
+
+    final text = firstString(const ['text', 'message', 'caption']);
+    final mediaUrl = firstString(const [
+      'mediaUrl',
+      'audioUrl',
+      'voiceUrl',
+      'downloadUrl',
+      'fileUrl',
+      'url',
+    ]);
+    final contentType = firstString(const [
+      'contentType',
+      'mimeType',
+      'mediaMimeType',
+    ]).toLowerCase();
+    final rawKind = firstString(const [
+      'kind',
+      'messageType',
+      'mediaType',
+      'type',
+    ]).toLowerCase();
+    final normalizedText = text.toLowerCase();
+    final normalizedUrl = mediaUrl.toLowerCase().split('?').first;
+    final looksLikeAudio =
+        contentType.startsWith('audio/') ||
+        normalizedUrl.endsWith('.m4a') ||
+        normalizedUrl.endsWith('.aac') ||
+        normalizedUrl.endsWith('.mp3') ||
+        normalizedUrl.endsWith('.ogg') ||
+        normalizedUrl.endsWith('.opus') ||
+        normalizedUrl.endsWith('.wav') ||
+        normalizedText == 'message vocal' ||
+        normalizedText == 'note vocale';
+    final kind = switch (rawKind) {
+      'audio' || 'voice' || 'voice_note' || 'voice-note' || 'vocal' => 'audio',
+      'image' || 'photo' || 'picture' => 'image',
+      'video' => 'video',
+      'document' || 'file' => 'document',
+      _ => looksLikeAudio ? 'audio' : 'text',
+    };
+    final stamp = data['createdAt'] ?? data['timestamp'] ?? data['sentAt'];
+    final rawDuration = firstNumber(const [
+      'duration',
+      'durationSeconds',
+      'audioDuration',
+      'voiceDuration',
+    ]);
+    final explicitMilliseconds = firstNumber(const [
+      'durationMs',
+      'audioDurationMs',
+    ]);
+    final durationSeconds = explicitMilliseconds != null
+        ? (explicitMilliseconds / 1000).round()
+        : rawDuration != null && rawDuration > 600
+        ? (rawDuration / 1000).round()
+        : rawDuration?.round() ?? 0;
+    final nestedReply = data['replyTo'] is Map
+        ? Map<String, dynamic>.from(data['replyTo'] as Map)
+        : const <String, dynamic>{};
+    return WapiMessage(
+      id: id,
+      text: text,
+      senderId: firstString(const ['senderId', 'authorId', 'userId']),
+      createdAt: switch (stamp) {
+        Timestamp value => value.toDate(),
+        DateTime value => value,
+        num value => DateTime.fromMillisecondsSinceEpoch(value.toInt()),
+        String value => DateTime.tryParse(value),
+        _ => null,
+      },
+      kind: kind,
+      mediaUrl: mediaUrl,
+      mediaName: firstString(const ['mediaName', 'fileName', 'name']),
+      mediaSizeBytes:
+          firstNumber(const ['mediaSizeBytes', 'fileSize', 'size'])?.toInt() ??
+          0,
+      mediaSha256: firstString(const ['mediaSha256', 'sha256']),
+      durationSeconds: durationSeconds.clamp(0, 600).toInt(),
+      replyToId: firstString(const ['replyToId']).isNotEmpty
+          ? firstString(const ['replyToId'])
+          : (nestedReply['id'] as String?) ?? '',
+      replyText: firstString(const ['replyText']).isNotEmpty
+          ? firstString(const ['replyText'])
+          : (nestedReply['text'] as String?) ?? '',
+      viewOnce: data['viewOnce'] == true,
+      viewedBy: Map<String, dynamic>.from(data['viewedBy'] as Map? ?? const {}),
       reactions: Map<String, String>.from(
         (data['reactions'] as Map? ?? const {}).map(
           (key, value) => MapEntry(key.toString(), value.toString()),
@@ -213,6 +325,52 @@ class WapiRepository {
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage = FirebaseStorage.instance;
+  static List<WapiStory> _storyCache = const [];
+  static String _storyCacheUserId = '';
+
+  static String _storyCacheKey(String userId) => 'wapi.story-cache.v1.$userId';
+
+  static Future<List<WapiStory>> _restoreStoryCache(String userId) async {
+    try {
+      final encoded = (await SharedPreferences.getInstance()).getString(
+        _storyCacheKey(userId),
+      );
+      if (encoded == null || encoded.isEmpty) return const [];
+      final decoded = jsonDecode(encoded);
+      if (decoded is! List) return const [];
+      final now = DateTime.now().millisecondsSinceEpoch;
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .where((item) {
+            final expires = item['expiresAtMillis'];
+            if (expires is num) return expires.toInt() > now;
+            final created = item['createdAtMillis'];
+            return created is num &&
+                now - created.toInt() <
+                    const Duration(hours: 24).inMilliseconds;
+          })
+          .map(WapiStory.fromMap)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> _persistStoryCache(
+    String userId,
+    List<Map<String, dynamic>> stories,
+  ) async {
+    try {
+      final compact = stories.take(80).toList(growable: false);
+      await (await SharedPreferences.getInstance()).setString(
+        _storyCacheKey(userId),
+        jsonEncode(compact),
+      );
+    } catch (_) {
+      // The in-memory cache remains available for this application session.
+    }
+  }
 
   Stream<List<WapiConversation>> conversations(String userId) => _db
       .collection('conversations')
@@ -241,7 +399,12 @@ class WapiRepository {
     final callable = FirebaseFunctions.instanceFor(
       region: 'europe-west1',
     ).httpsCallable('listVisibleStories');
-    var latest = const <WapiStory>[];
+    if (_storyCacheUserId != userId) {
+      _storyCacheUserId = userId;
+      _storyCache = await _restoreStoryCache(userId);
+    }
+    var latest = _storyCache;
+    if (latest.isNotEmpty) yield latest;
     while (true) {
       try {
         final result = await callable.call<Map<String, dynamic>>().timeout(
@@ -253,6 +416,8 @@ class WapiRepository {
           ),
         );
         latest = rawStories.map(WapiStory.fromMap).toList(growable: false);
+        _storyCache = latest;
+        unawaited(_persistStoryCache(userId, rawStories));
         yield latest;
       } catch (_) {
         // A temporary mobile-network failure must not remove the complete
@@ -266,13 +431,15 @@ class WapiRepository {
   Future<void> recordStoryView(String storyId) async {
     await FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable('recordStoryView')
-        .call<Map<String, dynamic>>({'storyId': storyId});
+        .call<Map<String, dynamic>>({'storyId': storyId})
+        .timeout(const Duration(seconds: 12));
   }
 
   Future<List<Map<String, dynamic>>> storyViewers(String storyId) async {
     final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable('listStoryViewers')
-        .call<Map<String, dynamic>>({'storyId': storyId});
+        .call<Map<String, dynamic>>({'storyId': storyId})
+        .timeout(const Duration(seconds: 15));
     return (result.data['viewers'] as List? ?? const [])
         .whereType<Map>()
         .map((value) => Map<String, dynamic>.from(value))
@@ -282,7 +449,8 @@ class WapiRepository {
   Future<void> deleteStory(String storyId) async {
     await FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable('deleteStory')
-        .call<Map<String, dynamic>>({'storyId': storyId});
+        .call<Map<String, dynamic>>({'storyId': storyId})
+        .timeout(const Duration(seconds: 15));
   }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> profile(String userId) =>
@@ -473,6 +641,7 @@ class WapiRepository {
     required String stationName,
     required String title,
     required int durationSeconds,
+    String contentType = 'audio/mpeg',
   }) async {
     final station = stationName.trim();
     final episodeTitle = title.trim();
@@ -495,7 +664,10 @@ class WapiRepository {
     final path =
         'radio/${user.uid}/${DateTime.now().millisecondsSinceEpoch}-$safeName';
     final ref = _storage.ref(path);
-    await ref.putFile(file, SettableMetadata(contentType: 'audio/mpeg'));
+    final safeContentType = contentType.startsWith('audio/')
+        ? contentType
+        : 'audio/mpeg';
+    await ref.putFile(file, SettableMetadata(contentType: safeContentType));
     final url = await ref.getDownloadURL();
     await _db.collection('radioEpisodes').add({
       'ownerId': user.uid,
@@ -615,13 +787,14 @@ class WapiRepository {
     if (!{'add', 'remove'}.contains(action) || memberIds.isEmpty) {
       throw ArgumentError('Action de groupe invalide.');
     }
-    await FirebaseFunctions.instanceFor(
-      region: 'europe-west1',
-    ).httpsCallable('manageGroupMembers').call<Map<String, dynamic>>({
-      'conversationId': conversationId,
-      'action': action,
-      'memberIds': memberIds,
-    });
+    await FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('manageGroupMembers')
+        .call<Map<String, dynamic>>({
+          'conversationId': conversationId,
+          'action': action,
+          'memberIds': memberIds,
+        })
+        .timeout(const Duration(seconds: 20));
   }
 
   Future<void> sendMessage({
@@ -736,56 +909,172 @@ class WapiRepository {
     required String fileName,
     String caption = '',
     int durationSeconds = 0,
+    bool viewOnce = false,
+    String clientMessageId = '',
   }) async {
     if (!{'image', 'video', 'audio'}.contains(kind)) {
       throw ArgumentError('Type de média non pris en charge.');
     }
     final conversation = _db.collection('conversations').doc(conversationId);
-    final message = conversation.collection('messages').doc();
+    final stableMessageId = clientMessageId.trim();
+    if (stableMessageId.isNotEmpty &&
+        !RegExp(r'^[a-zA-Z0-9_-]{6,180}$').hasMatch(stableMessageId)) {
+      throw ArgumentError('Référence de message invalide.');
+    }
+    final message = conversation
+        .collection('messages')
+        .doc(stableMessageId.isEmpty ? null : stableMessageId);
     final safeName = fileName
         .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_')
         .take(100);
-    final path =
+    final outboxPath =
+        'conversationUploads/${user.uid}/$conversationId/${message.id}-$safeName';
+    final canonicalPath =
         'conversations/$conversationId/${user.uid}/${message.id}-$safeName';
-    final object = _storage.ref(path);
     final mediaSizeBytes = await file.length();
     if (mediaSizeBytes <= 0) {
       throw StateError('Le fichier média est vide.');
     }
     final mediaSha256 = (await sha256.bind(file.openRead()).first).toString();
-    await object.putFile(file, SettableMetadata(contentType: contentType));
-    final url = await object.getDownloadURL();
-    final label = switch (kind) {
-      'image' => 'Photo',
-      'video' => 'Vidéo',
-      _ => 'Message vocal',
-    };
-    final messageData = <String, dynamic>{
-      'text': caption.trim().isEmpty ? label : caption.trim(),
-      'senderId': user.uid,
-      'clientMessageId': message.id,
-      'kind': kind,
-      'mediaUrl': url,
-      'mediaName': safeName,
-      'mediaSizeBytes': mediaSizeBytes,
-      'mediaSha256': mediaSha256,
-      'duration': durationSeconds.clamp(0, 600),
-      'createdAt': FieldValue.serverTimestamp(),
-    };
-    if (kind == 'video') {
-      messageData['effect'] = 'pop';
-      messageData['caption'] = caption.trim().take(100);
+    Future<void> uploadTo(Reference target) async {
+      final upload = target.putFile(
+        file,
+        SettableMetadata(
+          contentType: contentType,
+          customMetadata: {
+            'wapiMediaSha256': mediaSha256,
+            'wapiConversationId': conversationId,
+            'wapiMessageId': message.id,
+          },
+        ),
+      );
+      await upload.timeout(
+        Duration(seconds: kind == 'video' ? 120 : 45),
+        onTimeout: () {
+          upload.cancel();
+          throw TimeoutException('Le transfert du média WAPI a expiré.');
+        },
+      );
     }
-    final batch = _db.batch();
-    batch.set(message, messageData);
-    batch.update(conversation, {
-      'lastMessage': label,
-      'lastSenderId': user.uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'typingBy.${user.uid}': false,
-      'readBy.${user.uid}': FieldValue.serverTimestamp(),
-    });
-    await batch.commit();
+
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable(
+          'commitConversationMedia',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
+        );
+    Future<void> finalize(
+      String storagePath, {
+      String inlineMediaBase64 = '',
+    }) async {
+      await callable.call<Map<String, dynamic>>({
+        'conversationId': conversationId,
+        'messageId': message.id,
+        'kind': kind,
+        'storagePath': storagePath,
+        'mediaName': safeName,
+        'mediaSha256': mediaSha256,
+        'durationSeconds': durationSeconds.clamp(0, 600),
+        'caption': caption.trim(),
+        'viewOnce': viewOnce,
+        if (inlineMediaBase64.isNotEmpty) ...{
+          'inlineMediaBase64': inlineMediaBase64,
+          'inlineContentType': contentType,
+        },
+      });
+    }
+
+    // Voice notes are usually small. Sending them through the authenticated
+    // callable first removes the fragile phone-side Storage permission hop;
+    // the server still verifies conversation membership, size and SHA-256.
+    // Longer recordings continue through the resumable Storage path below.
+    const inlineVoiceLimit = 8 * 1024 * 1024;
+    if (kind == 'audio' && mediaSizeBytes <= inlineVoiceLimit) {
+      try {
+        await user.getIdToken();
+        await finalize(
+          canonicalPath,
+          inlineMediaBase64: base64Encode(await file.readAsBytes()),
+        );
+        return;
+      } on FirebaseFunctionsException catch (error) {
+        const storageFallbackCodes = {
+          'internal',
+          'unknown',
+          'unavailable',
+          'deadline-exceeded',
+          'resource-exhausted',
+        };
+        if (!storageFallbackCodes.contains(error.code)) rethrow;
+      } on TimeoutException {
+        // A timed-out callable may still have committed successfully. The
+        // immutable message id makes the Storage retry safely idempotent.
+      }
+    }
+
+    final outbox = _storage.ref(outboxPath);
+    try {
+      await uploadTo(outbox);
+    } on FirebaseException {
+      // Some conversations created by older WAPI versions can briefly fail
+      // the outbox rule while their membership fields are being normalized.
+      // Try the canonical participant-only path before keeping the local note.
+      final canonical = _storage.ref(canonicalPath);
+      await uploadTo(canonical);
+      try {
+        await finalize(canonicalPath);
+        return;
+      } catch (_) {
+        await canonical.delete().catchError((_) {});
+        rethrow;
+      }
+    }
+    try {
+      await finalize(outboxPath);
+      return;
+    } on FirebaseFunctionsException catch (error) {
+      // If a transient server-side copy fails, retry through the canonical
+      // participant-only path. The Storage rules still enforce membership;
+      // this avoids leaving a recorded voice stuck in the private outbox.
+      const retryable = {
+        'internal',
+        'unknown',
+        'unavailable',
+        'deadline-exceeded',
+      };
+      if (!retryable.contains(error.code)) {
+        await outbox.delete().catchError((_) {});
+        rethrow;
+      }
+      await outbox.delete().catchError((_) {});
+      final canonical = _storage.ref(canonicalPath);
+      try {
+        await uploadTo(canonical);
+        await finalize(canonicalPath);
+        return;
+      } catch (_) {
+        await canonical.delete().catchError((_) {});
+        rethrow;
+      }
+    } catch (_) {
+      // The upload outbox is intentionally unreadable from the phone.  The
+      // server is the only component allowed to turn it into a shareable
+      // media URL, so never request a download URL here before this commit.
+      await outbox.delete().catchError((_) {});
+      rethrow;
+    }
+  }
+
+  Future<void> markViewOnceSeen({
+    required String conversationId,
+    required String messageId,
+    required String userId,
+  }) {
+    return _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({'viewedBy.$userId': FieldValue.serverTimestamp()});
   }
 
   Future<String> uploadProfilePhoto({
@@ -829,6 +1118,49 @@ class WapiRepository {
       'uid': user.uid,
       'displayName': value,
       'phoneNumber': user.phoneNumber ?? '',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> updateProfileDetails({
+    required User user,
+    required String displayName,
+    required String bio,
+    required String occupation,
+    required String city,
+    required String website,
+    required String statusText,
+  }) async {
+    final name = displayName.trim();
+    final safeBio = bio.trim();
+    final safeOccupation = occupation.trim();
+    final safeCity = city.trim();
+    final safeWebsite = website.trim();
+    final safeStatus = statusText.trim();
+    if (name.length < 2 || name.length > 80) {
+      throw ArgumentError('Le nom doit contenir entre 2 et 80 caractères.');
+    }
+    if (safeBio.length > 240 ||
+        safeOccupation.length > 80 ||
+        safeCity.length > 80 ||
+        safeWebsite.length > 180 ||
+        safeStatus.length > 80) {
+      throw ArgumentError('Une information de profil est trop longue.');
+    }
+    if (safeWebsite.isNotEmpty &&
+        !RegExp(r'^https://', caseSensitive: false).hasMatch(safeWebsite)) {
+      throw ArgumentError('Le site doit commencer par https://');
+    }
+    await user.updateDisplayName(name);
+    await _db.collection('users').doc(user.uid).set({
+      'uid': user.uid,
+      'displayName': name,
+      'phoneNumber': user.phoneNumber ?? '',
+      'bio': safeBio,
+      'occupation': safeOccupation,
+      'city': safeCity,
+      'website': safeWebsite,
+      'statusText': safeStatus,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -938,7 +1270,8 @@ class WapiRepository {
         'story_${DateTime.now().microsecondsSinceEpoch}_${payload['mediaType'] ?? 'text'}';
     final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable('publishStory')
-        .call<Map<String, dynamic>>({...payload, 'clientRequestId': requestId});
+        .call<Map<String, dynamic>>({...payload, 'clientRequestId': requestId})
+        .timeout(const Duration(seconds: 25));
     return WapiStory.fromMap(result.data);
   }
 }

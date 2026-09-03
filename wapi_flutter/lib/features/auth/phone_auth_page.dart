@@ -13,6 +13,7 @@ class PhoneAuthPage extends StatefulWidget {
 class _PhoneAuthPageState extends State<PhoneAuthPage> {
   final _phone = TextEditingController(text: '+242');
   final _code = TextEditingController();
+  final _auth = FirebaseAuth.instance;
   String? _verificationId;
   String? _error;
   bool _busy = false;
@@ -34,36 +35,69 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
       _busy = true;
       _error = null;
     });
-    await FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: number,
-      verificationCompleted: (credential) async {
-        await FirebaseAuth.instance.signInWithCredential(credential);
-      },
-      verificationFailed: (exception) {
-        if (mounted) {
-          setState(() {
-            _busy = false;
-            _error = exception.message ?? 'Vérification impossible.';
-          });
-        }
-      },
-      codeSent: (id, _) {
-        if (mounted) {
-          setState(() {
-            _busy = false;
-            _verificationId = id;
-          });
-        }
-      },
-      codeAutoRetrievalTimeout: (id) {
-        if (mounted) {
+    try {
+      await _auth.setLanguageCode('fr');
+      await _auth.verifyPhoneNumber(
+        phoneNumber: number,
+        verificationCompleted: (credential) async {
+          try {
+            await _auth.signInWithCredential(credential);
+          } on FirebaseAuthException catch (error) {
+            _showAuthIssue(error);
+          } catch (_) {
+            _showAuthIssue(null);
+          }
+        },
+        verificationFailed: _showAuthIssue,
+        codeSent: (id, _) {
+          if (!mounted) return;
           setState(() {
             _busy = false;
             _verificationId = id;
           });
-        }
-      },
-    );
+        },
+        codeAutoRetrievalTimeout: (id) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _verificationId = id;
+          });
+        },
+      );
+    } on FirebaseAuthException catch (error) {
+      _showAuthIssue(error);
+    } catch (_) {
+      _showAuthIssue(null);
+    }
+  }
+
+  void _showAuthIssue(Object? error) {
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _verificationId = null;
+      _error = _wapiAuthMessage(error);
+    });
+  }
+
+  String _wapiAuthMessage(Object? error) {
+    final code = error is FirebaseAuthException ? error.code : '';
+    final details = error?.toString().toLowerCase() ?? '';
+    if (code == 'network-request-failed' || details.contains('network')) {
+      return 'WAPI ne peut pas joindre le réseau. Vérifiez votre connexion puis réessayez.';
+    }
+    if (code == 'too-many-requests') {
+      return 'Trop de demandes ont été faites. Attendez quelques minutes avant de réessayer.';
+    }
+    if (code == 'invalid-phone-number') {
+      return 'Ce numéro n’est pas valide. Vérifiez l’indicatif et le numéro.';
+    }
+    if (details.contains('initial state') ||
+        details.contains('recaptcha') ||
+        details.contains('web-context')) {
+      return 'La vérification WAPI a été interrompue. Revenez dans WAPI et demandez un nouveau code.';
+    }
+    return 'La vérification WAPI n’a pas pu aboutir. Demandez un nouveau code.';
   }
 
   Future<void> _confirmCode() async {
@@ -74,14 +108,14 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.signInWithCredential(
+      await _auth.signInWithCredential(
         PhoneAuthProvider.credential(
           verificationId: id,
           smsCode: _code.text.trim(),
         ),
       );
     } on FirebaseAuthException catch (error) {
-      if (mounted) setState(() => _error = error.message ?? 'Code incorrect.');
+      if (mounted) setState(() => _error = _wapiAuthMessage(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -139,7 +173,7 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
                   Text(
                     codeStep
                         ? 'Entrez le code SMS à 6 chiffres.'
-                        : 'Un numéro. Un compte. Vos échanges sur cet appareil.',
+                        : 'Utilisez votre numéro pour retrouver votre compte WAPI.',
                     style: const TextStyle(color: WapiColors.muted),
                   ),
                   const SizedBox(height: 24),

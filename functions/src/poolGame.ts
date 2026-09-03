@@ -269,6 +269,96 @@ function targets(group: PoolGroup, balls: PoolBall[]) {
   return own.length ? own : [8];
 }
 
+function laneIsClear(
+  balls: PoolBall[],
+  from: PoolBall,
+  toX: number,
+  toY: number,
+  ignoredIds: Set<number>,
+) {
+  const dx = (toX - from.x) * WIDTH;
+  const dy = (toY - from.y) * HEIGHT;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared < .001) return false;
+  return !balls.some((ball) => {
+    if (ball.pocketed || ignoredIds.has(ball.id)) return false;
+    const bx = (ball.x - from.x) * WIDTH;
+    const by = (ball.y - from.y) * HEIGHT;
+    const projection = clamp((bx * dx + by * dy) / lengthSquared, 0, 1);
+    if (projection <= .035 || projection >= .975) return false;
+    const nearestX = dx * projection;
+    const nearestY = dy * projection;
+    return Math.hypot(bx - nearestX, by - nearestY) < RADIUS * 2.08;
+  });
+}
+
+/**
+ * Plans an actual pot rather than aiming at the first visible ball. The AI
+ * evaluates every legal ball/pocket pair, computes the ghost-ball contact,
+ * rejects obstructed lanes and favours a straight, short shot. Coordinates
+ * are converted to the regulation 2:1 table before calculating the angle.
+ */
+export function planPoolAiShot(source: PoolBall[], group: PoolGroup): PoolShot {
+  const balls = sanitizePoolBalls(source);
+  const cue = balls.find((ball) => ball.id === 0 && !ball.pocketed);
+  if (!cue) return { angle: 0, power: 45, sideSpin: 0, followSpin: 0 };
+  const legalIds = new Set(targets(group, balls));
+  const candidates = balls.filter((ball) => !ball.pocketed && legalIds.has(ball.id));
+  let best: { shot: PoolShot; score: number } | null = null;
+
+  for (const target of candidates) {
+    for (const [pocketX, pocketY] of POCKETS) {
+      const objectX = (pocketX - target.x) * WIDTH;
+      const objectY = (pocketY - target.y) * HEIGHT;
+      const objectDistance = Math.hypot(objectX, objectY);
+      if (objectDistance < .10) continue;
+      const unitX = objectX / objectDistance;
+      const unitY = objectY / objectDistance;
+      const contactDistance = RADIUS * 2.02;
+      const ghostX = target.x - unitX * contactDistance / WIDTH;
+      const ghostY = target.y - unitY * contactDistance / HEIGHT;
+      if (ghostX < .064 || ghostX > .936 || ghostY < .093 || ghostY > .907) continue;
+
+      const cueX = (ghostX - cue.x) * WIDTH;
+      const cueY = (ghostY - cue.y) * HEIGHT;
+      const cueDistance = Math.hypot(cueX, cueY);
+      if (cueDistance < .12) continue;
+      const cutQuality = (cueX / cueDistance) * unitX + (cueY / cueDistance) * unitY;
+      if (cutQuality < .18) continue;
+      if (!laneIsClear(balls, cue, ghostX, ghostY, new Set([0, target.id]))) continue;
+      if (!laneIsClear(balls, target, pocketX, pocketY, new Set([target.id]))) continue;
+
+      const score = cutQuality * 5.2 - cueDistance * .18 - objectDistance * .12;
+      const power = clamp(30 + cueDistance * 5.1 + objectDistance * 2.8, 34, 86);
+      const shot: PoolShot = {
+        angle: Math.atan2(cueY, cueX),
+        power: Math.round(power),
+        sideSpin: 0,
+        followSpin: cutQuality > .82 ? .10 : 0,
+      };
+      if (!best || score > best.score) best = { shot, score };
+    }
+  }
+  if (best) return best.shot;
+
+  const target = candidates.reduce<PoolBall | null>((nearest, ball) => {
+    if (!nearest) return ball;
+    const current = Math.hypot((ball.x - cue.x) * WIDTH, (ball.y - cue.y) * HEIGHT);
+    const previous = Math.hypot((nearest.x - cue.x) * WIDTH, (nearest.y - cue.y) * HEIGHT);
+    return current < previous ? ball : nearest;
+  }, null);
+  if (!target) return { angle: 0, power: 45, sideSpin: 0, followSpin: 0 };
+  const dx = (target.x - cue.x) * WIDTH;
+  const dy = (target.y - cue.y) * HEIGHT;
+  const distance = Math.hypot(dx, dy);
+  return {
+    angle: Math.atan2(dy, dx),
+    power: Math.round(clamp(40 + distance * 5.2, 40, 78)),
+    sideSpin: 0,
+    followSpin: .08,
+  };
+}
+
 export function resolvePoolShot(
   ballsBefore: PoolBall[],
   shooterGroupBefore: PoolGroup,

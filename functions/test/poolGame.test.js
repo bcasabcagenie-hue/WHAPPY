@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   initialPoolBalls,
+  planPoolAiShot,
   resolvePoolShot,
   sanitizePoolBalls,
   simulatePoolShot,
@@ -23,6 +24,20 @@ test("pool server produces a deterministic break", () => {
   assert.equal(first.firstContactBallId, second.firstContactBallId);
   assert.notEqual(first.firstContactBallId, null, "a full-power break must reach the rack");
   assert.ok(first.frames > 20 && first.frames < 1800);
+});
+
+test("pool AI uses regulation table geometry and strikes a legal target", () => {
+  const table = initialPoolBalls().map((ball) => ({
+    ...ball,
+    pocketed: ball.id > 1,
+  }));
+  table[0] = {id: 0, x: .24, y: .63, pocketed: false};
+  table[1] = {id: 1, x: .61, y: .36, pocketed: false};
+  const shot = planPoolAiShot(table, "solids");
+  assert.ok(shot.angle >= -Math.PI && shot.angle <= Math.PI);
+  assert.ok(shot.power >= 10 && shot.power <= 100);
+  const result = simulatePoolShot(table, shot);
+  assert.equal(result.firstContactBallId, 1);
 });
 
 test("authoritative eight-ball rules assign groups and protect the black", () => {

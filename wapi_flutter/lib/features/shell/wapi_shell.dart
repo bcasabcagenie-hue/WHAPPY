@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -119,39 +121,84 @@ class _WapiShellState extends State<WapiShell> with WidgetsBindingObserver {
       _UpdatesPage(user: widget.user, repository: _repository),
       _AssistantPage(user: widget.user),
     ];
-    return Scaffold(
-      body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Accueil',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Messages',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.call_outlined),
-            selectedIcon: Icon(Icons.call),
-            label: 'Appels',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.auto_awesome_outlined),
-            selectedIcon: Icon(Icons.auto_awesome),
-            label: 'Actus',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.smart_toy_outlined),
-            selectedIcon: Icon(Icons.smart_toy),
-            label: 'Assistant',
-          ),
-        ],
+    const destinations = [
+      NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: 'Accueil',
       ),
+      NavigationDestination(
+        icon: Icon(Icons.chat_bubble_outline),
+        selectedIcon: Icon(Icons.chat_bubble),
+        label: 'Messages',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.call_outlined),
+        selectedIcon: Icon(Icons.call),
+        label: 'Appels',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.auto_awesome_outlined),
+        selectedIcon: Icon(Icons.auto_awesome),
+        label: 'Actus',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.smart_toy_outlined),
+        selectedIcon: Icon(Icons.smart_toy),
+        label: 'Assistant',
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final body = IndexedStack(index: _index, children: pages);
+        if (constraints.maxWidth >= 840) {
+          return Scaffold(
+            body: Row(
+              children: [
+                SafeArea(
+                  child: NavigationRail(
+                    selectedIndex: _index,
+                    extended: constraints.maxWidth >= 1120,
+                    minExtendedWidth: 196,
+                    groupAlignment: -.72,
+                    useIndicator: true,
+                    backgroundColor: Colors.white,
+                    leading: Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: Image.asset(
+                        'assets/branding/wapi_mark.png',
+                        width: 42,
+                        height: 42,
+                      ),
+                    ),
+                    onDestinationSelected: (value) =>
+                        setState(() => _index = value),
+                    destinations: destinations
+                        .map(
+                          (destination) => NavigationRailDestination(
+                            icon: destination.icon,
+                            selectedIcon: destination.selectedIcon,
+                            label: Text(destination.label),
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: body),
+              ],
+            ),
+          );
+        }
+        return Scaffold(
+          body: body,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: (value) => setState(() => _index = value),
+            destinations: destinations,
+          ),
+        );
+      },
     );
   }
 }
@@ -786,9 +833,48 @@ class _HomeRow extends StatelessWidget {
 class _CallsPage extends StatelessWidget {
   const _CallsPage({required this.user});
   final User user;
+
+  void _openCall(
+    BuildContext context, {
+    required String peerId,
+    required String peerName,
+    required String peerPhotoUrl,
+    required bool video,
+    String? incomingCallId,
+  }) {
+    if (peerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ce contact WAPI n’est plus disponible.')),
+      );
+      return;
+    }
+    openWapiCall(
+      context,
+      incomingCallId == null
+          ? WapiCallPage.outgoing(
+              user: user,
+              peerId: peerId,
+              peerName: peerName,
+              peerPhotoUrl: peerPhotoUrl,
+              video: video,
+            )
+          : WapiCallPage.incoming(
+              user: user,
+              incomingCallId: incomingCallId,
+              peerId: peerId,
+              peerName: peerName,
+              peerPhotoUrl: peerPhotoUrl,
+              video: video,
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: const _WapiAppBar(title: 'Appels', subtitle: 'Audio et vidéo'),
+    appBar: const _WapiAppBar(
+      title: 'Appels',
+      subtitle: 'Historique audio et vidéo',
+    ),
     body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('directCallSessions')
@@ -806,7 +892,14 @@ class _CallsPage extends StatelessWidget {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final calls = snapshot.data!.docs;
+        final calls = snapshot.data!.docs.toList()
+          ..sort((left, right) {
+            final leftDate = _callDate(left.data()['createdAt']);
+            final rightDate = _callDate(right.data()['createdAt']);
+            return (rightDate?.millisecondsSinceEpoch ?? 0).compareTo(
+              leftDate?.millisecondsSinceEpoch ?? 0,
+            );
+          });
         if (calls.isEmpty) {
           return const _StateMessage(
             icon: Icons.call_outlined,
@@ -815,11 +908,36 @@ class _CallsPage extends StatelessWidget {
                 'Lancez un appel audio ou vidéo depuis une conversation WAPI.',
           );
         }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: calls.length,
+        return ListView.separated(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+          itemCount: calls.length + 1,
+          separatorBuilder: (_, index) => SizedBox(height: index == 0 ? 12 : 8),
           itemBuilder: (context, index) {
-            final call = calls[index].data();
+            if (index == 0) {
+              return Row(
+                children: [
+                  Text(
+                    'RÉCENTS',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: WapiColors.muted,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .8,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${calls.length} appel${calls.length > 1 ? 's' : ''}',
+                    style: const TextStyle(
+                      color: WapiColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              );
+            }
+            final document = calls[index - 1];
+            final call = document.data();
             final incoming = call['calleeId'] == user.uid;
             final peerId = incoming
                 ? (call['callerId'] as String?) ?? ''
@@ -830,46 +948,108 @@ class _CallsPage extends StatelessWidget {
             final peerPhotoUrl = incoming
                 ? (call['callerPhotoUrl'] as String?) ?? ''
                 : (call['calleePhotoUrl'] as String?) ?? '';
+            final video = call['video'] == true;
+            final status = (call['status'] as String?) ?? '';
+            final ringing = status == 'ringing';
+            final acceptedAt = _callDate(call['acceptedAt']);
+            final endedAt = _callDate(call['endedAt']);
+            final createdAt = _callDate(call['createdAt']);
+            final duration = acceptedAt != null && endedAt != null
+                ? endedAt.difference(acceptedAt).inSeconds.clamp(0, 86400)
+                : 0;
+            final missed = incoming && acceptedAt == null && !ringing;
+            final stateColor = missed || status == 'declined'
+                ? const Color(0xFFC4323F)
+                : ringing
+                ? const Color(0xFF087D62)
+                : WapiColors.muted;
             return Card(
-              margin: const EdgeInsets.only(bottom: 10),
               child: ListTile(
-                onTap: incoming && call['status'] == 'ringing'
-                    ? () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => WapiCallPage.incoming(
-                            user: user,
-                            incomingCallId: snapshot.data!.docs[index].id,
-                            peerId: peerId,
-                            peerName: peerName,
-                            peerPhotoUrl: peerPhotoUrl,
-                            video: call['video'] == true,
-                          ),
-                        ),
+                minTileHeight: 76,
+                contentPadding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+                onTap: incoming && ringing
+                    ? () => _openCall(
+                        context,
+                        peerId: peerId,
+                        peerName: peerName,
+                        peerPhotoUrl: peerPhotoUrl,
+                        video: video,
+                        incomingCallId: document.id,
                       )
                     : null,
-                leading: CircleAvatar(
-                  backgroundColor: WapiColors.blueSoft,
-                  foregroundColor: WapiColors.blue,
-                  backgroundImage: peerPhotoUrl.isEmpty
-                      ? null
-                      : NetworkImage(peerPhotoUrl),
-                  child: peerPhotoUrl.isEmpty
-                      ? Icon(incoming ? Icons.call_received : Icons.call_made)
-                      : null,
+                leading: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _LiveProfileAvatar(
+                      userId: peerId,
+                      fallbackUrl: peerPhotoUrl,
+                      name: peerName,
+                      radius: 25,
+                    ),
+                    Positioned(
+                      right: -3,
+                      bottom: -3,
+                      child: Container(
+                        width: 21,
+                        height: 21,
+                        decoration: BoxDecoration(
+                          color: video ? WapiColors.blue : WapiColors.emerald,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: Icon(
+                          video ? Icons.videocam_rounded : Icons.call_rounded,
+                          color: Colors.white,
+                          size: 11,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 title: Text(
                   peerName,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
-                subtitle: Text(
-                  call['status'] == 'ringing'
-                      ? 'Appuyez pour répondre'
-                      : (call['status'] as String?) ?? 'Historique',
+                subtitle: Row(
+                  children: [
+                    Icon(
+                      incoming
+                          ? Icons.call_received_rounded
+                          : Icons.call_made_rounded,
+                      size: 15,
+                      color: stateColor,
+                    ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        '${_callState(status, incoming: incoming, accepted: acceptedAt != null)} · ${_callMoment(createdAt)}${duration > 0 ? ' · ${_callDuration(duration)}' : ''}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: stateColor, fontSize: 12),
+                      ),
+                    ),
+                  ],
                 ),
-                trailing: Icon(
-                  call['video'] == true
-                      ? Icons.videocam_outlined
-                      : Icons.call_outlined,
+                trailing: IconButton(
+                  tooltip: ringing && incoming ? 'Répondre' : 'Rappeler',
+                  onPressed: () => _openCall(
+                    context,
+                    peerId: peerId,
+                    peerName: peerName,
+                    peerPhotoUrl: peerPhotoUrl,
+                    video: video,
+                    incomingCallId: ringing && incoming ? document.id : null,
+                  ),
+                  icon: Icon(
+                    ringing && incoming
+                        ? Icons.call_rounded
+                        : video
+                        ? Icons.videocam_outlined
+                        : Icons.call_outlined,
+                    color: ringing && incoming
+                        ? WapiColors.emerald
+                        : WapiColors.blueDark,
+                  ),
                 ),
               ),
             );
@@ -878,6 +1058,41 @@ class _CallsPage extends StatelessWidget {
       },
     ),
   );
+}
+
+DateTime? _callDate(Object? value) =>
+    value is Timestamp ? value.toDate() : null;
+
+String _callState(
+  String status, {
+  required bool incoming,
+  required bool accepted,
+}) {
+  if (status == 'ringing') return incoming ? 'Appel entrant' : 'En attente';
+  if (status == 'declined') return incoming ? 'Appel refusé' : 'Refusé';
+  if (!accepted) return incoming ? 'Appel manqué' : 'Sans réponse';
+  return incoming ? 'Appel reçu' : 'Appel émis';
+}
+
+String _callMoment(DateTime? value) {
+  if (value == null) return 'heure inconnue';
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(local.year, local.month, local.day);
+  final clock =
+      '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  if (day == today) return 'Aujourd’hui $clock';
+  if (day == today.subtract(const Duration(days: 1))) return 'Hier $clock';
+  return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} $clock';
+}
+
+String _callDuration(int seconds) {
+  final minutes = seconds ~/ 60;
+  final remaining = seconds % 60;
+  return minutes > 0
+      ? '${minutes} min ${remaining.toString().padLeft(2, '0')} s'
+      : '$remaining s';
 }
 
 class _AssistantPage extends StatelessWidget {
@@ -1034,7 +1249,14 @@ class _ChannelsPage extends StatelessWidget {
                 } catch (error) {
                   if (sheetContext.mounted) {
                     ScaffoldMessenger.of(sheetContext).showSnackBar(
-                      SnackBar(content: Text('Création impossible : $error')),
+                      SnackBar(
+                        content: Text(
+                          wapiErrorText(
+                            error,
+                            fallback: 'La chaîne n’a pas pu être créée.',
+                          ),
+                        ),
+                      ),
                     );
                   }
                 }
@@ -1256,7 +1478,13 @@ class _ChannelComposerState extends State<_ChannelComposer> {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Publication impossible : $error'),
+                            content: Text(
+                              wapiErrorText(
+                                error,
+                                fallback:
+                                    'La publication n’a pas pu être envoyée.',
+                              ),
+                            ),
                           ),
                         );
                       }
@@ -1296,12 +1524,12 @@ class _RadioPageState extends State<_RadioPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: const _WapiAppBar(
       title: 'Radio & podcasts',
-      subtitle: 'Épisodes publiés sur WAPI',
+      subtitle: 'Studio, direct et épisodes WAPI',
     ),
     floatingActionButton: FloatingActionButton.extended(
       onPressed: _publish,
-      icon: const Icon(Icons.upload_file_outlined),
-      label: const Text('Publier'),
+      icon: const Icon(Icons.mic_rounded),
+      label: const Text('Studio'),
     ),
     body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -1326,17 +1554,20 @@ class _RadioPageState extends State<_RadioPage> {
             icon: Icons.radio_outlined,
             title: 'Publiez le premier épisode',
             body:
-                'Importez un fichier audio : il sera stocké dans votre espace WAPI puis disponible à l’écoute.',
-            actionLabel: 'Publier un épisode',
+                'Enregistrez directement avec le studio WAPI ou importez votre production.',
+            actionLabel: 'Ouvrir le studio',
             onAction: _publish,
           );
         }
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-          itemCount: episodes.length,
+          itemCount: episodes.length + 1,
           separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
-            final doc = episodes[index];
+            if (index == 0) {
+              return _RadioStudioBanner(onOpen: _publish);
+            }
+            final doc = episodes[index - 1];
             final data = doc.data();
             final isPlaying = _playingId == doc.id;
             final duration = Duration(
@@ -1396,103 +1627,557 @@ class _RadioPageState extends State<_RadioPage> {
     ),
   );
 
+  Future<void> _publish() => Navigator.of(context).push(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) =>
+          _RadioStudioPage(user: widget.user, repository: _repository),
+    ),
+  );
+}
+
+class _RadioStudioBanner extends StatelessWidget {
+  const _RadioStudioBanner({required this.onOpen});
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onOpen,
+    borderRadius: BorderRadius.circular(24),
+    child: Ink(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF071E2B), Color(0xFF0A7080)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .12),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white24),
+            ),
+            child: const Icon(
+              Icons.mic_rounded,
+              color: Color(0xFF72E8FF),
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'STUDIO WAPI',
+                  style: TextStyle(
+                    color: Color(0xFF9DDDE8),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Enregistrez votre émission',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Son HD, traitements voix et préécoute',
+                  style: TextStyle(color: Color(0xFFD5EEF2), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: Colors.white),
+        ],
+      ),
+    ),
+  );
+}
+
+class _RadioStudioPage extends StatefulWidget {
+  const _RadioStudioPage({required this.user, required this.repository});
+  final User user;
+  final WapiRepository repository;
+
+  @override
+  State<_RadioStudioPage> createState() => _RadioStudioPageState();
+}
+
+class _RadioStudioPageState extends State<_RadioStudioPage> {
+  final _station = TextEditingController(text: 'Ma radio WAPI');
+  final _title = TextEditingController();
+  final _recorder = AudioRecorder();
+  final _previewPlayer = AudioPlayer();
+  StreamSubscription<Amplitude>? _meterSubscription;
+  StreamSubscription<PlayerState>? _previewSubscription;
+  Timer? _timer;
+  String _profile = 'studio';
+  String? _audioPath;
+  String _audioName = '';
+  int _durationSeconds = 0;
+  double _level = 0;
+  bool _recording = false;
+  bool _previewing = false;
+  bool _publishing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _previewSubscription = _previewPlayer.playerStateStream.listen((state) {
+      if (!mounted) return;
+      if (state.processingState == ProcessingState.completed ||
+          !state.playing && _previewing) {
+        setState(() => _previewing = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _meterSubscription?.cancel();
+    _previewSubscription?.cancel();
+    _recorder.dispose();
+    _previewPlayer.dispose();
+    _station.dispose();
+    _title.dispose();
+    super.dispose();
+  }
+
+  RecordConfig get _recordConfig => switch (_profile) {
+    'interview' => const RecordConfig(
+      encoder: AudioEncoder.aacLc,
+      bitRate: 160000,
+      sampleRate: 48000,
+      numChannels: 1,
+      autoGain: true,
+      echoCancel: true,
+      noiseSuppress: true,
+    ),
+    'ambience' => const RecordConfig(
+      encoder: AudioEncoder.aacLc,
+      bitRate: 192000,
+      sampleRate: 48000,
+      numChannels: 2,
+      autoGain: false,
+      echoCancel: false,
+      noiseSuppress: false,
+    ),
+    _ => const RecordConfig(
+      encoder: AudioEncoder.aacLc,
+      bitRate: 192000,
+      sampleRate: 48000,
+      numChannels: 1,
+      autoGain: true,
+      echoCancel: false,
+      noiseSuppress: true,
+    ),
+  };
+
+  String get _processingLabel => switch (_profile) {
+    'interview' => 'Anti-écho · réduction du bruit · gain automatique',
+    'ambience' => 'Stéréo 48 kHz · ambiance naturelle',
+    _ => 'Voix HD · réduction du bruit · gain automatique',
+  };
+
+  String _clock(int seconds) =>
+      '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+
+  Future<void> _startRecording() async {
+    if (!await _recorder.hasPermission()) {
+      _snack('Autorisez le microphone pour ouvrir le studio.', error: true);
+      return;
+    }
+    final directory = await getTemporaryDirectory();
+    final path =
+        '${directory.path}/wapi-radio-${DateTime.now().millisecondsSinceEpoch}.m4a';
+    try {
+      await _previewPlayer.stop();
+      await _recorder.start(_recordConfig, path: path);
+      _timer?.cancel();
+      _meterSubscription?.cancel();
+      setState(() {
+        _recording = true;
+        _previewing = false;
+        _durationSeconds = 0;
+        _audioPath = null;
+        _audioName = '';
+      });
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _recording) {
+          setState(() => _durationSeconds++);
+        }
+      });
+      _meterSubscription = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 100))
+          .listen((amplitude) {
+            if (!mounted || !_recording) return;
+            setState(() {
+              _level = ((amplitude.current + 60) / 60).clamp(0.02, 1.0);
+            });
+          });
+    } catch (_) {
+      _snack('Le studio audio n’a pas pu démarrer.', error: true);
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    _timer?.cancel();
+    await _meterSubscription?.cancel();
+    final path = await _recorder.stop();
+    if (!mounted) return;
+    if (path == null || _durationSeconds < 1) {
+      setState(() {
+        _recording = false;
+        _level = 0;
+      });
+      _snack('L’enregistrement est trop court.', error: true);
+      return;
+    }
+    setState(() {
+      _recording = false;
+      _level = 0;
+      _audioPath = path;
+      _audioName = 'emission-wapi-${DateTime.now().millisecondsSinceEpoch}.m4a';
+    });
+  }
+
+  Future<void> _importAudio() async {
+    final audio = await FilePicker.pickFile(type: FileType.audio);
+    if (audio?.path == null) return;
+    try {
+      final duration = await _previewPlayer.setFilePath(audio!.path!);
+      if (!mounted) return;
+      setState(() {
+        _audioPath = audio.path;
+        _audioName = audio.name;
+        _durationSeconds = duration?.inSeconds ?? 0;
+        _previewing = false;
+      });
+    } catch (_) {
+      _snack('Ce fichier audio ne peut pas être utilisé.', error: true);
+    }
+  }
+
+  Future<void> _togglePreview() async {
+    final path = _audioPath;
+    if (path == null) return;
+    try {
+      if (_previewing) {
+        await _previewPlayer.pause();
+        if (mounted) setState(() => _previewing = false);
+        return;
+      }
+      await _previewPlayer.setFilePath(path);
+      await _previewPlayer.play();
+      if (mounted) setState(() => _previewing = true);
+    } catch (_) {
+      _snack('La préécoute est indisponible.', error: true);
+    }
+  }
+
   Future<void> _publish() async {
-    final station = TextEditingController(text: 'Ma radio WAPI');
-    final title = TextEditingController();
-    var publishing = false;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+    final path = _audioPath;
+    if (path == null || _durationSeconds < 1) {
+      _snack('Enregistrez ou importez d’abord un épisode.', error: true);
+      return;
+    }
+    if (_station.text.trim().length < 2 || _title.text.trim().length < 2) {
+      _snack('Ajoutez le nom de la radio et le titre.', error: true);
+      return;
+    }
+    setState(() => _publishing = true);
+    try {
+      final extension = _audioName.toLowerCase().split('.').last;
+      final contentType = extension == 'm4a'
+          ? 'audio/mp4'
+          : extension == 'wav'
+          ? 'audio/wav'
+          : extension == 'ogg'
+          ? 'audio/ogg'
+          : 'audio/mpeg';
+      await widget.repository.publishRadioEpisode(
+        user: widget.user,
+        file: File(path),
+        fileName: _audioName,
+        stationName: _station.text,
+        title: _title.text,
+        durationSeconds: _durationSeconds,
+        contentType: contentType,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      _snack('L’épisode n’a pas pu être publié. Réessayez.', error: true);
+    } finally {
+      if (mounted) setState(() => _publishing = false);
+    }
+  }
+
+  void _snack(String message, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: error ? const Color(0xFFB42318) : null,
+        content: Text(message),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text(
+        'Studio Radio WAPI',
+        style: TextStyle(fontWeight: FontWeight.w900),
+      ),
+    ),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF071923), Color(0xFF0B6572)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(26),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _recording
+                          ? const Color(0xFFE14352)
+                          : Colors.white12,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      _recording ? '●  EN DIRECT' : 'PRÊT À ENREGISTRER',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .7,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _clock(_durationSeconds),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _RadioLevelMeter(level: _level, active: _recording),
+              const SizedBox(height: 18),
+              GestureDetector(
+                onTap: _recording ? _stopRecording : _startRecording,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _recording ? const Color(0xFFE14352) : Colors.white,
+                    border: Border.all(color: Colors.white38, width: 5),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            (_recording
+                                    ? const Color(0xFFE14352)
+                                    : const Color(0xFF72E8FF))
+                                .withValues(alpha: .3),
+                        blurRadius: 24,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _recording ? Icons.stop_rounded : Icons.mic_rounded,
+                    color: _recording ? Colors.white : WapiColors.blueDark,
+                    size: 36,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 13),
               Text(
-                'Publier un épisode',
-                style: Theme.of(sheetContext).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: station,
-                maxLength: 60,
-                decoration: const InputDecoration(labelText: 'Nom de la radio'),
-              ),
-              TextField(
-                controller: title,
-                maxLength: 100,
-                decoration: const InputDecoration(
-                  labelText: 'Titre de l’épisode',
-                ),
-              ),
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                onPressed: publishing
-                    ? null
-                    : () async {
-                        final audio = await FilePicker.pickFile(
-                          type: FileType.audio,
-                        );
-                        if (audio?.path == null) return;
-                        setSheetState(() => publishing = true);
-                        try {
-                          final probe = AudioPlayer();
-                          final duration = await probe.setFilePath(
-                            audio!.path!,
-                          );
-                          await probe.dispose();
-                          await _repository.publishRadioEpisode(
-                            user: widget.user,
-                            file: File(audio.path!),
-                            fileName: audio.name,
-                            stationName: station.text,
-                            title: title.text,
-                            durationSeconds: duration?.inSeconds ?? 0,
-                          );
-                          if (sheetContext.mounted) {
-                            Navigator.of(sheetContext).pop();
-                          }
-                        } catch (error) {
-                          if (sheetContext.mounted) {
-                            ScaffoldMessenger.of(sheetContext).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Publication impossible : $error',
-                                ),
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (sheetContext.mounted) {
-                            setSheetState(() => publishing = false);
-                          }
-                        }
-                      },
-                icon: publishing
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.audiotrack_outlined),
-                label: const Text('Choisir le fichier audio'),
+                _recording
+                    ? 'Touchez pour terminer l’enregistrement'
+                    : 'Touchez pour enregistrer votre podcast',
+                style: const TextStyle(color: Color(0xFFD5EEF2)),
               ),
             ],
           ),
         ),
-      ),
-    );
-    station.dispose();
-    title.dispose();
-  }
+        const SizedBox(height: 18),
+        const Text(
+          'PROFIL AUDIO',
+          style: TextStyle(
+            color: WapiColors.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .8,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children:
+              const {
+                'studio': 'Studio HD',
+                'interview': 'Interview',
+                'ambience': 'Ambiance',
+              }.entries.map((entry) {
+                return ChoiceChip(
+                  label: Text(entry.value),
+                  selected: _profile == entry.key,
+                  onSelected: _recording
+                      ? null
+                      : (_) => setState(() => _profile = entry.key),
+                );
+              }).toList(),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Icon(
+              Icons.auto_fix_high_rounded,
+              size: 16,
+              color: WapiColors.blue,
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                _processingLabel,
+                style: const TextStyle(color: WapiColors.muted, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        TextField(
+          controller: _station,
+          maxLength: 60,
+          enabled: !_recording,
+          decoration: const InputDecoration(
+            labelText: 'Nom de la radio',
+            prefixIcon: Icon(Icons.radio_rounded),
+          ),
+        ),
+        TextField(
+          controller: _title,
+          maxLength: 100,
+          enabled: !_recording,
+          decoration: const InputDecoration(
+            labelText: 'Titre de l’épisode',
+            prefixIcon: Icon(Icons.title_rounded),
+          ),
+        ),
+        if (_audioPath != null) ...[
+          const SizedBox(height: 4),
+          Card(
+            child: ListTile(
+              leading: IconButton.filledTonal(
+                onPressed: _togglePreview,
+                icon: Icon(
+                  _previewing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                ),
+              ),
+              title: const Text(
+                'Épisode prêt',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text('${_clock(_durationSeconds)} · $_audioName'),
+              trailing: IconButton(
+                onPressed: () => setState(() {
+                  _audioPath = null;
+                  _audioName = '';
+                  _durationSeconds = 0;
+                }),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: _recording ? null : _importAudio,
+          icon: const Icon(Icons.audio_file_outlined),
+          label: const Text('Importer une production audio'),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: _recording || _publishing ? null : _publish,
+          icon: _publishing
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.podcasts_rounded),
+          label: Text(_publishing ? 'Publication…' : 'Publier l’épisode'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RadioLevelMeter extends StatelessWidget {
+  const _RadioLevelMeter({required this.level, required this.active});
+  final double level;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: List.generate(28, (index) {
+      final threshold = index / 27;
+      final lit = active && threshold <= level;
+      final color = threshold > .82
+          ? const Color(0xFFE95D64)
+          : threshold > .62
+          ? const Color(0xFFFFC857)
+          : const Color(0xFF63E6BE);
+      return Expanded(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 90),
+          height: 12 + (index % 4) * 3,
+          margin: const EdgeInsets.symmetric(horizontal: 1.2),
+          decoration: BoxDecoration(
+            color: lit ? color : Colors.white12,
+            borderRadius: BorderRadius.circular(99),
+          ),
+        ),
+      );
+    }),
+  );
 }
 
 // ignore: unused_element
@@ -1713,7 +2398,14 @@ class _ContactsPage extends StatelessWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Conversation impossible : $error')),
+          SnackBar(
+            content: Text(
+              wapiErrorText(
+                error,
+                fallback: 'La conversation n’a pas pu être ouverte.',
+              ),
+            ),
+          ),
         );
       }
     }
@@ -1866,9 +2558,16 @@ class _ContactsPage extends StatelessWidget {
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Ajout impossible : $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              wapiErrorText(
+                error,
+                fallback: 'Ce contact n’a pas pu être ajouté.',
+              ),
+            ),
+          ),
+        );
       }
     }
   }
@@ -2088,7 +2787,14 @@ class _TwinPage extends StatelessWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Consentement non enregistré : $error')),
+          SnackBar(
+            content: Text(
+              wapiErrorText(
+                error,
+                fallback: 'Les consentements n’ont pas été enregistrés.',
+              ),
+            ),
+          ),
         );
       }
     }
@@ -2106,6 +2812,14 @@ class _InboxPage extends StatefulWidget {
 
 class _InboxPageState extends State<_InboxPage> {
   bool _showRecents = false;
+  bool _searching = false;
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   Future<void> _refresh() async {
     // The conversation stream is live. Keeping a short refresh affordance makes
@@ -2132,6 +2846,14 @@ class _InboxPageState extends State<_InboxPage> {
       subtitle: _showRecents ? 'Vos échanges récents' : 'Vos échanges',
       actions: [
         IconButton(
+          onPressed: () => setState(() {
+            _searching = !_searching;
+            if (!_searching) _search.clear();
+          }),
+          icon: Icon(_searching ? Icons.close_rounded : Icons.search_rounded),
+          tooltip: _searching ? 'Fermer la recherche' : 'Rechercher',
+        ),
+        IconButton(
           onPressed: () => setState(() => _showRecents = !_showRecents),
           icon: Icon(
             _showRecents ? Icons.forum_outlined : Icons.history_rounded,
@@ -2152,7 +2874,7 @@ class _InboxPageState extends State<_InboxPage> {
           return const _StateMessage(
             icon: Icons.cloud_off,
             title: 'Messages indisponibles',
-            body: 'Vérifiez votre connexion ou les règles Firestore.',
+            body: 'Vérifiez votre connexion. WAPI reprendra automatiquement.',
           );
         }
         if (!snapshot.hasData) {
@@ -2166,20 +2888,86 @@ class _InboxPageState extends State<_InboxPage> {
             body: 'Ajoutez un contact pour démarrer une discussion WAPI.',
           );
         }
-        return _showRecents
-            ? _recentPage(conversations)
-            : NotificationListener<OverscrollNotification>(
-                onNotification: (notification) {
-                  if (notification.overscroll < -18) {
-                    setState(() => _showRecents = true);
-                  }
-                  return false;
-                },
-                child: RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: _conversationList(conversations, revealRecent: true),
+        final query = _search.text.trim().toLowerCase();
+        final visible = query.isEmpty
+            ? conversations
+            : conversations
+                  .where(
+                    (conversation) =>
+                        conversation.title.toLowerCase().contains(query) ||
+                        conversation.preview.toLowerCase().contains(query),
+                  )
+                  .toList(growable: false);
+        final content = visible.isEmpty
+            ? const _StateMessage(
+                icon: Icons.search_off_rounded,
+                title: 'Aucun résultat',
+                body: 'Essayez un autre nom ou un mot du dernier message.',
+              )
+            : AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                reverseDuration: const Duration(milliseconds: 200),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) => SlideTransition(
+                  position: Tween<Offset>(
+                    begin: Offset(
+                      _showRecents ? 0 : 0,
+                      _showRecents ? -.06 : .06,
+                    ),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: FadeTransition(opacity: animation, child: child),
                 ),
+                child: _showRecents
+                    ? KeyedSubtree(
+                        key: const ValueKey('recent-conversations'),
+                        child: _recentPage(visible),
+                      )
+                    : KeyedSubtree(
+                        key: const ValueKey('all-conversations'),
+                        child: NotificationListener<OverscrollNotification>(
+                          onNotification: (notification) {
+                            if (notification.overscroll < -9) {
+                              HapticFeedback.selectionClick();
+                              setState(() => _showRecents = true);
+                            }
+                            return false;
+                          },
+                          child: RefreshIndicator(
+                            onRefresh: _refresh,
+                            child: _conversationList(
+                              visible,
+                              revealRecent: true,
+                            ),
+                          ),
+                        ),
+                      ),
               );
+        return Column(
+          children: [
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              child: !_searching
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+                      child: TextField(
+                        controller: _search,
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(
+                          hintText: 'Contact ou dernier message',
+                          prefixIcon: Icon(Icons.search_rounded),
+                        ),
+                      ),
+                    ),
+            ),
+            Expanded(child: content),
+          ],
+        );
       },
     ),
   );
@@ -2191,15 +2979,19 @@ class _InboxPageState extends State<_InboxPage> {
           (item) => item.updatedAt == null || item.updatedAt!.isAfter(cutoff),
         )
         .toList();
-    return Column(
-      children: [
-        GestureDetector(
-          onVerticalDragEnd: (details) {
-            if ((details.primaryVelocity ?? 0) < -220) {
-              setState(() => _showRecents = false);
-            }
-          },
-          child: Container(
+    return NotificationListener<ScrollUpdateNotification>(
+      onNotification: (notification) {
+        final fingerDelta = notification.dragDetails?.primaryDelta ?? 0;
+        if (fingerDelta < -7 && notification.metrics.pixels < 30) {
+          HapticFeedback.selectionClick();
+          setState(() => _showRecents = false);
+          return true;
+        }
+        return false;
+      },
+      child: Column(
+        children: [
+          Container(
             width: double.infinity,
             color: WapiColors.blueSoft,
             padding: const EdgeInsets.fromLTRB(16, 11, 10, 11),
@@ -2227,9 +3019,9 @@ class _InboxPageState extends State<_InboxPage> {
               ],
             ),
           ),
-        ),
-        Expanded(child: _conversationList(recent, revealRecent: false)),
-      ],
+          Expanded(child: _conversationList(recent, revealRecent: false)),
+        ],
+      ),
     );
   }
 
@@ -2496,6 +3288,7 @@ class _ChatPageState extends State<_ChatPage> {
   bool _recording = false;
   int _recordingSeconds = 0;
   Timer? _recordingTicker;
+  Timer? _voiceOutboxRetryTimer;
   bool _showEmojiPanel = false;
   bool _markingRead = false;
   bool _markReadQueued = false;
@@ -2506,6 +3299,10 @@ class _ChatPageState extends State<_ChatPage> {
   String? _playingAudioMessageId;
   Duration _audioPosition = Duration.zero;
   Duration _audioDuration = Duration.zero;
+  final List<WapiMessage> _pendingVoiceMessages = [];
+  final Set<String> _failedVoiceMessageIds = {};
+  final Set<String> _sendingVoiceMessageIds = {};
+  String _chatWallpaperId = 'coffeeBlue';
 
   static const _composerEmojis = <String>[
     '😀',
@@ -2563,14 +3360,19 @@ class _ChatPageState extends State<_ChatPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadChatWallpaper());
+    unawaited(_restoreVoiceOutbox());
+    _voiceOutboxRetryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted) unawaited(_retryVoiceOutbox());
+    });
     _markConversationRead();
     _messagesSubscription = widget.repository
         .messages(widget.conversation.id)
         .listen(_markVisibleMessagesRead);
     _audioStateSubscription = _player.playerStateStream.listen((state) {
       if (!mounted || _playingAudioMessageId == null) return;
-      if (!state.playing ||
-          state.processingState == ProcessingState.completed) {
+      if (state.processingState == ProcessingState.completed ||
+          state.processingState == ProcessingState.idle) {
         setState(() => _playingAudioMessageId = null);
       }
     });
@@ -2583,6 +3385,154 @@ class _ChatPageState extends State<_ChatPage> {
       if (mounted && duration != null)
         setState(() => _audioDuration = duration);
     });
+  }
+
+  Future<void> _loadChatWallpaper() async {
+    final preferences = await SharedPreferences.getInstance();
+    final stored = preferences.getString(
+      'wapi.chatWallpaper.${widget.user.uid}',
+    );
+    if (!mounted || stored == null) return;
+    if (_chatWallpaperPalettes.any((palette) => palette.id == stored)) {
+      setState(() => _chatWallpaperId = stored);
+    }
+  }
+
+  Future<void> _chooseChatWallpaper() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Arrière-plan de discussion',
+              style: Theme.of(
+                sheetContext,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Choisissez une ambiance. Elle reste enregistrée sur cet appareil.',
+              style: TextStyle(color: WapiColors.muted),
+            ),
+            const SizedBox(height: 16),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 1.42,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: _chatWallpaperPalettes.length,
+              itemBuilder: (context, index) {
+                final palette = _chatWallpaperPalettes[index];
+                final selected = palette.id == _chatWallpaperId;
+                return InkWell(
+                  onTap: () => Navigator.pop(sheetContext, palette.id),
+                  borderRadius: BorderRadius.circular(18),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: palette.background,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: selected ? WapiColors.blue : WapiColors.line,
+                        width: selected ? 2 : 1,
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        if (palette.assetPath != null)
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(17),
+                              child: Image.asset(
+                                palette.assetPath!,
+                                fit: BoxFit.cover,
+                                alignment: Alignment.bottomCenter,
+                              ),
+                            ),
+                          ),
+                        if (palette.pattern)
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(17),
+                              child: CustomPaint(
+                                painter: _CoffeeChatWallpaperPainter(
+                                  lineColor: palette.lineColor,
+                                  accentColor: palette.accentColor,
+                                  compact: true,
+                                ),
+                              ),
+                            ),
+                          ),
+                        Positioned(
+                          left: 12,
+                          bottom: 10,
+                          right: 10,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: palette.assetPath == null
+                                  ? Colors.transparent
+                                  : const Color(0xB8081720),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 5,
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      palette.label,
+                                      style: TextStyle(
+                                        color: palette.assetPath == null
+                                            ? WapiColors.ink
+                                            : Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  if (selected)
+                                    const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: WapiColors.blue,
+                                      size: 19,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    setState(() => _chatWallpaperId = selected);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      'wapi.chatWallpaper.${widget.user.uid}',
+      selected,
+    );
   }
 
   void _markVisibleMessagesRead(List<WapiMessage> messages) {
@@ -2656,6 +3606,7 @@ class _ChatPageState extends State<_ChatPage> {
     _audioPositionSubscription?.cancel();
     _audioDurationSubscription?.cancel();
     _recordingTicker?.cancel();
+    _voiceOutboxRetryTimer?.cancel();
     _messageScrollController.dispose();
     _composerFocusNode.dispose();
     _composer.dispose();
@@ -2678,17 +3629,13 @@ class _ChatPageState extends State<_ChatPage> {
       _composer.clear();
       setState(() => _replyingTo = null);
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Message non envoyé : $error')));
-      }
+      _showSendIssue(label: 'Le message', error: error);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
 
-  Future<void> _pickMedia({required bool video}) async {
+  Future<void> _pickMedia({required bool video, bool viewOnce = false}) async {
     final picked = video
         ? await _picker.pickVideo(source: ImageSource.gallery)
         : await _picker.pickImage(
@@ -2706,14 +3653,11 @@ class _ChatPageState extends State<_ChatPage> {
         contentType: video ? 'video/mp4' : 'image/jpeg',
         fileName: picked.name,
         caption: _composer.text,
+        viewOnce: viewOnce,
       );
       _composer.clear();
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Média non envoyé : $error')));
-      }
+      _showSendIssue(label: 'Le média', error: error);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -2742,10 +3686,19 @@ class _ChatPageState extends State<_ChatPage> {
       return;
     }
     try {
-      final directory = await getTemporaryDirectory();
+      final support = await getApplicationSupportDirectory();
+      final directory = Directory('${support.path}/voice-outbox');
       if (!await directory.exists()) await directory.create(recursive: true);
       await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 48000,
+          numChannels: 1,
+          autoGain: true,
+          echoCancel: true,
+          noiseSuppress: true,
+        ),
         path:
             '${directory.path}/wapi-${DateTime.now().millisecondsSinceEpoch}.m4a',
       );
@@ -2758,13 +3711,9 @@ class _ChatPageState extends State<_ChatPage> {
         if (mounted && _recording) setState(() => _recordingSeconds++);
       });
       if (mounted) setState(() => _recording = true);
-      SystemSound.play(SystemSoundType.click);
+      HapticFeedback.selectionClick();
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Enregistrement impossible : $error')),
-        );
-      }
+      _showSendIssue(label: 'L’enregistrement', error: error);
     }
   }
 
@@ -2792,7 +3741,7 @@ class _ChatPageState extends State<_ChatPage> {
         _recordingSeconds = 0;
       });
     }
-    SystemSound.play(SystemSoundType.click);
+    HapticFeedback.selectionClick();
     if (path == null) return;
     final file = File(path);
     if (!await file.exists() || await file.length() < 256) {
@@ -2813,7 +3762,134 @@ class _ChatPageState extends State<_ChatPage> {
       }
       return;
     }
-    setState(() => _sending = true);
+    final localMessage = WapiMessage(
+      id: 'local-voice-${DateTime.now().microsecondsSinceEpoch}',
+      text: 'Message vocal',
+      senderId: widget.user.uid,
+      createdAt: DateTime.now(),
+      kind: 'audio',
+      mediaUrl: file.path,
+      mediaName: 'note-vocale-${DateTime.now().millisecondsSinceEpoch}.m4a',
+      mediaSizeBytes: await file.length(),
+      mediaSha256: '',
+      durationSeconds: seconds,
+      replyToId: '',
+      replyText: '',
+      viewOnce: false,
+      viewedBy: const {},
+      reactions: const {},
+    );
+    setState(() => _pendingVoiceMessages.add(localMessage));
+    await _saveVoiceOutbox();
+    await _deliverVoiceMessage(localMessage);
+  }
+
+  String get _voiceOutboxKey =>
+      'wapi.voiceOutbox.${widget.user.uid}.${widget.conversation.id}';
+
+  Future<void> _saveVoiceOutbox() async {
+    final preferences = await SharedPreferences.getInstance();
+    final payload = _pendingVoiceMessages
+        .map(
+          (message) => {
+            'id': message.id,
+            'path': message.mediaUrl,
+            'name': message.mediaName,
+            'duration': message.durationSeconds,
+            'createdAt': message.createdAt?.millisecondsSinceEpoch,
+          },
+        )
+        .toList(growable: false);
+    if (payload.isEmpty) {
+      await preferences.remove(_voiceOutboxKey);
+    } else {
+      await preferences.setString(_voiceOutboxKey, jsonEncode(payload));
+    }
+  }
+
+  Future<void> _restoreVoiceOutbox() async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_voiceOutboxKey);
+    if (encoded == null || encoded.isEmpty) return;
+    final restored = <WapiMessage>[];
+    try {
+      final values = jsonDecode(encoded) as List<dynamic>;
+      for (final raw in values.whereType<Map>()) {
+        final value = Map<String, dynamic>.from(raw);
+        final path = value['path']?.toString() ?? '';
+        if (path.isEmpty || !await File(path).exists()) continue;
+        restored.add(
+          WapiMessage(
+            id:
+                value['id']?.toString() ??
+                'local-voice-${DateTime.now().microsecondsSinceEpoch}',
+            text: 'Message vocal',
+            senderId: widget.user.uid,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(
+              (value['createdAt'] as num?)?.toInt() ??
+                  DateTime.now().millisecondsSinceEpoch,
+            ),
+            kind: 'audio',
+            mediaUrl: path,
+            mediaName: value['name']?.toString() ?? 'note-vocale.m4a',
+            mediaSizeBytes: await File(path).length(),
+            mediaSha256: '',
+            durationSeconds: (value['duration'] as num?)?.toInt() ?? 1,
+            replyToId: '',
+            replyText: '',
+            viewOnce: false,
+            viewedBy: const {},
+            reactions: const {},
+          ),
+        );
+      }
+    } catch (_) {
+      await preferences.remove(_voiceOutboxKey);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _pendingVoiceMessages.addAll(restored));
+    await _saveVoiceOutbox();
+    for (final message in restored) {
+      if (!mounted) return;
+      await _deliverVoiceMessage(message);
+    }
+  }
+
+  Future<void> _retryVoiceOutbox() async {
+    final retryable = _pendingVoiceMessages
+        .where((message) => _failedVoiceMessageIds.contains(message.id))
+        .toList(growable: false);
+    for (final message in retryable) {
+      if (!mounted) return;
+      await _deliverVoiceMessage(message, silent: true);
+    }
+  }
+
+  Future<void> _deliverVoiceMessage(
+    WapiMessage localMessage, {
+    bool silent = false,
+  }) async {
+    if (_sendingVoiceMessageIds.contains(localMessage.id)) return;
+    final file = File(localMessage.mediaUrl);
+    if (!await file.exists()) {
+      if (mounted) {
+        setState(() {
+          _pendingVoiceMessages.removeWhere(
+            (message) => message.id == localMessage.id,
+          );
+          _failedVoiceMessageIds.remove(localMessage.id);
+        });
+        await _saveVoiceOutbox();
+        _showSendIssue(label: 'La note vocale');
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _sendingVoiceMessageIds.add(localMessage.id);
+      _failedVoiceMessageIds.remove(localMessage.id);
+    });
     try {
       await widget.repository.sendMediaMessage(
         conversationId: widget.conversation.id,
@@ -2821,18 +3897,51 @@ class _ChatPageState extends State<_ChatPage> {
         file: file,
         kind: 'audio',
         contentType: 'audio/mp4',
-        fileName: 'note-vocale-${DateTime.now().millisecondsSinceEpoch}.m4a',
-        durationSeconds: seconds,
+        fileName: localMessage.mediaName,
+        durationSeconds: localMessage.durationSeconds,
+        clientMessageId: localMessage.id,
       );
+      if (mounted) {
+        setState(() {
+          _pendingVoiceMessages.removeWhere(
+            (message) => message.id == localMessage.id,
+          );
+          _sendingVoiceMessageIds.remove(localMessage.id);
+          _failedVoiceMessageIds.remove(localMessage.id);
+        });
+        await _saveVoiceOutbox();
+      }
+      try {
+        await file.delete();
+      } catch (_) {
+        // Le nettoyage du brouillon ne doit jamais masquer un envoi réussi.
+      }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Note vocale non envoyée : $error')),
-        );
+        setState(() {
+          _sendingVoiceMessageIds.remove(localMessage.id);
+          _failedVoiceMessageIds.add(localMessage.id);
+        });
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
+      if (!silent) _showSendIssue(label: 'La note vocale', error: error);
     }
+  }
+
+  void _showSendIssue({required String label, Object? error}) {
+    if (!mounted) return;
+    final detail = error?.toString().toLowerCase() ?? '';
+    final message =
+        detail.contains('unauthorized') || detail.contains('permission-denied')
+        ? '$label est conservée dans WAPI. Touchez Réessayer : elle partira dès que la discussion sera synchronisée.'
+        : '$label n’a pas encore été envoyée. Elle est conservée et WAPI réessaiera automatiquement.';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _replyTo(WapiMessage message) {
+    setState(() => _replyingTo = message);
+    _composerFocusNode.requestFocus();
   }
 
   Future<void> _toggleAudio(WapiMessage message) async {
@@ -2850,11 +3959,18 @@ class _ChatPageState extends State<_ChatPage> {
       }
       _audioPosition = Duration.zero;
       _audioDuration = Duration.zero;
-      await _player.setUrl(message.mediaUrl);
-      await _player.play();
-      if (mounted) setState(() => _playingAudioMessageId = message.id);
+      if (message.mediaUrl.startsWith('https://') ||
+          message.mediaUrl.startsWith('http://')) {
+        await _player.setUrl(message.mediaUrl);
+      } else {
+        await _player.setFilePath(message.mediaUrl);
+      }
+      if (!mounted) return;
+      setState(() => _playingAudioMessageId = message.id);
+      unawaited(_player.play());
     } catch (_) {
       if (mounted) {
+        setState(() => _playingAudioMessageId = null);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -2864,6 +3980,61 @@ class _ChatPageState extends State<_ChatPage> {
         );
       }
     }
+  }
+
+  Future<void> _openViewOnceMessage(WapiMessage message) async {
+    if (message.viewedBy.containsKey(widget.user.uid)) return;
+    if (message.mediaUrl.isEmpty) {
+      _showSendIssue(label: 'Ce média', error: null);
+      return;
+    }
+    if (message.kind == 'video') {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _WapiVideoPlayer(
+            url: message.mediaUrl,
+            title: 'Vidéo à vue unique',
+          ),
+        ),
+      );
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog.fullscreen(
+          child: Stack(
+            children: [
+              Center(
+                child: InteractiveViewer(
+                  child: Image.network(message.mediaUrl, fit: BoxFit.contain),
+                ),
+              ),
+              Positioned(
+                top: 18,
+                right: 18,
+                child: IconButton.filled(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    try {
+      await widget.repository.markViewOnceSeen(
+        conversationId: widget.conversation.id,
+        messageId: message.id,
+        userId: widget.user.uid,
+      );
+    } catch (_) {
+      // L’affichage ne doit pas échouer si l’accusé de lecture est temporairement indisponible.
+    }
+  }
+
+  String _formatMessageTime(DateTime? date) {
+    if (date == null) return '';
+    return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 
   void _toggleEmojiPanel() {
@@ -2962,14 +4133,21 @@ class _ChatPageState extends State<_ChatPage> {
       } catch (error) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Réaction non enregistrée : $error')),
+            SnackBar(
+              content: Text(
+                wapiErrorText(
+                  error,
+                  fallback: 'La réaction n’a pas été enregistrée.',
+                ),
+              ),
+            ),
           );
         }
       }
       return;
     }
     if (action == 'reply') {
-      setState(() => _replyingTo = message);
+      _replyTo(message);
       return;
     }
     if (action == 'forward') {
@@ -3151,361 +4329,577 @@ class _ChatPageState extends State<_ChatPage> {
           ),
         ),
       ),
-      actions: widget.conversation.isGroup
-          ? [
-              IconButton(
-                onPressed: _editGroup,
-                icon: const Icon(Icons.info_outline),
-                tooltip: 'Informations du groupe',
-              ),
-            ]
-          : [
-              IconButton(
-                onPressed: () => _startCall(video: false),
-                icon: const Icon(Icons.call_outlined),
-                tooltip: 'Appel audio',
-              ),
-              IconButton(
-                onPressed: () => _startCall(video: true),
-                icon: const Icon(Icons.videocam_outlined),
-                tooltip: 'Appel vidéo',
-              ),
-            ],
+      actions: [
+        IconButton(
+          onPressed: _chooseChatWallpaper,
+          icon: const Icon(Icons.wallpaper_rounded),
+          tooltip: 'Personnaliser le fond',
+        ),
+        if (widget.conversation.isGroup)
+          IconButton(
+            onPressed: _editGroup,
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Informations du groupe',
+          )
+        else ...[
+          IconButton(
+            onPressed: () => _startCall(video: false),
+            icon: const Icon(Icons.call_outlined),
+            tooltip: 'Appel audio',
+          ),
+          IconButton(
+            onPressed: () => _startCall(video: true),
+            icon: const Icon(Icons.videocam_outlined),
+            tooltip: 'Appel vidéo',
+          ),
+        ],
+      ],
     ),
     body: Column(
       children: [
         Expanded(
-          child: StreamBuilder<List<WapiMessage>>(
-            stream: widget.repository.messages(widget.conversation.id),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return const _StateMessage(
-                  icon: Icons.cloud_off,
-                  title: 'Conversation indisponible',
-                  body: 'WAPI ne peut pas charger ces messages.',
-                );
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final messages = snapshot.data!;
-              _keepLatestMessageVisible(messages);
-              if (messages.isEmpty) {
-                return const _StateMessage(
-                  icon: Icons.waving_hand_outlined,
-                  title: 'Dites bonjour',
-                  body: 'Le premier message apparaîtra ici.',
-                );
-              }
-              return ListView.builder(
-                controller: _messageScrollController,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                itemCount: messages.length,
-                itemBuilder: (context, index) {
-                  final message = messages[index];
-                  final mine = message.senderId == widget.user.uid;
-                  return Align(
-                    alignment: mine
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (!mine) ...[
-                          InkWell(
-                            onTap: () => _openMemberProfile(
-                              userId: message.senderId,
-                              fallbackName:
-                                  widget.conversation.memberNames[message
-                                      .senderId] ??
-                                  widget.conversation.title,
-                              fallbackPhotoUrl:
-                                  widget.conversation.memberPhotoUrls[message
-                                      .senderId] ??
-                                  '',
-                            ),
-                            borderRadius: BorderRadius.circular(20),
-                            child: CircleAvatar(
-                              radius: 17,
-                              backgroundColor: WapiColors.blueSoft,
-                              backgroundImage:
-                                  widget
-                                          .conversation
-                                          .memberPhotoUrls[message.senderId]
-                                          ?.isNotEmpty ==
-                                      true
-                                  ? NetworkImage(
-                                      widget
-                                          .conversation
-                                          .memberPhotoUrls[message.senderId]!,
-                                    )
-                                  : null,
-                              child:
-                                  widget
-                                          .conversation
-                                          .memberPhotoUrls[message.senderId]
-                                          ?.isNotEmpty ==
-                                      true
-                                  ? null
-                                  : const Icon(
-                                      Icons.person_outline,
-                                      color: WapiColors.blue,
-                                      size: 19,
-                                    ),
-                            ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: _chatWallpaperPalette(_chatWallpaperId).background,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (_chatWallpaperPalette(_chatWallpaperId).assetPath != null)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Image.asset(
+                        _chatWallpaperPalette(_chatWallpaperId).assetPath!,
+                        fit: BoxFit.cover,
+                        alignment: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                if (_chatWallpaperPalette(_chatWallpaperId).assetPath != null)
+                  const Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0x54020A0F), Color(0x23020A0F)],
                           ),
-                          const SizedBox(width: 8),
-                        ],
-                        InkWell(
-                          onLongPress: () => _messageActions(message),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            constraints: BoxConstraints(
-                              maxWidth: mine ? 320 : 276,
-                            ),
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 13,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: mine ? WapiColors.blue : Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: mine
-                                  ? null
-                                  : Border.all(color: WapiColors.line),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!mine && widget.conversation.isGroup) ...[
-                                  Text(
-                                    widget.conversation.memberNames[message
-                                            .senderId] ??
-                                        'Membre WAPI',
-                                    style: const TextStyle(
-                                      color: WapiColors.muted,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                ],
-                                if (message.replyText.isNotEmpty)
-                                  Container(
-                                    width: double.infinity,
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: mine
-                                          ? Colors.white.withValues(alpha: .16)
-                                          : WapiColors.blueSoft,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      message.replyText,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: mine
-                                            ? Colors.white
-                                            : WapiColors.ink,
-                                        fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_chatWallpaperPalette(_chatWallpaperId).pattern)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(
+                        painter: _CoffeeChatWallpaperPainter(
+                          lineColor: _chatWallpaperPalette(
+                            _chatWallpaperId,
+                          ).lineColor,
+                          accentColor: _chatWallpaperPalette(
+                            _chatWallpaperId,
+                          ).accentColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                StreamBuilder<List<WapiMessage>>(
+                  stream: widget.repository.messages(widget.conversation.id),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError && _pendingVoiceMessages.isEmpty) {
+                      return const _StateMessage(
+                        icon: Icons.cloud_off,
+                        title: 'Conversation indisponible',
+                        body: 'WAPI ne peut pas charger ces messages.',
+                      );
+                    }
+                    if (!snapshot.hasData && _pendingVoiceMessages.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final messages =
+                        <WapiMessage>[
+                          ...?snapshot.data,
+                          ..._pendingVoiceMessages,
+                        ]..sort((left, right) {
+                          final leftTime =
+                              left.createdAt?.millisecondsSinceEpoch ?? 0;
+                          final rightTime =
+                              right.createdAt?.millisecondsSinceEpoch ?? 0;
+                          final byTime = leftTime.compareTo(rightTime);
+                          return byTime != 0
+                              ? byTime
+                              : left.id.compareTo(right.id);
+                        });
+                    _keepLatestMessageVisible(messages);
+                    if (messages.isEmpty) {
+                      return const _StateMessage(
+                        icon: Icons.waving_hand_outlined,
+                        title: 'Dites bonjour',
+                        body: 'Le premier message apparaîtra ici.',
+                      );
+                    }
+                    return ListView.builder(
+                      controller: _messageScrollController,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final message = messages[index];
+                        final mine = message.senderId == widget.user.uid;
+                        final normalizedMessageText = message.text
+                            .trim()
+                            .toLowerCase();
+                        final showMessageText =
+                            message.kind == 'text' ||
+                            (message.text.isNotEmpty &&
+                                !const {
+                                  'photo',
+                                  'vidéo',
+                                  'video',
+                                  'message vocal',
+                                  'note vocale',
+                                  'vocal',
+                                }.contains(normalizedMessageText));
+                        final previous = index == 0
+                            ? null
+                            : messages[index - 1];
+                        final showDay = !_sameChatDay(
+                          previous?.createdAt,
+                          message.createdAt,
+                        );
+                        return Column(
+                          children: [
+                            if (showDay)
+                              _ChatDayDivider(date: message.createdAt),
+                            Align(
+                              alignment: mine
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (!mine) ...[
+                                    InkWell(
+                                      onTap: () => _openMemberProfile(
+                                        userId: message.senderId,
+                                        fallbackName:
+                                            widget
+                                                .conversation
+                                                .memberNames[message
+                                                .senderId] ??
+                                            widget.conversation.title,
+                                        fallbackPhotoUrl:
+                                            widget
+                                                .conversation
+                                                .memberPhotoUrls[message
+                                                .senderId] ??
+                                            '',
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: CircleAvatar(
+                                        radius: 17,
+                                        backgroundColor: WapiColors.blueSoft,
+                                        backgroundImage:
+                                            widget
+                                                    .conversation
+                                                    .memberPhotoUrls[message
+                                                        .senderId]
+                                                    ?.isNotEmpty ==
+                                                true
+                                            ? NetworkImage(
+                                                widget
+                                                    .conversation
+                                                    .memberPhotoUrls[message
+                                                    .senderId]!,
+                                              )
+                                            : null,
+                                        child:
+                                            widget
+                                                    .conversation
+                                                    .memberPhotoUrls[message
+                                                        .senderId]
+                                                    ?.isNotEmpty ==
+                                                true
+                                            ? null
+                                            : const Icon(
+                                                Icons.person_outline,
+                                                color: WapiColors.blue,
+                                                size: 19,
+                                              ),
                                       ),
                                     ),
-                                  ),
-                                if (message.kind == 'image' &&
-                                    message.mediaUrl.isNotEmpty)
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Image.network(
-                                      message.mediaUrl,
-                                      width: 250,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                if (message.kind == 'video')
+                                    const SizedBox(width: 8),
+                                  ],
                                   InkWell(
-                                    onTap: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => _WapiVideoPlayer(
-                                          url: message.mediaUrl,
-                                          title: message.mediaName.isEmpty
-                                              ? 'Vidéo WAPI'
-                                              : message.mediaName,
-                                        ),
+                                    onLongPress: () => _messageActions(message),
+                                    onDoubleTap: () => _replyTo(message),
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: Container(
+                                      constraints: BoxConstraints(
+                                        maxWidth: mine ? 320 : 276,
                                       ),
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                          Icons.play_circle_fill,
-                                          color: Colors.white,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            message.mediaName.isEmpty
-                                                ? 'Lire la vidéo'
-                                                : message.mediaName,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                if (message.kind == 'audio')
-                                  InkWell(
-                                    onTap: () => _toggleAudio(message),
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 36,
-                                          height: 36,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: mine
-                                                ? Colors.white.withValues(
-                                                    alpha: .2,
-                                                  )
-                                                : WapiColors.blueSoft,
-                                          ),
-                                          child: Icon(
-                                            _playingAudioMessageId == message.id
-                                                ? Icons.pause_rounded
-                                                : Icons.play_arrow_rounded,
-                                            color: mine
-                                                ? Colors.white
-                                                : WapiColors.blue,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 9),
-                                        Flexible(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.mic_rounded,
-                                                    size: 15,
-                                                    color: mine
-                                                        ? Colors.white
-                                                        : WapiColors.blue,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Text(
-                                                    'Note vocale',
-                                                    style: TextStyle(
-                                                      color: mine
-                                                          ? Colors.white
-                                                          : WapiColors.ink,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 13,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        gradient: mine
+                                            ? const LinearGradient(
+                                                colors: [
+                                                  WapiColors.blue,
+                                                  WapiColors.blueDark,
                                                 ],
-                                              ),
-                                              const SizedBox(height: 4),
-                                              _VoiceWaveform(
-                                                color: mine
-                                                    ? Colors.white
-                                                    : WapiColors.blue,
-                                                active:
-                                                    _playingAudioMessageId ==
-                                                    message.id,
-                                                durationSeconds:
-                                                    message.durationSeconds,
-                                                progress:
-                                                    _playingAudioMessageId ==
-                                                            message.id &&
-                                                        _audioDuration
-                                                                .inMilliseconds >
-                                                            0
-                                                    ? _audioPosition
-                                                              .inMilliseconds /
-                                                          _audioDuration
-                                                              .inMilliseconds
-                                                    : 0,
-                                              ),
-                                            ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              )
+                                            : null,
+                                        color: mine ? null : Colors.white,
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(20),
+                                          topRight: const Radius.circular(20),
+                                          bottomLeft: Radius.circular(
+                                            mine ? 20 : 6,
+                                          ),
+                                          bottomRight: Radius.circular(
+                                            mine ? 6 : 20,
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                if (message.kind == 'text' ||
-                                    message.text.isNotEmpty &&
-                                        message.text != 'Photo' &&
-                                        message.text != 'Vidéo' &&
-                                        message.text != 'Message vocal') ...[
-                                  if (message.kind != 'text')
-                                    const SizedBox(height: 8),
-                                  Text(
-                                    message.text,
-                                    style: TextStyle(
-                                      color: mine
-                                          ? Colors.white
-                                          : WapiColors.ink,
-                                    ),
-                                  ),
-                                ],
-                                if (message.reactions.isNotEmpty) ...[
-                                  const SizedBox(height: 7),
-                                  Wrap(
-                                    spacing: 4,
-                                    children: message.reactions.values
-                                        .toSet()
-                                        .map(
-                                          (emoji) => DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              color: mine
-                                                  ? Colors.white.withValues(
-                                                      alpha: .18,
-                                                    )
-                                                  : WapiColors.blueSoft,
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
+                                        border: mine
+                                            ? null
+                                            : Border.all(
+                                                color: WapiColors.line,
+                                              ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: .045,
                                             ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 3,
-                                                  ),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (!mine &&
+                                              widget.conversation.isGroup) ...[
+                                            Text(
+                                              widget
+                                                      .conversation
+                                                      .memberNames[message
+                                                      .senderId] ??
+                                                  'Membre WAPI',
+                                              style: const TextStyle(
+                                                color: WapiColors.muted,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                          ],
+                                          if (message.replyText.isNotEmpty)
+                                            Container(
+                                              width: double.infinity,
+                                              margin: const EdgeInsets.only(
+                                                bottom: 8,
+                                              ),
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: mine
+                                                    ? Colors.white.withValues(
+                                                        alpha: .16,
+                                                      )
+                                                    : WapiColors.blueSoft,
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
                                               child: Text(
-                                                emoji,
-                                                style: const TextStyle(
+                                                message.replyText,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: mine
+                                                      ? Colors.white
+                                                      : WapiColors.ink,
                                                   fontSize: 12,
                                                 ),
                                               ),
                                             ),
+                                          if (message.viewOnce)
+                                            InkWell(
+                                              onTap:
+                                                  message.viewedBy.containsKey(
+                                                    widget.user.uid,
+                                                  )
+                                                  ? null
+                                                  : () => _openViewOnceMessage(
+                                                      message,
+                                                    ),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 10,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: mine
+                                                      ? Colors.white.withValues(
+                                                          alpha: .14,
+                                                        )
+                                                      : WapiColors.blueSoft,
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      message.viewedBy
+                                                              .containsKey(
+                                                                widget.user.uid,
+                                                              )
+                                                          ? Icons
+                                                                .visibility_off_outlined
+                                                          : Icons
+                                                                .remove_red_eye_outlined,
+                                                      color: mine
+                                                          ? Colors.white
+                                                          : WapiColors.blue,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      message.viewedBy
+                                                              .containsKey(
+                                                                widget.user.uid,
+                                                              )
+                                                          ? 'Média ouvert'
+                                                          : 'Photo à vue unique',
+                                                      style: TextStyle(
+                                                        color: mine
+                                                            ? Colors.white
+                                                            : WapiColors.ink,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            )
+                                          else if (message.kind == 'image' &&
+                                              message.mediaUrl.isNotEmpty)
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: Image.network(
+                                                message.mediaUrl,
+                                                width: 250,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            ),
+                                          if (!message.viewOnce &&
+                                              message.kind == 'video')
+                                            InkWell(
+                                              onTap: () =>
+                                                  Navigator.of(context).push(
+                                                    MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          _WapiVideoPlayer(
+                                                            url: message
+                                                                .mediaUrl,
+                                                            title:
+                                                                message
+                                                                    .mediaName
+                                                                    .isEmpty
+                                                                ? 'Vidéo WAPI'
+                                                                : message
+                                                                      .mediaName,
+                                                          ),
+                                                    ),
+                                                  ),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(
+                                                    Icons.play_circle_fill,
+                                                    color: Colors.white,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Flexible(
+                                                    child: Text(
+                                                      message.mediaName.isEmpty
+                                                          ? 'Lire la vidéo'
+                                                          : message.mediaName,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          if (message.kind == 'audio')
+                                            _VoiceNotePlayer(
+                                              mine: mine,
+                                              playing:
+                                                  _playingAudioMessageId ==
+                                                  message.id,
+                                              durationSeconds:
+                                                  _playingAudioMessageId ==
+                                                          message.id &&
+                                                      _audioDuration.inSeconds >
+                                                          0
+                                                  ? _audioDuration.inSeconds
+                                                  : message.durationSeconds,
+                                              progress:
+                                                  _playingAudioMessageId ==
+                                                          message.id &&
+                                                      _audioDuration
+                                                              .inMilliseconds >
+                                                          0
+                                                  ? _audioPosition
+                                                            .inMilliseconds /
+                                                        _audioDuration
+                                                            .inMilliseconds
+                                                  : 0,
+                                              // The immutable local id is also
+                                              // kept by the server so retries
+                                              // cannot create duplicates.  An
+                                              // id prefix therefore does not
+                                              // mean that an upload is still
+                                              // pending once Firestore returns
+                                              // the committed message.
+                                              sending: _pendingVoiceMessages
+                                                  .any(
+                                                    (pending) =>
+                                                        pending.id ==
+                                                        message.id,
+                                                  ),
+                                              failed: _failedVoiceMessageIds
+                                                  .contains(message.id),
+                                              onPressed:
+                                                  _failedVoiceMessageIds
+                                                      .contains(message.id)
+                                                  ? () => _deliverVoiceMessage(
+                                                      message,
+                                                    )
+                                                  : () => _toggleAudio(message),
+                                              onSeek:
+                                                  _playingAudioMessageId ==
+                                                          message.id &&
+                                                      _audioDuration
+                                                              .inMilliseconds >
+                                                          0
+                                                  ? (progress) => _player.seek(
+                                                      Duration(
+                                                        milliseconds:
+                                                            (_audioDuration
+                                                                        .inMilliseconds *
+                                                                    progress)
+                                                                .round(),
+                                                      ),
+                                                    )
+                                                  : null,
+                                            ),
+                                          if (showMessageText) ...[
+                                            if (message.kind != 'text')
+                                              const SizedBox(height: 8),
+                                            Text(
+                                              message.text,
+                                              style: TextStyle(
+                                                color: mine
+                                                    ? Colors.white
+                                                    : WapiColors.ink,
+                                              ),
+                                            ),
+                                          ],
+                                          if (message.reactions.isNotEmpty) ...[
+                                            const SizedBox(height: 7),
+                                            Wrap(
+                                              spacing: 4,
+                                              children: message.reactions.values
+                                                  .toSet()
+                                                  .map(
+                                                    (emoji) => DecoratedBox(
+                                                      decoration: BoxDecoration(
+                                                        color: mine
+                                                            ? Colors.white
+                                                                  .withValues(
+                                                                    alpha: .18,
+                                                                  )
+                                                            : WapiColors
+                                                                  .blueSoft,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              10,
+                                                            ),
+                                                      ),
+                                                      child: Padding(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 6,
+                                                              vertical: 3,
+                                                            ),
+                                                        child: Text(
+                                                          emoji,
+                                                          style:
+                                                              const TextStyle(
+                                                                fontSize: 12,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                            ),
+                                          ],
+                                          const SizedBox(height: 4),
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: Text(
+                                              _formatMessageTime(
+                                                message.createdAt,
+                                              ),
+                                              style: TextStyle(
+                                                color: mine
+                                                    ? Colors.white.withValues(
+                                                        alpha: .72,
+                                                      )
+                                                    : WapiColors.muted,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
                                           ),
-                                        )
-                                        .toList(),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ],
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              );
-            },
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
         if (_showEmojiPanel) _emojiPanel(),
@@ -3586,6 +4980,7 @@ class _ChatPageState extends State<_ChatPage> {
                     ),
                   ),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     IconButton(
                       onPressed: _sending
@@ -3606,6 +5001,22 @@ class _ChatPageState extends State<_ChatPage> {
                                     ),
                                     ListTile(
                                       leading: const Icon(
+                                        Icons.visibility_off_outlined,
+                                      ),
+                                      title: const Text('Photo à vue unique'),
+                                      subtitle: const Text(
+                                        'Elle disparaît après ouverture.',
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(sheetContext);
+                                        _pickMedia(
+                                          video: false,
+                                          viewOnce: true,
+                                        );
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(
                                         Icons.videocam_outlined,
                                       ),
                                       title: const Text('Vidéo'),
@@ -3618,19 +5029,14 @@ class _ChatPageState extends State<_ChatPage> {
                                 ),
                               ),
                             ),
-                      icon: const Icon(Icons.add_circle_outline),
+                      icon: const Icon(Icons.add_rounded),
+                      style: IconButton.styleFrom(
+                        backgroundColor: WapiColors.blueSoft,
+                        foregroundColor: WapiColors.blueDark,
+                      ),
                       tooltip: 'Joindre',
                     ),
-                    IconButton(
-                      onPressed: _sending ? null : _toggleEmojiPanel,
-                      icon: Icon(
-                        _showEmojiPanel
-                            ? Icons.keyboard_alt_outlined
-                            : Icons.emoji_emotions_outlined,
-                      ),
-                      color: WapiColors.blue,
-                      tooltip: _showEmojiPanel ? 'Clavier' : 'Emoji',
-                    ),
+                    const SizedBox(width: 7),
                     Expanded(
                       child: TextField(
                         controller: _composer,
@@ -3644,37 +5050,65 @@ class _ChatPageState extends State<_ChatPage> {
                             setState(() => _showEmojiPanel = false);
                           }
                         },
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           hintText: 'Message',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 13,
+                          prefixIcon: IconButton(
+                            onPressed: _sending ? null : _toggleEmojiPanel,
+                            icon: Icon(
+                              _showEmojiPanel
+                                  ? Icons.keyboard_alt_outlined
+                                  : Icons.emoji_emotions_outlined,
+                            ),
+                            color: WapiColors.blueDark,
+                            tooltip: _showEmojiPanel ? 'Clavier' : 'Emoji',
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
                             vertical: 11,
                           ),
                         ),
                       ),
                     ),
-                    IconButton(
-                      onPressed: _sending ? null : _toggleRecording,
-                      icon: Icon(
-                        _recording
-                            ? Icons.stop_circle_outlined
-                            : Icons.mic_none,
-                      ),
-                      color: _recording ? Colors.red : WapiColors.blue,
-                      tooltip: _recording
-                          ? 'Arrêter et envoyer'
-                          : 'Note vocale',
-                    ),
-                    IconButton(
-                      onPressed: _sending ? null : _send,
-                      icon: _sending
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send),
-                      color: WapiColors.blue,
-                      tooltip: 'Envoyer',
+                    const SizedBox(width: 7),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _composer,
+                      builder: (context, value, _) {
+                        final hasText = value.text.trim().isNotEmpty;
+                        return IconButton.filled(
+                          onPressed: _sending
+                              ? null
+                              : hasText
+                              ? _send
+                              : _toggleRecording,
+                          icon: _sending
+                              ? const SizedBox.square(
+                                  dimension: 19,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  hasText
+                                      ? Icons.send_rounded
+                                      : _recording
+                                      ? Icons.stop_rounded
+                                      : Icons.mic_rounded,
+                                ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: _recording
+                                ? const Color(0xFFD92D3A)
+                                : WapiColors.blue,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: WapiColors.blueSoft,
+                          ),
+                          tooltip: hasText
+                              ? 'Envoyer'
+                              : _recording
+                              ? 'Arrêter et envoyer'
+                              : 'Note vocale',
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -3763,15 +5197,14 @@ class _ChatPageState extends State<_ChatPage> {
       );
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => WapiCallPage.outgoing(
-          user: widget.user,
-          peerId: widget.conversation.peerId,
-          peerName: widget.conversation.title,
-          peerPhotoUrl: widget.conversation.avatarUrl,
-          video: video,
-        ),
+    openWapiCall(
+      context,
+      WapiCallPage.outgoing(
+        user: widget.user,
+        peerId: widget.conversation.peerId,
+        peerName: widget.conversation.title,
+        peerPhotoUrl: widget.conversation.avatarUrl,
+        video: video,
       ),
     );
   }
@@ -3881,7 +5314,13 @@ class _ChatPageState extends State<_ChatPage> {
                               if (sheetContext.mounted) {
                                 ScaffoldMessenger.of(sheetContext).showSnackBar(
                                   SnackBar(
-                                    content: Text('Ajout impossible : $error'),
+                                    content: Text(
+                                      wapiErrorText(
+                                        error,
+                                        fallback:
+                                            'Le membre n’a pas pu être ajouté.',
+                                      ),
+                                    ),
                                   ),
                                 );
                               }
@@ -4096,56 +5535,477 @@ class _ChatPageState extends State<_ChatPage> {
   }
 }
 
-class _VoiceWaveform extends StatelessWidget {
-  const _VoiceWaveform({
-    required this.color,
-    required this.active,
-    required this.durationSeconds,
-    required this.progress,
+bool _sameChatDay(DateTime? left, DateTime? right) {
+  if (left == null || right == null) return left == right;
+  final a = left.toLocal();
+  final b = right.toLocal();
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _ChatWallpaperPalette {
+  const _ChatWallpaperPalette({
+    required this.id,
+    required this.label,
+    required this.background,
+    required this.lineColor,
+    required this.accentColor,
+    this.assetPath,
+    this.pattern = true,
   });
 
-  final Color color;
-  final bool active;
+  final String id;
+  final String label;
+  final List<Color> background;
+  final Color lineColor;
+  final Color accentColor;
+  final String? assetPath;
+  final bool pattern;
+}
+
+const _chatWallpaperPalettes = <_ChatWallpaperPalette>[
+  _ChatWallpaperPalette(
+    id: 'coffeeBlue',
+    label: 'Café bleu',
+    background: [Color(0xFFF8FCFF), Color(0xFFEEF5F8)],
+    lineColor: Color(0xFF0B5872),
+    accentColor: Color(0xFF9A6A42),
+  ),
+  _ChatWallpaperPalette(
+    id: 'coffeeSignature',
+    label: 'Café signature',
+    background: [Color(0xFF06131C), Color(0xFF102A3B)],
+    lineColor: Color(0xFFE0B37B),
+    accentColor: Color(0xFFFFD69D),
+    assetPath: 'assets/wallpapers/wapi_cafe_premium.png',
+    pattern: false,
+  ),
+  _ChatWallpaperPalette(
+    id: 'latte',
+    label: 'Latte crème',
+    background: [Color(0xFFFFFCF7), Color(0xFFF2E7D9)],
+    lineColor: Color(0xFF75482D),
+    accentColor: Color(0xFFB77942),
+  ),
+  _ChatWallpaperPalette(
+    id: 'mintCoffee',
+    label: 'Menthe moka',
+    background: [Color(0xFFF5FCF9), Color(0xFFE5F3EE)],
+    lineColor: Color(0xFF11695E),
+    accentColor: Color(0xFF8B5E3C),
+  ),
+  _ChatWallpaperPalette(
+    id: 'clean',
+    label: 'Minimal',
+    background: [Color(0xFFFAFCFE), Color(0xFFF1F4F7)],
+    lineColor: Color(0xFF526571),
+    accentColor: Color(0xFF78909C),
+    pattern: false,
+  ),
+];
+
+_ChatWallpaperPalette _chatWallpaperPalette(String id) =>
+    _chatWallpaperPalettes.firstWhere(
+      (palette) => palette.id == id,
+      orElse: () => _chatWallpaperPalettes.first,
+    );
+
+class _CoffeeChatWallpaperPainter extends CustomPainter {
+  const _CoffeeChatWallpaperPainter({
+    required this.lineColor,
+    required this.accentColor,
+    this.compact = false,
+  });
+
+  final Color lineColor;
+  final Color accentColor;
+  final bool compact;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = lineColor.withValues(alpha: compact ? .11 : .065)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.35
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final accent = Paint()
+      ..color = accentColor.withValues(alpha: compact ? .1 : .055)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+
+    var row = 0;
+    final rowStep = compact ? 72.0 : 92.0;
+    final columnStep = compact ? 86.0 : 108.0;
+    for (double y = -36; y < size.height + 70; y += rowStep) {
+      final offset = row.isOdd ? columnStep / 2 : 0.0;
+      var column = 0;
+      for (double x = -34 + offset; x < size.width + 70; x += columnStep) {
+        canvas.save();
+        canvas.translate(x, y);
+        canvas.rotate((row + column).isEven ? -.075 : .075);
+        canvas.scale(.86);
+
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(4, 13, 30, 21),
+            const Radius.circular(6),
+          ),
+          line,
+        );
+        canvas.drawArc(
+          const Rect.fromLTWH(5.5, 10.5, 27, 7),
+          .08,
+          3.0,
+          false,
+          accent,
+        );
+        canvas.drawArc(
+          const Rect.fromLTWH(28, 17, 15, 13),
+          -1.25,
+          2.5,
+          false,
+          line,
+        );
+        canvas.drawArc(
+          const Rect.fromLTWH(1, 30, 38, 9),
+          .18,
+          2.78,
+          false,
+          line,
+        );
+
+        final firstSteam = Path()
+          ..moveTo(13, 9)
+          ..cubicTo(9, 5, 17, 3, 13, -1);
+        final secondSteam = Path()
+          ..moveTo(24, 9)
+          ..cubicTo(20, 5, 28, 3, 24, -1);
+        final centerSteam = Path()
+          ..moveTo(18.5, 8)
+          ..cubicTo(23, 4, 15, 1, 19, -4);
+        canvas.drawPath(firstSteam, accent);
+        canvas.drawPath(secondSteam, accent);
+        canvas.drawPath(centerSteam, line);
+
+        final bean = Path()
+          ..moveTo(52, 17)
+          ..cubicTo(59, 10, 68, 16, 65, 24)
+          ..cubicTo(62, 32, 51, 30, 50, 23)
+          ..cubicTo(50, 20, 51, 18, 52, 17)
+          ..close();
+        canvas.drawPath(bean, accent);
+        final beanLine = Path()
+          ..moveTo(53, 27)
+          ..cubicTo(57, 24, 58, 18, 64, 15);
+        canvas.drawPath(beanLine, accent);
+        canvas.restore();
+        column++;
+      }
+      row++;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CoffeeChatWallpaperPainter oldDelegate) =>
+      lineColor != oldDelegate.lineColor ||
+      accentColor != oldDelegate.accentColor ||
+      compact != oldDelegate.compact;
+}
+
+class _ChatDayDivider extends StatelessWidget {
+  const _ChatDayDivider({required this.date});
+  final DateTime? date;
+
+  String get _label {
+    final value = date?.toLocal();
+    if (value == null) return 'Aujourd’hui';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(value.year, value.month, value.day);
+    if (day == today) return 'Aujourd’hui';
+    if (day == today.subtract(const Duration(days: 1))) return 'Hier';
+    const months = <String>[
+      'janvier',
+      'février',
+      'mars',
+      'avril',
+      'mai',
+      'juin',
+      'juillet',
+      'août',
+      'septembre',
+      'octobre',
+      'novembre',
+      'décembre',
+    ];
+    return '${value.day} ${months[value.month - 1]}${value.year == now.year ? '' : ' ${value.year}'}';
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .92),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: WapiColors.line),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        child: Text(
+          _label,
+          style: const TextStyle(
+            color: WapiColors.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _VoiceNotePlayer extends StatelessWidget {
+  const _VoiceNotePlayer({
+    required this.mine,
+    required this.playing,
+    required this.durationSeconds,
+    required this.progress,
+    required this.sending,
+    required this.failed,
+    required this.onPressed,
+    required this.onSeek,
+  });
+
+  final bool mine;
+  final bool playing;
   final int durationSeconds;
   final double progress;
+  final bool sending;
+  final bool failed;
+  final VoidCallback onPressed;
+  final ValueChanged<double>? onSeek;
+
+  String _clock(int seconds) {
+    final safe = seconds.clamp(0, 35999);
+    final minutes = safe ~/ 60;
+    return '$minutes:${(safe % 60).toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
-    const bars = <double>[7, 12, 8, 17, 10, 20, 13, 8, 16, 11, 19, 8];
-    final totalSeconds = durationSeconds > 0 ? durationSeconds : 0;
-    final listened = (totalSeconds * progress.clamp(0, 1)).floor();
-    final label = active && totalSeconds > 0
-        ? '${listened}s / ${totalSeconds}s'
-        : totalSeconds > 0
-        ? '${totalSeconds}s'
-        : 'Vocal';
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ...bars.indexed.map(
-          (entry) => AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 3.5,
-            height: active ? entry.$2 + 3 : entry.$2,
-            margin: const EdgeInsets.only(right: 2),
-            decoration: BoxDecoration(
-              color: color.withValues(
-                alpha: active && entry.$1 / bars.length <= progress ? 1 : .42,
+    final foreground = mine ? Colors.white : WapiColors.blueDark;
+    final muted = mine ? Colors.white.withValues(alpha: .72) : WapiColors.muted;
+    final safeProgress = progress.clamp(0.0, 1.0);
+    final elapsed = (durationSeconds * safeProgress).round();
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 224, maxWidth: 252),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: mine
+                      ? Colors.white.withValues(alpha: playing ? .28 : .18)
+                      : playing
+                      ? WapiColors.blue
+                      : WapiColors.blueSoft,
+                  boxShadow: playing
+                      ? [
+                          BoxShadow(
+                            color: WapiColors.blue.withValues(alpha: .22),
+                            blurRadius: 12,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : const [],
+                ),
+                child: Icon(
+                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: mine || playing ? Colors.white : WapiColors.blue,
+                  size: 28,
+                ),
               ),
-              borderRadius: BorderRadius.circular(4),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.mic_rounded, size: 13, color: foreground),
+                        const SizedBox(width: 4),
+                        Text(
+                          'VOCAL WAPI',
+                          style: TextStyle(
+                            color: foreground,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: .55,
+                          ),
+                        ),
+                        if (playing) ...[
+                          const Spacer(),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: mine ? Colors.white : WapiColors.emerald,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    _VoiceWaveform(
+                      color: foreground,
+                      progress: safeProgress,
+                      onSeek: onSeek,
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Text(
+                          playing
+                              ? '${_clock(elapsed)} / ${_clock(durationSeconds)}'
+                              : _clock(durationSeconds),
+                          style: TextStyle(
+                            color: muted,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        if (sending) ...[
+                          const Spacer(),
+                          if (failed)
+                            Icon(
+                              Icons.refresh_rounded,
+                              size: 13,
+                              color: foreground,
+                            )
+                          else
+                            SizedBox.square(
+                              dimension: 10,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: foreground,
+                              ),
+                            ),
+                          const SizedBox(width: 4),
+                          Text(
+                            failed ? 'Réessayer' : 'Envoi…',
+                            style: TextStyle(
+                              color: foreground,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceWaveform extends StatelessWidget {
+  const _VoiceWaveform({
+    required this.color,
+    required this.progress,
+    required this.onSeek,
+  });
+
+  final Color color;
+  final double progress;
+  final ValueChanged<double>? onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    const bars = <double>[
+      8,
+      13,
+      18,
+      11,
+      22,
+      16,
+      9,
+      14,
+      21,
+      12,
+      17,
+      24,
+      15,
+      9,
+      19,
+      13,
+      22,
+      11,
+      17,
+      8,
+      14,
+      20,
+      12,
+      16,
+    ];
+    return SizedBox(
+      height: 26,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          void seek(Offset position) {
+            if (onSeek == null || constraints.maxWidth <= 0) return;
+            onSeek!((position.dx / constraints.maxWidth).clamp(0.0, 1.0));
+          }
+
+          final gap = 2.0;
+          final width =
+              ((constraints.maxWidth - gap * (bars.length - 1)) / bars.length)
+                  .clamp(1.5, 3.5);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: onSeek == null
+                ? null
+                : (details) => seek(details.localPosition),
+            onHorizontalDragUpdate: onSeek == null
+                ? null
+                : (details) => seek(details.localPosition),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: bars.indexed.map((entry) {
+                final played = entry.$1 / (bars.length - 1) <= progress;
+                return Container(
+                  width: width,
+                  height: entry.$2,
+                  margin: EdgeInsets.only(
+                    right: entry.$1 == bars.length - 1 ? 0 : gap,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: played ? .96 : .3),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                );
+              }).toList(),
             ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
   }
 }
@@ -4307,14 +6167,13 @@ class _ContactProfilePage extends StatelessWidget {
   );
 
   void _startCall(BuildContext context, String name, {required bool video}) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => WapiCallPage.outgoing(
-          user: user,
-          peerId: profileId,
-          peerName: name,
-          video: video,
-        ),
+    openWapiCall(
+      context,
+      WapiCallPage.outgoing(
+        user: user,
+        peerId: profileId,
+        peerName: name,
+        video: video,
       ),
     );
   }
@@ -4375,11 +6234,11 @@ class _UpdatesPage extends StatelessWidget {
           return const _StateMessage(
             icon: Icons.cloud_off_outlined,
             title: 'Actus indisponibles',
-            body: 'Vérifiez votre connexion ou les règles Firestore.',
+            body: 'Vérifiez votre connexion puis réessayez.',
           );
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const _StoriesLoadingState();
         }
         final stories = snapshot.data!;
         final latestByAuthor = <String, WapiStory>{};
@@ -4390,101 +6249,42 @@ class _UpdatesPage extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF075DE6), Color(0xFF0A3FCC)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x33075DE6),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.auto_awesome_rounded,
-                    color: Colors.white,
-                    size: 27,
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Votre moment, maintenant',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'Une photo, une vidéo ou un mot reste visible 24 h.',
-                          style: TextStyle(
-                            color: Color(0xFFDDEBFF),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => _composeStory(context),
-                    icon: const Icon(Icons.add, color: Color(0xFF075DE6)),
-                    style: IconButton.styleFrom(backgroundColor: Colors.white),
-                    tooltip: 'Créer un statut',
-                  ),
-                ],
-              ),
+            _StoryPublisher(
+              photoUrl: user.photoURL ?? '',
+              onTap: () => _composeStory(context),
             ),
-            const SizedBox(height: 16),
-            _StoryPublisher(onTap: () => _composeStory(context)),
-            const SizedBox(height: 18),
-            SizedBox(
-              height: 112,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: storyRail.length + 1,
-                separatorBuilder: (_, _) => const SizedBox(width: 14),
-                itemBuilder: (context, index) {
-                  if (index == 0) {
+            if (storyRail.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              SizedBox(
+                height: 88,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: storyRail.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) {
+                    final story = storyRail[index];
                     return _StoryRailAvatar(
-                      label: 'Mon statut',
-                      photoUrl: user.photoURL ?? '',
-                      action: true,
-                      onTap: () => _composeStory(context),
-                    );
-                  }
-                  final story = storyRail[index - 1];
-                  return _StoryRailAvatar(
-                    label: story.authorId == user.uid
-                        ? 'Mon statut'
-                        : story.authorName,
-                    photoUrl: story.authorPhotoUrl,
-                    viewed: story.viewedByCurrentUser,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => _StoryViewer(
-                          story: story,
-                          user: user,
-                          repository: repository,
+                      label: story.authorId == user.uid
+                          ? 'Mon statut'
+                          : story.authorName,
+                      photoUrl: story.authorPhotoUrl,
+                      viewed: story.viewedByCurrentUser,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => _StoryViewer(
+                            story: story,
+                            user: user,
+                            repository: repository,
+                            stories: stories,
+                            initialIndex: stories.indexOf(story),
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 18),
             Text(
               stories.isEmpty
@@ -4504,26 +6304,27 @@ class _UpdatesPage extends StatelessWidget {
               )
             else
               ...stories.map(
-                (story) => Card(
+                (story) => Container(
                   margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: WapiColors.line),
+                  ),
                   child: ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(10, 5, 8, 5),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => _StoryViewer(
                           story: story,
                           user: user,
                           repository: repository,
+                          stories: stories,
+                          initialIndex: stories.indexOf(story),
                         ),
                       ),
                     ),
-                    leading: CircleAvatar(
-                      backgroundColor: WapiColors.blueSoft,
-                      foregroundColor: WapiColors.blue,
-                      backgroundImage: _imageProvider(story.authorPhotoUrl),
-                      child: story.authorPhotoUrl.isEmpty
-                          ? Text(story.authorName.substring(0, 1).toUpperCase())
-                          : null,
-                    ),
+                    leading: _StoryThumbnail(story: story),
                     title: Text(
                       story.authorName,
                       style: const TextStyle(fontWeight: FontWeight.w700),
@@ -4773,9 +6574,13 @@ class _UpdatesPage extends StatelessWidget {
     } catch (error) {
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Story non publiée : $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'La Story n’a pas pu être publiée. Vérifiez votre connexion puis réessayez.',
+            ),
+          ),
+        );
       }
     }
   }
@@ -4787,63 +6592,65 @@ class _StoryRailAvatar extends StatelessWidget {
     required this.photoUrl,
     required this.onTap,
     this.viewed = false,
-    this.action = false,
   });
 
   final String label;
   final String photoUrl;
   final VoidCallback onTap;
   final bool viewed;
-  final bool action;
 
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
-    label: action ? 'Créer mon statut' : 'Voir le statut de $label',
+    label: 'Voir le statut de $label',
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(40),
       child: SizedBox(
-        width: 70,
+        width: 62,
         child: Column(
           children: [
             Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: action
-                    ? const LinearGradient(
-                        colors: [WapiColors.blueDark, WapiColors.blue],
-                      )
-                    : LinearGradient(
-                        colors: viewed
-                            ? [WapiColors.line, WapiColors.line]
-                            : const [
-                                Color(0xFF00C2FF),
-                                Color(0xFF7567FF),
-                                Color(0xFFFF5CA8),
-                              ],
-                      ),
+                gradient: LinearGradient(
+                  colors: viewed
+                      ? [WapiColors.line, WapiColors.line]
+                      : const [
+                          Color(0xFF00C2FF),
+                          Color(0xFF7567FF),
+                          Color(0xFFFF5CA8),
+                        ],
+                ),
               ),
               child: CircleAvatar(
-                radius: 28,
+                radius: 24,
                 backgroundColor: WapiColors.blueSoft,
-                backgroundImage: _imageProvider(photoUrl),
-                child: photoUrl.isEmpty
-                    ? Icon(
-                        action ? Icons.add_rounded : Icons.person_outline,
-                        color: action ? WapiColors.blue : WapiColors.muted,
-                      )
-                    : null,
+                child: ClipOval(
+                  child: photoUrl.isEmpty
+                      ? const Icon(
+                          Icons.person_outline,
+                          color: WapiColors.muted,
+                        )
+                      : _StableNetworkAvatarImage(
+                          url: photoUrl,
+                          size: 48,
+                          fallback: const Icon(
+                            Icons.person_outline,
+                            color: WapiColors.muted,
+                          ),
+                        ),
+                ),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
             ),
           ],
         ),
@@ -4854,13 +6661,20 @@ class _StoryRailAvatar extends StatelessWidget {
 
 class _WapiVideoPlayer extends StatefulWidget {
   const _WapiVideoPlayer({
+    super.key,
     required this.url,
     required this.title,
     this.embedded = false,
+    this.paused = false,
+    this.onProgress,
+    this.onEnded,
   });
   final String url;
   final String title;
   final bool embedded;
+  final bool paused;
+  final ValueChanged<double>? onProgress;
+  final VoidCallback? onEnded;
 
   @override
   State<_WapiVideoPlayer> createState() => _WapiVideoPlayerState();
@@ -4869,6 +6683,7 @@ class _WapiVideoPlayer extends StatefulWidget {
 class _WapiVideoPlayerState extends State<_WapiVideoPlayer> {
   late final VideoPlayerController _controller;
   late final Future<void> _ready;
+  bool _ended = false;
 
   @override
   void initState() {
@@ -4876,54 +6691,97 @@ class _WapiVideoPlayerState extends State<_WapiVideoPlayer> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     _ready = _controller.initialize().then((_) {
       _controller.setLooping(false);
-      _controller.play();
+      _controller.addListener(_onPlaybackChanged);
+      if (!widget.paused) _controller.play();
     });
   }
 
   @override
+  void didUpdateWidget(covariant _WapiVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.paused == oldWidget.paused || !_controller.value.isInitialized) {
+      return;
+    }
+    widget.paused ? _controller.pause() : _controller.play();
+  }
+
+  void _onPlaybackChanged() {
+    final duration = _controller.value.duration.inMilliseconds;
+    if (duration <= 0) return;
+    final position = _controller.value.position.inMilliseconds;
+    widget.onProgress?.call((position / duration).clamp(0, 1));
+    if (!_ended && position >= duration - 120) {
+      _ended = true;
+      widget.onEnded?.call();
+    }
+  }
+
+  @override
   void dispose() {
+    _controller.removeListener(_onPlaybackChanged);
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final player = Center(
-      child: FutureBuilder<void>(
-        future: _ready,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return const _StoryFallback(
-              icon: Icons.error_outline,
-              label: 'Lecture vidéo impossible',
-            );
-          }
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const CircularProgressIndicator(color: Colors.white);
-          }
-          return AspectRatio(
-            aspectRatio: _controller.value.aspectRatio,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                VideoPlayer(_controller),
-                IconButton.filledTonal(
-                  onPressed: () => setState(() {
-                    _controller.value.isPlaying
-                        ? _controller.pause()
-                        : _controller.play();
-                  }),
-                  icon: Icon(
-                    _controller.value.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
+    final player = FutureBuilder<void>(
+      future: _ready,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _StoryFallback(
+            icon: Icons.error_outline,
+            label: 'Lecture vidéo impossible',
+          );
+        }
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+        final size = _controller.value.size;
+        final video = widget.embedded
+            ? ColoredBox(
+                color: Colors.black,
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: SizedBox(
+                      width: size.width,
+                      height: size.height,
+                      child: VideoPlayer(_controller),
+                    ),
                   ),
                 ),
-              ],
+              )
+            : Center(
+                child: AspectRatio(
+                  aspectRatio: _controller.value.aspectRatio,
+                  child: VideoPlayer(_controller),
+                ),
+              );
+        return Stack(
+          fit: StackFit.expand,
+          alignment: Alignment.center,
+          children: [
+            video,
+            Center(
+              child: IconButton.filledTonal(
+                onPressed: () => setState(() {
+                  _controller.value.isPlaying
+                      ? _controller.pause()
+                      : _controller.play();
+                }),
+                icon: Icon(
+                  _controller.value.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                ),
+              ),
             ),
-          );
-        },
-      ),
+          ],
+        );
+      },
     );
     if (widget.embedded) return player;
     return Scaffold(
@@ -4943,42 +6801,88 @@ class _StoryViewer extends StatefulWidget {
     required this.story,
     required this.user,
     required this.repository,
+    this.stories = const [],
+    this.initialIndex = 0,
   });
 
   final WapiStory story;
   final User user;
   final WapiRepository repository;
+  final List<WapiStory> stories;
+  final int initialIndex;
 
   @override
   State<_StoryViewer> createState() => _StoryViewerState();
 }
 
 class _StoryViewerState extends State<_StoryViewer> {
-  WapiStory get story => widget.story;
+  late final List<WapiStory> _stories;
+  late int _currentIndex;
+  WapiStory get story => _stories[_currentIndex];
   bool get _isAuthor => story.authorId == widget.user.uid;
   Timer? _progressTimer;
   double _progress = 0;
+  double _videoProgress = 0;
+  bool _paused = false;
 
   String get _publishedAt => _storyTimeLabel(story.createdAt);
 
   @override
   void initState() {
     super.initState();
+    _stories = widget.stories.isEmpty ? [widget.story] : widget.stories;
+    _currentIndex = widget.initialIndex.clamp(0, _stories.length - 1);
+    _activateStory();
+  }
+
+  void _activateStory() {
+    _progressTimer?.cancel();
+    _progress = 0;
+    _videoProgress = 0;
     if (!_isAuthor && !story.viewedByCurrentUser && story.id.isNotEmpty) {
       unawaited(widget.repository.recordStoryView(story.id).catchError((_) {}));
     }
-    if (story.mediaType != 'video') {
-      _progressTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-        if (!mounted) return;
-        final next = _progress + .0125;
-        if (next >= 1) {
-          _progressTimer?.cancel();
-          Navigator.of(context).pop();
-          return;
-        }
-        setState(() => _progress = next);
-      });
+    if (story.mediaType != 'video') _startImageTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _currentIndex + 1 >= _stories.length) return;
+      final next = _stories[_currentIndex + 1];
+      if (next.mediaType == 'image' && next.mediaUrl.isNotEmpty) {
+        unawaited(precacheImage(NetworkImage(next.mediaUrl), context));
+      }
+    });
+  }
+
+  void _startImageTimer() {
+    if (_paused || story.mediaType == 'video') return;
+    _progressTimer?.cancel();
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted || _paused) return;
+      final next = _progress + .0125;
+      if (next >= 1) {
+        _progressTimer?.cancel();
+        _nextStory();
+        return;
+      }
+      setState(() => _progress = next);
+    });
+  }
+
+  void _nextStory() => _moveStory(1);
+
+  void _previousStory() => _moveStory(-1);
+
+  void _moveStory(int direction) {
+    final next = _currentIndex + direction;
+    if (next < 0) return;
+    if (next >= _stories.length) {
+      Navigator.of(context).pop();
+      return;
     }
+    setState(() {
+      _currentIndex = next;
+      _paused = false;
+    });
+    _activateStory();
   }
 
   @override
@@ -5078,6 +6982,27 @@ class _StoryViewerState extends State<_StoryViewer> {
 
   @override
   Widget build(BuildContext context) => GestureDetector(
+    onLongPressStart: (_) {
+      _progressTimer?.cancel();
+      setState(() => _paused = true);
+    },
+    onLongPressEnd: (_) {
+      setState(() => _paused = false);
+      _startImageTimer();
+    },
+    onTapUp: (details) {
+      final width = MediaQuery.sizeOf(context).width;
+      if (details.localPosition.dx < width * .30) {
+        _previousStory();
+      } else if (details.localPosition.dx > width * .70) {
+        _nextStory();
+      }
+    },
+    onHorizontalDragEnd: (details) {
+      final velocity = details.primaryVelocity ?? 0;
+      if (velocity < -250) _nextStory();
+      if (velocity > 250) _previousStory();
+    },
     onVerticalDragEnd: (details) {
       if ((details.primaryVelocity ?? 0) > 250) Navigator.of(context).pop();
     },
@@ -5091,14 +7016,34 @@ class _StoryViewerState extends State<_StoryViewer> {
               top: 5,
               left: 14,
               right: 14,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: story.mediaType == 'video' ? null : _progress,
-                  minHeight: 3,
-                  backgroundColor: Colors.white24,
-                  valueColor: const AlwaysStoppedAnimation(Colors.white),
-                ),
+              child: Row(
+                children: List.generate(_stories.length, (index) {
+                  final value = index < _currentIndex
+                      ? 1.0
+                      : index > _currentIndex
+                      ? 0.0
+                      : story.mediaType == 'video'
+                      ? _videoProgress
+                      : _progress;
+                  return Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        right: index == _stories.length - 1 ? 0 : 3,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: value,
+                          minHeight: 3,
+                          backgroundColor: Colors.white24,
+                          valueColor: const AlwaysStoppedAnimation(
+                            Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
               ),
             ),
             Positioned(
@@ -5206,20 +7151,47 @@ class _StoryViewerState extends State<_StoryViewer> {
 
   Widget _storyBody() {
     if (story.mediaType == 'image' && story.mediaUrl.isNotEmpty) {
-      return Image.network(
-        story.mediaUrl,
-        fit: BoxFit.contain,
-        errorBuilder: (_, _, _) => const _StoryFallback(
-          icon: Icons.broken_image_outlined,
-          label: 'Image indisponible',
-        ),
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            story.mediaUrl,
+            fit: BoxFit.cover,
+            color: Colors.black.withValues(alpha: .5),
+            colorBlendMode: BlendMode.darken,
+            gaplessPlayback: true,
+          ),
+          Center(
+            child: Image.network(
+              story.mediaUrl,
+              fit: BoxFit.contain,
+              gaplessPlayback: true,
+              frameBuilder: (context, child, frame, synchronouslyLoaded) {
+                if (synchronouslyLoaded || frame != null) return child;
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                );
+              },
+              errorBuilder: (_, _, _) => const _StoryFallback(
+                icon: Icons.broken_image_outlined,
+                label: 'Image indisponible',
+              ),
+            ),
+          ),
+        ],
       );
     }
     if (story.mediaType == 'video') {
       return _WapiVideoPlayer(
+        key: ValueKey(story.id),
         url: story.mediaUrl,
         title: story.text.isEmpty ? 'Statut vidéo' : story.text,
         embedded: true,
+        paused: _paused,
+        onProgress: (value) {
+          if (mounted) setState(() => _videoProgress = value);
+        },
+        onEnded: _nextStory,
       );
     }
     return DecoratedBox(
@@ -5300,13 +7272,10 @@ class _LiveProfileAvatar extends StatelessWidget {
                           ),
                         ),
                       )
-                    : Image.network(
-                        photoUrl,
-                        width: radius * 2,
-                        height: radius * 2,
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        errorBuilder: (_, _, _) => Center(
+                    : _StableNetworkAvatarImage(
+                        url: photoUrl,
+                        size: radius * 2,
+                        fallback: Center(
                           child: Text(
                             initial,
                             style: TextStyle(
@@ -5322,6 +7291,34 @@ class _LiveProfileAvatar extends StatelessWidget {
           );
         },
       );
+}
+
+class _StableNetworkAvatarImage extends StatelessWidget {
+  const _StableNetworkAvatarImage({
+    required this.url,
+    required this.size,
+    required this.fallback,
+  });
+
+  final String url;
+  final double size;
+  final Widget fallback;
+
+  @override
+  Widget build(BuildContext context) => Image.network(
+    url,
+    width: size,
+    height: size,
+    fit: BoxFit.cover,
+    gaplessPlayback: true,
+    cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
+    frameBuilder: (context, child, frame, synchronouslyLoaded) {
+      if (synchronouslyLoaded || frame != null) return child;
+      return SizedBox.square(dimension: size, child: fallback);
+    },
+    errorBuilder: (_, _, _) =>
+        SizedBox.square(dimension: size, child: fallback),
+  );
 }
 
 ImageProvider? _imageProvider(String value) =>
@@ -5364,28 +7361,127 @@ class _StoryFallback extends StatelessWidget {
   );
 }
 
+class _StoriesLoadingState extends StatelessWidget {
+  const _StoriesLoadingState();
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+    children: [
+      const LinearProgressIndicator(minHeight: 2),
+      const SizedBox(height: 18),
+      Row(
+        children: List.generate(
+          4,
+          (index) => Container(
+            width: 58,
+            height: 58,
+            margin: const EdgeInsets.only(right: 14),
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFFE9EEF4),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 24),
+      ...List.generate(
+        3,
+        (index) => Container(
+          height: 72,
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF3F6F9),
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _StoryThumbnail extends StatelessWidget {
+  const _StoryThumbnail({required this.story});
+  final WapiStory story;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 48,
+    height: 52,
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: WapiColors.blueSoft,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: story.mediaType == 'image' && story.mediaUrl.isNotEmpty
+        ? Image.network(
+            story.mediaUrl,
+            fit: BoxFit.cover,
+            cacheWidth: 180,
+            errorBuilder: (_, _, _) => const Icon(
+              Icons.image_not_supported_outlined,
+              color: WapiColors.muted,
+            ),
+          )
+        : DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [WapiColors.blueDark, WapiColors.blue],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Icon(
+              story.mediaType == 'video'
+                  ? Icons.play_arrow_rounded
+                  : Icons.format_quote_rounded,
+              color: Colors.white,
+            ),
+          ),
+  );
+}
+
 class _StoryPublisher extends StatelessWidget {
-  const _StoryPublisher({required this.onTap});
+  const _StoryPublisher({required this.photoUrl, required this.onTap});
+  final String photoUrl;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(18),
     child: Ink(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
       decoration: BoxDecoration(
-        color: WapiColors.blueSoft,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: WapiColors.line),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          CircleAvatar(
-            backgroundColor: WapiColors.blue,
-            foregroundColor: Colors.white,
-            child: Icon(Icons.add),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CircleAvatar(
+                radius: 25,
+                backgroundColor: WapiColors.blueSoft,
+                backgroundImage: _imageProvider(photoUrl),
+                child: photoUrl.isEmpty
+                    ? const Icon(Icons.person_outline, color: WapiColors.blue)
+                    : null,
+              ),
+              const Positioned(
+                right: -3,
+                bottom: -2,
+                child: CircleAvatar(
+                  radius: 10,
+                  backgroundColor: WapiColors.blue,
+                  child: Icon(Icons.add, size: 15, color: Colors.white),
+                ),
+              ),
+            ],
           ),
-          SizedBox(width: 12),
-          Expanded(
+          const SizedBox(width: 13),
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -5395,13 +7491,13 @@ class _StoryPublisher extends StatelessWidget {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Publier un texte maintenant',
+                  'Ajoutez une photo ou une vidéo',
                   style: TextStyle(color: WapiColors.muted),
                 ),
               ],
             ),
           ),
-          Icon(Icons.chevron_right, color: WapiColors.blue),
+          const Icon(Icons.camera_alt_outlined, color: WapiColors.blue),
         ],
       ),
     ),
@@ -5578,7 +7674,13 @@ class _BusinessPage extends StatelessWidget {
                       if (sheetContext.mounted) {
                         ScaffoldMessenger.of(sheetContext).showSnackBar(
                           SnackBar(
-                            content: Text('Création impossible : $error'),
+                            content: Text(
+                              wapiErrorText(
+                                error,
+                                fallback:
+                                    'Le compte Business n’a pas pu être créé.',
+                              ),
+                            ),
                           ),
                         );
                       }
@@ -5638,67 +7740,209 @@ class _ProfilePageState extends State<_ProfilePage> {
         final isVerified = data['verified'] == true;
         final isFounder =
             phone.replaceAll(RegExp(r'[^0-9+]'), '') == '+242065465808';
+        final bio = (data['bio'] as String?)?.trim() ?? '';
+        final occupation = (data['occupation'] as String?)?.trim() ?? '';
+        final city = (data['city'] as String?)?.trim() ?? '';
+        final website = (data['website'] as String?)?.trim() ?? '';
+        final statusText = (data['statusText'] as String?)?.trim() ?? '';
+        final completedFields = [
+          name,
+          photoUrl,
+          bio,
+          occupation,
+          city,
+          statusText,
+        ].where((value) => value.isNotEmpty).length;
+        final completion = completedFields / 6;
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           children: [
-            Card(
-              child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
-                leading: InkWell(
-                  onTap: () => _changePhoto(context),
-                  borderRadius: BorderRadius.circular(30),
-                  child: CircleAvatar(
-                    radius: 28,
-                    backgroundColor: WapiColors.blueSoft,
-                    foregroundColor: WapiColors.blue,
-                    backgroundImage: _pendingPhoto != null
-                        ? FileImage(_pendingPhoto!)
-                        : photoUrl.isEmpty
-                        ? null
-                        : NetworkImage(photoUrl),
-                    child: !hasPhoto
-                        ? Text(
-                            name.substring(0, 1).toUpperCase(),
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          )
-                        : Align(
-                            alignment: Alignment.bottomRight,
-                            child: CircleAvatar(
-                              radius: 10,
-                              child: _uploadingPhoto
-                                  ? const SizedBox.square(
-                                      dimension: 11,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF06283B), Color(0xFF087F8C)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF06283B).withValues(alpha: .18),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      InkWell(
+                        onTap: () => _changePhoto(context),
+                        borderRadius: BorderRadius.circular(44),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CircleAvatar(
+                              radius: 38,
+                              backgroundColor: Colors.white24,
+                              foregroundColor: Colors.white,
+                              backgroundImage: _pendingPhoto != null
+                                  ? FileImage(_pendingPhoto!)
+                                  : photoUrl.isEmpty
+                                  ? null
+                                  : NetworkImage(photoUrl),
+                              child: !hasPhoto
+                                  ? Text(
+                                      name.substring(0, 1).toUpperCase(),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 25,
                                       ),
                                     )
-                                  : const Icon(Icons.camera_alt, size: 12),
+                                  : null,
                             ),
-                          ),
-                  ),
-                ),
-                title: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
+                            Positioned(
+                              right: -2,
+                              bottom: -2,
+                              child: CircleAvatar(
+                                radius: 13,
+                                backgroundColor: Colors.white,
+                                foregroundColor: WapiColors.blueDark,
+                                child: _uploadingPhoto
+                                    ? const SizedBox.square(
+                                        dimension: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.camera_alt_rounded,
+                                        size: 15,
+                                      ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                    if (isVerified) ...[
-                      const SizedBox(width: 5),
-                      const Icon(
-                        Icons.verified_rounded,
-                        color: Color(0xFF2088D6),
-                        size: 18,
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 21,
+                                    ),
+                                  ),
+                                ),
+                                if (isVerified) ...[
+                                  const SizedBox(width: 5),
+                                  const Icon(
+                                    Icons.verified_rounded,
+                                    color: Color(0xFF7CE5FF),
+                                    size: 19,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              statusText.isEmpty
+                                  ? (phone.isEmpty ? 'Profil WAPI' : phone)
+                                  : statusText,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFFD7EEF3),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (occupation.isNotEmpty || city.isNotEmpty) ...[
+                              const SizedBox(height: 7),
+                              Text(
+                                [occupation, city]
+                                    .where((value) => value.isNotEmpty)
+                                    .join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF9DD7DE),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _editProfile(
+                          context,
+                          name: name,
+                          bio: bio,
+                          occupation: occupation,
+                          city: city,
+                          website: website,
+                          statusText: statusText,
+                        ),
+                        icon: const Icon(Icons.edit_rounded),
+                        color: Colors.white,
+                        tooltip: 'Modifier le profil',
                       ),
                     ],
+                  ),
+                  if (bio.isNotEmpty) ...[
+                    const SizedBox(height: 15),
+                    Text(
+                      bio,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, height: 1.35),
+                    ),
                   ],
-                ),
-                subtitle: Text(phone.isEmpty ? 'Profil à compléter' : phone),
+                  const SizedBox(height: 15),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.person_rounded,
+                        color: Color(0xFFB9E8ED),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: LinearProgressIndicator(
+                            value: completion,
+                            minHeight: 7,
+                            backgroundColor: Colors.white12,
+                            color: const Color(0xFF65E3BD),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Text(
+                        '${(completion * 100).round()} %',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
@@ -5710,10 +7954,24 @@ class _ProfilePageState extends State<_ProfilePage> {
                 onTap: () => _showAdministration(context, phone),
               ),
             _ProfileSection(
-              title: 'Compte',
+              title: 'Informations publiques',
               icon: Icons.manage_accounts_outlined,
-              detail: 'Identité, confidentialité et appareils',
-              onTap: () => _editName(context, name),
+              detail: 'Nom, bio, métier, ville, site et statut',
+              onTap: () => _editProfile(
+                context,
+                name: name,
+                bio: bio,
+                occupation: occupation,
+                city: city,
+                website: website,
+                statusText: statusText,
+              ),
+            ),
+            _ProfileSection(
+              title: 'Mon code WAPI',
+              icon: Icons.qr_code_2_rounded,
+              detail: 'Partager rapidement votre profil',
+              onTap: () => _showProfileQr(context, name, photoUrl),
             ),
             _ProfileSection(
               title: 'Notifications',
@@ -5770,11 +8028,15 @@ class _ProfilePageState extends State<_ProfilePage> {
           _pendingPhoto = null;
         });
       }
-    } catch (error) {
+    } catch (_) {
       if (context.mounted) {
         setState(() => _pendingPhoto = null);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Photo non enregistrée : $error')),
+          const SnackBar(
+            content: Text(
+              'La photo de profil n’a pas pu être enregistrée. Réessayez.',
+            ),
+          ),
         );
       }
     } finally {
@@ -5782,81 +8044,361 @@ class _ProfilePageState extends State<_ProfilePage> {
     }
   }
 
-  Future<void> _editName(BuildContext context, String currentName) async {
-    final controller = TextEditingController(text: currentName);
+  Future<void> _editProfile(
+    BuildContext context, {
+    required String name,
+    required String bio,
+    required String occupation,
+    required String city,
+    required String website,
+    required String statusText,
+  }) async {
+    final nameController = TextEditingController(text: name);
+    final bioController = TextEditingController(text: bio);
+    final occupationController = TextEditingController(text: occupation);
+    final cityController = TextEditingController(text: city);
+    final websiteController = TextEditingController(text: website);
+    final statusController = TextEditingController(text: statusText);
+    var saving = false;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          20,
-          20,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Modifier le profil',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: WapiColors.line,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Enrichir mon profil',
+                  style: Theme.of(sheetContext).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Ces informations permettent à vos contacts de mieux vous reconnaître.',
+                  style: TextStyle(color: WapiColors.muted),
+                ),
+                const SizedBox(height: 18),
+                TextField(
+                  controller: nameController,
+                  autofocus: true,
+                  maxLength: 80,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Nom affiché',
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                ),
+                TextField(
+                  controller: statusController,
+                  maxLength: 80,
+                  decoration: const InputDecoration(
+                    labelText: 'Statut court',
+                    hintText: 'Ex. Disponible, en réunion…',
+                    prefixIcon: Icon(Icons.bolt_outlined),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: bioController,
+                  maxLength: 240,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'À propos',
+                    alignLabelWithHint: true,
+                    prefixIcon: Icon(Icons.notes_rounded),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: occupationController,
+                        maxLength: 80,
+                        decoration: const InputDecoration(
+                          labelText: 'Activité',
+                          prefixIcon: Icon(Icons.work_outline_rounded),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: cityController,
+                        maxLength: 80,
+                        decoration: const InputDecoration(
+                          labelText: 'Ville',
+                          prefixIcon: Icon(Icons.location_on_outlined),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                TextField(
+                  controller: websiteController,
+                  maxLength: 180,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Site HTTPS',
+                    prefixIcon: Icon(Icons.link_rounded),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheetState(() => saving = true);
+                            try {
+                              await repository.updateProfileDetails(
+                                user: user,
+                                displayName: nameController.text,
+                                bio: bioController.text,
+                                occupation: occupationController.text,
+                                city: cityController.text,
+                                website: websiteController.text,
+                                statusText: statusController.text,
+                              );
+                              if (sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                            } catch (_) {
+                              if (sheetContext.mounted) {
+                                ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Profil non enregistré. Vérifiez les informations puis réessayez.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            } finally {
+                              if (sheetContext.mounted) {
+                                setSheetState(() => saving = false);
+                              }
+                            }
+                          },
+                    icon: saving
+                        ? const SizedBox.square(
+                            dimension: 17,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check_rounded),
+                    label: Text(saving ? 'Enregistrement…' : 'Enregistrer'),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              maxLength: 80,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Nom affiché'),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: () async {
-                  try {
-                    await repository.updateProfileName(
-                      user: user,
-                      displayName: controller.text,
-                    );
-                    if (sheetContext.mounted) Navigator.pop(sheetContext);
-                  } catch (error) {
-                    if (sheetContext.mounted) {
-                      ScaffoldMessenger.of(sheetContext).showSnackBar(
-                        SnackBar(content: Text('Nom non enregistré : $error')),
-                      );
-                    }
-                  }
-                },
-                child: const Text('Enregistrer'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
-    controller.dispose();
+    nameController.dispose();
+    bioController.dispose();
+    occupationController.dispose();
+    cityController.dispose();
+    websiteController.dispose();
+    statusController.dispose();
   }
+
+  Future<void> _showProfileQr(
+    BuildContext context,
+    String name,
+    String photoUrl,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (sheetContext) => Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: WapiColors.blueSoft,
+            backgroundImage: _imageProvider(photoUrl),
+            child: photoUrl.isEmpty ? Text(_initial(name)) : null,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            name,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Code personnel WAPI',
+            style: TextStyle(color: WapiColors.muted),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: WapiColors.line),
+            ),
+            child: QrImageView(
+              data: 'wapi://profile/${user.uid}',
+              size: 220,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: WapiColors.blueDark,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.circle,
+                color: WapiColors.blueDark,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Un contact peut numériser ce code pour ouvrir votre profil et démarrer une discussion.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: WapiColors.muted, height: 1.35),
+          ),
+        ],
+      ),
+    ),
+  );
 
   void _showNotificationSettings(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      builder: (sheetContext) => const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(20, 20, 20, 28),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0B1720),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: const Color(0x334BD1FF)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x66020A0F),
+                blurRadius: 28,
+                offset: Offset(0, 14),
+              ),
+            ],
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Notifications',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .22),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
               ),
-              SizedBox(height: 12),
-              Text(
-                'Les messages et appels utilisent les permissions Android et le jeton sécurisé de cet appareil. Désactivez-les depuis les réglages Android si vous ne souhaitez plus les recevoir.',
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF31C5FF), Color(0xFF1677FF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_active_rounded,
+                      color: Colors.white,
+                      size: 27,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Notifications WAPI',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Vos conversations restent visibles au bon moment.',
+                          style: TextStyle(color: Color(0xFFB4C9D8)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              const _NotificationPreviewRow(
+                icon: Icons.chat_bubble_rounded,
+                title: 'Messages',
+                detail: 'Aperçu, son et badge non lu',
+                color: Color(0xFF2AB7FF),
+              ),
+              const SizedBox(height: 10),
+              const _NotificationPreviewRow(
+                icon: Icons.call_rounded,
+                title: 'Appels',
+                detail: 'Alerte prioritaire avec actions rapides',
+                color: Color(0xFF68D391),
+              ),
+              const SizedBox(height: 10),
+              const _NotificationPreviewRow(
+                icon: Icons.volume_up_rounded,
+                title: 'Sons et vibration',
+                detail: 'Réglés selon le profil de votre appareil',
+                color: Color(0xFFFFB85C),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await openAppSettings();
+                  },
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Gérer les alertes de cet appareil'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Color(0x554BD1FF)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
               ),
             ],
           ),
@@ -5881,7 +8423,7 @@ class _ProfilePageState extends State<_ProfilePage> {
               ),
               SizedBox(height: 12),
               Text(
-                'Les messages restent dans votre conversation. Les médias sont stockés dans Firebase Storage avec accès limité aux membres de la conversation. Le cache local est géré par Android et peut être vidé depuis les réglages de l’application.',
+                'Les messages restent dans votre conversation. Les médias sont protégés et accessibles uniquement aux membres de la conversation. Le cache local est géré par Android et peut être vidé depuis les réglages de l’application.',
               ),
             ],
           ),
@@ -5908,7 +8450,7 @@ class _ProfilePageState extends State<_ProfilePage> {
               Text('Compte fondateur vérifié : $phone'),
               const SizedBox(height: 8),
               const Text(
-                'Les opérations sensibles restent protégées côté Firebase et ne sont pas accessibles depuis un simple écran mobile.',
+                'Les opérations sensibles restent protégées par les services WAPI et ne sont pas accessibles depuis un simple écran mobile.',
               ),
             ],
           ),
@@ -5916,6 +8458,64 @@ class _ProfilePageState extends State<_ProfilePage> {
       ),
     );
   }
+}
+
+class _NotificationPreviewRow extends StatelessWidget {
+  const _NotificationPreviewRow({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .055),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: Colors.white.withValues(alpha: .075)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .16),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                detail,
+                style: const TextStyle(color: Color(0xFFB4C9D8), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        Icon(Icons.check_circle_rounded, color: color, size: 19),
+      ],
+    ),
+  );
 }
 
 List<Map<String, String>> _savedContacts(Map? rawContacts) {

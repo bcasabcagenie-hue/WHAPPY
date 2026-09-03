@@ -9,6 +9,28 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../app/wapi_theme.dart';
 
+Future<T?> openWapiCall<T>(BuildContext context, WapiCallPage page) =>
+    Navigator.of(context, rootNavigator: true).push<T>(
+      PageRouteBuilder<T>(
+        settings: const RouteSettings(name: 'wapi-call'),
+        opaque: true,
+        fullscreenDialog: true,
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, animation, _) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: page,
+        ),
+        transitionsBuilder: (_, animation, _, child) => SlideTransition(
+          position: Tween(begin: const Offset(0, .035), end: Offset.zero)
+              .animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+          child: child,
+        ),
+      ),
+    );
+
 class WapiCallPage extends StatefulWidget {
   const WapiCallPage.outgoing({
     super.key,
@@ -57,6 +79,20 @@ class _WapiCallPageState extends State<WapiCallPage> {
   DateTime? _connectedAt;
   String _status = 'Préparation de l’appel…';
   String? _error;
+  bool _translationBusy = false;
+  bool _translationEnabled = false;
+  String _translationLanguage = 'fr';
+
+  static const _translationLanguages = <String, String>{
+    'fr': 'Français',
+    'en': 'English',
+    'ln': 'Lingála',
+    'pt': 'Português',
+    'es': 'Español',
+    'sw': 'Kiswahili',
+    'ar': 'العربية',
+    'zh-CN': '中文',
+  };
 
   bool get _incoming => widget.incomingCallId != null;
 
@@ -106,7 +142,10 @@ class _WapiCallPageState extends State<WapiCallPage> {
     });
     try {
       final result = await _functions
-          .httpsCallable('createDirectCallSession')
+          .httpsCallable(
+            'createDirectCallSession',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+          )
           .call<Map<String, dynamic>>({
             'calleeId': widget.peerId,
             'video': widget.video,
@@ -129,7 +168,10 @@ class _WapiCallPageState extends State<WapiCallPage> {
     });
     try {
       final result = await _functions
-          .httpsCallable('joinDirectCallSession')
+          .httpsCallable(
+            'joinDirectCallSession',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+          )
           .call<Map<String, dynamic>>({'callId': _callId});
       await _connect(_CallAccess.fromMap(result.data));
     } catch (error) {
@@ -216,15 +258,15 @@ class _WapiCallPageState extends State<WapiCallPage> {
 
   void _setFailure(Object error) {
     if (!mounted) return;
-    final message = error is FirebaseFunctionsException
-        ? error.message
-        : error.toString().replaceFirst('Bad state: ', '');
+    final message = wapiErrorText(
+      error is FirebaseFunctionsException ? error.message : error,
+      fallback:
+          'L’appel n’a pas pu être établi. Vérifiez votre connexion puis réessayez.',
+    );
     setState(() {
       _connecting = false;
       _status = 'Appel indisponible';
-      _error = message == null || message.trim().isEmpty
-          ? 'L’appel n’a pas pu être établi. Vérifiez votre connexion puis réessayez.'
-          : message;
+      _error = message;
     });
   }
 
@@ -245,7 +287,10 @@ class _WapiCallPageState extends State<WapiCallPage> {
     });
     try {
       final result = await _functions
-          .httpsCallable('joinDirectCallSession')
+          .httpsCallable(
+            'joinDirectCallSession',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+          )
           .call<Map<String, dynamic>>({'callId': _callId});
       await _connect(_CallAccess.fromMap(result.data));
     } catch (error) {
@@ -297,6 +342,127 @@ class _WapiCallPageState extends State<WapiCallPage> {
     if (mounted) setState(() => _cameraPosition = next);
   }
 
+  Future<void> _toggleTranslation() async {
+    if (_translationBusy || _callId.isEmpty || _connectedAt == null) {
+      if (mounted && _connectedAt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'La traduction devient disponible une fois l’appel connecté.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    var targetLanguage = _translationLanguage;
+    if (!_translationEnabled) {
+      final selected = await showModalBottomSheet<String>(
+        context: context,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (sheetContext) => Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Traduction vocale WAPI',
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Choisissez la langue à entendre. La restitution de la voix exige l’accord des deux participants.',
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: RadioGroup<String>(
+                  groupValue: targetLanguage,
+                  onChanged: (value) {
+                    if (value != null) Navigator.pop(sheetContext, value);
+                  },
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: _translationLanguages.entries
+                        .map(
+                          (language) => RadioListTile<String>(
+                            value: language.key,
+                            title: Text(language.value),
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (selected == null || !mounted) return;
+      targetLanguage = selected;
+    }
+    setState(() => _translationBusy = true);
+    try {
+      await _functions
+          .httpsCallable(
+            'configureDirectCallTranslation',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+          )
+          .call<Map<String, dynamic>>({
+            'callId': _callId,
+            'enabled': !_translationEnabled,
+            'targetLanguage': targetLanguage,
+            'voiceConsent': true,
+            'preserveVoice': true,
+          });
+      if (!mounted) return;
+      setState(() {
+        _translationLanguage = targetLanguage;
+        _translationEnabled = !_translationEnabled;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _translationEnabled
+                ? 'Traduction vocale activée en ${_translationLanguages[targetLanguage]}.'
+                : 'Traduction vocale arrêtée.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        final serverMessage =
+            error is FirebaseFunctionsException &&
+                {
+                  'failed-precondition',
+                  'permission-denied',
+                }.contains(error.code)
+            ? error.message
+            : null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              serverMessage?.trim().isNotEmpty == true
+                  ? serverMessage!
+                  : wapiErrorText(
+                      error is FirebaseFunctionsException
+                          ? error.message
+                          : error,
+                      fallback:
+                          'La traduction vocale WAPI n’est pas disponible pour le moment.',
+                    ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _translationBusy = false);
+    }
+  }
+
   Future<void> _finish({
     String action = 'end',
     bool notifyServer = true,
@@ -307,7 +473,12 @@ class _WapiCallPageState extends State<WapiCallPage> {
     try {
       if (notifyServer && _callId.isNotEmpty) {
         await _functions
-            .httpsCallable('closeDirectCallSession')
+            .httpsCallable(
+              'closeDirectCallSession',
+              options: HttpsCallableOptions(
+                timeout: const Duration(seconds: 12),
+              ),
+            )
             .call<Map<String, dynamic>>({'callId': _callId, 'action': action});
       }
     } catch (_) {
@@ -368,11 +539,46 @@ class _WapiCallPageState extends State<WapiCallPage> {
                 ),
               ),
             Positioned(
+              top: 14,
+              left: 12,
+              child: IconButton.filledTonal(
+                onPressed: () => _finish(
+                  action: _incoming && !_accepted ? 'decline' : 'end',
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black38,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                tooltip: 'Fermer l’appel',
+              ),
+            ),
+            Positioned(
               top: 34,
               left: 24,
               right: 24,
               child: Column(
                 children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      widget.video ? 'APPEL VIDÉO WAPI' : 'APPEL AUDIO WAPI',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Text(
                     widget.peerName,
                     style: const TextStyle(
@@ -484,8 +690,11 @@ class _WapiCallPageState extends State<WapiCallPage> {
         ],
       );
     }
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return Wrap(
+      alignment: WrapAlignment.spaceEvenly,
+      runAlignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 10,
       children: [
         _CallAction(
           icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
@@ -503,6 +712,18 @@ class _WapiCallPageState extends State<WapiCallPage> {
             label: 'Caméra',
             onTap: _switchCamera,
           ),
+        _CallAction(
+          icon: _translationBusy
+              ? Icons.hourglass_top_rounded
+              : _translationEnabled
+              ? Icons.translate_rounded
+              : Icons.record_voice_over_outlined,
+          label: _translationEnabled
+              ? _translationLanguages[_translationLanguage] ?? 'Traduction'
+              : 'Traduire',
+          emphasized: _translationEnabled,
+          onTap: _toggleTranslation,
+        ),
         if (_error != null)
           _CallAction(
             icon: Icons.refresh_rounded,

@@ -33,7 +33,8 @@ class _WapiServicesPageState extends State<WapiServicesPage> {
     try {
       final result = await _functions
           .httpsCallable('myServiceRequests')
-          .call<Map<String, dynamic>>();
+          .call<Map<String, dynamic>>()
+          .timeout(const Duration(seconds: 15));
       final raw = result.data['requests'];
       if (mounted) {
         setState(() {
@@ -45,11 +46,15 @@ class _WapiServicesPageState extends State<WapiServicesPage> {
               : const [];
         });
       }
-    } on FirebaseFunctionsException catch (error) {
-      if (mounted)
+    } catch (error) {
+      if (mounted) {
         setState(
-          () => _error = error.message ?? 'Services WAPI indisponibles.',
+          () => _error = wapiErrorText(
+            error is FirebaseFunctionsException ? error.message : error,
+            fallback: 'Services WAPI indisponibles. Réessayez dans un instant.',
+          ),
         );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -70,12 +75,16 @@ class _WapiServicesPageState extends State<WapiServicesPage> {
             'type': kind.id,
             'details': result['details'] ?? '',
             'city': result['city'] ?? '',
-          });
+          })
+          .timeout(const Duration(seconds: 20));
       _notice('Demande envoyée. Vous la retrouvez dans vos activités.');
       await _load();
-    } on FirebaseFunctionsException catch (error) {
+    } catch (error) {
       _notice(
-        error.message ?? 'La demande n’a pas pu être envoyée.',
+        wapiErrorText(
+          error is FirebaseFunctionsException ? error.message : error,
+          fallback: 'La demande n’a pas pu être envoyée. Réessayez.',
+        ),
         error: true,
       );
     } finally {
