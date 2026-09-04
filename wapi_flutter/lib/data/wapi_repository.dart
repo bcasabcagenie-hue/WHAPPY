@@ -114,6 +114,7 @@ class WapiMessage {
     required this.viewOnce,
     required this.viewedBy,
     required this.reactions,
+    required this.voiceTranslations,
   });
 
   final String id;
@@ -132,6 +133,7 @@ class WapiMessage {
   final bool viewOnce;
   final Map<String, dynamic> viewedBy;
   final Map<String, String> reactions;
+  final Map<String, WapiVoiceTranslation> voiceTranslations;
 
   factory WapiMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     return WapiMessage.fromMap(
@@ -255,6 +257,40 @@ class WapiMessage {
           (key, value) => MapEntry(key.toString(), value.toString()),
         ),
       ),
+      voiceTranslations: {
+        for (final entry
+            in (data['voiceTranslations'] as Map? ?? const {}).entries)
+          if (entry.value is Map)
+            entry.key.toString(): WapiVoiceTranslation.fromMap(
+              Map<String, dynamic>.from(entry.value as Map),
+            ),
+      },
+    );
+  }
+}
+
+class WapiVoiceTranslation {
+  const WapiVoiceTranslation({
+    required this.transcript,
+    required this.translation,
+    required this.detectedLanguage,
+    required this.targetLanguage,
+    required this.translatedAudioUrl,
+  });
+
+  final String transcript;
+  final String translation;
+  final String detectedLanguage;
+  final String targetLanguage;
+  final String translatedAudioUrl;
+
+  factory WapiVoiceTranslation.fromMap(Map<String, dynamic> data) {
+    return WapiVoiceTranslation(
+      transcript: data['transcript']?.toString().trim() ?? '',
+      translation: data['translation']?.toString().trim() ?? '',
+      detectedLanguage: data['detectedLanguage']?.toString().trim() ?? 'auto',
+      targetLanguage: data['targetLanguage']?.toString().trim() ?? '',
+      translatedAudioUrl: data['translatedAudioUrl']?.toString().trim() ?? '',
     );
   }
 }
@@ -920,6 +956,9 @@ class WapiRepository {
     if (!{'image', 'video', 'audio', 'document'}.contains(kind)) {
       throw ArgumentError('Type de média non pris en charge.');
     }
+    final safeContentType = kind == 'audio' && !contentType.startsWith('audio/')
+        ? 'audio/mp4'
+        : contentType;
     final conversation = _db.collection('conversations').doc(conversationId);
     final stableMessageId = clientMessageId.trim();
     if (stableMessageId.isNotEmpty &&
@@ -999,7 +1038,7 @@ class WapiRepository {
       final upload = target.putFile(
         file,
         SettableMetadata(
-          contentType: contentType,
+          contentType: safeContentType,
           customMetadata: {
             'wapiMediaSha256': mediaSha256,
             'wapiConversationId': conversationId,
@@ -1022,13 +1061,76 @@ class WapiRepository {
       );
     }
 
+    // Short voice notes are the most time-sensitive media in a conversation.
+    // For current conversations, publish them directly through the two
+    // participant-protected Storage and Firestore paths. This removes a cloud
+    // function cold start from the normal send path while the server callable
+    // below remains the compatibility fallback for older conversations.
+    const directVoiceLimit = 2 * 1024 * 1024;
+    if (kind == 'audio' && mediaSizeBytes <= directVoiceLimit) {
+      try {
+        // Storage itself validates conversation membership, so a separate
+        // preflight read would only add another network round-trip.
+        final canonical = _storage.ref(canonicalPath);
+        final bytes = await file.readAsBytes();
+        final upload = canonical.putData(
+          bytes,
+          SettableMetadata(
+            contentType: safeContentType,
+            cacheControl: 'private,max-age=31536000,immutable',
+            customMetadata: {
+              'wapiMediaSha256': mediaSha256,
+              'wapiConversationId': conversationId,
+              'wapiMessageId': message.id,
+            },
+          ),
+        );
+        await upload.timeout(
+          const Duration(seconds: 18),
+          onTimeout: () {
+            upload.cancel();
+            throw TimeoutException('Le transfert vocal WAPI a expiré.');
+          },
+        );
+        final mediaUrl = await canonical.getDownloadURL().timeout(
+          const Duration(seconds: 6),
+        );
+        final batch = _db.batch();
+        batch.set(message, {
+          'text': caption.trim().isEmpty ? 'Message vocal' : caption.trim(),
+          'senderId': user.uid,
+          'clientMessageId': message.id,
+          'kind': 'audio',
+          'mediaUrl': mediaUrl,
+          'mediaName': displayName,
+          'contentType': safeContentType,
+          'mediaSizeBytes': mediaSizeBytes,
+          'mediaSha256': mediaSha256,
+          'duration': durationSeconds.clamp(0, 600),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        batch.update(conversation, {
+          'lastMessage': 'Message vocal',
+          'lastSenderId': user.uid,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'typingBy.${user.uid}': false,
+        });
+        await batch.commit().timeout(const Duration(seconds: 8));
+        return;
+      } catch (_) {
+        // A timeout can happen after the write reached Firestore. Reconcile
+        // before using the idempotent server path with the same message id.
+        if (await mediaAlreadyCommitted()) return;
+      }
+    }
+
     final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable(
           'commitConversationMedia',
           options: HttpsCallableOptions(
             timeout: Duration(
               seconds: kind == 'audio'
-                  ? 40
+                  ? 18
                   : kind == 'document'
                   ? 180
                   : 120,
@@ -1045,14 +1147,14 @@ class WapiRepository {
         'kind': kind,
         'storagePath': storagePath,
         'mediaName': displayName,
-        'contentType': contentType,
+        'contentType': safeContentType,
         'mediaSha256': mediaSha256,
         'durationSeconds': durationSeconds.clamp(0, 600),
         'caption': caption.trim(),
         'viewOnce': viewOnce,
         if (inlineMediaBase64.isNotEmpty) ...{
           'inlineMediaBase64': inlineMediaBase64,
-          'inlineContentType': contentType,
+          'inlineContentType': safeContentType,
         },
       });
     }
@@ -1152,6 +1254,28 @@ class WapiRepository {
       await outbox.delete().catchError((_) {});
       Error.throwWithStackTrace(error, stackTrace);
     }
+  }
+
+  Future<WapiVoiceTranslation> translateVoiceMessage({
+    required String conversationId,
+    required String messageId,
+    required String targetLanguage,
+  }) async {
+    final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable(
+          'translateConversationVoice',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 60)),
+        )
+        .call<Map<String, dynamic>>({
+          'conversationId': conversationId,
+          'messageId': messageId,
+          'targetLanguage': targetLanguage,
+        });
+    final translation = WapiVoiceTranslation.fromMap(result.data);
+    if (translation.translation.isEmpty) {
+      throw StateError('La traduction vocale reçue est vide.');
+    }
+    return translation;
   }
 
   Future<void> markViewOnceSeen({

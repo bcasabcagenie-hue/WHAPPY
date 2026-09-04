@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
@@ -36,6 +35,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   String _tableTheme = 'competitionBlue';
   bool _sending = false;
   Timer? _replayTimer;
+  Timer? _localStrokeTimer;
   Timer? _remoteStrokeTimer;
   Timer? _pocketNoticeTimer;
   List<_PoolBall>? _replayBalls;
@@ -141,23 +141,25 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
 
   void _playPoolSound(String kind, double intensity) {
     if (!_soundEnabled) return;
-    switch (kind) {
-      case 'cue':
-        _poolAudio.cue(intensity * 100);
-        break;
-      case 'rail':
-        _poolAudio.rail(intensity);
-        break;
-      case 'pocket':
-        _poolAudio.pocket();
-        break;
-      default:
-        _poolAudio.collision(intensity);
-    }
-    unawaited(
-      _poolStageKey.currentState?.playSound(kind, intensity) ??
-          Future<void>.value(),
-    );
+    unawaited(() async {
+      final nativePlayed =
+          await (_poolStageKey.currentState?.playSound(kind, intensity) ??
+              Future<bool>.value(false));
+      if (nativePlayed) return;
+      switch (kind) {
+        case 'cue':
+          _poolAudio.cue(intensity * 100);
+          break;
+        case 'rail':
+          _poolAudio.rail(intensity);
+          break;
+        case 'pocket':
+          _poolAudio.pocket();
+          break;
+        default:
+          _poolAudio.collision(intensity);
+      }
+    }());
   }
 
   Future<void> _showEquipmentWorkshop() async {
@@ -312,21 +314,31 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       _angle = shotAngle;
       _power = basePower;
     });
-    // Play and animate during the release gesture.  Waiting for the network
-    // acknowledgement made the table feel delayed even on a good connection.
-    _playPoolSound('cue', shotPower / 100);
+    // Animate the backswing immediately, then move the balls exactly when the
+    // cue tip reaches the white ball. Network validation runs in parallel.
     unawaited(HapticFeedback.mediumImpact());
     unawaited(_poolStageKey.currentState?.stroke() ?? Future<void>.value());
     if (_lastKnownBalls.length == 16) {
       _optimisticShot = true;
-      _startReplay(
-        _lastKnownBalls,
-        _lastKnownBalls,
-        angle: shotAngle,
-        power: shotPower,
-        sideSpin: shotSideSpin,
-        followSpin: shotFollowSpin,
-      );
+      _physicsActive = true;
+      _replayBalls = _lastKnownBalls;
+      _replayAuthoritative = _lastKnownBalls;
+      _replayBallsNotifier.value = _lastKnownBalls;
+      _localStrokeTimer?.cancel();
+      _localStrokeTimer = Timer(const Duration(milliseconds: 138), () {
+        if (!mounted) return;
+        _playPoolSound('cue', shotPower / 100);
+        _startReplay(
+          _lastKnownBalls,
+          _replayAuthoritative,
+          angle: shotAngle,
+          power: shotPower,
+          sideSpin: shotSideSpin,
+          followSpin: shotFollowSpin,
+        );
+      });
+    } else {
+      _playPoolSound('cue', shotPower / 100);
     }
     setState(() => _sending = true);
     try {
@@ -338,6 +350,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         'followSpin': shotFollowSpin,
       });
     } catch (error) {
+      _localStrokeTimer?.cancel();
       _replayTimer?.cancel();
       if (mounted) {
         setState(() {
@@ -423,6 +436,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   @override
   void dispose() {
     _replayTimer?.cancel();
+    _localStrokeTimer?.cancel();
     _remoteStrokeTimer?.cancel();
     _pocketNoticeTimer?.cancel();
     _replayBallsNotifier.dispose();
@@ -468,7 +482,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       if (mounted) setState(() {});
       unawaited(_poolStageKey.currentState?.stroke() ?? Future<void>.value());
       _remoteStrokeTimer = Timer(
-        Duration(milliseconds: shotBy == 'wapi-pool-ai' ? 178 : 118),
+        Duration(milliseconds: shotBy == 'wapi-pool-ai' ? 560 : 230),
         () {
           if (!mounted) return;
           _playPoolSound('cue', power / 100);
@@ -681,21 +695,15 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
           appBar: AppBar(
             backgroundColor: const Color(0xFF031610),
             foregroundColor: Colors.white,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'WAPI POOL',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
-                Text(
-                  'Table ' + widget.roomId,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF8DA9A0),
-                  ),
-                ),
-              ],
+            toolbarHeight: 46,
+            titleSpacing: 4,
+            title: const Text(
+              'WAPI POOL',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .6,
+              ),
             ),
             actions: [
               IconButton(
@@ -1710,14 +1718,19 @@ class _PoolPowerRail extends StatelessWidget {
           ? constraints.maxHeight
           : 178.0;
       return GestureDetector(
-        onTapDown: (details) => _update(details.localPosition, height),
-        onTapUp: (_) {
-          if (enabled) onRelease();
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: (details) {
+          if (!enabled) return;
+          onChanged(10);
+          _update(details.localPosition, height);
+          HapticFeedback.selectionClick();
         },
         onVerticalDragUpdate: (details) =>
             _update(details.localPosition, height),
         onVerticalDragEnd: (_) {
-          if (enabled) onRelease();
+          if (!enabled) return;
+          HapticFeedback.mediumImpact();
+          onRelease();
         },
         child: CustomPaint(
           size: const Size(48, 178),
@@ -1901,11 +1914,18 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
     await _channel?.invokeMethod<void>('stroke');
   }
 
-  Future<void> playSound(String kind, double intensity) async {
-    await _channel?.invokeMethod<void>('sound', {
-      'kind': kind,
-      'intensity': intensity.clamp(.12, 1.0),
-    });
+  Future<bool> playSound(String kind, double intensity) async {
+    final channel = _channel;
+    if (channel == null) return false;
+    try {
+      return await channel.invokeMethod<bool>('sound', {
+            'kind': kind,
+            'intensity': intensity.clamp(.12, 1.0),
+          }) ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _render() async {
@@ -1981,12 +2001,13 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
           final end = _fallbackPullEnd;
           if (start != null && end != null) {
             final distance = (start - end).distance;
-            if (distance >= .045)
+            if (distance >= .045) {
               widget.onCuePull(
                 start,
                 end,
                 (distance * 260 + 12).clamp(10, 100),
               );
+            }
           }
           _fallbackPullStart = null;
           _fallbackPullEnd = null;
@@ -3003,7 +3024,6 @@ class _PoolAudio {
     // lower touch-to-sound latency and does not depend on an audio session
     // being resumed by the Flutter engine.  Keep just_audio as the fallback
     // for the other platforms.
-    if (defaultTargetPlatform == TargetPlatform.android) return;
     unawaited(() async {
       try {
         if (!_enabled) return;

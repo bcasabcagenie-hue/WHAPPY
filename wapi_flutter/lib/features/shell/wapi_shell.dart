@@ -3315,6 +3315,8 @@ class _ChatPageState extends State<_ChatPage> {
   final List<WapiMessage> _pendingVoiceMessages = [];
   final Set<String> _failedVoiceMessageIds = {};
   final Set<String> _sendingVoiceMessageIds = {};
+  final Set<String> _translatingVoiceMessageIds = {};
+  final Map<String, WapiVoiceTranslation> _voiceTranslations = {};
   final Set<String> _openingDocumentIds = {};
   String _sendingAttachmentName = '';
   String _chatWallpaperId = 'coffeeBlue';
@@ -3374,12 +3376,23 @@ class _ChatPageState extends State<_ChatPage> {
     '🏆',
   ];
 
+  static const _voiceTranslationLanguages = <String, String>{
+    'fr': 'Français',
+    'en': 'English',
+    'ln': 'Lingála',
+    'sw': 'Kiswahili',
+    'pt': 'Português',
+    'es': 'Español',
+    'ar': 'العربية',
+    'zh-CN': '中文',
+  };
+
   @override
   void initState() {
     super.initState();
     unawaited(_loadChatWallpaper());
     unawaited(_restoreVoiceOutbox());
-    _voiceOutboxRetryTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+    _voiceOutboxRetryTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) unawaited(_retryVoiceOutbox());
     });
     _watchMessageReceipts();
@@ -3928,10 +3941,13 @@ class _ChatPageState extends State<_ChatPage> {
       viewOnce: false,
       viewedBy: const {},
       reactions: const {},
+      voiceTranslations: const {},
     );
     setState(() => _pendingVoiceMessages.add(localMessage));
     await _saveVoiceOutbox();
-    await _deliverVoiceMessage(localMessage);
+    // The bubble is already visible and playable locally. Let delivery finish
+    // in the background so the composer never freezes on a weak connection.
+    unawaited(_deliverVoiceMessage(localMessage));
   }
 
   String get _voiceOutboxKey =>
@@ -3991,6 +4007,7 @@ class _ChatPageState extends State<_ChatPage> {
             viewOnce: false,
             viewedBy: const {},
             reactions: const {},
+            voiceTranslations: const {},
           ),
         );
       }
@@ -4116,29 +4133,39 @@ class _ChatPageState extends State<_ChatPage> {
     _composerFocusNode.requestFocus();
   }
 
-  Future<void> _toggleAudio(WapiMessage message) async {
-    if (message.mediaUrl.isEmpty) {
+  Future<void> _toggleAudio(WapiMessage message) =>
+      _toggleAudioSource(message.id, message.mediaUrl);
+
+  Future<void> _toggleTranslatedVoice(
+    WapiMessage message,
+    WapiVoiceTranslation translation,
+  ) => _toggleAudioSource(
+    '${message.id}:translation',
+    translation.translatedAudioUrl,
+  );
+
+  Future<void> _toggleAudioSource(String playerId, String source) async {
+    if (source.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cette note vocale est indisponible.')),
       );
       return;
     }
     try {
-      if (_playingAudioMessageId == message.id && _player.playing) {
+      if (_playingAudioMessageId == playerId && _player.playing) {
         await _player.pause();
         if (mounted) setState(() => _playingAudioMessageId = null);
         return;
       }
       _audioPosition = Duration.zero;
       _audioDuration = Duration.zero;
-      if (message.mediaUrl.startsWith('https://') ||
-          message.mediaUrl.startsWith('http://')) {
-        await _player.setUrl(message.mediaUrl);
+      if (source.startsWith('https://') || source.startsWith('http://')) {
+        await _player.setUrl(source);
       } else {
-        await _player.setFilePath(message.mediaUrl);
+        await _player.setFilePath(source);
       }
       if (!mounted) return;
-      setState(() => _playingAudioMessageId = message.id);
+      setState(() => _playingAudioMessageId = playerId);
       unawaited(_player.play());
     } catch (_) {
       if (mounted) {
@@ -4150,6 +4177,124 @@ class _ChatPageState extends State<_ChatPage> {
             ),
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _translateVoiceMessage(WapiMessage message) async {
+    final committed =
+        message.mediaUrl.startsWith('https://') &&
+        !_pendingVoiceMessages.any((pending) => pending.id == message.id);
+    if (!committed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La traduction sera disponible dès que la note vocale sera envoyée.',
+          ),
+        ),
+      );
+      return;
+    }
+    final localeCode = Localizations.localeOf(context).languageCode;
+    final initialLanguage = _voiceTranslationLanguages.containsKey(localeCode)
+        ? localeCode
+        : 'fr';
+    final targetLanguage = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: .68,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Traduire la note vocale',
+                    style: Theme.of(sheetContext).textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'WAPI transcrit la voix puis affiche la traduction. Une version audio est proposée lorsqu’elle est disponible.',
+                    style: TextStyle(color: WapiColors.muted, height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 18),
+                children: _voiceTranslationLanguages.entries
+                    .map(
+                      (language) => ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: WapiColors.blueSoft,
+                          child: Text(
+                            language.key.split('-').first.toUpperCase(),
+                            style: const TextStyle(
+                              color: WapiColors.blueDark,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          language.value,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        trailing: language.key == initialLanguage
+                            ? const Icon(
+                                Icons.language_rounded,
+                                color: WapiColors.blue,
+                              )
+                            : null,
+                        onTap: () => Navigator.pop(sheetContext, language.key),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || targetLanguage == null) return;
+    final existing = _voiceTranslations[message.id];
+    if (existing?.targetLanguage == targetLanguage) {
+      setState(() {});
+      return;
+    }
+    setState(() => _translatingVoiceMessageIds.add(message.id));
+    try {
+      final translation = await widget.repository.translateVoiceMessage(
+        conversationId: widget.conversation.id,
+        messageId: message.id,
+        targetLanguage: targetLanguage,
+      );
+      if (!mounted) return;
+      setState(() => _voiceTranslations[message.id] = translation);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wapiErrorText(
+              error,
+              fallback:
+                  'La traduction de cette note vocale est momentanément indisponible.',
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _translatingVoiceMessageIds.remove(message.id));
       }
     }
   }
@@ -4738,6 +4883,13 @@ class _ChatPageState extends State<_ChatPage> {
                       itemBuilder: (context, index) {
                         final message = messages[index];
                         final mine = message.senderId == widget.user.uid;
+                        final localeLanguage = Localizations.localeOf(
+                          context,
+                        ).languageCode;
+                        final voiceTranslation =
+                            _voiceTranslations[message.id] ??
+                            message.voiceTranslations[localeLanguage] ??
+                            message.voiceTranslations.values.firstOrNull;
                         final normalizedMessageText = message.text
                             .trim()
                             .toLowerCase();
@@ -5072,6 +5224,13 @@ class _ChatPageState extends State<_ChatPage> {
                                                   ),
                                               failed: _failedVoiceMessageIds
                                                   .contains(message.id),
+                                              translating:
+                                                  _translatingVoiceMessageIds
+                                                      .contains(message.id),
+                                              translation: voiceTranslation,
+                                              translationPlaying:
+                                                  _playingAudioMessageId ==
+                                                  '${message.id}:translation',
                                               onPressed:
                                                   _failedVoiceMessageIds
                                                       .contains(message.id)
@@ -5094,6 +5253,21 @@ class _ChatPageState extends State<_ChatPage> {
                                                                 .round(),
                                                       ),
                                                     )
+                                                  : null,
+                                              onTranslate: () =>
+                                                  _translateVoiceMessage(
+                                                    message,
+                                                  ),
+                                              onPlayTranslation:
+                                                  voiceTranslation
+                                                          ?.translatedAudioUrl
+                                                          .isNotEmpty ==
+                                                      true
+                                                  ? () =>
+                                                        _toggleTranslatedVoice(
+                                                          message,
+                                                          voiceTranslation!,
+                                                        )
                                                   : null,
                                             ),
                                           if (message.kind == 'document')
@@ -6360,8 +6534,13 @@ class _VoiceNotePlayer extends StatelessWidget {
     required this.progress,
     required this.sending,
     required this.failed,
+    required this.translating,
+    required this.translation,
+    required this.translationPlaying,
     required this.onPressed,
     required this.onSeek,
+    required this.onTranslate,
+    required this.onPlayTranslation,
   });
 
   final bool mine;
@@ -6370,14 +6549,31 @@ class _VoiceNotePlayer extends StatelessWidget {
   final double progress;
   final bool sending;
   final bool failed;
+  final bool translating;
+  final WapiVoiceTranslation? translation;
+  final bool translationPlaying;
   final VoidCallback onPressed;
   final ValueChanged<double>? onSeek;
+  final VoidCallback onTranslate;
+  final VoidCallback? onPlayTranslation;
 
   String _clock(int seconds) {
     final safe = seconds.clamp(0, 35999);
     final minutes = safe ~/ 60;
     return '$minutes:${(safe % 60).toString().padLeft(2, '0')}';
   }
+
+  String _languageLabel(String code) => switch (code) {
+    'fr' => 'Français',
+    'en' => 'English',
+    'ln' => 'Lingála',
+    'sw' => 'Kiswahili',
+    'pt' => 'Português',
+    'es' => 'Español',
+    'ar' => 'العربية',
+    'zh-CN' => '中文',
+    _ => code.toUpperCase(),
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -6389,7 +6585,7 @@ class _VoiceNotePlayer extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(16),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 224, maxWidth: 252),
+        constraints: const BoxConstraints(minWidth: 230, maxWidth: 258),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: Row(
@@ -6440,8 +6636,8 @@ class _VoiceNotePlayer extends StatelessWidget {
                             letterSpacing: .55,
                           ),
                         ),
+                        const Spacer(),
                         if (playing) ...[
-                          const Spacer(),
                           Container(
                             width: 6,
                             height: 6,
@@ -6450,7 +6646,32 @@ class _VoiceNotePlayer extends StatelessWidget {
                               shape: BoxShape.circle,
                             ),
                           ),
+                          const SizedBox(width: 4),
                         ],
+                        SizedBox.square(
+                          dimension: 28,
+                          child: IconButton(
+                            tooltip: 'Traduire la note vocale',
+                            padding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                            onPressed: translating || sending
+                                ? null
+                                : onTranslate,
+                            icon: translating
+                                ? SizedBox.square(
+                                    dimension: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.8,
+                                      color: foreground,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.translate_rounded,
+                                    size: 18,
+                                    color: foreground,
+                                  ),
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -6501,6 +6722,81 @@ class _VoiceNotePlayer extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (translation != null) ...[
+                      const SizedBox(height: 9),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(10, 8, 8, 9),
+                        decoration: BoxDecoration(
+                          color: mine
+                              ? Colors.white.withValues(alpha: .14)
+                              : WapiColors.blueSoft,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: mine
+                                ? Colors.white.withValues(alpha: .18)
+                                : WapiColors.blue.withValues(alpha: .12),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.language_rounded,
+                                  size: 13,
+                                  color: foreground,
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    'TRADUIT EN ${_languageLabel(translation!.targetLanguage).toUpperCase()}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: foreground,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: .35,
+                                    ),
+                                  ),
+                                ),
+                                if (onPlayTranslation != null)
+                                  SizedBox.square(
+                                    dimension: 28,
+                                    child: IconButton(
+                                      tooltip: 'Écouter la traduction',
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: onPlayTranslation,
+                                      icon: Icon(
+                                        translationPlaying
+                                            ? Icons.pause_circle_filled_rounded
+                                            : Icons.volume_up_rounded,
+                                        size: 20,
+                                        color: foreground,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              translation!.translation,
+                              maxLines: 6,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: foreground,
+                                fontSize: 12,
+                                height: 1.3,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

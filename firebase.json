@@ -24,6 +24,14 @@
     ],
     "headers": [
       {
+        "source": "/WAPI-Android-2.1.67.apk",
+        "headers": [
+          { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
+          { "key": "Content-Disposition", "value": "attachment; filename=WAPI-Android-2.1.67.apk" },
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      },
+      {
         "source": "/WAPI-Android-2.1.66.apk",
         "headers": [
           { "key": "Content-Type", "value": "application/vnd.android.package-archive" },

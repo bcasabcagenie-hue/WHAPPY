@@ -459,6 +459,159 @@ export const lingwapTranslateText = onCall(async (request) => {
   };
 });
 
+type LingwapVoiceNotePayload = {
+  transcript?: unknown;
+  transcription?: unknown;
+  translation?: unknown;
+  translatedText?: unknown;
+  detectedLanguage?: unknown;
+  translatedAudioUrl?: unknown;
+  audioUrl?: unknown;
+};
+
+/**
+ * Transcribes and translates one voice note for a conversation participant.
+ *
+ * Only this trusted function shares the protected media URL with WAPI's
+ * self-hosted Lingwap relay. Results are cached on the immutable message by
+ * target language so another tap does not retransmit the recording.
+ */
+export const translateConversationVoice = onCall({ timeoutSeconds: 60, memory: "512MiB" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const uid = request.auth.uid;
+  const conversationId = String(request.data?.conversationId || "").trim();
+  const messageId = String(request.data?.messageId || "").trim();
+  const targetLanguage = lingwapLanguage(request.data?.targetLanguage || "fr", "La langue cible");
+  if (!/^[A-Za-z0-9_-]{6,180}$/.test(conversationId) || !/^[A-Za-z0-9_-]{6,180}$/.test(messageId)) {
+    throw new HttpsError("invalid-argument", "Cette note vocale est invalide.");
+  }
+  if (targetLanguage === "auto") {
+    throw new HttpsError("invalid-argument", "Choisissez la langue de traduction.");
+  }
+
+  const conversation = db.collection("conversations").doc(conversationId);
+  const conversationSnapshot = await conversation.get();
+  if (!conversationSnapshot.exists) throw new HttpsError("not-found", "Conversation WAPI introuvable.");
+  const conversationData = conversationSnapshot.data() || {};
+  const memberIds = Array.isArray(conversationData.memberIds)
+    ? conversationData.memberIds.map(value => String(value || ""))
+    : [];
+  const legacyMemberIds = Array.isArray(conversationData.members)
+    ? conversationData.members
+      .map(value => value && typeof value === "object" ? String((value as Record<string, unknown>).uid || "") : "")
+      .filter(Boolean)
+    : [];
+  const legacyDirectMember = conversationData.conversationType === "direct"
+    && (String(conversationData.ownerId || "") === uid
+      || String(conversationData.contactId || "") === uid
+      || legacyMemberIds.includes(uid));
+  if (!memberIds.includes(uid) && !legacyDirectMember) {
+    throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+  }
+
+  const message = conversation.collection("messages").doc(messageId);
+  const messageSnapshot = await message.get();
+  if (!messageSnapshot.exists) throw new HttpsError("not-found", "Note vocale WAPI introuvable.");
+  const messageData = messageSnapshot.data() || {};
+  const kind = String(messageData.kind || "").toLowerCase();
+  const contentType = String(messageData.contentType || "").toLowerCase();
+  const mediaUrl = String(messageData.mediaUrl || "").trim();
+  if (kind !== "audio" || (!contentType.startsWith("audio/") && contentType !== "") || !mediaUrl.startsWith("https://")) {
+    throw new HttpsError("invalid-argument", "Ce message n’est pas une note vocale traduisible.");
+  }
+  if (messageData.viewOnce === true) {
+    throw new HttpsError("failed-precondition", "Une note à vue unique ne peut pas être traduite.");
+  }
+
+  const translations = messageData.voiceTranslations && typeof messageData.voiceTranslations === "object"
+    ? messageData.voiceTranslations as Record<string, unknown>
+    : {};
+  const cached = translations[targetLanguage] && typeof translations[targetLanguage] === "object"
+    ? translations[targetLanguage] as Record<string, unknown>
+    : null;
+  const cachedTranslation = String(cached?.translation || "").trim();
+  if (cachedTranslation) {
+    return {
+      transcript: String(cached?.transcript || "").slice(0, 6_000),
+      translation: cachedTranslation.slice(0, 6_000),
+      detectedLanguage: String(cached?.detectedLanguage || "auto").slice(0, 12),
+      targetLanguage,
+      translatedAudioUrl: String(cached?.translatedAudioUrl || "").slice(0, 2_000),
+      cached: true,
+    };
+  }
+
+  const relayUrl = lingwapRelayUrl.value().trim();
+  const relayToken = lingwapRelayToken.value().trim();
+  if (!relayUrl || !relayToken) {
+    throw new HttpsError("failed-precondition", "La traduction des notes vocales WAPI doit encore être activée sur le serveur.");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${relayUrl.replace(/\/$/, "")}/v1/voice-notes/translate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${relayToken}`,
+        "X-WAPI-User": uid,
+        "X-WAPI-Conversation": conversationId,
+      },
+      body: JSON.stringify({
+        audioUrl: mediaUrl,
+        sourceLanguage: "auto",
+        targetLanguage,
+        generateAudio: true,
+        preserveVoice: false,
+        durationSeconds: Math.max(0, Math.min(600, Math.round(Number(messageData.duration || 0)))),
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+  } catch (error) {
+    logger.warn("Relais de traduction vocale WAPI indisponible", {
+      uid, conversationId, messageId, error: String(error),
+    });
+    throw new HttpsError("unavailable", "La traduction de cette note vocale est momentanément indisponible.");
+  }
+  if (!response.ok) {
+    logger.warn("Relais de traduction vocale WAPI refusé", {
+      uid, conversationId, messageId, status: response.status,
+    });
+    throw new HttpsError("unavailable", "Cette note vocale ne peut pas être traduite pour le moment.");
+  }
+
+  const payload = await response.json().catch(() => null) as LingwapVoiceNotePayload | null;
+  const transcript = String(payload?.transcript || payload?.transcription || "").trim();
+  const translation = String(payload?.translation || payload?.translatedText || "").trim();
+  const detectedLanguage = String(payload?.detectedLanguage || "auto").trim().slice(0, 12);
+  const rawTranslatedAudioUrl = String(payload?.translatedAudioUrl || payload?.audioUrl || "").trim();
+  const translatedAudioUrl = rawTranslatedAudioUrl.startsWith("https://") && rawTranslatedAudioUrl.length <= 2_000
+    ? rawTranslatedAudioUrl
+    : "";
+  if (!translation || translation.length > 6_000 || transcript.length > 6_000) {
+    logger.error("Réponse de traduction vocale WAPI invalide", { uid, conversationId, messageId });
+    throw new HttpsError("internal", "La traduction reçue est invalide.");
+  }
+
+  const cachedResult = {
+    transcript,
+    translation,
+    detectedLanguage,
+    targetLanguage,
+    translatedAudioUrl,
+    translatedAt: FieldValue.serverTimestamp(),
+  };
+  await message.update({ [`voiceTranslations.${targetLanguage}`]: cachedResult });
+  return {
+    transcript,
+    translation,
+    detectedLanguage,
+    targetLanguage,
+    translatedAudioUrl,
+    cached: false,
+  };
+});
+
 type WepiHistoryItem = {
   fromUser?: unknown;
   text?: unknown;

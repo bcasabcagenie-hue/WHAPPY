@@ -1,7 +1,9 @@
 package com.whappy.chat
 
 import android.content.Context
+import android.media.AudioFocusRequest
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.SoundPool
 import android.view.View
 import java.util.ArrayDeque
@@ -88,24 +90,25 @@ private class WapiPool3DPlatformView(
                 result.success(null)
             }
             "stroke" -> {
-                // A cue never teleports from its backswing to the ball.  The
-                // short acceleration ramp keeps the release visible while
-                // remaining comfortably below the player's perception of
-                // input lag.
-                render(state.copy(cueStroke = .18f))
-                table.postDelayed({ render(state.copy(cueStroke = .52f)) }, 28L)
-                table.postDelayed({ render(state.copy(cueStroke = .84f)) }, 56L)
-                table.postDelayed({ render(state.copy(cueStroke = 1f)) }, 82L)
-                table.postDelayed({ render(state.copy(cueStroke = 0f)) }, 148L)
+                // Visible backswing, accelerating contact and follow-through.
+                // This keeps an opponent/AI strike readable instead of making
+                // the balls appear to move before a cue ever touched them.
+                render(state.copy(cueStroke = .08f))
+                table.postDelayed({ render(state.copy(cueStroke = .22f)) }, 44L)
+                table.postDelayed({ render(state.copy(cueStroke = .48f)) }, 82L)
+                table.postDelayed({ render(state.copy(cueStroke = .78f)) }, 112L)
+                table.postDelayed({ render(state.copy(cueStroke = 1f)) }, 138L)
+                table.postDelayed({ render(state.copy(cueStroke = .88f)) }, 186L)
+                table.postDelayed({ render(state.copy(cueStroke = 0f)) }, 270L)
                 result.success(null)
             }
             "sound" -> {
                 val data = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-                effects.play(
+                val played = effects.play(
                     kind = data["kind"] as? String ?: "collision",
                     intensity = (data["intensity"] as? Number)?.toFloat() ?: .6f,
                 )
-                result.success(null)
+                result.success(played)
             }
             else -> result.notImplemented()
         }
@@ -161,14 +164,18 @@ private class WapiPool3DPlatformView(
 
 /** Low-latency Android mixer for cue, ball, cushion and pocket effects. */
 private class WapiPoolSoundEffects(context: Context) {
+    private val attributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_GAME)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        .setAudioAttributes(attributes)
+        .setOnAudioFocusChangeListener { }
+        .build()
     private val pool = SoundPool.Builder()
         .setMaxStreams(7)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_GAME)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build(),
-        )
+        .setAudioAttributes(attributes)
         .build()
     private val ready = mutableSetOf<Int>()
     private val pending = ArrayDeque<Pair<String, Float>>()
@@ -194,7 +201,8 @@ private class WapiPoolSoundEffects(context: Context) {
         pocket = pool.load(context, R.raw.wapi_pool_pocket, 1)
     }
 
-    fun play(kind: String, intensity: Float) {
+    fun play(kind: String, intensity: Float): Boolean {
+        audioManager.requestAudioFocus(focusRequest)
         val sample = when (kind) {
             "cue" -> cue
             "rail" -> cushion
@@ -205,7 +213,7 @@ private class WapiPoolSoundEffects(context: Context) {
             // Preserve the first strike even when a player enters the table
             // and breaks immediately after the OpenGL view is created.
             if (pending.size < 12) pending.addLast(kind to intensity)
-            return
+            return true
         }
         val force = intensity.coerceIn(.12f, 1f)
         val volume = when (kind) {
@@ -218,8 +226,11 @@ private class WapiPoolSoundEffects(context: Context) {
             "rail" -> .92f + force * .08f
             else -> 1f
         }
-        pool.play(sample, volume, volume, 1, 0, rate)
+        return pool.play(sample, volume, volume, 1, 0, rate) != 0
     }
 
-    fun release() = pool.release()
+    fun release() {
+        audioManager.abandonAudioFocusRequest(focusRequest)
+        pool.release()
+    }
 }

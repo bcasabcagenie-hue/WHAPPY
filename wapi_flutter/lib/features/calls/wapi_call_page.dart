@@ -62,7 +62,8 @@ class WapiCallPage extends StatefulWidget {
   State<WapiCallPage> createState() => _WapiCallPageState();
 }
 
-class _WapiCallPageState extends State<WapiCallPage> {
+class _WapiCallPageState extends State<WapiCallPage>
+    with SingleTickerProviderStateMixin {
   final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
   late final Room _room;
   EventsListener<RoomEvent>? _listener;
@@ -74,7 +75,9 @@ class _WapiCallPageState extends State<WapiCallPage> {
   bool _closing = false;
   bool _muted = false;
   bool _speaker = true;
+  bool _cameraEnabled = true;
   CameraPosition _cameraPosition = CameraPosition.front;
+  late final AnimationController _pulseController;
   Timer? _callTimer;
   int _callSeconds = 0;
   DateTime? _connectedAt;
@@ -111,6 +114,10 @@ class _WapiCallPageState extends State<WapiCallPage> {
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
     _room = Room(
       roomOptions: const RoomOptions(
         adaptiveStream: true,
@@ -253,6 +260,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     await _room.localParticipant?.setMicrophoneEnabled(true);
     if (widget.video) {
       await _room.localParticipant?.setCameraEnabled(true);
+      _cameraEnabled = true;
     }
     _callTimer?.cancel();
     _callSeconds = 0;
@@ -373,11 +381,19 @@ class _WapiCallPageState extends State<WapiCallPage> {
   }
 
   Future<void> _switchCamera() async {
+    if (!_cameraEnabled) return;
     final next = _cameraPosition == CameraPosition.front
         ? CameraPosition.back
         : CameraPosition.front;
     await _localVideo?.setCameraPosition(next);
     if (mounted) setState(() => _cameraPosition = next);
+  }
+
+  Future<void> _toggleCamera() async {
+    if (!widget.video) return;
+    final next = !_cameraEnabled;
+    await _room.localParticipant?.setCameraEnabled(next);
+    if (mounted) setState(() => _cameraEnabled = next);
   }
 
   Future<void> _toggleTranslation() async {
@@ -529,6 +545,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
   @override
   void dispose() {
     _callTimer?.cancel();
+    _pulseController.dispose();
     unawaited(_session?.cancel());
     unawaited(_peerProfile?.cancel());
     unawaited(_listener?.dispose());
@@ -569,13 +586,58 @@ class _WapiCallPageState extends State<WapiCallPage> {
               Positioned(
                 top: 18,
                 right: 16,
-                width: 108,
-                height: 152,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: VideoTrackRenderer(
-                    _localVideo!,
-                    fit: VideoViewFit.cover,
+                width: 112,
+                height: 158,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0A1720),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white54, width: 1.2),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x99000000),
+                        blurRadius: 20,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(19),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        VideoTrackRenderer(
+                          _localVideo!,
+                          fit: VideoViewFit.cover,
+                        ),
+                        const Positioned(
+                          left: 8,
+                          bottom: 7,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Color(0x99000000),
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(99),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              child: Text(
+                                'VOUS',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -595,9 +657,9 @@ class _WapiCallPageState extends State<WapiCallPage> {
               ),
             ),
             Positioned(
-              top: 34,
+              top: 24,
               left: 72,
-              right: 72,
+              right: widget.video ? 144 : 72,
               child: Column(
                 children: [
                   Container(
@@ -610,7 +672,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
                       borderRadius: BorderRadius.circular(99),
                     ),
                     child: Text(
-                      widget.video ? 'APPEL VIDÉO WAPI' : 'APPEL AUDIO WAPI',
+                      widget.video ? 'APPEL VIDÉO' : 'APPEL AUDIO',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 10,
@@ -667,31 +729,22 @@ class _WapiCallPageState extends State<WapiCallPage> {
                     const SizedBox(height: 7),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                        horizontal: 11,
+                        vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: .22),
+                        color: const Color(0xB20B202A),
                         borderRadius: BorderRadius.circular(99),
+                        border: Border.all(color: Colors.white12),
                       ),
                       child: Text(
-                        _callStartedLabel,
+                        '$_durationLabel  ·  $_callStartedLabel',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: .8),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          color: Colors.white.withValues(alpha: .9),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
-                      ),
-                    ),
-                  ],
-                  if (_callSeconds > 0) ...[
-                    const SizedBox(height: 7),
-                    Text(
-                      _durationLabel,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: .9),
-                        fontWeight: FontWeight.w800,
-                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -705,7 +758,27 @@ class _WapiCallPageState extends State<WapiCallPage> {
                 bottom: 148,
                 child: _CallError(text: _error!),
               ),
-            Positioned(left: 20, right: 20, bottom: 34, child: _controls()),
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 18,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 13, 12, 11),
+                decoration: BoxDecoration(
+                  color: const Color(0xDC0A1B25),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.white12),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x99000000),
+                      blurRadius: 28,
+                      offset: Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: _controls(),
+              ),
+            ),
           ],
         ),
       ),
@@ -719,53 +792,140 @@ class _WapiCallPageState extends State<WapiCallPage> {
     }
     return DecoratedBox(
       decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          radius: 1.1,
-          colors: [Color(0xFF123D55), Color(0xFF07141F)],
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0B3445), Color(0xFF061922), Color(0xFF071117)],
         ),
       ),
       child: Center(
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            CircleAvatar(
-              radius: 62,
-              backgroundColor: const Color(0xFF58C8FF),
-              child: CircleAvatar(
-                radius: 58,
-                backgroundColor: WapiColors.blue,
-                backgroundImage: _peerPhotoUrl.isEmpty
-                    ? null
-                    : NetworkImage(_peerPhotoUrl),
-                child: _peerPhotoUrl.isEmpty
-                    ? Text(
-                        _peerName.substring(0, 1).toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      )
-                    : null,
-              ),
-            ),
-            if (_peerVerified)
-              const Positioned(
-                right: 1,
-                bottom: 2,
-                child: DecoratedBox(
+        child: AnimatedBuilder(
+          animation: _pulseController,
+          builder: (context, child) {
+            final pulse = Curves.easeOut.transform(_pulseController.value);
+            return Stack(
+              alignment: Alignment.center,
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 196 + pulse * 34,
+                  height: 196 + pulse * 34,
                   decoration: BoxDecoration(
-                    color: Colors.white,
                     shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.verified_rounded,
-                    color: WapiColors.blue,
-                    size: 25,
+                    border: Border.all(
+                      color: const Color(
+                        0xFF56D9B1,
+                      ).withValues(alpha: (_muted ? .08 : .28) * (1 - pulse)),
+                      width: 2,
+                    ),
                   ),
                 ),
-              ),
-          ],
+                Container(
+                  width: 174,
+                  height: 174,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF5EE7B7), Color(0xFF28A8E8)],
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x5535D5B0),
+                        blurRadius: 34,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(4),
+                  child: ClipOval(
+                    child: ColoredBox(
+                      color: WapiColors.blueDark,
+                      child: _peerPhotoUrl.isEmpty
+                          ? Center(
+                              child: Text(
+                                _peerName.substring(0, 1).toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 52,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            )
+                          : Image.network(
+                              _peerPhotoUrl,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                              errorBuilder: (_, _, _) => Center(
+                                child: Text(
+                                  _peerName.substring(0, 1).toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 52,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              loadingBuilder: (context, child, progress) =>
+                                  progress == null
+                                  ? child
+                                  : const Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                            ),
+                    ),
+                  ),
+                ),
+                if (_peerVerified)
+                  const Positioned(
+                    right: 10,
+                    bottom: 10,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(2),
+                        child: Icon(
+                          Icons.verified_rounded,
+                          color: WapiColors.blue,
+                          size: 28,
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  top: 205,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _muted
+                            ? Icons.mic_off_rounded
+                            : Icons.graphic_eq_rounded,
+                        color: _muted
+                            ? const Color(0xFFFF8B8B)
+                            : const Color(0xFF65E4BC),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        _muted ? 'Micro coupé' : 'Audio WAPI actif',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -809,8 +969,17 @@ class _WapiCallPageState extends State<WapiCallPage> {
         ),
         if (widget.video)
           _CallAction(
+            icon: _cameraEnabled
+                ? Icons.videocam_rounded
+                : Icons.videocam_off_rounded,
+            label: _cameraEnabled ? 'Vidéo' : 'Vidéo coupée',
+            emphasized: _cameraEnabled,
+            onTap: _toggleCamera,
+          ),
+        if (widget.video && _cameraEnabled)
+          _CallAction(
             icon: Icons.cameraswitch_rounded,
-            label: 'Caméra',
+            label: 'Retourner',
             onTap: _switchCamera,
           ),
         _CallAction(
@@ -898,12 +1067,18 @@ class _CallAction extends StatelessWidget {
       IconButton.filled(
         onPressed: onTap,
         style: IconButton.styleFrom(
+          minimumSize: const Size.square(52),
           backgroundColor: destructive
               ? const Color(0xFFE74646)
               : emphasized
               ? const Color(0xFF0FBF8A)
-              : Colors.white24,
+              : const Color(0xFF243944),
           foregroundColor: Colors.white,
+          side: BorderSide(
+            color: destructive || emphasized
+                ? Colors.transparent
+                : Colors.white12,
+          ),
         ),
         icon: Icon(icon),
       ),

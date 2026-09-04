@@ -1171,33 +1171,35 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 floatArrayOf(.46f, .03f, .06f, 1f),
                 floatArrayOf(.008f, .012f, .018f, 1f),
             )
-            // Mechanical ball return: three nested, rounded steel lanes
-            // behind the head rail.  It is a collector, not a decorative
-            // fence: no repeated crossbars, dark recessed well and only the
-            // two bent side returns visible from the player camera.
+            // Compact mechanical return inspired by a real tournament table:
+            // three nested polished lanes, sparse braces and one unmistakable
+            // rounded bend on the right. It must read as a ball collector, not
+            // as a long fence floating over the cloth.
             val returnWell = floatArrayOf(.006f, .012f, .022f, 1f)
             val returnRail = floatArrayOf(.30f, .35f, .42f, 1f)
             val returnHighlight = floatArrayOf(.73f, .80f, .88f, 1f)
             val returnJoint = floatArrayOf(.44f, .50f, .58f, 1f)
             val returnBaseZ = -3.14f
-            draw(cube, 0f, .31f, returnBaseZ - .18f, 3.96f, .15f, .32f, returnWell, .05f, material = 8f)
+            val returnStartX = -2.72f
+            val returnEndX = 2.56f
+            val returnCenterX = (returnStartX + returnEndX) * .5f
+            val returnHalfWidth = (returnEndX - returnStartX) * .5f
+            draw(cube, returnCenterX + .18f, .31f, returnBaseZ - .22f, returnHalfWidth + .52f, .12f, .48f, returnWell, .05f, material = 8f)
             repeat(3) { index ->
-                val halfWidth = 3.72f - index * .18f
                 val y = .44f + index * .14f
                 val z = returnBaseZ - index * .16f
                 val tube = .031f
-                // Main polished lane plus a restrained top highlight.
-                draw(cylinder, 0f, y, z, tube, halfWidth, tube, returnRail, .86f, rotationZ = 90f, material = 3f)
-                draw(cylinder, 0f, y + .010f, z - .012f, .010f, halfWidth - .09f, .010f, returnHighlight, .95f, rotationZ = 90f, material = 3f)
-                listOf(-1f, 1f).forEach { side ->
-                    val endX = side * halfWidth
-                    draw(sphere, endX, y, z, .042f, .042f, .042f, returnJoint, .82f, material = 3f)
-                    // The short side bends make each rail read as a real U
-                    // collector while retaining a clean silhouette.
-                    if (index < 2) {
-                        draw(cylinder, endX, y + .07f, z - .08f, tube, .09f, tube, returnRail, .86f, rotationX = 90f, material = 3f)
-                    }
-                }
+                draw(cylinder, returnCenterX, y, z, tube, returnHalfWidth, tube, returnRail, .86f, rotationZ = 90f, material = 3f)
+                draw(cylinder, returnCenterX, y + .010f, z - .012f, .010f, returnHalfWidth - .08f, .010f, returnHighlight, .95f, rotationZ = 90f, material = 3f)
+                draw(sphere, returnStartX, y, z, .041f, .041f, .041f, returnJoint, .82f, material = 3f)
+                draw(sphere, returnEndX, y, z, .046f, .046f, .046f, returnJoint, .88f, material = 3f)
+                val bendLength = .34f + index * .13f
+                draw(cylinder, returnEndX, y, z + bendLength * .5f, tube, bendLength * .5f, tube, returnRail, .86f, rotationX = 90f, material = 3f)
+                draw(sphere, returnEndX, y, z + bendLength, .041f, .041f, .041f, returnJoint, .84f, material = 3f)
+            }
+            repeat(9) { brace ->
+                val x = returnStartX + .30f + brace * ((returnEndX - returnStartX - .60f) / 8f)
+                draw(cylinder, x, .58f, returnBaseZ - .16f, .014f, .18f, .014f, returnJoint, .72f, material = 3f)
             }
             val returnedBalls = poolBalls.filter { it.size >= 6 && it[2].toInt() > 0 && it[5] >= .5f }
                 .map { it[2].toInt() }.sorted().take(15)
@@ -1206,7 +1208,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val slot = index % 5
                 // Balls sit in the actual return wells, between the front and
                 // rear rails, instead of floating on the decorative top bar.
-                val x = -2.70f + slot * 1.35f
+                val x = -2.32f + slot * 1.14f
                 val z = returnBaseZ - lane * .14f
                 val color = colors[(id - 1).mod(colors.size)]
                 drawSoftShadow(x, z, .105f, .065f)

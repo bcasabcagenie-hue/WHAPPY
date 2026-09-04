@@ -52,6 +52,38 @@ void main() {
       expect(message.mediaUrl, contains('voice.opus'));
     });
 
+    test('restaure une traduction vocale mise en cache par langue', () {
+      final message = WapiMessage.fromMap(
+        id: 'voice-translated',
+        data: const {
+          'text': 'Message vocal',
+          'senderId': 'member-c',
+          'kind': 'audio',
+          'mediaUrl': 'https://media.wapi.test/voice.opus',
+          'voiceTranslations': {
+            'ln': {
+              'transcript': 'Bonjour à tous',
+              'translation': 'Mbote na bino nyonso',
+              'detectedLanguage': 'fr',
+              'targetLanguage': 'ln',
+              'translatedAudioUrl':
+                  'https://media.wapi.test/voice-translated.opus',
+            },
+          },
+        },
+      );
+
+      expect(
+        message.voiceTranslations['ln']?.translation,
+        'Mbote na bino nyonso',
+      );
+      expect(message.voiceTranslations['ln']?.detectedLanguage, 'fr');
+      expect(
+        message.voiceTranslations['ln']?.translatedAudioUrl,
+        endsWith('voice-translated.opus'),
+      );
+    });
+
     test('conserve les métadonnées d’un document WAPI', () {
       final message = WapiMessage.fromMap(
         id: 'document-current',
