@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'wapi_tabletop_3d.dart';
+
 class WapiDraughtsPage extends StatefulWidget {
   const WapiDraughtsPage({super.key});
 
@@ -75,18 +77,50 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
     final row = from ~/ 10;
     final col = from % 10;
     final moves = <_DraughtMove>[];
-    final rowSteps = piece.queen ? [-1, 1] : [piece.white ? -1 : 1];
-    for (final rowStep in rowSteps) {
+    if (piece.queen) {
+      // International draughts queens fly across any number of empty squares
+      // and may land on every free square behind one captured opponent.
+      for (final rowStep in [-1, 1]) {
+        for (final colStep in [-1, 1]) {
+          var nextRow = row + rowStep;
+          var nextCol = col + colStep;
+          int? captured;
+          while (_inside(nextRow, nextCol)) {
+            final next = nextRow * 10 + nextCol;
+            final other = _board[next];
+            if (other == null) {
+              moves.add(_DraughtMove(from, next, captured: captured));
+            } else if (other.white == piece.white || captured != null) {
+              break;
+            } else {
+              captured = next;
+            }
+            nextRow += rowStep;
+            nextCol += colStep;
+          }
+        }
+      }
+      return moves;
+    }
+    // A man advances forwards, but can capture forwards or backwards under
+    // international 10x10 rules.
+    for (final rowStep in [piece.white ? -1 : 1]) {
+      for (final colStep in [-1, 1]) {
+        final nextRow = row + rowStep;
+        final nextCol = col + colStep;
+        if (!_inside(nextRow, nextCol)) continue;
+        final next = nextRow * 10 + nextCol;
+        if (_board[next] == null) moves.add(_DraughtMove(from, next));
+      }
+    }
+    for (final rowStep in [-1, 1]) {
       for (final colStep in [-1, 1]) {
         final nextRow = row + rowStep;
         final nextCol = col + colStep;
         if (!_inside(nextRow, nextCol)) continue;
         final next = nextRow * 10 + nextCol;
         final other = _board[next];
-        if (other == null) {
-          moves.add(_DraughtMove(from, next));
-          continue;
-        }
+        if (other == null) continue;
         final landingRow = nextRow + rowStep;
         final landingCol = nextCol + colStep;
         if (other.white != piece.white &&
@@ -192,10 +226,17 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
       final bestCaptures = moves
           .where((move) => move.captured != null)
           .toList();
-      final chosen =
-          (bestCaptures.isNotEmpty ? bestCaptures : moves)[_random.nextInt(
-            bestCaptures.isNotEmpty ? bestCaptures.length : moves.length,
-          )];
+      final candidates = bestCaptures.isNotEmpty ? bestCaptures : moves;
+      final scored =
+          candidates
+              .map((move) => (move: move, score: _scoreAiMove(move)))
+              .toList()
+            ..sort((a, b) => b.score.compareTo(a.score));
+      final top = scored.first.score;
+      final choices = scored
+          .takeWhile((entry) => entry.score >= top - 2)
+          .toList(growable: false);
+      final chosen = choices[_random.nextInt(choices.length)].move;
       setState(() {
         final piece = _board[chosen.from]!;
         _board[chosen.from] = null;
@@ -222,6 +263,20 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
         _updateState();
       });
     });
+  }
+
+  int _scoreAiMove(_DraughtMove move) {
+    final piece = _board[move.from]!;
+    final row = move.to ~/ 10;
+    final col = move.to % 10;
+    var score = move.captured == null ? 0 : 120;
+    if (!piece.queen && row == 9) score += 90;
+    if (piece.queen) score += 18;
+    score += 10 - ((row - 4.5).abs() + (col - 4.5).abs()).round();
+    // Keep a back-rank guard until the position offers a concrete gain.
+    if (!piece.queen && move.from ~/ 10 == 0 && move.captured == null)
+      score -= 9;
+    return score;
   }
 
   void _playAiContinuation(_DraughtMove move) {
@@ -315,11 +370,26 @@ class _WapiDraughtsPageState extends State<WapiDraughtsPage> {
             const SizedBox(height: 18),
             AspectRatio(
               aspectRatio: 1,
-              child: _DraughtsBoard(
-                board: _board,
-                selected: _selected,
-                moves: _moves,
-                onTap: _tap,
+              child: WapiTabletop3D.strategy(
+                scene: 'draughts',
+                board: _board
+                    .map(
+                      (piece) => piece == null
+                          ? ''
+                          : piece.white
+                          ? (piece.queen ? 'W' : 'w')
+                          : (piece.queen ? 'B' : 'b'),
+                    )
+                    .toList(),
+                selected: _selected ?? -1,
+                legalTargets: _moves.map((move) => move.to).toSet(),
+                onSquare: _tap,
+                fallback: _DraughtsBoard(
+                  board: _board,
+                  selected: _selected,
+                  moves: _moves,
+                  onTap: _tap,
+                ),
               ),
             ),
             const SizedBox(height: 16),

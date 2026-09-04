@@ -197,7 +197,7 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
         allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.keys().hasOnly(["text", "senderId", "clientMessageId", "encryptionNonce", "encryptionVersion", "kind", "mediaUrl", "mediaName", "duration", "mediaSizeBytes", "mediaSha256", "effect", "caption", "replyToId", "replyText", "replyTo", "forwarded", "createdAt", "expiresAt", "viewOnce", "viewedBy"])
+          && request.resource.data.keys().hasOnly(["text", "senderId", "clientMessageId", "encryptionNonce", "encryptionVersion", "kind", "mediaUrl", "mediaName", "contentType", "duration", "mediaSizeBytes", "mediaSha256", "effect", "caption", "replyToId", "replyText", "replyTo", "forwarded", "createdAt", "expiresAt", "viewOnce", "viewedBy"])
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 4000
@@ -216,6 +216,9 @@ service cloud.firestore {
               && request.resource.data.mediaUrl.matches('https://firebasestorage.googleapis.com/.*')
               && request.resource.data.mediaName is string
               && request.resource.data.mediaName.size() <= 120
+              && (!request.resource.data.keys().hasAny(["contentType"])
+                || (request.resource.data.contentType is string
+                  && request.resource.data.contentType.size() <= 120))
               && request.resource.data.duration is number
               && request.resource.data.duration >= 0
               && request.resource.data.duration <= 600

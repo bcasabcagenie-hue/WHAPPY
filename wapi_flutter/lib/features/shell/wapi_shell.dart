@@ -39,11 +39,17 @@ class WapiShell extends StatefulWidget {
 class _WapiShellState extends State<WapiShell> with WidgetsBindingObserver {
   final _repository = WapiRepository(FirebaseFirestore.instance);
   int _index = 0;
+  Timer? _presenceHeartbeat;
+  bool _isForeground = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _setPresence(true);
+    _presenceHeartbeat = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (_isForeground) unawaited(_setPresence(true));
+    });
     _syncNotifications();
     final conversationId = widget.initialConversationId;
     if (conversationId != null && conversationId.isNotEmpty) {
@@ -55,8 +61,9 @@ class _WapiShellState extends State<WapiShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _setPresence(state == AppLifecycleState.resumed);
-    if (state == AppLifecycleState.resumed) {
+    _isForeground = state == AppLifecycleState.resumed;
+    _setPresence(_isForeground);
+    if (_isForeground) {
       _syncNotifications();
     }
   }
@@ -107,6 +114,7 @@ class _WapiShellState extends State<WapiShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _presenceHeartbeat?.cancel();
     _setPresence(false);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -3274,6 +3282,7 @@ class _ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<_ChatPage> {
+  static const _documentChannel = MethodChannel('wapi/documents');
   final _composer = TextEditingController();
   final _picker = ImagePicker();
   final _recorder = AudioRecorder();
@@ -3281,6 +3290,10 @@ class _ChatPageState extends State<_ChatPage> {
   final _messageScrollController = ScrollController();
   final _composerFocusNode = FocusNode();
   StreamSubscription<List<WapiMessage>>? _messagesSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _conversationReceiptSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _peerPresenceSubscription;
   StreamSubscription<PlayerState>? _audioStateSubscription;
   StreamSubscription<Duration>? _audioPositionSubscription;
   StreamSubscription<Duration?>? _audioDurationSubscription;
@@ -3302,7 +3315,11 @@ class _ChatPageState extends State<_ChatPage> {
   final List<WapiMessage> _pendingVoiceMessages = [];
   final Set<String> _failedVoiceMessageIds = {};
   final Set<String> _sendingVoiceMessageIds = {};
+  final Set<String> _openingDocumentIds = {};
+  String _sendingAttachmentName = '';
   String _chatWallpaperId = 'coffeeBlue';
+  DateTime? _peerReadAt;
+  bool _peerOnline = false;
 
   static const _composerEmojis = <String>[
     '😀',
@@ -3362,13 +3379,17 @@ class _ChatPageState extends State<_ChatPage> {
     super.initState();
     unawaited(_loadChatWallpaper());
     unawaited(_restoreVoiceOutbox());
-    _voiceOutboxRetryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    _voiceOutboxRetryTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (mounted) unawaited(_retryVoiceOutbox());
     });
+    _watchMessageReceipts();
     _markConversationRead();
     _messagesSubscription = widget.repository
         .messages(widget.conversation.id)
-        .listen(_markVisibleMessagesRead);
+        .listen((messages) {
+          _markVisibleMessagesRead(messages);
+          unawaited(_reconcileDeliveredVoiceMessages(messages));
+        });
     _audioStateSubscription = _player.playerStateStream.listen((state) {
       if (!mounted || _playingAudioMessageId == null) return;
       if (state.processingState == ProcessingState.completed ||
@@ -3385,6 +3406,45 @@ class _ChatPageState extends State<_ChatPage> {
       if (mounted && duration != null)
         setState(() => _audioDuration = duration);
     });
+  }
+
+  void _watchMessageReceipts() {
+    final peerId = widget.conversation.peerId;
+    if (widget.conversation.isGroup || peerId.isEmpty) return;
+    _conversationReceiptSubscription = FirebaseFirestore.instance
+        .collection('conversations')
+        .doc(widget.conversation.id)
+        .snapshots()
+        .listen((snapshot) {
+          final readBy = Map<String, dynamic>.from(
+            snapshot.data()?['readBy'] as Map? ?? const {},
+          );
+          final value = readBy[peerId];
+          final next = value is Timestamp
+              ? value.toDate()
+              : value is DateTime
+              ? value
+              : null;
+          if (!mounted || next == _peerReadAt) return;
+          setState(() => _peerReadAt = next);
+        });
+    _peerPresenceSubscription = widget.repository.profile(peerId).listen((doc) {
+      final next = doc.data()?['isOnline'] == true;
+      if (!mounted || next == _peerOnline) return;
+      setState(() => _peerOnline = next);
+    });
+  }
+
+  _MessageReceiptState _receiptFor(WapiMessage message) {
+    final createdAt = message.createdAt;
+    final readAt = _peerReadAt;
+    if (createdAt != null && readAt != null && !readAt.isBefore(createdAt)) {
+      return _MessageReceiptState.read;
+    }
+    if (_peerOnline && !message.id.startsWith('local-voice-')) {
+      return _MessageReceiptState.delivered;
+    }
+    return _MessageReceiptState.sent;
   }
 
   Future<void> _loadChatWallpaper() async {
@@ -3551,6 +3611,46 @@ class _ChatPageState extends State<_ChatPage> {
     unawaited(_markConversationRead());
   }
 
+  Future<void> _reconcileDeliveredVoiceMessages(
+    List<WapiMessage> messages,
+  ) async {
+    if (_pendingVoiceMessages.isEmpty) return;
+    final committedIds = messages
+        .where(
+          (message) =>
+              message.kind == 'audio' &&
+              message.senderId == widget.user.uid &&
+              (message.mediaUrl.startsWith('https://') ||
+                  message.mediaUrl.startsWith('http://')),
+        )
+        .map((message) => message.id)
+        .toSet();
+    if (committedIds.isEmpty) return;
+    final delivered = _pendingVoiceMessages
+        .where((message) => committedIds.contains(message.id))
+        .toList(growable: false);
+    if (delivered.isEmpty || !mounted) return;
+    final stillSending = delivered
+        .where((message) => _sendingVoiceMessageIds.contains(message.id))
+        .map((message) => message.id)
+        .toSet();
+    setState(() {
+      _pendingVoiceMessages.removeWhere(
+        (message) => committedIds.contains(message.id),
+      );
+      _failedVoiceMessageIds.removeAll(committedIds);
+    });
+    await _saveVoiceOutbox();
+    for (final message in delivered) {
+      if (stillSending.contains(message.id)) continue;
+      try {
+        await File(message.mediaUrl).delete();
+      } catch (_) {
+        // La copie serveur est déjà publiée ; ce nettoyage est opportuniste.
+      }
+    }
+  }
+
   void _keepLatestMessageVisible(List<WapiMessage> messages) {
     final latestId = messages.isEmpty ? null : messages.last.id;
     if (latestId == null || latestId == _lastRenderedMessageId) return;
@@ -3602,6 +3702,8 @@ class _ChatPageState extends State<_ChatPage> {
   @override
   void dispose() {
     _messagesSubscription?.cancel();
+    _conversationReceiptSubscription?.cancel();
+    _peerPresenceSubscription?.cancel();
     _audioStateSubscription?.cancel();
     _audioPositionSubscription?.cancel();
     _audioDurationSubscription?.cancel();
@@ -3663,6 +3765,53 @@ class _ChatPageState extends State<_ChatPage> {
     }
   }
 
+  Future<void> _pickDocument() async {
+    final selected = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: _wapiDocumentExtensions,
+    );
+    final path = selected?.path;
+    if (selected == null || path == null || path.isEmpty) return;
+
+    final file = File(path);
+    final sizeBytes = await file.length();
+    if (sizeBytes <= 0 || sizeBytes > _wapiMaximumDocumentBytes) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Le document doit peser entre 1 octet et 50 Mo.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _sending = true;
+      _sendingAttachmentName = selected.name;
+    });
+    try {
+      await widget.repository.sendMediaMessage(
+        conversationId: widget.conversation.id,
+        user: widget.user,
+        file: file,
+        kind: 'document',
+        contentType: _wapiDocumentContentType(selected.name),
+        fileName: selected.name,
+        caption: _composer.text,
+      );
+      _composer.clear();
+    } catch (error) {
+      _showSendIssue(label: 'Le document', error: error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _sendingAttachmentName = '';
+        });
+      }
+    }
+  }
+
   Future<void> _toggleRecording() async {
     if (_recording) {
       await _finishRecording();
@@ -3692,8 +3841,8 @@ class _ChatPageState extends State<_ChatPage> {
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 48000,
+          bitRate: 48000,
+          sampleRate: 32000,
           numChannels: 1,
           autoGain: true,
           echoCancel: true,
@@ -3770,6 +3919,7 @@ class _ChatPageState extends State<_ChatPage> {
       kind: 'audio',
       mediaUrl: file.path,
       mediaName: 'note-vocale-${DateTime.now().millisecondsSinceEpoch}.m4a',
+      contentType: 'audio/mp4',
       mediaSizeBytes: await file.length(),
       mediaSha256: '',
       durationSeconds: seconds,
@@ -3832,6 +3982,7 @@ class _ChatPageState extends State<_ChatPage> {
             kind: 'audio',
             mediaUrl: path,
             mediaName: value['name']?.toString() ?? 'note-vocale.m4a',
+            contentType: 'audio/mp4',
             mediaSizeBytes: await File(path).length(),
             mediaSha256: '',
             durationSeconds: (value['duration'] as num?)?.toInt() ?? 1,
@@ -3901,22 +4052,43 @@ class _ChatPageState extends State<_ChatPage> {
         durationSeconds: localMessage.durationSeconds,
         clientMessageId: localMessage.id,
       );
-      if (mounted) {
-        setState(() {
-          _pendingVoiceMessages.removeWhere(
-            (message) => message.id == localMessage.id,
-          );
-          _sendingVoiceMessageIds.remove(localMessage.id);
-          _failedVoiceMessageIds.remove(localMessage.id);
-        });
-        await _saveVoiceOutbox();
+      void clearDeliveredVoice() {
+        _pendingVoiceMessages.removeWhere(
+          (message) => message.id == localMessage.id,
+        );
+        _sendingVoiceMessageIds.remove(localMessage.id);
+        _failedVoiceMessageIds.remove(localMessage.id);
       }
+
+      if (mounted) {
+        setState(clearDeliveredVoice);
+      } else {
+        clearDeliveredVoice();
+      }
+      await _saveVoiceOutbox();
       try {
         await file.delete();
       } catch (_) {
         // Le nettoyage du brouillon ne doit jamais masquer un envoi réussi.
       }
     } catch (error) {
+      final wasReconciled = !_pendingVoiceMessages.any(
+        (message) => message.id == localMessage.id,
+      );
+      if (wasReconciled) {
+        if (mounted) {
+          setState(() {
+            _sendingVoiceMessageIds.remove(localMessage.id);
+            _failedVoiceMessageIds.remove(localMessage.id);
+          });
+        }
+        try {
+          await file.delete();
+        } catch (_) {
+          // Le message est déjà publié ; le brouillon sera purgé plus tard.
+        }
+        return;
+      }
       if (mounted) {
         setState(() {
           _sendingVoiceMessageIds.remove(localMessage.id);
@@ -4029,6 +4201,117 @@ class _ChatPageState extends State<_ChatPage> {
       );
     } catch (_) {
       // L’affichage ne doit pas échouer si l’accusé de lecture est temporairement indisponible.
+    }
+  }
+
+  Future<void> _openDocument(WapiMessage message) async {
+    if (_openingDocumentIds.contains(message.id)) return;
+    final uri = Uri.tryParse(message.mediaUrl);
+    if (uri == null || uri.scheme != 'https') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ce document WAPI est indisponible.')),
+      );
+      return;
+    }
+
+    setState(() => _openingDocumentIds.add(message.id));
+    HttpClient? client;
+    File? partialFile;
+    try {
+      final cacheDirectory = await getTemporaryDirectory();
+      final documentsDirectory = Directory(
+        '${cacheDirectory.path}/wapi-documents',
+      );
+      await documentsDirectory.create(recursive: true);
+      final localName = _wapiSafeDocumentName(
+        message.mediaName.isEmpty ? 'document' : message.mediaName,
+      );
+      final file = File('${documentsDirectory.path}/${message.id}-$localName');
+      partialFile = file;
+      final cachedSize = await file.exists() ? await file.length() : 0;
+      final expectedSize = message.mediaSizeBytes;
+      final cacheIsValid =
+          cachedSize > 0 &&
+          cachedSize <= _wapiMaximumDocumentBytes &&
+          (expectedSize <= 0 || cachedSize == expectedSize);
+
+      if (!cacheIsValid) {
+        if (await file.exists()) await file.delete();
+        client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+        final request = await client
+            .getUrl(uri)
+            .timeout(const Duration(seconds: 20));
+        final response = await request.close().timeout(
+          const Duration(seconds: 30),
+        );
+        if (response.statusCode != HttpStatus.ok) {
+          throw HttpException(
+            'Téléchargement refusé (${response.statusCode}).',
+            uri: uri,
+          );
+        }
+        final announcedSize = response.contentLength;
+        if (announcedSize > _wapiMaximumDocumentBytes) {
+          throw const FileSystemException('Document trop volumineux.');
+        }
+        final sink = file.openWrite();
+        var downloadedBytes = 0;
+        try {
+          await for (final chunk in response.timeout(
+            const Duration(seconds: 30),
+          )) {
+            downloadedBytes += chunk.length;
+            if (downloadedBytes > _wapiMaximumDocumentBytes) {
+              throw const FileSystemException('Document trop volumineux.');
+            }
+            sink.add(chunk);
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+        if (downloadedBytes <= 0 ||
+            (expectedSize > 0 && downloadedBytes != expectedSize)) {
+          throw const FileSystemException('Document incomplet.');
+        }
+      }
+
+      final opened = await _documentChannel.invokeMethod<bool>('openFile', {
+        'path': file.path,
+        'mimeType': message.contentType.isNotEmpty
+            ? message.contentType
+            : _wapiDocumentContentType(message.mediaName),
+      });
+      if (opened != true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Installez une application compatible pour ouvrir ce document.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      try {
+        if (partialFile != null && await partialFile.exists()) {
+          await partialFile.delete();
+        }
+      } catch (_) {
+        // Le nettoyage du cache ne doit pas masquer le message principal.
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossible d’ouvrir ce document. Vérifiez la connexion puis réessayez.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      client?.close(force: true);
+      if (mounted) setState(() => _openingDocumentIds.remove(message.id));
     }
   }
 
@@ -4421,20 +4704,24 @@ class _ChatPageState extends State<_ChatPage> {
                     if (!snapshot.hasData && _pendingVoiceMessages.isEmpty) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final messages =
-                        <WapiMessage>[
-                          ...?snapshot.data,
-                          ..._pendingVoiceMessages,
-                        ]..sort((left, right) {
-                          final leftTime =
-                              left.createdAt?.millisecondsSinceEpoch ?? 0;
-                          final rightTime =
-                              right.createdAt?.millisecondsSinceEpoch ?? 0;
-                          final byTime = leftTime.compareTo(rightTime);
-                          return byTime != 0
-                              ? byTime
-                              : left.id.compareTo(right.id);
-                        });
+                    final messagesById = <String, WapiMessage>{
+                      for (final message in _pendingVoiceMessages)
+                        message.id: message,
+                      for (final message
+                          in snapshot.data ?? const <WapiMessage>[])
+                        message.id: message,
+                    };
+                    final messages = messagesById.values.toList()
+                      ..sort((left, right) {
+                        final leftTime =
+                            left.createdAt?.millisecondsSinceEpoch ?? 0;
+                        final rightTime =
+                            right.createdAt?.millisecondsSinceEpoch ?? 0;
+                        final byTime = leftTime.compareTo(rightTime);
+                        return byTime != 0
+                            ? byTime
+                            : left.id.compareTo(right.id);
+                      });
                     _keepLatestMessageVisible(messages);
                     if (messages.isEmpty) {
                       return const _StateMessage(
@@ -4454,9 +4741,18 @@ class _ChatPageState extends State<_ChatPage> {
                         final normalizedMessageText = message.text
                             .trim()
                             .toLowerCase();
+                        final automaticDocumentLabel =
+                            message.kind == 'document' &&
+                            (normalizedMessageText == 'document' ||
+                                normalizedMessageText.startsWith(
+                                  'document · ',
+                                ) ||
+                                normalizedMessageText ==
+                                    message.mediaName.toLowerCase());
                         final showMessageText =
                             message.kind == 'text' ||
                             (message.text.isNotEmpty &&
+                                !automaticDocumentLabel &&
                                 !const {
                                   'photo',
                                   'vidéo',
@@ -4502,36 +4798,21 @@ class _ChatPageState extends State<_ChatPage> {
                                             '',
                                       ),
                                       borderRadius: BorderRadius.circular(20),
-                                      child: CircleAvatar(
+                                      child: _LiveProfileAvatar(
+                                        userId: message.senderId,
+                                        fallbackUrl:
+                                            widget
+                                                .conversation
+                                                .memberPhotoUrls[message
+                                                .senderId] ??
+                                            '',
+                                        name:
+                                            widget
+                                                .conversation
+                                                .memberNames[message
+                                                .senderId] ??
+                                            widget.conversation.title,
                                         radius: 17,
-                                        backgroundColor: WapiColors.blueSoft,
-                                        backgroundImage:
-                                            widget
-                                                    .conversation
-                                                    .memberPhotoUrls[message
-                                                        .senderId]
-                                                    ?.isNotEmpty ==
-                                                true
-                                            ? NetworkImage(
-                                                widget
-                                                    .conversation
-                                                    .memberPhotoUrls[message
-                                                    .senderId]!,
-                                              )
-                                            : null,
-                                        child:
-                                            widget
-                                                    .conversation
-                                                    .memberPhotoUrls[message
-                                                        .senderId]
-                                                    ?.isNotEmpty ==
-                                                true
-                                            ? null
-                                            : const Icon(
-                                                Icons.person_outline,
-                                                color: WapiColors.blue,
-                                                size: 19,
-                                              ),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
@@ -4815,6 +5096,17 @@ class _ChatPageState extends State<_ChatPage> {
                                                     )
                                                   : null,
                                             ),
+                                          if (message.kind == 'document')
+                                            _DocumentMessageCard(
+                                              mine: mine,
+                                              name: message.mediaName,
+                                              sizeBytes: message.mediaSizeBytes,
+                                              contentType: message.contentType,
+                                              opening: _openingDocumentIds
+                                                  .contains(message.id),
+                                              onPressed: () =>
+                                                  _openDocument(message),
+                                            ),
                                           if (showMessageText) ...[
                                             if (message.kind != 'text')
                                               const SizedBox(height: 8),
@@ -4870,19 +5162,31 @@ class _ChatPageState extends State<_ChatPage> {
                                           const SizedBox(height: 4),
                                           Align(
                                             alignment: Alignment.centerRight,
-                                            child: Text(
-                                              _formatMessageTime(
-                                                message.createdAt,
-                                              ),
-                                              style: TextStyle(
-                                                color: mine
-                                                    ? Colors.white.withValues(
-                                                        alpha: .72,
-                                                      )
-                                                    : WapiColors.muted,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _formatMessageTime(
+                                                    message.createdAt,
+                                                  ),
+                                                  style: TextStyle(
+                                                    color: mine
+                                                        ? Colors.white
+                                                              .withValues(
+                                                                alpha: .72,
+                                                              )
+                                                        : WapiColors.muted,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                if (mine) ...[
+                                                  const SizedBox(width: 3),
+                                                  _MessageReceipt(
+                                                    state: _receiptFor(message),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                           ),
                                         ],
@@ -4939,6 +5243,45 @@ class _ChatPageState extends State<_ChatPage> {
                         IconButton(
                           onPressed: () => setState(() => _replyingTo = null),
                           icon: const Icon(Icons.close, size: 18),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_sendingAttachmentName.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: WapiColors.blueSoft,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 10),
+                        const Icon(
+                          Icons.description_outlined,
+                          color: WapiColors.blueDark,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Envoi de $_sendingAttachmentName…',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: WapiColors.blueDark,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -5023,6 +5366,19 @@ class _ChatPageState extends State<_ChatPage> {
                                       onTap: () {
                                         Navigator.pop(sheetContext);
                                         _pickMedia(video: true);
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(
+                                        Icons.description_outlined,
+                                      ),
+                                      title: const Text('Document'),
+                                      subtitle: const Text(
+                                        'PDF, Word, Excel, texte ou archive · 50 Mo max',
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(sheetContext);
+                                        _pickDocument();
                                       },
                                     ),
                                   ],
@@ -5129,6 +5485,8 @@ class _ChatPageState extends State<_ChatPage> {
       builder: (context, snapshot) {
         final data = snapshot.data?.data() ?? const <String, dynamic>{};
         final online = data['isOnline'] == true;
+        final verified = data['verified'] == true;
+        final liveName = (data['displayName'] as String?)?.trim();
         final seen = data['lastSeenAt'] as Timestamp?;
         final label = online
             ? 'en ligne'
@@ -5139,7 +5497,28 @@ class _ChatPageState extends State<_ChatPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.conversation.title),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    liveName?.isNotEmpty == true
+                        ? liveName!
+                        : widget.conversation.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (verified) ...[
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.verified_rounded,
+                    color: WapiColors.blue,
+                    size: 16,
+                  ),
+                ],
+              ],
+            ),
             Text(
               label,
               style: TextStyle(
@@ -5764,6 +6143,213 @@ class _ChatDayDivider extends StatelessWidget {
       ),
     ),
   );
+}
+
+const _wapiMaximumDocumentBytes = 50 * 1024 * 1024;
+const _wapiDocumentExtensions = <String>[
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'txt',
+  'csv',
+  'rtf',
+  'md',
+  'json',
+  'xml',
+  'odt',
+  'ods',
+  'odp',
+  'zip',
+  'rar',
+  '7z',
+  'gz',
+];
+
+String _wapiDocumentExtension(String name) {
+  final clean = name.trim().toLowerCase();
+  final separator = clean.lastIndexOf('.');
+  return separator < 0 || separator == clean.length - 1
+      ? ''
+      : clean.substring(separator + 1);
+}
+
+String _wapiDocumentContentType(String name) => switch (_wapiDocumentExtension(
+  name,
+)) {
+  'pdf' => 'application/pdf',
+  'doc' => 'application/msword',
+  'docx' =>
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'xls' => 'application/vnd.ms-excel',
+  'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'ppt' => 'application/vnd.ms-powerpoint',
+  'pptx' =>
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'csv' => 'text/csv',
+  'rtf' => 'application/rtf',
+  'md' => 'text/markdown',
+  'json' => 'application/json',
+  'xml' => 'text/xml',
+  'odt' => 'application/vnd.oasis.opendocument.text',
+  'ods' => 'application/vnd.oasis.opendocument.spreadsheet',
+  'odp' => 'application/vnd.oasis.opendocument.presentation',
+  'zip' => 'application/zip',
+  'rar' => 'application/vnd.rar',
+  '7z' => 'application/x-7z-compressed',
+  'gz' => 'application/gzip',
+  _ => 'text/plain',
+};
+
+String _wapiSafeDocumentName(String name) {
+  final cleaned = name
+      .trim()
+      .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_')
+      .replaceAll(RegExp(r'_+'), '_');
+  if (cleaned.isEmpty) return 'document';
+  return cleaned.length <= 100 ? cleaned : cleaned.substring(0, 100);
+}
+
+String _formatWapiDocumentSize(int bytes) {
+  if (bytes <= 0) return 'Document WAPI';
+  if (bytes < 1024) return '$bytes o';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} Ko';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} Mo';
+}
+
+class _DocumentMessageCard extends StatelessWidget {
+  const _DocumentMessageCard({
+    required this.mine,
+    required this.name,
+    required this.sizeBytes,
+    required this.contentType,
+    required this.opening,
+    required this.onPressed,
+  });
+
+  final bool mine;
+  final String name;
+  final int sizeBytes;
+  final String contentType;
+  final bool opening;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final extension = _wapiDocumentExtension(name).toUpperCase();
+    final (icon, accent) = switch (_wapiDocumentExtension(name)) {
+      'pdf' => (Icons.picture_as_pdf_rounded, const Color(0xFFE84A5F)),
+      'xls' ||
+      'xlsx' ||
+      'csv' => (Icons.table_chart_rounded, const Color(0xFF1E9D6C)),
+      'doc' ||
+      'docx' ||
+      'odt' => (Icons.article_rounded, const Color(0xFF2387D9)),
+      'ppt' ||
+      'pptx' ||
+      'odp' => (Icons.slideshow_rounded, const Color(0xFFF17A36)),
+      'zip' ||
+      'rar' ||
+      '7z' ||
+      'gz' => (Icons.folder_zip_rounded, const Color(0xFFE4A11B)),
+      _ => (Icons.description_rounded, const Color(0xFF5C72D8)),
+    };
+    final foreground = mine ? Colors.white : WapiColors.ink;
+    final safeName = name.trim().isEmpty ? 'Document WAPI' : name.trim();
+    final typeLabel = extension.isNotEmpty
+        ? extension
+        : contentType.split('/').last.toUpperCase();
+
+    return InkWell(
+      onTap: opening ? null : onPressed,
+      borderRadius: BorderRadius.circular(15),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 230, maxWidth: 270),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: mine
+                ? Colors.white.withValues(alpha: .14)
+                : const Color(0xFFF3F7FA),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: mine
+                  ? Colors.white.withValues(alpha: .2)
+                  : WapiColors.line,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: mine ? .28 : .12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: mine ? Colors.white : accent,
+                  size: 27,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      safeName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '$typeLabel · ${_formatWapiDocumentSize(sizeBytes)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: mine
+                            ? Colors.white.withValues(alpha: .72)
+                            : WapiColors.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 7),
+              if (opening)
+                SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: mine ? Colors.white : WapiColors.blue,
+                  ),
+                )
+              else
+                Icon(
+                  Icons.download_for_offline_outlined,
+                  color: mine ? Colors.white : WapiColors.blue,
+                  size: 25,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _VoiceNotePlayer extends StatelessWidget {
@@ -7225,6 +7811,38 @@ class _StoryViewerState extends State<_StoryViewer> {
 /// inbox opens instantly.  This small live lookup wins over that snapshot when
 /// a contact replaces their avatar, avoiding an old image lingering while the
 /// server synchronises every past conversation.
+enum _MessageReceiptState { sent, delivered, read }
+
+class _MessageReceipt extends StatelessWidget {
+  const _MessageReceipt({required this.state});
+
+  final _MessageReceiptState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final read = state == _MessageReceiptState.read;
+    final delivered = state != _MessageReceiptState.sent;
+    final label = switch (state) {
+      _MessageReceiptState.sent => 'Envoyé',
+      _MessageReceiptState.delivered => 'Distribué, non lu',
+      _MessageReceiptState.read => 'Lu',
+    };
+    return Semantics(
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: Icon(
+          delivered ? Icons.done_all_rounded : Icons.done_rounded,
+          size: 15,
+          color: read
+              ? const Color(0xFF65F0AD)
+              : Colors.white.withValues(alpha: .72),
+        ),
+      ),
+    );
+  }
+}
+
 class _LiveProfileAvatar extends StatelessWidget {
   const _LiveProfileAvatar({
     required this.userId,
@@ -7239,25 +7857,30 @@ class _LiveProfileAvatar extends StatelessWidget {
   final double radius;
 
   @override
-  Widget build(BuildContext context) =>
-      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: userId.isEmpty
-            ? null
-            : FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(userId)
-                  .snapshots(),
-        builder: (context, snapshot) {
-          final current = (snapshot.data?.data()?['photoUrl'] as String?)
-              ?.trim();
-          final photoUrl = current?.isNotEmpty == true
-              ? current!
-              : fallbackUrl.trim();
-          final initial = _initial(name);
-          return Semantics(
-            image: true,
-            label: 'Photo de profil de $name',
-            child: CircleAvatar(
+  Widget build(
+    BuildContext context,
+  ) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: userId.isEmpty
+        ? null
+        : FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .snapshots(),
+    builder: (context, snapshot) {
+      final data = snapshot.data?.data() ?? const <String, dynamic>{};
+      final current = (data['photoUrl'] as String?)?.trim();
+      final verified = data['verified'] == true;
+      final photoUrl = current?.isNotEmpty == true
+          ? current!
+          : fallbackUrl.trim();
+      final initial = _initial(name);
+      return Semantics(
+        image: true,
+        label: 'Photo de profil de $name${verified ? ', compte certifié' : ''}',
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CircleAvatar(
               radius: radius,
               backgroundColor: WapiColors.blueSoft,
               child: ClipOval(
@@ -7288,9 +7911,28 @@ class _LiveProfileAvatar extends StatelessWidget {
                       ),
               ),
             ),
-          );
-        },
+            if (verified)
+              Positioned(
+                right: -2,
+                bottom: -1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: Icon(
+                    Icons.verified_rounded,
+                    color: WapiColors.blue,
+                    size: radius < 20 ? 13 : 15,
+                  ),
+                ),
+              ),
+          ],
+        ),
       );
+    },
+  );
 }
 
 class _StableNetworkAvatarImage extends StatelessWidget {

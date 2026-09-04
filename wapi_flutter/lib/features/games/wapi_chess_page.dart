@@ -1,6 +1,9 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'wapi_tabletop_3d.dart';
 
 class WapiChessPage extends StatefulWidget {
   const WapiChessPage({super.key});
@@ -82,17 +85,9 @@ class _WapiChessPageState extends State<WapiChessPage> {
       _aiThinking = true;
       _status = 'L’IA prépare son coup…';
     });
-    Future<void>.delayed(const Duration(milliseconds: 520), () {
+    Future<void>.delayed(const Duration(milliseconds: 760), () {
       if (!mounted || _finished || _whiteTurn) return;
-      final candidates = <_ChessMove>[];
-      for (var square = 0; square < 64; square++) {
-        final piece = _board[square];
-        if (piece != null && !piece.white) {
-          for (final target in _legalMoves(square)) {
-            candidates.add(_ChessMove(square, target));
-          }
-        }
-      }
+      final candidates = _allMovesOn(_board, false);
       if (candidates.isEmpty) {
         setState(() {
           _aiThinking = false;
@@ -100,20 +95,80 @@ class _WapiChessPageState extends State<WapiChessPage> {
         });
         return;
       }
-      candidates.sort((a, b) {
-        final aScore = _board[a.to] == null ? 0 : _value(_board[a.to]!);
-        final bScore = _board[b.to] == null ? 0 : _value(_board[b.to]!);
-        return bScore.compareTo(aScore);
-      });
-      final best = candidates.take(min(4, candidates.length)).toList();
-      final chosen = best[_random.nextInt(best.length)];
+      final scored = candidates.map((move) {
+        final board = _copyBoard(_board);
+        _applyMove(board, move.from, move.to, updateEnPassant: false);
+        // Two complete plies make the IA defend pieces and anticipate the
+        // player's reply instead of blindly taking the largest target.
+        return (move: move, score: _search(board, 2, true, -1000000, 1000000));
+      }).toList()..sort((a, b) => b.score.compareTo(a.score));
+      final topScore = scored.first.score;
+      final equivalent = scored
+          .takeWhile((entry) => entry.score >= topScore - 4)
+          .toList(growable: false);
+      final chosen = equivalent[_random.nextInt(equivalent.length)].move;
       setState(() {
         _applyMove(_board, chosen.from, chosen.to);
         _whiteTurn = true;
         _aiThinking = false;
         _updateStateAfterMove();
       });
+      HapticFeedback.selectionClick();
     });
+  }
+
+  int _search(
+    List<_ChessPiece?> board,
+    int depth,
+    bool whiteTurn,
+    int alpha,
+    int beta,
+  ) {
+    if (depth == 0) return _evaluate(board);
+    final moves = _allMovesOn(board, whiteTurn);
+    if (moves.isEmpty) {
+      if (_inCheck(board, whiteTurn)) return whiteTurn ? 100000 : -100000;
+      return 0;
+    }
+    var low = alpha;
+    var high = beta;
+    if (!whiteTurn) {
+      var best = -1000000;
+      for (final move in moves) {
+        final next = _copyBoard(board);
+        _applyMove(next, move.from, move.to, updateEnPassant: false);
+        best = max(best, _search(next, depth - 1, true, low, high));
+        low = max(low, best);
+        if (high <= low) break;
+      }
+      return best;
+    }
+    var best = 1000000;
+    for (final move in moves) {
+      final next = _copyBoard(board);
+      _applyMove(next, move.from, move.to, updateEnPassant: false);
+      best = min(best, _search(next, depth - 1, false, low, high));
+      high = min(high, best);
+      if (high <= low) break;
+    }
+    return best;
+  }
+
+  int _evaluate(List<_ChessPiece?> board) {
+    var score = 0;
+    for (var square = 0; square < board.length; square += 1) {
+      final piece = board[square];
+      if (piece == null) continue;
+      final row = square ~/ 8;
+      final col = square % 8;
+      final centre = 7 - ((row - 3.5).abs() + (col - 3.5).abs()).round();
+      final development = piece.type == 'p'
+          ? (piece.white ? 6 - row : row - 1) * 2
+          : centre;
+      final value = _value(piece) * 100 + development;
+      score += piece.white ? -value : value;
+    }
+    return score;
   }
 
   void _updateStateAfterMove() {
@@ -136,11 +191,15 @@ class _WapiChessPageState extends State<WapiChessPage> {
   }
 
   List<_ChessMove> _allMoves(bool white) {
+    return _allMovesOn(_board, white);
+  }
+
+  List<_ChessMove> _allMovesOn(List<_ChessPiece?> board, bool white) {
     final moves = <_ChessMove>[];
     for (var square = 0; square < 64; square++) {
-      final piece = _board[square];
+      final piece = board[square];
       if (piece != null && piece.white == white) {
-        for (final target in _legalMoves(square)) {
+        for (final target in _legalMovesOn(board, square)) {
           moves.add(_ChessMove(square, target));
         }
       }
@@ -148,12 +207,14 @@ class _WapiChessPageState extends State<WapiChessPage> {
     return moves;
   }
 
-  List<int> _legalMoves(int from) {
-    final piece = _board[from];
+  List<int> _legalMoves(int from) => _legalMovesOn(_board, from);
+
+  List<int> _legalMovesOn(List<_ChessPiece?> board, int from) {
+    final piece = board[from];
     if (piece == null) return const [];
-    return _pseudoMoves(_board, from, attacksOnly: false).where((to) {
-      if (_board[to]?.type == 'k') return false;
-      final copy = _copyBoard(_board);
+    return _pseudoMoves(board, from, attacksOnly: false).where((to) {
+      if (board[to]?.type == 'k') return false;
+      final copy = _copyBoard(board);
       _applyMove(copy, from, to, updateEnPassant: false);
       return !_inCheck(copy, piece.white);
     }).toList();
@@ -442,72 +503,80 @@ class _WapiChessPageState extends State<WapiChessPage> {
           const SizedBox(height: 14),
           AspectRatio(
             aspectRatio: 1,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xFF8C5D3D),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x330E1726),
-                    blurRadius: 18,
-                    offset: Offset(0, 9),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: GridView.builder(
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 8,
-                  ),
-                  itemCount: 64,
-                  itemBuilder: (context, index) {
-                    final light = ((index ~/ 8) + index % 8).isEven;
-                    final selected = _selected == index;
-                    final legal = _moves.contains(index);
-                    final piece = _board[index];
-                    return InkWell(
-                      onTap: () => _tapSquare(index),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? const Color(0xFFF5C451)
-                              : legal
-                              ? const Color(0xFF9BD77B)
-                              : light
-                              ? const Color(0xFFF0D9B5)
-                              : const Color(0xFFB58863),
+            child: WapiTabletop3D.strategy(
+              scene: 'chess',
+              board: _board.map((piece) => piece?.symbol ?? '').toList(),
+              selected: _selected ?? -1,
+              legalTargets: _moves.toSet(),
+              onSquare: _tapSquare,
+              fallback: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8C5D3D),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x330E1726),
+                      blurRadius: 18,
+                      offset: Offset(0, 9),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 8,
                         ),
-                        child: Center(
-                          child: piece == null
-                              ? (legal
-                                    ? const Icon(
-                                        Icons.circle,
-                                        size: 13,
-                                        color: Color(0xCC255A38),
-                                      )
-                                    : null)
-                              : Text(
-                                  piece.symbol,
-                                  style: TextStyle(
-                                    fontSize: 35,
-                                    color: piece.white
-                                        ? Colors.white
-                                        : const Color(0xFF16202B),
-                                    shadows: const [
-                                      Shadow(
-                                        color: Color(0x88000000),
-                                        blurRadius: 2,
-                                        offset: Offset(1, 2),
-                                      ),
-                                    ],
+                    itemCount: 64,
+                    itemBuilder: (context, index) {
+                      final light = ((index ~/ 8) + index % 8).isEven;
+                      final selected = _selected == index;
+                      final legal = _moves.contains(index);
+                      final piece = _board[index];
+                      return InkWell(
+                        onTap: () => _tapSquare(index),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? const Color(0xFFF5C451)
+                                : legal
+                                ? const Color(0xFF9BD77B)
+                                : light
+                                ? const Color(0xFFF0D9B5)
+                                : const Color(0xFFB58863),
+                          ),
+                          child: Center(
+                            child: piece == null
+                                ? (legal
+                                      ? const Icon(
+                                          Icons.circle,
+                                          size: 13,
+                                          color: Color(0xCC255A38),
+                                        )
+                                      : null)
+                                : Text(
+                                    piece.symbol,
+                                    style: TextStyle(
+                                      fontSize: 35,
+                                      color: piece.white
+                                          ? Colors.white
+                                          : const Color(0xFF16202B),
+                                      shadows: const [
+                                        Shadow(
+                                          color: Color(0x88000000),
+                                          blurRadius: 2,
+                                          offset: Offset(1, 2),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ),
             ),

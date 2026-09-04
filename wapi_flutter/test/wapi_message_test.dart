@@ -51,5 +51,25 @@ void main() {
       expect(message.kind, 'audio');
       expect(message.mediaUrl, contains('voice.opus'));
     });
+
+    test('conserve les métadonnées d’un document WAPI', () {
+      final message = WapiMessage.fromMap(
+        id: 'document-current',
+        data: const {
+          'text': 'Document · facture-aout.pdf',
+          'senderId': 'member-d',
+          'kind': 'document',
+          'mediaUrl': 'https://media.wapi.test/facture-aout.pdf',
+          'mediaName': 'facture-aout.pdf',
+          'contentType': 'application/pdf',
+          'mediaSizeBytes': 128000,
+        },
+      );
+
+      expect(message.kind, 'document');
+      expect(message.mediaName, 'facture-aout.pdf');
+      expect(message.contentType, 'application/pdf');
+      expect(message.mediaSizeBytes, 128000);
+    });
   });
 }

@@ -130,10 +130,17 @@ class _WapiGamesPageState extends State<WapiGamesPage> {
   }
 
   Future<void> _playPoolAi() async {
+    final difficulty = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => const _PoolAiLevelSheet(),
+    );
+    if (difficulty == null) return;
     await _run(() async {
-      final room = await _call('createPoolAiMatch');
+      final room = await _call('createPoolAiMatch', {'difficulty': difficulty});
       final code = _string(room['roomId']);
-      _toast('Table IA prête · à vous de casser.');
+      _toast('Table IA ${_poolAiLabel(difficulty)} prête · à vous de casser.');
       if (mounted) {
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -613,6 +620,86 @@ class _ErrorCard extends StatelessWidget {
   );
 }
 
+class _PoolAiLevelSheet extends StatelessWidget {
+  const _PoolAiLevelSheet();
+
+  static const _levels = <(String, String, String, IconData, Color)>[
+    (
+      'rookie',
+      'Débutant',
+      'Visée tolérante, erreurs humaines fréquentes',
+      Icons.sentiment_satisfied_alt_rounded,
+      Color(0xFF45A36B),
+    ),
+    (
+      'club',
+      'Club',
+      'Bon contrôle, quelques imprécisions',
+      Icons.sports_rounded,
+      Color(0xFF2386C8),
+    ),
+    (
+      'pro',
+      'Pro',
+      'Lecture des poches et puissance maîtrisée',
+      Icons.workspace_premium_rounded,
+      Color(0xFFE08B24),
+    ),
+    (
+      'master',
+      'Maître',
+      'Trajectoires optimales, aucune aide',
+      Icons.emoji_events_rounded,
+      Color(0xFF8E55CF),
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Niveau de WAPI IA',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Chaque niveau adapte réellement la précision, la puissance et le temps de réflexion.',
+          style: TextStyle(color: WapiColors.muted),
+        ),
+        const SizedBox(height: 14),
+        ..._levels.map(
+          (level) => Padding(
+            padding: const EdgeInsets.only(bottom: 9),
+            child: ListTile(
+              onTap: () => Navigator.pop(context, level.$1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(17),
+                side: BorderSide(color: level.$5.withValues(alpha: .34)),
+              ),
+              tileColor: level.$5.withValues(alpha: .08),
+              leading: CircleAvatar(
+                backgroundColor: level.$5.withValues(alpha: .16),
+                foregroundColor: level.$5,
+                child: Icon(level.$4),
+              ),
+              title: Text(
+                level.$2,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(level.$3),
+              trailing: const Icon(Icons.chevron_right_rounded),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _KingRoomForm extends StatefulWidget {
   const _KingRoomForm();
   @override
@@ -693,3 +780,10 @@ String _errorText(Object error) => wapiErrorText(
   error is FirebaseFunctionsException ? error.message : error,
   fallback: 'Le service Jeux est indisponible pour le moment.',
 );
+
+String _poolAiLabel(String value) => switch (value) {
+  'rookie' => 'Débutant',
+  'club' => 'Club',
+  'master' => 'Maître',
+  _ => 'Pro',
+};

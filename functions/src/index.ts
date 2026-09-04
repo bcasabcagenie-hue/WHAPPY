@@ -55,7 +55,7 @@ export const wapiCommerce = onCall({ timeoutSeconds: 60 }, async request => {
  * map used by recent releases. Finalizing on the server keeps media delivery
  * compatible while still verifying membership, ownership, type and size.
  */
-export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512MiB" }, async request => {
+export const commitConversationMedia = onCall({ timeoutSeconds: 180, memory: "512MiB" }, async request => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const input = (request.data || {}) as Record<string, unknown>;
   const uid = request.auth.uid;
@@ -78,7 +78,7 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
   if (!/^[A-Za-z0-9_-]{6,180}$/.test(conversationId) || !/^[A-Za-z0-9_-]{6,180}$/.test(messageId)) {
     throw new HttpsError("invalid-argument", "Référence de conversation invalide.");
   }
-  if (!new Set(["image", "video", "audio"]).has(kind)) {
+  if (!new Set(["image", "video", "audio", "document"]).has(kind)) {
     throw new HttpsError("invalid-argument", "Type de média invalide.");
   }
   const canonicalPrefix = `conversations/${conversationId}/${uid}/${messageId}-`;
@@ -90,6 +90,17 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
   }
   if (!mediaName || mediaName.length > 120 || !/^[0-9a-f]{64}$/.test(suppliedHash)) {
     throw new HttpsError("invalid-argument", "Métadonnées du média invalides.");
+  }
+  const documentExtension = mediaName.split(".").pop()?.toLowerCase() || "";
+  const allowedDocumentExtensions = new Set([
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv",
+    "rtf", "md", "json", "xml", "odt", "ods", "odp", "zip", "rar", "7z", "gz",
+  ]);
+  if (kind === "document" && !allowedDocumentExtensions.has(documentExtension)) {
+    throw new HttpsError("invalid-argument", "Ce format de document n’est pas accepté par WAPI.");
+  }
+  if (kind === "document" && viewOnce) {
+    throw new HttpsError("invalid-argument", "Un document ne peut pas être envoyé en vue unique.");
   }
   if (inlineMediaBase64 && (kind !== "audio" || !isCanonicalUpload || !inlineContentType.startsWith("audio/"))) {
     throw new HttpsError("invalid-argument", "Transfert vocal WAPI invalide.");
@@ -109,6 +120,12 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
       .map(value => value && typeof value === "object" ? String((value as Record<string, unknown>).uid || "") : "")
       .filter(Boolean)
     : [];
+  const normalizedDirectMemberIds = [...new Set([
+    ...memberIds,
+    ...legacyMemberIds,
+    String(conversationData.ownerId || ""),
+    String(conversationData.contactId || ""),
+  ].filter(value => value.length >= 6 && value.length <= 128))];
   const legacyDirectMember = conversationData.conversationType === "direct"
     && (String(conversationData.ownerId || "") === uid
       || String(conversationData.contactId || "") === uid
@@ -116,6 +133,10 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
   if (!memberIds.includes(uid) && !legacyDirectMember) {
     throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
   }
+  const shouldNormalizeDirectMembers = conversationData.conversationType === "direct"
+    && normalizedDirectMemberIds.length === 2
+    && (memberIds.length !== normalizedDirectMemberIds.length
+      || normalizedDirectMemberIds.some(value => !memberIds.includes(value)));
 
   const message = conversation.collection("messages").doc(messageId);
   const existingMessage = await message.get();
@@ -173,13 +194,37 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
   const inspectedObject = sourceExists ? sourceObject : canonicalObject;
   const [metadata] = await inspectedObject.getMetadata();
   const contentType = String(metadata.contentType || "").toLowerCase();
+  const safeDocumentType = contentType.startsWith("text/")
+    || new Set([
+      "application/pdf",
+      "application/msword",
+      "application/vnd.ms-excel",
+      "application/vnd.ms-powerpoint",
+      "application/rtf",
+      "application/json",
+      "application/zip",
+      "application/gzip",
+      "application/x-rar-compressed",
+      "application/vnd.rar",
+      "application/x-7z-compressed",
+    ]).has(contentType)
+    || contentType.startsWith("application/vnd.openxmlformats-officedocument.")
+    || contentType.startsWith("application/vnd.oasis.opendocument.");
   const contentMatches = kind === "image"
     ? contentType.startsWith("image/")
     : kind === "video"
       ? contentType.startsWith("video/")
-      : contentType.startsWith("audio/");
+      : kind === "audio"
+        ? contentType.startsWith("audio/")
+        : safeDocumentType;
   const mediaSizeBytes = Number(metadata.size || 0);
-  const maximumSize = kind === "image" ? 20 * 1024 * 1024 : kind === "audio" ? 12 * 1024 * 1024 : 60 * 1024 * 1024;
+  const maximumSize = kind === "image"
+    ? 20 * 1024 * 1024
+    : kind === "audio"
+      ? 12 * 1024 * 1024
+      : kind === "document"
+        ? 50 * 1024 * 1024
+        : 60 * 1024 * 1024;
   if (!contentMatches || !Number.isSafeInteger(mediaSizeBytes) || mediaSizeBytes < 1 || mediaSizeBytes > maximumSize) {
     throw new HttpsError("invalid-argument", "Le média ne respecte pas les limites WAPI.");
   }
@@ -224,7 +269,13 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
     });
   }
   const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(canonicalPath)}?alt=media&token=${encodeURIComponent(downloadTokens[0])}`;
-  const label = kind === "image" ? "Photo" : kind === "video" ? "Vidéo" : "Message vocal";
+  const label = kind === "image"
+    ? "Photo"
+    : kind === "video"
+      ? "Vidéo"
+      : kind === "document"
+        ? `Document · ${mediaName}`
+        : "Message vocal";
   const messageData: Record<string, unknown> = {
     text: caption || label,
     senderId: uid,
@@ -232,6 +283,7 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
     kind,
     mediaUrl,
     mediaName,
+    contentType,
     mediaSizeBytes,
     mediaSha256: suppliedHash,
     duration: durationSeconds,
@@ -251,6 +303,7 @@ export const commitConversationMedia = onCall({ timeoutSeconds: 90, memory: "512
     lastMessage: label,
     lastSenderId: uid,
     updatedAt: FieldValue.serverTimestamp(),
+    ...(shouldNormalizeDirectMembers ? { memberIds: normalizedDirectMemberIds } : {}),
   });
   try {
     await batch.commit();
@@ -3846,7 +3899,18 @@ const poolAiProfile = {
 // A staged delay prevents the IA's authoritative strike from visually
 // landing on the same instant as the human's release.
 const poolAiSettleDelayMs = 2200;
-const poolAiThinkDelayMs = 1800;
+const poolAiLevels = {
+  rookie: { label: "Débutant", skill: .48, thinkMs: 2350, rating: 820 },
+  club: { label: "Club", skill: .66, thinkMs: 2050, rating: 1080 },
+  pro: { label: "Pro", skill: .84, thinkMs: 1850, rating: 1420 },
+  master: { label: "Maître", skill: 1, thinkMs: 1650, rating: 1780 },
+} as const;
+type PoolAiDifficulty = keyof typeof poolAiLevels;
+
+function poolAiDifficulty(value: unknown): PoolAiDifficulty {
+  const key = String(value || "pro") as PoolAiDifficulty;
+  return key in poolAiLevels ? key : "pro";
+}
 
 function waitForPoolAi(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -3854,9 +3918,9 @@ function waitForPoolAi(ms: number) {
 
 /** Publishes the IA's intended line first.  Clients can therefore show the
  * cue aiming at the table before the authoritative strike is resolved. */
-async function preparePoolAiTurn(roomId: string) {
+async function preparePoolAiTurn(roomId: string): Promise<PoolAiDifficulty | null> {
   const room = db.collection("gameRooms").doc(roomId);
-  let prepared = false;
+  let prepared: PoolAiDifficulty | null = null;
   await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(room);
     const value = snapshot.data() || {};
@@ -3873,7 +3937,8 @@ async function preparePoolAiTurn(roomId: string) {
         ? { ...ball, x: .23, y: .5, pocketed: false, vx: 0, vy: 0 }
         : ball);
     }
-    const shot = planPoolAiShot(balls, groups[poolAiUid] || "open");
+    const difficulty = poolAiDifficulty(value.aiDifficulty);
+    const shot = planPoolAiShot(balls, groups[poolAiUid] || "open", poolAiLevels[difficulty].skill);
     transaction.update(room, {
       balls,
       ballInHandUid: "",
@@ -3888,15 +3953,16 @@ async function preparePoolAiTurn(roomId: string) {
       lastAction: "WAPI IA aligne son tir…",
       updatedAt: FieldValue.serverTimestamp(),
     });
-    prepared = true;
+    prepared = difficulty;
   });
   return prepared;
 }
 
 async function stageAndPlayPoolAiTurn(roomId: string, settleDelayMs = 0) {
   if (settleDelayMs > 0) await waitForPoolAi(settleDelayMs);
-  if (!await preparePoolAiTurn(roomId)) return;
-  await waitForPoolAi(poolAiThinkDelayMs);
+  const difficulty = await preparePoolAiTurn(roomId);
+  if (!difficulty) return;
+  await waitForPoolAi(poolAiLevels[difficulty].thinkMs);
   await playPoolAiTurn(roomId);
 }
 
@@ -3919,7 +3985,8 @@ async function playPoolAiTurn(roomId: string) {
     try {
       shot = validatePoolShot(value.aiPlannedShot);
     } catch (_) {
-      shot = planPoolAiShot(balls, groups[poolAiUid] || "open");
+      const difficulty = poolAiDifficulty(value.aiDifficulty);
+      shot = planPoolAiShot(balls, groups[poolAiUid] || "open", poolAiLevels[difficulty].skill);
     }
     const simulation = simulatePoolShot(balls, shot);
     const resolution = resolvePoolShot(balls, groups[poolAiUid] || "open", groups[humanUid] || "open", simulation);
@@ -4037,6 +4104,8 @@ export const createPoolMatch = onCall(async (request) => {
 export const createPoolAiMatch = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
   const userId = request.auth.uid;
+  const difficulty = poolAiDifficulty(request.data?.difficulty);
+  const aiConfig = poolAiLevels[difficulty];
   const profile = await poolPlayerIdentity(userId);
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const roomId = poolRoomCode();
@@ -4045,8 +4114,9 @@ export const createPoolAiMatch = onCall(async (request) => {
     await room.create({
       game: "pool", engineVersion: 2, authority: "wapi-server", mode: "ai", status: "playing", visibility: "private",
       hostId: userId, playerIds: [userId, poolAiUid], playerNames: [profile.displayName, poolAiProfile.displayName],
-      playerProfiles: { [userId]: profile, [poolAiUid]: poolAiProfile },
+      playerProfiles: { [userId]: profile, [poolAiUid]: { ...poolAiProfile, displayName: `WAPI IA · ${aiConfig.label}`, rating: aiConfig.rating } },
       groups: { [userId]: "open", [poolAiUid]: "open" }, runs: { [userId]: 0, [poolAiUid]: 0 },
+      aiDifficulty: difficulty,
       turnUid: userId, winnerUid: "", ballInHandUid: "", balls: initialPoolBalls(), ballStateRevision: 0,
       shotRevision: 0, lastAction: "WAPI IA est prête · à vous de casser.", turnDeadlineMs: Date.now() + 45_000,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),

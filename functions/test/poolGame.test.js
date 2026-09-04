@@ -40,6 +40,20 @@ test("pool AI uses regulation table geometry and strikes a legal target", () => 
   assert.equal(result.firstContactBallId, 1);
 });
 
+test("pool AI difficulty is deterministic and changes shot execution", () => {
+  const table = initialPoolBalls().map((ball) => ({
+    ...ball,
+    pocketed: ball.id > 2,
+  }));
+  const rookie = planPoolAiShot(table, "open", .48);
+  const repeated = planPoolAiShot(table, "open", .48);
+  const master = planPoolAiShot(table, "open", 1);
+  assert.deepEqual(rookie, repeated, "callable retries must preserve the same IA shot");
+  assert.notDeepEqual(rookie, master, "difficulty must affect more than its label");
+  assert.ok(rookie.power >= 10 && rookie.power <= 100);
+  assert.ok(Math.abs(rookie.sideSpin) <= 1 && Math.abs(rookie.followSpin) <= 1);
+});
+
 test("authoritative eight-ball rules assign groups and protect the black", () => {
   const table = initialPoolBalls();
   const assignment = resolvePoolShot(table, "open", "open", {

@@ -67,6 +67,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
   late final Room _room;
   EventsListener<RoomEvent>? _listener;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _session;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _peerProfile;
   String _callId = '';
   bool _accepted = false;
   bool _connecting = false;
@@ -82,6 +83,9 @@ class _WapiCallPageState extends State<WapiCallPage> {
   bool _translationBusy = false;
   bool _translationEnabled = false;
   String _translationLanguage = 'fr';
+  String _livePeerName = '';
+  String _livePeerPhotoUrl = '';
+  bool _peerVerified = false;
 
   static const _translationLanguages = <String, String>{
     'fr': 'Français',
@@ -95,6 +99,14 @@ class _WapiCallPageState extends State<WapiCallPage> {
   };
 
   bool get _incoming => widget.incomingCallId != null;
+  String get _peerName => _livePeerName.trim().isNotEmpty
+      ? _livePeerName.trim()
+      : widget.peerName.trim().isNotEmpty
+      ? widget.peerName.trim()
+      : 'Contact WAPI';
+  String get _peerPhotoUrl => _livePeerPhotoUrl.trim().isNotEmpty
+      ? _livePeerPhotoUrl.trim()
+      : widget.peerPhotoUrl.trim();
 
   @override
   void initState() {
@@ -110,6 +122,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
         ),
       ),
     );
+    _watchPeerProfile();
     if (_incoming) {
       _callId = widget.incomingCallId!;
       _status = 'Appel entrant';
@@ -117,6 +130,31 @@ class _WapiCallPageState extends State<WapiCallPage> {
     } else {
       unawaited(_startOutgoing());
     }
+  }
+
+  void _watchPeerProfile() {
+    if (widget.peerId.isEmpty) return;
+    _peerProfile = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.peerId)
+        .snapshots()
+        .listen((snapshot) {
+          final data = snapshot.data() ?? const <String, dynamic>{};
+          final name = (data['displayName'] as String?)?.trim() ?? '';
+          final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+          final verified = data['verified'] == true;
+          if (!mounted ||
+              (name == _livePeerName &&
+                  photoUrl == _livePeerPhotoUrl &&
+                  verified == _peerVerified)) {
+            return;
+          }
+          setState(() {
+            _livePeerName = name;
+            _livePeerPhotoUrl = photoUrl;
+            _peerVerified = verified;
+          });
+        });
   }
 
   void _watchCall() {
@@ -138,7 +176,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     if (_connecting || _closing) return;
     setState(() {
       _connecting = true;
-      _status = 'Appel de ${widget.peerName}…';
+      _status = 'Appel de $_peerName…';
     });
     try {
       final result = await _functions
@@ -164,7 +202,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     setState(() {
       _accepted = true;
       _connecting = true;
-      _status = 'Connexion à ${widget.peerName}…';
+      _status = 'Connexion à $_peerName…';
     });
     try {
       final result = await _functions
@@ -227,7 +265,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
         _connecting = false;
         _error = null;
         _status = _room.remoteParticipants.isEmpty
-            ? 'En attente de ${widget.peerName}…'
+            ? 'En attente de $_peerName…'
             : 'En appel';
       });
     }
@@ -237,7 +275,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
     if (!mounted || _closing) return;
     setState(() {
       _status = _room.remoteParticipants.isEmpty
-          ? 'En attente de ${widget.peerName}…'
+          ? 'En attente de $_peerName…'
           : 'En appel';
     });
   }
@@ -492,6 +530,7 @@ class _WapiCallPageState extends State<WapiCallPage> {
   void dispose() {
     _callTimer?.cancel();
     unawaited(_session?.cancel());
+    unawaited(_peerProfile?.cancel());
     unawaited(_listener?.dispose());
     unawaited(_room.dispose());
     super.dispose();
@@ -511,16 +550,18 @@ class _WapiCallPageState extends State<WapiCallPage> {
         child: Stack(
           children: [
             Positioned.fill(child: _stage()),
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color(0x88000000),
-                    Colors.transparent,
-                    Color(0xA8000000),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0x88000000),
+                      Colors.transparent,
+                      Color(0xA8000000),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
                 ),
               ),
             ),
@@ -555,8 +596,8 @@ class _WapiCallPageState extends State<WapiCallPage> {
             ),
             Positioned(
               top: 34,
-              left: 24,
-              right: 24,
+              left: 72,
+              right: 72,
               child: Column(
                 children: [
                   Container(
@@ -579,13 +620,30 @@ class _WapiCallPageState extends State<WapiCallPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    widget.peerName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _peerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      if (_peerVerified) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF59C8FF),
+                          size: 21,
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -595,6 +653,16 @@ class _WapiCallPageState extends State<WapiCallPage> {
                       color: Colors.white.withValues(alpha: .76),
                     ),
                   ),
+                  if (_connecting) ...[
+                    const SizedBox(height: 10),
+                    const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                   if (_connectedAt != null) ...[
                     const SizedBox(height: 7),
                     Container(
@@ -649,23 +717,56 @@ class _WapiCallPageState extends State<WapiCallPage> {
     if (widget.video && remote != null) {
       return VideoTrackRenderer(remote, fit: VideoViewFit.cover);
     }
-    return Center(
-      child: CircleAvatar(
-        radius: 58,
-        backgroundColor: WapiColors.blue,
-        backgroundImage: widget.peerPhotoUrl.isEmpty
-            ? null
-            : NetworkImage(widget.peerPhotoUrl),
-        child: widget.peerPhotoUrl.isEmpty
-            ? Text(
-                widget.peerName.characters.first.toUpperCase(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: RadialGradient(
+          radius: 1.1,
+          colors: [Color(0xFF123D55), Color(0xFF07141F)],
+        ),
+      ),
+      child: Center(
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CircleAvatar(
+              radius: 62,
+              backgroundColor: const Color(0xFF58C8FF),
+              child: CircleAvatar(
+                radius: 58,
+                backgroundColor: WapiColors.blue,
+                backgroundImage: _peerPhotoUrl.isEmpty
+                    ? null
+                    : NetworkImage(_peerPhotoUrl),
+                child: _peerPhotoUrl.isEmpty
+                    ? Text(
+                        _peerName.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 36,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      )
+                    : null,
+              ),
+            ),
+            if (_peerVerified)
+              const Positioned(
+                right: 1,
+                bottom: 2,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.verified_rounded,
+                    color: WapiColors.blue,
+                    size: 25,
+                  ),
                 ),
-              )
-            : null,
+              ),
+          ],
+        ),
       ),
     );
   }

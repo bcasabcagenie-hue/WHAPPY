@@ -37,7 +37,9 @@ try {
   const conversation = firestore.collection("conversations").doc(conversationId);
   await conversation.set({
     conversationType: "direct",
-    memberIds: [uid, "wapi-test-peer"],
+    // Reproduces a direct conversation created by an older WAPI build: the
+    // recipient existed in the immutable identity fields but not memberIds.
+    memberIds: [uid],
     members: [{ uid }, { uid: "wapi-test-peer" }],
     ownerId: uid,
     contactId: "wapi-test-peer",
@@ -75,6 +77,11 @@ try {
   assert.equal(message.get("kind"), "audio");
   assert.equal(message.get("mediaSha256"), mediaSha256);
   assert.match(message.get("mediaUrl"), /^https:\/\/firebasestorage\.googleapis\.com\//);
+  const normalizedConversation = await conversation.get();
+  assert.deepEqual(
+    [...normalizedConversation.get("memberIds")].sort(),
+    [uid, "wapi-test-peer"].sort(),
+  );
 
   const [stored] = await bucket.file(canonicalPath).download();
   assert.equal(createHash("sha256").update(stored).digest("hex"), mediaSha256);

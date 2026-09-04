@@ -105,6 +105,7 @@ class WapiMessage {
     required this.kind,
     required this.mediaUrl,
     required this.mediaName,
+    required this.contentType,
     required this.mediaSizeBytes,
     required this.mediaSha256,
     required this.durationSeconds,
@@ -122,6 +123,7 @@ class WapiMessage {
   final String kind;
   final String mediaUrl;
   final String mediaName;
+  final String contentType;
   final int mediaSizeBytes;
   final String mediaSha256;
   final int durationSeconds;
@@ -234,6 +236,7 @@ class WapiMessage {
       kind: kind,
       mediaUrl: mediaUrl,
       mediaName: firstString(const ['mediaName', 'fileName', 'name']),
+      contentType: contentType,
       mediaSizeBytes:
           firstNumber(const ['mediaSizeBytes', 'fileSize', 'size'])?.toInt() ??
           0,
@@ -859,6 +862,7 @@ class WapiRepository {
       'image' => 'Photo transférée',
       'video' => 'Vidéo transférée',
       'audio' => 'Note vocale transférée',
+      'document' => 'Document transféré',
       _ => source.text,
     };
     final messageData = <String, dynamic>{
@@ -879,6 +883,7 @@ class WapiRepository {
         'kind': source.kind,
         'mediaUrl': source.mediaUrl,
         'mediaName': source.mediaName,
+        'contentType': source.contentType,
         'mediaSizeBytes': source.mediaSizeBytes,
         'mediaSha256': source.mediaSha256,
         'duration': source.durationSeconds.clamp(0, 600),
@@ -912,7 +917,7 @@ class WapiRepository {
     bool viewOnce = false,
     String clientMessageId = '',
   }) async {
-    if (!{'image', 'video', 'audio'}.contains(kind)) {
+    if (!{'image', 'video', 'audio', 'document'}.contains(kind)) {
       throw ArgumentError('Type de média non pris en charge.');
     }
     final conversation = _db.collection('conversations').doc(conversationId);
@@ -924,7 +929,42 @@ class WapiRepository {
     final message = conversation
         .collection('messages')
         .doc(stableMessageId.isEmpty ? null : stableMessageId);
-    final safeName = fileName
+    final displayName = fileName
+        .trim()
+        .replaceAll(RegExp(r'[\u0000-\u001F\u007F]'), '')
+        .take(120);
+    if (displayName.isEmpty) {
+      throw ArgumentError('Le nom du fichier est invalide.');
+    }
+    const acceptedDocumentExtensions = <String>{
+      'pdf',
+      'doc',
+      'docx',
+      'xls',
+      'xlsx',
+      'ppt',
+      'pptx',
+      'txt',
+      'csv',
+      'rtf',
+      'md',
+      'json',
+      'xml',
+      'odt',
+      'ods',
+      'odp',
+      'zip',
+      'rar',
+      '7z',
+      'gz',
+    };
+    final extension = displayName.contains('.')
+        ? displayName.split('.').last.toLowerCase()
+        : '';
+    if (kind == 'document' && !acceptedDocumentExtensions.contains(extension)) {
+      throw ArgumentError('Ce format de document n’est pas accepté par WAPI.');
+    }
+    final safeName = displayName
         .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_')
         .take(100);
     final outboxPath =
@@ -935,7 +975,26 @@ class WapiRepository {
     if (mediaSizeBytes <= 0) {
       throw StateError('Le fichier média est vide.');
     }
+    if (kind == 'document' && mediaSizeBytes > 50 * 1024 * 1024) {
+      throw StateError('Le document dépasse la limite WAPI de 50 Mo.');
+    }
     final mediaSha256 = (await sha256.bind(file.openRead()).first).toString();
+    Future<bool> mediaAlreadyCommitted() async {
+      try {
+        final snapshot = await message
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 8));
+        final data = snapshot.data();
+        return snapshot.exists &&
+            data?['senderId'] == user.uid &&
+            data?['mediaSha256'] == mediaSha256 &&
+            data?['kind'] == kind &&
+            (data?['mediaUrl'] as String?)?.isNotEmpty == true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     Future<void> uploadTo(Reference target) async {
       final upload = target.putFile(
         file,
@@ -949,7 +1008,13 @@ class WapiRepository {
         ),
       );
       await upload.timeout(
-        Duration(seconds: kind == 'video' ? 120 : 45),
+        Duration(
+          seconds: kind == 'video'
+              ? 120
+              : kind == 'document'
+              ? 150
+              : 45,
+        ),
         onTimeout: () {
           upload.cancel();
           throw TimeoutException('Le transfert du média WAPI a expiré.');
@@ -960,7 +1025,15 @@ class WapiRepository {
     final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable(
           'commitConversationMedia',
-          options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
+          options: HttpsCallableOptions(
+            timeout: Duration(
+              seconds: kind == 'audio'
+                  ? 40
+                  : kind == 'document'
+                  ? 180
+                  : 120,
+            ),
+          ),
         );
     Future<void> finalize(
       String storagePath, {
@@ -971,7 +1044,8 @@ class WapiRepository {
         'messageId': message.id,
         'kind': kind,
         'storagePath': storagePath,
-        'mediaName': safeName,
+        'mediaName': displayName,
+        'contentType': contentType,
         'mediaSha256': mediaSha256,
         'durationSeconds': durationSeconds.clamp(0, 600),
         'caption': caption.trim(),
@@ -987,16 +1061,16 @@ class WapiRepository {
     // callable first removes the fragile phone-side Storage permission hop;
     // the server still verifies conversation membership, size and SHA-256.
     // Longer recordings continue through the resumable Storage path below.
-    const inlineVoiceLimit = 8 * 1024 * 1024;
+    const inlineVoiceLimit = 5 * 1024 * 1024;
     if (kind == 'audio' && mediaSizeBytes <= inlineVoiceLimit) {
       try {
-        await user.getIdToken();
         await finalize(
           canonicalPath,
           inlineMediaBase64: base64Encode(await file.readAsBytes()),
         );
         return;
       } on FirebaseFunctionsException catch (error) {
+        if (await mediaAlreadyCommitted()) return;
         const storageFallbackCodes = {
           'internal',
           'unknown',
@@ -1008,6 +1082,13 @@ class WapiRepository {
       } on TimeoutException {
         // A timed-out callable may still have committed successfully. The
         // immutable message id makes the Storage retry safely idempotent.
+        if (await mediaAlreadyCommitted()) return;
+      } catch (error, stackTrace) {
+        // Android may receive the successful Firestore update before the
+        // callable response is decoded. Reconcile against the authoritative
+        // message before leaving a delivered voice note in the local outbox.
+        if (await mediaAlreadyCommitted()) return;
+        Error.throwWithStackTrace(error, stackTrace);
       }
     }
 
@@ -1015,6 +1096,7 @@ class WapiRepository {
     try {
       await uploadTo(outbox);
     } on FirebaseException {
+      if (await mediaAlreadyCommitted()) return;
       // Some conversations created by older WAPI versions can briefly fail
       // the outbox rule while their membership fields are being normalized.
       // Try the canonical participant-only path before keeping the local note.
@@ -1032,6 +1114,10 @@ class WapiRepository {
       await finalize(outboxPath);
       return;
     } on FirebaseFunctionsException catch (error) {
+      if (await mediaAlreadyCommitted()) {
+        await outbox.delete().catchError((_) {});
+        return;
+      }
       // If a transient server-side copy fails, retry through the canonical
       // participant-only path. The Storage rules still enforce membership;
       // this avoids leaving a recorded voice stuck in the private outbox.
@@ -1055,12 +1141,16 @@ class WapiRepository {
         await canonical.delete().catchError((_) {});
         rethrow;
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (await mediaAlreadyCommitted()) {
+        await outbox.delete().catchError((_) {});
+        return;
+      }
       // The upload outbox is intentionally unreadable from the phone.  The
       // server is the only component allowed to turn it into a shareable
       // media URL, so never request a download URL here before this commit.
       await outbox.delete().catchError((_) {});
-      rethrow;
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 

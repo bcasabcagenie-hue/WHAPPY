@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.view.View
+import java.util.ArrayDeque
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -87,8 +88,15 @@ private class WapiPool3DPlatformView(
                 result.success(null)
             }
             "stroke" -> {
-                render(state.copy(cueStroke = 1f))
-                table.postDelayed({ render(state.copy(cueStroke = 0f)) }, 118L)
+                // A cue never teleports from its backswing to the ball.  The
+                // short acceleration ramp keeps the release visible while
+                // remaining comfortably below the player's perception of
+                // input lag.
+                render(state.copy(cueStroke = .18f))
+                table.postDelayed({ render(state.copy(cueStroke = .52f)) }, 28L)
+                table.postDelayed({ render(state.copy(cueStroke = .84f)) }, 56L)
+                table.postDelayed({ render(state.copy(cueStroke = 1f)) }, 82L)
+                table.postDelayed({ render(state.copy(cueStroke = 0f)) }, 148L)
                 result.success(null)
             }
             "sound" -> {
@@ -162,16 +170,28 @@ private class WapiPoolSoundEffects(context: Context) {
                 .build(),
         )
         .build()
-    private val cue = pool.load(context, R.raw.wapi_pool_cue, 1)
-    private val collision = pool.load(context, R.raw.wapi_pool_collision, 1)
-    private val cushion = pool.load(context, R.raw.wapi_pool_cushion, 1)
-    private val pocket = pool.load(context, R.raw.wapi_pool_pocket, 1)
     private val ready = mutableSetOf<Int>()
+    private val pending = ArrayDeque<Pair<String, Float>>()
+    private val cue: Int
+    private val collision: Int
+    private val cushion: Int
+    private val pocket: Int
 
     init {
+        // The listener must exist before load().  Fast devices can otherwise
+        // finish decoding every WAV first, leaving `ready` empty and the
+        // whole match permanently silent.
         pool.setOnLoadCompleteListener { _, sampleId, status ->
-            if (status == 0) ready += sampleId
+            if (status != 0) return@setOnLoadCompleteListener
+            ready += sampleId
+            val queued = pending.toList()
+            pending.clear()
+            queued.forEach { (kind, intensity) -> play(kind, intensity) }
         }
+        cue = pool.load(context, R.raw.wapi_pool_cue, 1)
+        collision = pool.load(context, R.raw.wapi_pool_collision, 1)
+        cushion = pool.load(context, R.raw.wapi_pool_cushion, 1)
+        pocket = pool.load(context, R.raw.wapi_pool_pocket, 1)
     }
 
     fun play(kind: String, intensity: Float) {
@@ -181,7 +201,12 @@ private class WapiPoolSoundEffects(context: Context) {
             "pocket" -> pocket
             else -> collision
         }
-        if (sample !in ready) return
+        if (sample !in ready) {
+            // Preserve the first strike even when a player enters the table
+            // and breaks immediately after the OpenGL view is created.
+            if (pending.size < 12) pending.addLast(kind to intensity)
+            return
+        }
         val force = intensity.coerceIn(.12f, 1f)
         val volume = when (kind) {
             "pocket" -> .90f

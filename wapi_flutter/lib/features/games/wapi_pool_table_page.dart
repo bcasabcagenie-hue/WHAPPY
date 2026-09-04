@@ -36,7 +36,12 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   String _tableTheme = 'competitionBlue';
   bool _sending = false;
   Timer? _replayTimer;
+  Timer? _remoteStrokeTimer;
+  Timer? _pocketNoticeTimer;
   List<_PoolBall>? _replayBalls;
+  final ValueNotifier<List<_PoolBall>?> _replayBallsNotifier = ValueNotifier(
+    null,
+  );
   List<_PoolBall> _lastKnownBalls = const [];
   List<_PoolBall> _replayAuthoritative = const [];
   bool _physicsActive = false;
@@ -53,10 +58,20 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   final _poolAudio = _PoolAudio();
   DateTime? _lastCollisionSound;
   DateTime? _lastRailSound;
+  String _pocketNotice = '';
 
   @override
   void initState() {
     super.initState();
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+    );
+    unawaited(
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+    );
     unawaited(_poolAudio.preload());
     unawaited(_loadEquipment());
   }
@@ -329,6 +344,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
           _optimisticShot = false;
           _physicsActive = false;
           _replayBalls = null;
+          _replayBallsNotifier.value = null;
         });
       }
       _message(
@@ -407,7 +423,12 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   @override
   void dispose() {
     _replayTimer?.cancel();
+    _remoteStrokeTimer?.cancel();
+    _pocketNoticeTimer?.cancel();
+    _replayBallsNotifier.dispose();
     _poolAudio.dispose();
+    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     super.dispose();
   }
 
@@ -431,13 +452,37 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
     if (_physicsActive && _optimisticShot) {
       _replayAuthoritative = authoritativeBalls;
       _optimisticShot = false;
+      _announcePocketed(startBalls, authoritativeBalls);
       return;
     }
-    // A remote strike (including WAPI IA) gets the same physical cue release
-    // and first impact as a local player before any ball starts to roll.
+    _announcePocketed(startBalls, authoritativeBalls);
+    // Keep the rack at its pre-shot position while the opponent's cue moves.
+    // Previously the authoritative final board was painted for one frame,
+    // which looked like every IA ball had teleported before the replay began.
     if (shotBy.isNotEmpty && shotBy != widget.user.uid) {
-      _playPoolSound('cue', power / 100);
+      _remoteStrokeTimer?.cancel();
+      _replayBalls = startBalls;
+      _replayBallsNotifier.value = startBalls;
+      _replayAuthoritative = authoritativeBalls;
+      _physicsActive = true;
+      if (mounted) setState(() {});
       unawaited(_poolStageKey.currentState?.stroke() ?? Future<void>.value());
+      _remoteStrokeTimer = Timer(
+        Duration(milliseconds: shotBy == 'wapi-pool-ai' ? 178 : 118),
+        () {
+          if (!mounted) return;
+          _playPoolSound('cue', power / 100);
+          _startReplay(
+            startBalls,
+            authoritativeBalls,
+            angle: angle,
+            power: power,
+            sideSpin: sideSpin,
+            followSpin: followSpin,
+          );
+        },
+      );
+      return;
     }
     _startReplay(
       startBalls,
@@ -447,6 +492,25 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       sideSpin: sideSpin,
       followSpin: followSpin,
     );
+  }
+
+  void _announcePocketed(List<_PoolBall> start, List<_PoolBall> authoritative) {
+    final before = {for (final ball in start) ball.id: ball.pocketed};
+    final ids = authoritative
+        .where(
+          (ball) => ball.id > 0 && ball.pocketed && before[ball.id] != true,
+        )
+        .map((ball) => ball.id)
+        .toList(growable: false);
+    if (ids.isEmpty || !mounted) return;
+    final label = ids.length == 1
+        ? 'BILLE ${ids.first} EMPOCHÉE'
+        : '${ids.length} BILLES EMPOCHÉES';
+    _pocketNoticeTimer?.cancel();
+    setState(() => _pocketNotice = label);
+    _pocketNoticeTimer = Timer(const Duration(milliseconds: 1900), () {
+      if (mounted) setState(() => _pocketNotice = '');
+    });
   }
 
   void _startReplay(
@@ -472,6 +536,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
               : ball.copyWith(vx: 0, vy: 0, sideSpin: 0, followSpin: 0),
         )
         .toList(growable: false);
+    _replayBallsNotifier.value = _replayBalls;
     _physicsActive = true;
     _replayTicks = 0;
     if (mounted) setState(() {});
@@ -488,13 +553,17 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         timer.cancel();
         setState(() {
           _replayBalls = null;
+          _replayBallsNotifier.value = null;
           _lastKnownBalls = _replayAuthoritative;
           _physicsActive = false;
           _optimisticShot = false;
         });
         return;
       }
-      setState(() => _replayBalls = frame);
+      // At 60 fps only the table is repainted. Rebuilding the profiles,
+      // score and controls every frame caused avoidable input latency.
+      _replayBalls = frame;
+      _replayBallsNotifier.value = frame;
     });
   }
 
@@ -554,6 +623,10 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         final shotFollowSpin =
             (data['shotFollowSpin'] as num?)?.toDouble() ?? 0;
         final shotBy = _text(data['shotBy']);
+        final incomingShot =
+            _receivedInitialRoomState &&
+            shotRevision > _lastShotRevision &&
+            shotStartBalls.length == 16;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _observeShot(
@@ -568,7 +641,11 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
             );
           }
         });
-        final balls = _replayBalls ?? authoritativeBalls;
+        // A new server snapshot contains the final board.  Render the saved
+        // pre-shot rack until _observeShot starts its local 60 fps replay.
+        final balls =
+            _replayBalls ??
+            (incomingShot ? shotStartBalls : authoritativeBalls);
         final status = _text(data['status'], 'waiting');
         final turnUid = _text(data['turnUid']);
         final ballInHandUid = _text(data['ballInHandUid']);
@@ -674,41 +751,47 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                _WapiPool3DStage(
-                                  key: _poolStageKey,
-                                  balls: balls,
-                                  angle: tableAngle,
-                                  power: tablePower,
-                                  sideSpin: tableSideSpin,
-                                  followSpin: tableFollowSpin,
-                                  aimBonus: aiAiming
-                                      ? 3
-                                      : _selectedCue.aimBonus,
-                                  moving: _physicsActive,
-                                  showAim:
-                                      (myTurn || aiAiming) &&
-                                      !ballInHand &&
-                                      !_physicsActive,
-                                  cueInHand: ballInHand,
-                                  cueStyle: _cueStyle,
-                                  tableTheme: _tableTheme,
-                                  onTablePoint: (position, released) {
-                                    if (ballInHand) {
-                                      if (released) _placeCueBall(position);
-                                      return;
-                                    }
-                                    if (!myTurn) return;
-                                    final cue = _cue(balls);
-                                    setState(() {
-                                      _angle = math.atan2(
-                                        (position.dy - cue.dy) *
-                                            _PoolPhysics.height,
-                                        (position.dx - cue.dx) *
-                                            _PoolPhysics.width,
-                                      );
-                                    });
-                                  },
-                                  onCuePull: _pullCue,
+                                ValueListenableBuilder<List<_PoolBall>?>(
+                                  valueListenable: _replayBallsNotifier,
+                                  builder: (context, replay, _) =>
+                                      _WapiPool3DStage(
+                                        key: _poolStageKey,
+                                        balls: replay ?? balls,
+                                        angle: tableAngle,
+                                        power: tablePower,
+                                        sideSpin: tableSideSpin,
+                                        followSpin: tableFollowSpin,
+                                        aimBonus: aiAiming
+                                            ? 3
+                                            : _selectedCue.aimBonus,
+                                        moving: _physicsActive,
+                                        showAim:
+                                            (myTurn || aiAiming) &&
+                                            !ballInHand &&
+                                            !_physicsActive,
+                                        cueInHand: ballInHand,
+                                        cueStyle: _cueStyle,
+                                        tableTheme: _tableTheme,
+                                        onTablePoint: (position, released) {
+                                          if (ballInHand) {
+                                            if (released) {
+                                              _placeCueBall(position);
+                                            }
+                                            return;
+                                          }
+                                          if (!myTurn) return;
+                                          final cue = _cue(balls);
+                                          setState(() {
+                                            _angle = math.atan2(
+                                              (position.dy - cue.dy) *
+                                                  _PoolPhysics.height,
+                                              (position.dx - cue.dx) *
+                                                  _PoolPhysics.width,
+                                            );
+                                          });
+                                        },
+                                        onCuePull: _pullCue,
+                                      ),
                                 ),
                                 if (aiAiming)
                                   const Positioned(
@@ -716,6 +799,17 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                                     left: 0,
                                     right: 0,
                                     child: Center(child: _PoolAiAimIndicator()),
+                                  ),
+                                if (_pocketNotice.isNotEmpty)
+                                  Positioned(
+                                    top: 14,
+                                    left: 76,
+                                    right: 76,
+                                    child: Center(
+                                      child: _PoolPocketNotice(
+                                        label: _pocketNotice,
+                                      ),
+                                    ),
                                   ),
                                 if (myTurn && !ballInHand)
                                   Positioned(
@@ -852,6 +946,42 @@ class _PoolAiAimIndicator extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PoolPocketNotice extends StatelessWidget {
+  const _PoolPocketNotice({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xED07131C),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: const Color(0xFFFFD45F), width: 1.4),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x88000000),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: .7,
+        ),
+      ),
+    ),
+  );
 }
 
 class _PoolMatchHud extends StatelessWidget {

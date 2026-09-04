@@ -298,8 +298,9 @@ function laneIsClear(
  * rejects obstructed lanes and favours a straight, short shot. Coordinates
  * are converted to the regulation 2:1 table before calculating the angle.
  */
-export function planPoolAiShot(source: PoolBall[], group: PoolGroup): PoolShot {
+export function planPoolAiShot(source: PoolBall[], group: PoolGroup, rawSkill = 1): PoolShot {
   const balls = sanitizePoolBalls(source);
+  const skill = clamp(finite(rawSkill, 1), .35, 1);
   const cue = balls.find((ball) => ball.id === 0 && !ball.pocketed);
   if (!cue) return { angle: 0, power: 45, sideSpin: 0, followSpin: 0 };
   const legalIds = new Set(targets(group, balls));
@@ -339,7 +340,7 @@ export function planPoolAiShot(source: PoolBall[], group: PoolGroup): PoolShot {
       if (!best || score > best.score) best = { shot, score };
     }
   }
-  if (best) return best.shot;
+  if (best) return applyPoolAiSkill(best.shot, balls, skill);
 
   const target = candidates.reduce<PoolBall | null>((nearest, ball) => {
     if (!nearest) return ball;
@@ -351,11 +352,31 @@ export function planPoolAiShot(source: PoolBall[], group: PoolGroup): PoolShot {
   const dx = (target.x - cue.x) * WIDTH;
   const dy = (target.y - cue.y) * HEIGHT;
   const distance = Math.hypot(dx, dy);
-  return {
+  return applyPoolAiSkill({
     angle: Math.atan2(dy, dx),
     power: Math.round(clamp(40 + distance * 5.2, 40, 78)),
     sideSpin: 0,
     followSpin: .08,
+  }, balls, skill);
+}
+
+/** Adds repeatable human imperfection without using Math.random().  Keeping
+ * it deterministic is important because a callable may be retried, while the
+ * four skill levels still need visibly different aim and power control. */
+function applyPoolAiSkill(shot: PoolShot, balls: PoolBall[], skill: number): PoolShot {
+  if (skill >= .999) return shot;
+  const state = balls.reduce((seed, ball) =>
+    seed + ball.id * 17.13 + ball.x * 91.7 + ball.y * 53.9 + (ball.pocketed ? 7.1 : 0), 0);
+  const noise = (salt: number) => {
+    const raw = Math.sin(state * 12.9898 + salt * 78.233) * 43758.5453;
+    return (raw - Math.floor(raw)) * 2 - 1;
+  };
+  const uncertainty = 1 - skill;
+  return {
+    angle: shot.angle + noise(1) * uncertainty * .075,
+    power: Math.round(clamp(shot.power * (1 + noise(2) * uncertainty * .16), 10, 100)),
+    sideSpin: clamp(shot.sideSpin + noise(3) * uncertainty * .14, -1, 1),
+    followSpin: clamp(shot.followSpin + noise(4) * uncertainty * .10, -1, 1),
   };
 }
 
@@ -387,6 +408,6 @@ export function resolvePoolShot(
     simulation.firstContactBallId === null ? "Faute : aucune bille touchée." :
       wrongFirst ? "Faute : mauvaise bille touchée en premier." :
         shooterGroupBefore === "open" && shooterGroup !== "open" ? `Groupe attribué : ${shooterGroup === "solids" ? "billes pleines" : "billes rayées"}.` :
-          ownPocket ? "Bille correcte empochée · le joueur continue." : "Tir terminé · changement de joueur.";
+          ownPocket ? `${simulation.pocketedIds.length > 1 ? `${simulation.pocketedIds.length} billes empochées` : `Bille ${simulation.pocketedIds[0]} empochée`} · le joueur continue.` : "Tir terminé · changement de joueur.";
   return { shooterGroup, opponentGroup, foul, keepTurn: !foul && ownPocket, shooterWon: null, message };
 }

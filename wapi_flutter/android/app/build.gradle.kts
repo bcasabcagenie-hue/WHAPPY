@@ -97,6 +97,12 @@ val prepareWapiPool3dAudio by tasks.registering(Sync::class) {
         include("wapi_pool_collision.wav")
         include("wapi_pool_cushion.wav")
         include("wapi_pool_pocket.wav")
+        include("wapi_piece_move.wav")
+        include("wapi_piece_select.wav")
+        include("wapi_piece_capture.wav")
+        include("wapi_piece_crown.wav")
+        include("wapi_dice_roll.wav")
+        include("wapi_victory.wav")
     }
     into(layout.buildDirectory.dir("generated/res/wapiPool3d/main/raw"))
 }

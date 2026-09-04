@@ -1,6 +1,9 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'wapi_tabletop_3d.dart';
 
 class WapiLudoPage extends StatefulWidget {
   const WapiLudoPage({super.key});
@@ -69,7 +72,7 @@ class _WapiLudoPageState extends State<WapiLudoPage> {
     } else {
       await Future<void>.delayed(const Duration(milliseconds: 450));
       if (mounted && _pendingRoll > 0 && _winner == null) {
-        _move(_movable[_random.nextInt(_movable.length)]);
+        _move(_bestAiPawn(_movable));
       }
     }
   }
@@ -136,6 +139,38 @@ class _WapiLudoPageState extends State<WapiLudoPage> {
       }
     });
     _scheduleAi();
+    HapticFeedback.selectionClick();
+  }
+
+  int _bestAiPawn(List<int> pawns) {
+    final scored = pawns.map((pawn) {
+      final player = pawn ~/ 4;
+      final old = _positions[pawn];
+      final next = old < 0 ? 0 : old + _pendingRoll;
+      var score = next;
+      if (old < 0) score += 65;
+      if (next == 57) score += 500;
+      if (next < 52) {
+        final absolute = _absolute(player, next);
+        if (_safeSquares.contains(absolute)) score += 24;
+        for (var index = 0; index < _positions.length; index += 1) {
+          final opponent = index ~/ 4;
+          final position = _positions[index];
+          if (opponent != player &&
+              position >= 0 &&
+              position < 52 &&
+              _absolute(opponent, position) == absolute) {
+            score += 150;
+          }
+        }
+      }
+      return (pawn: pawn, score: score);
+    }).toList()..sort((a, b) => b.score.compareTo(a.score));
+    final best = scored.first.score;
+    final choices = scored
+        .takeWhile((entry) => entry.score == best)
+        .toList(growable: false);
+    return choices[_random.nextInt(choices.length)].pawn;
   }
 
   void _scheduleAi() {
@@ -195,17 +230,28 @@ class _WapiLudoPageState extends State<WapiLudoPage> {
               padding: const EdgeInsets.all(14),
               child: AspectRatio(
                 aspectRatio: 1,
-                child: GestureDetector(
-                  onTapUp: (details) {
-                    if (_activePlayer != 0 || _pendingRoll == 0) return;
-                    final pawn = _hitPawn(details.localPosition, context);
-                    if (pawn != null) _move(pawn);
+                child: WapiTabletop3D.ludo(
+                  positions: _positions,
+                  activePlayer: _activePlayer,
+                  dieOne: _dieOne == 0 ? 1 : _dieOne,
+                  dieTwo: _dieTwo == 0 ? 1 : _dieTwo,
+                  rolling: _rolling,
+                  selectablePawns: _movable.toSet(),
+                  onPawn: (pawn) {
+                    if (_activePlayer == 0 && _pendingRoll > 0) _move(pawn);
                   },
-                  child: CustomPaint(
-                    painter: _LudoBoardPainter(
-                      positions: _positions,
-                      activePlayer: _activePlayer,
-                      selectable: _movable.toSet(),
+                  fallback: GestureDetector(
+                    onTapUp: (details) {
+                      if (_activePlayer != 0 || _pendingRoll == 0) return;
+                      final pawn = _hitPawn(details.localPosition, context);
+                      if (pawn != null) _move(pawn);
+                    },
+                    child: CustomPaint(
+                      painter: _LudoBoardPainter(
+                        positions: _positions,
+                        activePlayer: _activePlayer,
+                        selectable: _movable.toSet(),
+                      ),
                     ),
                   ),
                 ),
