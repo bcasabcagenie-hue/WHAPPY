@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -64,6 +66,7 @@ class WapiCallPage extends StatefulWidget {
 
 class _WapiCallPageState extends State<WapiCallPage>
     with SingleTickerProviderStateMixin {
+  static const _callUiChannel = MethodChannel('wapi/call-ui');
   final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
   late final Room _room;
   EventsListener<RoomEvent>? _listener;
@@ -75,6 +78,7 @@ class _WapiCallPageState extends State<WapiCallPage>
   bool _closing = false;
   bool _muted = false;
   bool _speaker = true;
+  bool _held = false;
   bool _cameraEnabled = true;
   CameraPosition _cameraPosition = CameraPosition.front;
   late final AnimationController _pulseController;
@@ -145,23 +149,28 @@ class _WapiCallPageState extends State<WapiCallPage>
         .collection('users')
         .doc(widget.peerId)
         .snapshots()
-        .listen((snapshot) {
-          final data = snapshot.data() ?? const <String, dynamic>{};
-          final name = (data['displayName'] as String?)?.trim() ?? '';
-          final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
-          final verified = data['verified'] == true;
-          if (!mounted ||
-              (name == _livePeerName &&
-                  photoUrl == _livePeerPhotoUrl &&
-                  verified == _peerVerified)) {
-            return;
-          }
-          setState(() {
-            _livePeerName = name;
-            _livePeerPhotoUrl = photoUrl;
-            _peerVerified = verified;
-          });
-        });
+        .listen(
+          (snapshot) {
+            final data = snapshot.data() ?? const <String, dynamic>{};
+            final name = (data['displayName'] as String?)?.trim() ?? '';
+            final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+            final verified = data['verified'] == true;
+            if (!mounted ||
+                (name == _livePeerName &&
+                    photoUrl == _livePeerPhotoUrl &&
+                    verified == _peerVerified)) {
+              return;
+            }
+            setState(() {
+              _livePeerName = name;
+              _livePeerPhotoUrl = photoUrl;
+              _peerVerified = verified;
+            });
+          },
+          onError: (_) {
+            // Le profil en cache reste visible pendant une coupure réseau.
+          },
+        );
   }
 
   void _watchCall() {
@@ -171,12 +180,17 @@ class _WapiCallPageState extends State<WapiCallPage>
         .collection('directCallSessions')
         .doc(_callId)
         .snapshots()
-        .listen((snapshot) {
-          final status = snapshot.data()?['status'] as String? ?? '';
-          if (!_closing && (status == 'declined' || status == 'ended')) {
-            unawaited(_finish(notifyServer: false));
-          }
-        });
+        .listen(
+          (snapshot) {
+            final status = snapshot.data()?['status'] as String? ?? '';
+            if (!_closing && (status == 'declined' || status == 'ended')) {
+              unawaited(_finish(notifyServer: false));
+            }
+          },
+          onError: (_) {
+            // La salle média continue même si l'historique se resynchronise.
+          },
+        );
   }
 
   Future<void> _startOutgoing() async {
@@ -197,6 +211,10 @@ class _WapiCallPageState extends State<WapiCallPage>
           });
       _callId = result.data['callId'] as String? ?? '';
       if (_callId.isEmpty) throw StateError('L’appel n’a pas pu être créé.');
+      if (_closing || !mounted) {
+        unawaited(_notifyCallClosed(_callId, 'end'));
+        return;
+      }
       _watchCall();
       await _connect(_CallAccess.fromMap(result.data));
     } catch (error) {
@@ -218,6 +236,7 @@ class _WapiCallPageState extends State<WapiCallPage>
             options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
           )
           .call<Map<String, dynamic>>({'callId': _callId});
+      if (_closing || !mounted) return;
       await _connect(_CallAccess.fromMap(result.data));
     } catch (error) {
       _accepted = false;
@@ -226,12 +245,14 @@ class _WapiCallPageState extends State<WapiCallPage>
   }
 
   Future<void> _connect(_CallAccess access) async {
+    if (_closing || !mounted) return;
     if (access.serverUrl.isEmpty || access.token.isEmpty) {
       throw StateError('Le service d’appel ne répond pas.');
     }
     final permissions = <Permission>[Permission.microphone];
     if (widget.video) permissions.add(Permission.camera);
     final values = await permissions.request();
+    if (_closing || !mounted) return;
     if (values.values.any((value) => !value.isGranted)) {
       throw StateError('Autorisez le micro et la caméra pour cet appel.');
     }
@@ -253,9 +274,14 @@ class _WapiCallPageState extends State<WapiCallPage>
     await _room
         .prepareConnection(access.serverUrl, access.token)
         .timeout(const Duration(seconds: 15));
+    if (_closing || !mounted) return;
     await _room
         .connect(access.serverUrl, access.token)
         .timeout(const Duration(seconds: 20));
+    if (_closing || !mounted) {
+      unawaited(_room.disconnect());
+      return;
+    }
     await AudioManager.instance.setSpeakerOutputPreferred(true);
     await _room.localParticipant?.setMicrophoneEnabled(true);
     if (widget.video) {
@@ -303,7 +329,7 @@ class _WapiCallPageState extends State<WapiCallPage>
       '${(_callSeconds ~/ 60).toString().padLeft(2, '0')}:${(_callSeconds % 60).toString().padLeft(2, '0')}';
 
   void _setFailure(Object error) {
-    if (!mounted) return;
+    if (!mounted || _closing) return;
     final message = wapiErrorText(
       error is FirebaseFunctionsException ? error.message : error,
       fallback:
@@ -338,6 +364,7 @@ class _WapiCallPageState extends State<WapiCallPage>
             options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
           )
           .call<Map<String, dynamic>>({'callId': _callId});
+      if (_closing || !mounted) return;
       await _connect(_CallAccess.fromMap(result.data));
     } catch (error) {
       _setFailure(error);
@@ -369,15 +396,172 @@ class _WapiCallPageState extends State<WapiCallPage>
   }
 
   Future<void> _toggleMute() async {
+    if (_held) {
+      _showCallHint('Reprenez l’appel avant de réactiver le micro.');
+      return;
+    }
     final next = !_muted;
     await _room.localParticipant?.setMicrophoneEnabled(!next);
     if (mounted) setState(() => _muted = next);
   }
 
-  Future<void> _toggleSpeaker() async {
-    final next = !_speaker;
-    await AudioManager.instance.setSpeakerOutputPreferred(next);
-    if (mounted) setState(() => _speaker = next);
+  Future<void> _showAudioRoute() async {
+    final speaker = await showModalBottomSheet<bool>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF102731),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Sortie audio',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              tileColor: _speaker ? const Color(0xFF174453) : null,
+              leading: const Icon(Icons.volume_up_rounded, color: Colors.white),
+              title: const Text(
+                'Haut-parleur',
+                style: TextStyle(color: Colors.white),
+              ),
+              trailing: _speaker
+                  ? const Icon(
+                      Icons.check_circle_rounded,
+                      color: Color(0xFF5EE7B7),
+                    )
+                  : null,
+              onTap: () => Navigator.pop(sheetContext, true),
+            ),
+            const SizedBox(height: 6),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              tileColor: !_speaker ? const Color(0xFF174453) : null,
+              leading: const Icon(Icons.hearing_rounded, color: Colors.white),
+              title: const Text(
+                'Écouteur du téléphone',
+                style: TextStyle(color: Colors.white),
+              ),
+              subtitle: const Text(
+                'Les appareils Bluetooth restent gérés par le téléphone.',
+                style: TextStyle(color: Colors.white60),
+              ),
+              trailing: !_speaker
+                  ? const Icon(
+                      Icons.check_circle_rounded,
+                      color: Color(0xFF5EE7B7),
+                    )
+                  : null,
+              onTap: () => Navigator.pop(sheetContext, false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (speaker == null) return;
+    await AudioManager.instance.setSpeakerOutputPreferred(speaker);
+    if (mounted) setState(() => _speaker = speaker);
+  }
+
+  Future<void> _toggleHold() async {
+    if (_connectedAt == null) {
+      _showCallHint('La mise en attente sera disponible après la connexion.');
+      return;
+    }
+    final next = !_held;
+    final participant = _room.localParticipant;
+    if (next) {
+      await participant?.setMicrophoneEnabled(false);
+      if (widget.video) await participant?.setCameraEnabled(false);
+    } else {
+      await participant?.setMicrophoneEnabled(!_muted);
+      if (widget.video) await participant?.setCameraEnabled(_cameraEnabled);
+    }
+    if (!mounted) return;
+    setState(() {
+      _held = next;
+      _status = next ? 'Appel en attente' : 'En appel';
+    });
+  }
+
+  Future<void> _minimizeCall() async {
+    if (!widget.video || _connectedAt == null) {
+      _showCallHint(
+        'La fenêtre flottante est disponible pendant un appel vidéo.',
+      );
+      return;
+    }
+    try {
+      final entered = await _callUiChannel.invokeMethod<bool>(
+        'enterPictureInPicture',
+      );
+      if (entered != true) {
+        _showCallHint(
+          'La fenêtre flottante n’est pas disponible sur ce téléphone.',
+        );
+      }
+    } catch (_) {
+      _showCallHint('Impossible de réduire cet appel sur ce téléphone.');
+    }
+  }
+
+  void _showCallInfo() {
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF102731),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 4, 22, 26),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.shield_rounded,
+              color: Color(0xFF5EE7B7),
+              size: 36,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Appel WAPI privé',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              _connectedAt == null
+                  ? 'Connexion en cours avec $_peerName.'
+                  : 'Durée $_durationLabel · démarré $_callStartedLabel.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, height: 1.35),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCallHint(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> _switchCamera() async {
@@ -391,6 +575,10 @@ class _WapiCallPageState extends State<WapiCallPage>
 
   Future<void> _toggleCamera() async {
     if (!widget.video) return;
+    if (_held) {
+      _showCallHint('Reprenez l’appel avant de réactiver la caméra.');
+      return;
+    }
     final next = !_cameraEnabled;
     await _room.localParticipant?.setCameraEnabled(next);
     if (mounted) setState(() => _cameraEnabled = next);
@@ -522,24 +710,54 @@ class _WapiCallPageState extends State<WapiCallPage>
     bool notifyServer = true,
   }) async {
     if (_closing) return;
-    _closing = true;
     _callTimer?.cancel();
-    try {
-      if (notifyServer && _callId.isNotEmpty) {
-        await _functions
-            .httpsCallable(
-              'closeDirectCallSession',
-              options: HttpsCallableOptions(
-                timeout: const Duration(seconds: 12),
-              ),
-            )
-            .call<Map<String, dynamic>>({'callId': _callId, 'action': action});
-      }
-    } catch (_) {
-      // Closing local media stays possible if the network drops.
+    if (mounted) {
+      setState(() {
+        _closing = true;
+        _status = 'Fin de l’appel…';
+      });
+    } else {
+      _closing = true;
     }
-    await _room.disconnect();
-    if (mounted) Navigator.of(context).pop();
+
+    final localParticipant = _room.localParticipant;
+    if (localParticipant != null) {
+      unawaited(localParticipant.setMicrophoneEnabled(false));
+      if (widget.video) {
+        unawaited(localParticipant.setCameraEnabled(false));
+      }
+    }
+    unawaited(_room.disconnect());
+
+    // Raccrocher is a local action first: the screen and media must close even
+    // on a weak network. Server notification continues independently and is
+    // idempotent, so it must never hold the user on the call screen.
+    if (notifyServer && _callId.isNotEmpty) {
+      unawaited(_notifyCallClosed(_callId, action));
+    }
+    // PopScope observes canPop during the next frame. Waiting for that single
+    // rebuild removes the route reliably instead of waiting up to 12 seconds
+    // for the callable and then attempting to pop a route that still forbids
+    // navigation.
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _notifyCallClosed(String callId, String action) async {
+    try {
+      await _functions
+          .httpsCallable(
+            'closeDirectCallSession',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 8)),
+          )
+          .call<Map<String, dynamic>>({'callId': callId, 'action': action});
+    } catch (_) {
+      // The local hang-up has already completed. LiveKit also removes the
+      // participant when the room is disposed, so a network error here must
+      // never reopen or freeze the call UI.
+    }
   }
 
   @override
@@ -555,7 +773,7 @@ class _WapiCallPageState extends State<WapiCallPage>
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: false,
+    canPop: _closing,
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop) {
         unawaited(_finish(action: _incoming && !_accepted ? 'decline' : 'end'));
@@ -851,11 +1069,12 @@ class _WapiCallPageState extends State<WapiCallPage>
                                 ),
                               ),
                             )
-                          : Image.network(
-                              _peerPhotoUrl,
+                          : CachedNetworkImage(
+                              imageUrl: _peerPhotoUrl,
                               fit: BoxFit.cover,
-                              gaplessPlayback: true,
-                              errorBuilder: (_, _, _) => Center(
+                              fadeInDuration: const Duration(milliseconds: 120),
+                              useOldImageOnUrlChange: true,
+                              errorWidget: (_, _, _) => Center(
                                 child: Text(
                                   _peerName.substring(0, 1).toUpperCase(),
                                   style: const TextStyle(
@@ -865,15 +1084,12 @@ class _WapiCallPageState extends State<WapiCallPage>
                                   ),
                                 ),
                               ),
-                              loadingBuilder: (context, child, progress) =>
-                                  progress == null
-                                  ? child
-                                  : const Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
+                              placeholder: (_, _) => const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white70,
+                                ),
+                              ),
                             ),
                     ),
                   ),
@@ -963,9 +1179,16 @@ class _WapiCallPageState extends State<WapiCallPage>
           onTap: _toggleMute,
         ),
         _CallAction(
-          icon: _speaker ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-          label: 'Haut-parleur',
-          onTap: _toggleSpeaker,
+          icon: _speaker ? Icons.volume_up_rounded : Icons.hearing_rounded,
+          label: _speaker ? 'Haut-parleur' : 'Écouteur',
+          emphasized: _speaker,
+          onTap: _showAudioRoute,
+        ),
+        _CallAction(
+          icon: _held ? Icons.play_arrow_rounded : Icons.pause_rounded,
+          label: _held ? 'Reprendre' : 'Attente',
+          emphasized: _held,
+          onTap: _toggleHold,
         ),
         if (widget.video)
           _CallAction(
@@ -982,6 +1205,12 @@ class _WapiCallPageState extends State<WapiCallPage>
             label: 'Retourner',
             onTap: _switchCamera,
           ),
+        if (widget.video)
+          _CallAction(
+            icon: Icons.picture_in_picture_alt_rounded,
+            label: 'Réduire',
+            onTap: _minimizeCall,
+          ),
         _CallAction(
           icon: _translationBusy
               ? Icons.hourglass_top_rounded
@@ -993,6 +1222,11 @@ class _WapiCallPageState extends State<WapiCallPage>
               : 'Traduire',
           emphasized: _translationEnabled,
           onTap: _toggleTranslation,
+        ),
+        _CallAction(
+          icon: Icons.info_outline_rounded,
+          label: 'Infos',
+          onTap: _showCallInfo,
         ),
         if (_error != null)
           _CallAction(

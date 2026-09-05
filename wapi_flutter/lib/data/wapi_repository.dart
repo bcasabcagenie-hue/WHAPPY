@@ -1017,12 +1017,18 @@ class WapiRepository {
     if (kind == 'document' && mediaSizeBytes > 50 * 1024 * 1024) {
       throw StateError('Le document dépasse la limite WAPI de 50 Mo.');
     }
-    final mediaSha256 = (await sha256.bind(file.openRead()).first).toString();
+    const inlineVoiceLimit = 5 * 1024 * 1024;
+    final voiceBytes = kind == 'audio' && mediaSizeBytes <= inlineVoiceLimit
+        ? await file.readAsBytes()
+        : null;
+    final mediaSha256 = voiceBytes == null
+        ? (await sha256.bind(file.openRead()).first).toString()
+        : sha256.convert(voiceBytes).toString();
     Future<bool> mediaAlreadyCommitted() async {
       try {
         final snapshot = await message
             .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(seconds: 3));
         final data = snapshot.data();
         return snapshot.exists &&
             data?['senderId'] == user.uid &&
@@ -1061,76 +1067,13 @@ class WapiRepository {
       );
     }
 
-    // Short voice notes are the most time-sensitive media in a conversation.
-    // For current conversations, publish them directly through the two
-    // participant-protected Storage and Firestore paths. This removes a cloud
-    // function cold start from the normal send path while the server callable
-    // below remains the compatibility fallback for older conversations.
-    const directVoiceLimit = 2 * 1024 * 1024;
-    if (kind == 'audio' && mediaSizeBytes <= directVoiceLimit) {
-      try {
-        // Storage itself validates conversation membership, so a separate
-        // preflight read would only add another network round-trip.
-        final canonical = _storage.ref(canonicalPath);
-        final bytes = await file.readAsBytes();
-        final upload = canonical.putData(
-          bytes,
-          SettableMetadata(
-            contentType: safeContentType,
-            cacheControl: 'private,max-age=31536000,immutable',
-            customMetadata: {
-              'wapiMediaSha256': mediaSha256,
-              'wapiConversationId': conversationId,
-              'wapiMessageId': message.id,
-            },
-          ),
-        );
-        await upload.timeout(
-          const Duration(seconds: 18),
-          onTimeout: () {
-            upload.cancel();
-            throw TimeoutException('Le transfert vocal WAPI a expiré.');
-          },
-        );
-        final mediaUrl = await canonical.getDownloadURL().timeout(
-          const Duration(seconds: 6),
-        );
-        final batch = _db.batch();
-        batch.set(message, {
-          'text': caption.trim().isEmpty ? 'Message vocal' : caption.trim(),
-          'senderId': user.uid,
-          'clientMessageId': message.id,
-          'kind': 'audio',
-          'mediaUrl': mediaUrl,
-          'mediaName': displayName,
-          'contentType': safeContentType,
-          'mediaSizeBytes': mediaSizeBytes,
-          'mediaSha256': mediaSha256,
-          'duration': durationSeconds.clamp(0, 600),
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        batch.update(conversation, {
-          'lastMessage': 'Message vocal',
-          'lastSenderId': user.uid,
-          'updatedAt': FieldValue.serverTimestamp(),
-          'typingBy.${user.uid}': false,
-        });
-        await batch.commit().timeout(const Duration(seconds: 8));
-        return;
-      } catch (_) {
-        // A timeout can happen after the write reached Firestore. Reconcile
-        // before using the idempotent server path with the same message id.
-        if (await mediaAlreadyCommitted()) return;
-      }
-    }
-
     final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable(
           'commitConversationMedia',
           options: HttpsCallableOptions(
             timeout: Duration(
               seconds: kind == 'audio'
-                  ? 18
+                  ? 15
                   : kind == 'document'
                   ? 180
                   : 120,
@@ -1159,38 +1102,91 @@ class WapiRepository {
       });
     }
 
-    // Voice notes are usually small. Sending them through the authenticated
-    // callable first removes the fragile phone-side Storage permission hop;
-    // the server still verifies conversation membership, size and SHA-256.
-    // Longer recordings continue through the resumable Storage path below.
-    const inlineVoiceLimit = 5 * 1024 * 1024;
-    if (kind == 'audio' && mediaSizeBytes <= inlineVoiceLimit) {
+    // Short voice notes take the low-latency participant path first. Previous
+    // builds waited for a callable cold start before attempting this upload,
+    // which made a two-second note feel stuck even on a healthy connection.
+    // The immutable message id makes every fallback below idempotent.
+    const directVoiceLimit = 2 * 1024 * 1024;
+    var canonicalVoiceUploaded = false;
+    if (kind == 'audio' && mediaSizeBytes <= directVoiceLimit) {
+      try {
+        // Storage itself validates conversation membership, so a separate
+        // preflight read would only add another network round-trip.
+        final canonical = _storage.ref(canonicalPath);
+        final upload = canonical.putData(
+          voiceBytes ?? await file.readAsBytes(),
+          SettableMetadata(
+            contentType: safeContentType,
+            cacheControl: 'private,max-age=31536000,immutable',
+            customMetadata: {
+              'wapiMediaSha256': mediaSha256,
+              'wapiConversationId': conversationId,
+              'wapiMessageId': message.id,
+            },
+          ),
+        );
+        await upload.timeout(
+          const Duration(seconds: 12),
+          onTimeout: () {
+            upload.cancel();
+            throw TimeoutException('Le transfert vocal WAPI a expiré.');
+          },
+        );
+        canonicalVoiceUploaded = true;
+        final mediaUrl = await canonical.getDownloadURL().timeout(
+          const Duration(seconds: 5),
+        );
+        final batch = _db.batch();
+        batch.set(message, {
+          'text': caption.trim().isEmpty ? 'Message vocal' : caption.trim(),
+          'senderId': user.uid,
+          'clientMessageId': message.id,
+          'kind': 'audio',
+          'mediaUrl': mediaUrl,
+          'mediaName': displayName,
+          'contentType': safeContentType,
+          'mediaSizeBytes': mediaSizeBytes,
+          'mediaSha256': mediaSha256,
+          'duration': durationSeconds.clamp(0, 600),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        batch.update(conversation, {
+          'lastMessage': 'Message vocal',
+          'lastSenderId': user.uid,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'typingBy.${user.uid}': false,
+        });
+        await batch.commit().timeout(const Duration(seconds: 6));
+        return;
+      } catch (_) {
+        // A timeout can happen after the write reached Firestore. Reconcile
+        // briefly before using the idempotent outbox path with the same id.
+        if (await mediaAlreadyCommitted()) return;
+      }
+    }
+
+    // The trusted server path supports old conversations whose participant
+    // maps were incomplete. If Storage already accepted the bytes, only the
+    // tiny commit payload is sent; otherwise the compact recording is inlined
+    // once so the user never has to record it again.
+    if (voiceBytes != null) {
       try {
         await finalize(
           canonicalPath,
-          inlineMediaBase64: base64Encode(await file.readAsBytes()),
+          inlineMediaBase64: canonicalVoiceUploaded
+              ? ''
+              : base64Encode(voiceBytes),
         );
         return;
-      } on FirebaseFunctionsException catch (error) {
-        if (await mediaAlreadyCommitted()) return;
-        const storageFallbackCodes = {
-          'internal',
-          'unknown',
-          'unavailable',
-          'deadline-exceeded',
-          'resource-exhausted',
-        };
-        if (!storageFallbackCodes.contains(error.code)) rethrow;
       } on TimeoutException {
-        // A timed-out callable may still have committed successfully. The
-        // immutable message id makes the Storage retry safely idempotent.
         if (await mediaAlreadyCommitted()) return;
-      } catch (error, stackTrace) {
-        // Android may receive the successful Firestore update before the
-        // callable response is decoded. Reconcile against the authoritative
-        // message before leaving a delivered voice note in the local outbox.
-        if (await mediaAlreadyCommitted()) return;
-        Error.throwWithStackTrace(error, stackTrace);
+      } on FirebaseFunctionsException catch (error) {
+        if (error.code == 'deadline-exceeded' &&
+            await mediaAlreadyCommitted()) {
+          return;
+        }
+      } catch (_) {
+        // Continue through the durable server outbox below.
       }
     }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -806,10 +807,12 @@ class _Poster extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = _string(event['posterUrl']);
     if (url.isNotEmpty)
-      return Image.network(
-        url,
+      return CachedNetworkImage(
+        imageUrl: url,
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => _fallback(),
+        fadeInDuration: const Duration(milliseconds: 120),
+        placeholder: (_, _) => _fallback(),
+        errorWidget: (_, _, _) => _fallback(),
       );
     return _fallback();
   }

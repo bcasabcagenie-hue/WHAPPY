@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -419,7 +420,9 @@ class _LiveListTile extends StatelessWidget {
                   CircleAvatar(
                     radius: 29,
                     backgroundColor: WapiColors.blueSoft,
-                    backgroundImage: photo.isEmpty ? null : NetworkImage(photo),
+                    backgroundImage: photo.isEmpty
+                        ? null
+                        : CachedNetworkImageProvider(photo),
                     child: photo.isEmpty
                         ? Text(host.characters.first.toUpperCase())
                         : null,
@@ -1705,7 +1708,7 @@ class _WapiLiveRoomPageState extends State<_WapiLiveRoomPage> {
                           backgroundColor: WapiColors.blueSoft,
                           backgroundImage: photo.isEmpty
                               ? null
-                              : NetworkImage(photo),
+                              : CachedNetworkImageProvider(photo),
                           child: photo.isEmpty
                               ? Text(name.characters.first.toUpperCase())
                               : null,
@@ -1932,7 +1935,7 @@ class _VideoStage extends StatelessWidget {
               backgroundColor: WapiColors.blue,
               backgroundImage: hostPhotoUrl.isEmpty
                   ? null
-                  : NetworkImage(hostPhotoUrl),
+                  : CachedNetworkImageProvider(hostPhotoUrl),
               child: hostPhotoUrl.isEmpty
                   ? Text(
                       hostName.characters.first.toUpperCase(),

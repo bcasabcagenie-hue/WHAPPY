@@ -4,6 +4,9 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
 import android.media.AudioManager
+import android.app.PictureInPictureParams
+import android.os.Build
+import android.util.Rational
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -56,6 +59,25 @@ class MainActivity : FlutterActivity() {
                     result.success(false)
                 } catch (error: Exception) {
                     result.error("open_failed", error.message, null)
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "wapi/call-ui")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "enterPictureInPicture") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    result.success(false)
+                    return@setMethodCallHandler
+                }
+                try {
+                    val params = PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(9, 16))
+                        .build()
+                    result.success(enterPictureInPictureMode(params))
+                } catch (_: Exception) {
+                    result.success(false)
                 }
             }
     }

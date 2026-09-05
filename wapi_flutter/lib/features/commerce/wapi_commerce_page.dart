@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -694,12 +695,12 @@ class _CampaignCard extends StatelessWidget {
                         color: Color(0xFF087D62),
                       ),
                     )
-                  : Image.network(
-                      imageUrl,
+                  : CachedNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      cacheWidth: 220,
-                      gaplessPlayback: true,
-                      errorBuilder: (_, _, _) => const ColoredBox(
+                      memCacheWidth: 220,
+                      fadeInDuration: const Duration(milliseconds: 100),
+                      errorWidget: (_, _, _) => const ColoredBox(
                         color: Color(0xFFE7F4F2),
                         child: Icon(
                           Icons.image_not_supported_outlined,
@@ -1377,7 +1378,9 @@ class _BusinessIdentityBanner extends StatelessWidget {
           CircleAvatar(
             radius: 29,
             backgroundColor: const Color(0xFF087D62),
-            backgroundImage: logo.isEmpty ? null : NetworkImage(logo),
+            backgroundImage: logo.isEmpty
+                ? null
+                : CachedNetworkImageProvider(logo),
             child: logo.isEmpty
                 ? Text(
                     initials,
@@ -1607,7 +1610,9 @@ class _BusinessCard extends StatelessWidget {
             CircleAvatar(
               radius: 25,
               backgroundColor: Color(0xFFEAF8F4),
-              backgroundImage: logo.isEmpty ? null : NetworkImage(logo),
+              backgroundImage: logo.isEmpty
+                  ? null
+                  : CachedNetworkImageProvider(logo),
               child: logo.isEmpty
                   ? Text(
                       initials,
@@ -1906,11 +1911,13 @@ class _ListingImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (url.isNotEmpty)
-      return Image.network(
-        url,
+      return CachedNetworkImage(
+        imageUrl: url,
         height: height,
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => _fallback(),
+        fadeInDuration: const Duration(milliseconds: 120),
+        placeholder: (_, _) => _fallback(),
+        errorWidget: (_, _, _) => _fallback(),
       );
     return _fallback();
   }

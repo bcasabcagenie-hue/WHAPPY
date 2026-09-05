@@ -11,10 +11,14 @@ import '../features/calls/wapi_call_page.dart';
 import '../features/live/wapi_live_page.dart';
 import '../features/shell/wapi_shell.dart';
 import '../services/wapi_notifications.dart';
+import 'wapi_session.dart';
 import 'wapi_theme.dart';
 
 final authStateProvider = StreamProvider<User?>((ref) {
-  return FirebaseAuth.instance.authStateChanges();
+  return validatedWapiAuthStates(
+    FirebaseAuth.instance,
+    localTestMode: _wapiLocalTestMode,
+  );
 });
 final wapiNavigatorKey = GlobalKey<NavigatorState>();
 const _wapiLocalTestMode = bool.fromEnvironment('WAPI_LOCAL_TEST');
@@ -60,17 +64,16 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi>
     with WidgetsBindingObserver {
   String? _conversationFromNotification;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _incomingCalls;
+  Timer? _incomingCallRetryTimer;
   String? _activeIncomingCallId;
+  bool _syncingNotifications = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (!_wapiLocalTestMode) {
-      WapiNotifications.initialize(onTap: _openNotification).then((_) async {
-        await WapiNotifications.register(widget.user);
-        await WapiNotifications.syncUnreadBadge(widget.user.uid);
-      });
+      unawaited(_syncNotifications());
     }
     _watchIncomingCalls();
   }
@@ -78,6 +81,7 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _incomingCallRetryTimer?.cancel();
     _incomingCalls?.cancel();
     super.dispose();
   }
@@ -85,33 +89,74 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(WapiNotifications.register(widget.user));
-      unawaited(WapiNotifications.syncUnreadBadge(widget.user.uid));
+      unawaited(_validateResumedSession());
+      unawaited(_syncNotifications());
+      if (_incomingCalls == null) _watchIncomingCalls();
+    }
+  }
+
+  Future<void> _validateResumedSession() async {
+    if (_wapiLocalTestMode) return;
+    try {
+      await widget.user.getIdToken(true).timeout(const Duration(seconds: 10));
+    } on FirebaseAuthException catch (error) {
+      if (wapiSessionNeedsSignIn(error.code, error.message)) {
+        await FirebaseAuth.instance.signOut();
+      }
+    } catch (_) {
+      // A temporary outage keeps the cached WAPI session available.
+    }
+  }
+
+  Future<void> _syncNotifications() async {
+    if (_wapiLocalTestMode || _syncingNotifications) return;
+    _syncingNotifications = true;
+    try {
+      await WapiNotifications.initialize(onTap: _openNotification);
+      await WapiNotifications.register(widget.user);
+      await WapiNotifications.syncUnreadBadge(widget.user.uid);
+    } catch (_) {
+      // Registration is retried when the application resumes.
+    } finally {
+      _syncingNotifications = false;
     }
   }
 
   void _watchIncomingCalls() {
+    _incomingCallRetryTimer?.cancel();
+    unawaited(_incomingCalls?.cancel());
     _incomingCalls = FirebaseFirestore.instance
         .collection('directCallSessions')
         .where('calleeId', isEqualTo: widget.user.uid)
         .limit(25)
         .snapshots()
-        .listen((snapshot) {
-          for (final change in snapshot.docChanges) {
-            final call = change.doc;
-            final data = call.data();
-            if (data == null) continue;
-            final status = data['status']?.toString() ?? '';
-            if (status != 'ringing' || _callExpired(data)) {
-              unawaited(WapiNotifications.dismissCall(call.id));
-              continue;
+        .listen(
+          (snapshot) {
+            for (final change in snapshot.docChanges) {
+              final call = change.doc;
+              final data = call.data();
+              if (data == null) continue;
+              final status = data['status']?.toString() ?? '';
+              if (status != 'ringing' || _callExpired(data)) {
+                unawaited(WapiNotifications.dismissCall(call.id));
+                continue;
+              }
+              if (status == 'ringing') {
+                unawaited(_presentIncomingCall(call.id, data));
+                return;
+              }
             }
-            if (status == 'ringing') {
-              unawaited(_presentIncomingCall(call.id, data));
-              return;
-            }
-          }
-        });
+          },
+          onError: (_) {
+            unawaited(_incomingCalls?.cancel());
+            _incomingCalls = null;
+            _incomingCallRetryTimer?.cancel();
+            _incomingCallRetryTimer = Timer(const Duration(seconds: 4), () {
+              if (mounted) _watchIncomingCalls();
+            });
+          },
+          cancelOnError: true,
+        );
   }
 
   Future<void> _openNotification(String payload, String? actionId) async {
@@ -139,10 +184,16 @@ class _AuthenticatedWapiState extends State<_AuthenticatedWapi>
     final callId = payload.substring('call:'.length);
     final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
     if (actionId == 'decline_call') {
-      await functions
-          .httpsCallable('closeDirectCallSession')
-          .call<Map<String, dynamic>>({'callId': callId, 'action': 'decline'})
-          .timeout(const Duration(seconds: 12));
+      await WapiNotifications.dismissCall(callId);
+      try {
+        await functions
+            .httpsCallable('closeDirectCallSession')
+            .call<Map<String, dynamic>>({'callId': callId, 'action': 'decline'})
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        // Refusing is immediate on the phone; the server will also expire an
+        // unanswered room if the network disappeared at that exact moment.
+      }
       return;
     }
     Map<String, dynamic> data;

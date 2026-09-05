@@ -303,6 +303,29 @@ export function planPoolAiShot(source: PoolBall[], group: PoolGroup, rawSkill = 
   const skill = clamp(finite(rawSkill, 1), .35, 1);
   const cue = balls.find((ball) => ball.id === 0 && !ball.pocketed);
   if (!cue) return { angle: 0, power: 45, sideSpin: 0, followSpin: 0 };
+  const objectBalls = balls.filter((ball) => ball.id > 0 && !ball.pocketed);
+
+  // A complete, still-tight rack is a break, not an ordinary potting puzzle.
+  // The former planner selected a timid 35–50% contact shot here, making the
+  // IA opening look artificial. Aim through the head ball with controlled
+  // follow and enough energy to open the rack like a real eight-ball break.
+  const rackWidth = objectBalls.length
+    ? Math.max(...objectBalls.map(ball => ball.x)) - Math.min(...objectBalls.map(ball => ball.x))
+    : 1;
+  const rackHeight = objectBalls.length
+    ? Math.max(...objectBalls.map(ball => ball.y)) - Math.min(...objectBalls.map(ball => ball.y))
+    : 1;
+  if (objectBalls.length >= 14 && rackWidth < .15 && rackHeight < .30) {
+    const head = objectBalls.reduce((nearest, ball) => ball.x < nearest.x ? ball : nearest);
+    const dx = (head.x - cue.x) * WIDTH;
+    const dy = (head.y - cue.y) * HEIGHT;
+    return applyPoolAiSkill({
+      angle: Math.atan2(dy, dx),
+      power: Math.round(88 + skill * 10),
+      sideSpin: 0,
+      followSpin: .12 + skill * .08,
+    }, balls, skill);
+  }
   const legalIds = new Set(targets(group, balls));
   const candidates = balls.filter((ball) => !ball.pocketed && legalIds.has(ball.id));
   let best: { shot: PoolShot; score: number } | null = null;
@@ -329,13 +352,24 @@ export function planPoolAiShot(source: PoolBall[], group: PoolGroup, rawSkill = 
       if (!laneIsClear(balls, cue, ghostX, ghostY, new Set([0, target.id]))) continue;
       if (!laneIsClear(balls, target, pocketX, pocketY, new Set([target.id]))) continue;
 
-      const score = cutQuality * 5.2 - cueDistance * .18 - objectDistance * .12;
+      // Position and scratch awareness separate a believable opponent from a
+      // bot that only sees the current pocket. Thin cuts close to a pocket
+      // mouth are dangerous for the white; central contact points preserve a
+      // playable cue-ball position for the next visit.
+      const cuePocketRisk = POCKETS.reduce((risk, [px, py]) => {
+        const distance = Math.hypot((ghostX - px) * WIDTH, (ghostY - py) * HEIGHT);
+        return Math.max(risk, clamp((.72 - distance) / .72, 0, 1));
+      }, 0);
+      const centrePosition = 1 - clamp(Math.hypot((ghostX - .5) * .55, ghostY - .5) / .55, 0, 1);
+      const score = cutQuality * 5.2 - cueDistance * .18 - objectDistance * .12 +
+        centrePosition * .28 - cuePocketRisk * (1.15 - skill * .35);
       const power = clamp(30 + cueDistance * 5.1 + objectDistance * 2.8, 34, 86);
+      const follow = clamp((centrePosition - .48) * .28, -.16, .14);
       const shot: PoolShot = {
         angle: Math.atan2(cueY, cueX),
         power: Math.round(power),
         sideSpin: 0,
-        followSpin: cutQuality > .82 ? .10 : 0,
+        followSpin: cutQuality > .82 ? follow + .08 : follow,
       };
       if (!best || score > best.score) best = { shot, score };
     }

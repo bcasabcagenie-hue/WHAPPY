@@ -127,6 +127,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         followSpin: Float = 0f,
         aimBonus: Int = 0,
         moving: Boolean,
+        aiAiming: Boolean = false,
+        showAim: Boolean = false,
         cueStroke: Float = 0f,
         cueInHand: Boolean = false,
         tableTheme: String = "competitionBlue",
@@ -140,6 +142,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         tabletopRenderer.poolFollowSpin = followSpin.coerceIn(-1f, 1f)
         tabletopRenderer.poolAimBonus = aimBonus.coerceIn(0, 4)
         tabletopRenderer.poolMoving = moving
+        tabletopRenderer.poolAiAiming = aiAiming
+        tabletopRenderer.poolShowAim = showAim
         tabletopRenderer.poolCueStroke = cueStroke.coerceIn(0f, 1f)
         tabletopRenderer.poolCueInHand = cueInHand
         tabletopRenderer.poolTableTheme = tableTheme
@@ -181,7 +185,13 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 if (touchInput.cancelled) return true
                 touchInput.move(event.x, event.y)
                 if (tabletopRenderer.scene == Scene.POOL) {
-                    if (!poolPullArmed) dispatchPoolGesture(event, released = false)
+                    if (!poolPullArmed) {
+                        dispatchPoolGesture(event, released = false)
+                    } else {
+                        val origin = poolPullOrigin
+                        val point = tabletopRenderer.pickPoolPoint(event.x, event.y)
+                        if (origin != null && point != null) tabletopRenderer.previewPoolPull(origin, point)
+                    }
                     requestGameFrame()
                     return true
                 }
@@ -207,6 +217,10 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                     }
                     poolPullOrigin = null
                     poolPullArmed = false
+                    postDelayed({
+                        tabletopRenderer.endPoolPullPreview()
+                        requestGameFrame()
+                    }, 180L)
                 } else if (tapped) {
                     if (tabletopRenderer.scene == Scene.LUDO) {
                         tabletopRenderer.pickLudoPawn(event.x, event.y)?.let { pawn ->
@@ -225,6 +239,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 tabletopRenderer.endOrbit()
                 poolPullOrigin = null
                 poolPullArmed = false
+                tabletopRenderer.endPoolPullPreview()
                 return true
             }
         }
@@ -238,6 +253,8 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
 
     private fun dispatchPoolGesture(event: MotionEvent, released: Boolean) {
         tabletopRenderer.pickPoolPoint(event.x, event.y)?.let { point ->
+            tabletopRenderer.aimPoolAt(point[0], point[1])
+            requestGameFrame()
             onPoolGesture?.invoke(point[0], point[1], released)
         }
     }
@@ -289,10 +306,13 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         @Volatile var poolFollowSpin: Float = 0f
         @Volatile var poolAimBonus: Int = 0
         @Volatile var poolMoving: Boolean = false
+        @Volatile var poolAiAiming: Boolean = false
+        @Volatile var poolShowAim: Boolean = false
         @Volatile var poolCueStroke: Float = 0f
         @Volatile var poolCueInHand: Boolean = false
         @Volatile var poolTableTheme: String = "competitionBlue"
         @Volatile var poolCueStyle: String = "maple"
+        @Volatile private var poolPullPreview: Int = -1
         @Volatile private var strategyMove: StrategyMove? = null
         @Volatile private var ludoMove: LudoMove? = null
 
@@ -345,10 +365,11 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
         private val pocketLiner = pocketLinerMesh(48)
         private val ballRoll = mutableMapOf<Int, FloatArray>()
         private val startedAt = System.nanoTime()
+        private var renderedPoolAim = 0f
 
         /** True only while visible state is actually changing. */
         fun needsAnimationFrame(): Boolean = when (scene) {
-            Scene.POOL -> poolMoving || poolCueStroke > .001f || poolDrops.isNotEmpty()
+            Scene.POOL -> poolMoving || poolAiAiming || poolCueStroke > .001f || poolDrops.isNotEmpty()
             Scene.LUDO -> dieRolling || ludoMove != null
             Scene.CHECKERS, Scene.CHESS -> strategyMove != null || orbiting ||
                 abs(yawVelocity) > .01f || abs(pitchVelocity) > .01f
@@ -417,6 +438,28 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
             if (newlyDropped.isNotEmpty()) poolDrops = (poolDrops + newlyDropped).takeLast(8)
             poolBalls = nextBalls.map(FloatArray::copyOf)
         }
+
+        /** Update the visible line on the GL thread immediately. Dart still
+         * receives the same point and remains the shot authority, but aiming
+         * no longer waits for a platform-channel round trip. */
+        fun aimPoolAt(normalizedX: Float, normalizedY: Float) {
+            if (poolMoving || poolCueInHand || !poolShowAim) return
+            val cue = poolBalls.firstOrNull { it.size >= 6 && it[2].toInt() == 0 && it[5] < .5f } ?: return
+            val dx = (normalizedX - cue[0]) * WAPI_POOL_WORLD_WIDTH
+            val dz = (normalizedY - cue[1]) * WAPI_POOL_WORLD_HEIGHT
+            if (dx * dx + dz * dz < .0025f) return
+            poolAim = kotlin.math.atan2(dz, dx)
+            renderedPoolAim = poolAim
+        }
+
+        fun previewPoolPull(start: FloatArray, end: FloatArray) {
+            if (poolMoving || poolCueInHand || !poolShowAim) return
+            val dx = start[0] - end[0]
+            val dy = start[1] - end[1]
+            poolPullPreview = (sqrt(dx * dx + dy * dy) * 260f + 12f).toInt().coerceIn(10, 100)
+        }
+
+        fun endPoolPullPreview() { poolPullPreview = -1 }
 
         fun orbit(dx: Float, dy: Float) {
             yaw = (yaw + dx * .18f).coerceIn(-27f, 27f)
@@ -718,7 +761,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
          * to aim, then pull the cue back and release to strike.
          */
         fun isPoolCuePullStart(screenX: Float, screenY: Float): Boolean {
-            if (poolMoving || poolCueInHand) return false
+            if (poolMoving || poolCueInHand || !poolShowAim) return false
             val point = pickPoolPoint(screenX, screenY) ?: return false
             val cue = poolBalls.firstOrNull { it.size >= 6 && it[2].toInt() == 0 && it[5] < .5f } ?: return false
             val cueX = (cue[0] - .5f) * WAPI_POOL_WORLD_WIDTH
@@ -1271,16 +1314,33 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 val z = drop.z + (pocket.second - drop.z) * entry
                 draw(sphere, x, .295f - eased * .72f, z, scale, scale, scale, color, .88f, rotationX = eased * 260f, rotationY = eased * 180f, material = if (drop.id >= 9) 6f else 5f)
             }
-            if (!poolMoving) {
+            if (!poolMoving && (poolShowAim || poolCueInHand)) {
                 val cue = poolBalls.firstOrNull { it.size >= 6 && it[2].toInt() == 0 && it[5] < .5f } ?: return
                 val cueX = (cue[0] - .5f) * 10.2f
                 val cueZ = (cue[1] - .5f) * 5.10f
                 if (poolCueInHand) { drawPlacementHand(cueX, cueZ); return }
-                val directionX = cos(poolAim)
-                val directionZ = sin(poolAim)
-                val strength = poolPower / 100f
+                // During an IA turn, sweep the cue toward the chosen line and
+                // feather it before contact. This makes the opponent visibly
+                // inspect and prepare the shot instead of teleporting balls.
+                val visualAim = if (poolAiAiming) {
+                    val delta = kotlin.math.atan2(
+                        sin(poolAim - renderedPoolAim),
+                        cos(poolAim - renderedPoolAim),
+                    )
+                    renderedPoolAim += delta * .105f
+                    renderedPoolAim
+                } else {
+                    renderedPoolAim = poolAim
+                    poolAim
+                }
+                val directionX = cos(visualAim)
+                val directionZ = sin(visualAim)
+                val strength = (if (poolPullPreview >= 0) poolPullPreview else poolPower) / 100f
                 val cueHalfLength = 2.68f
-                val pullBack = (.10f + strength * .66f) * (1f - poolCueStroke)
+                val aiFeather = if (poolAiAiming) {
+                    (.5f + sin(seconds * 8.4f) * .5f) * (.08f + strength * .10f)
+                } else 0f
+                val pullBack = (.10f + strength * .66f) * (1f - poolCueStroke) + aiFeather
                 val tipDistance = .145f + pullBack
                 val centerDistance = tipDistance + cueHalfLength
                 val centerX = cueX - directionX * centerDistance
@@ -1288,7 +1348,7 @@ internal class WapiTabletop3DView(context: Context) : GLSurfaceView(context) {
                 // Shaft meshes are authored on Y and first rotated onto Z.
                 // The extra quarter-turn aligns the complete cue with the
                 // physical shot vector instead of leaving only its tip visible.
-                val aimDegrees = Math.toDegrees(poolAim.toDouble()).toFloat()
+                val aimDegrees = Math.toDegrees(visualAim.toDouble()).toFloat()
                 val guideRotation = -aimDegrees
                 val shaftRotation = aimDegrees - 90f
                 // Ray-cast the predicted path against the real ball positions

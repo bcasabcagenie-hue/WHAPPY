@@ -3,14 +3,16 @@ import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // A versioned channel ensures devices that already had an older WAPI build
 // receive the current sound, vibration and badge configuration. Android keeps
 // channel settings immutable after their first creation.
-const _channelId = 'wapi_messages_v2';
+const _channelId = 'wapi_messages_v3';
 const _callChannelId = 'wapi_calls_v1';
 const _groupKey = 'wapi_message_group';
 const _summaryId = 2;
@@ -43,29 +45,48 @@ typedef WapiNotificationTap =
 @pragma('vm:entry-point')
 Future<void> wapiFirebaseBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  await WapiNotifications.show(message);
+  // Android displays notification payloads itself while WAPI is terminated.
+  // Data-only events (notably incoming calls and cancellation events) still
+  // need the Dart background isolate to build their actionable notification.
+  if (message.notification == null) {
+    await WapiNotifications.show(message);
+  }
 }
 
 class WapiNotifications {
   static bool _initialized = false;
+  static WapiNotificationTap? _onTap;
   static StreamSubscription<RemoteMessage>? _foregroundSubscription;
+  static StreamSubscription<RemoteMessage>? _openedSubscription;
   static StreamSubscription<String>? _tokenSubscription;
   static String? _registeredUserId;
+  static bool _initialRemoteHandled = false;
 
   static Future<void> initialize({WapiNotificationTap? onTap}) async {
+    if (onTap != null) _onTap = onTap;
     await _ensureInitialized(onTap: onTap);
     _foregroundSubscription ??= FirebaseMessaging.onMessage.listen(show);
+    _openedSubscription ??= FirebaseMessaging.onMessageOpenedApp.listen(
+      _openRemoteMessage,
+    );
+    if (!_initialRemoteHandled) {
+      _initialRemoteHandled = true;
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) await _openRemoteMessage(initial);
+    }
   }
 
   static Future<void> _ensureInitialized({WapiNotificationTap? onTap}) async {
+    if (onTap != null) _onTap = onTap;
     if (_initialized) return;
     const android = AndroidInitializationSettings('ic_stat_wapi');
     await _notifications.initialize(
       const InitializationSettings(android: android),
       onDidReceiveNotificationResponse: (response) {
         final payload = response.payload;
-        if (payload != null && onTap != null) {
-          onTap(payload, response.actionId);
+        final handler = _onTap;
+        if (payload != null && handler != null) {
+          unawaited(handler(payload, response.actionId));
         }
       },
     );
@@ -82,18 +103,24 @@ class WapiNotifications {
     final payload = launchDetails?.notificationResponse?.payload;
     if (launchDetails?.didNotificationLaunchApp == true &&
         payload != null &&
-        onTap != null) {
-      await onTap(payload, launchDetails?.notificationResponse?.actionId);
+        _onTap != null) {
+      await _onTap!(payload, launchDetails?.notificationResponse?.actionId);
     }
   }
 
   static Future<void> register(User user) async {
     try {
+      await FirebaseMessaging.instance.setAutoInitEnabled(true);
       await FirebaseMessaging.instance.requestPermission(
         alert: true,
         badge: true,
         sound: true,
       );
+      final androidPlugin = _notifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      await androidPlugin?.requestFullScreenIntentPermission();
       final token = await FirebaseMessaging.instance.getToken().timeout(
         const Duration(seconds: 12),
       );
@@ -104,7 +131,7 @@ class WapiNotifications {
         await _tokenSubscription?.cancel();
         _registeredUserId = user.uid;
         _tokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen(
-          (token) => unawaited(_saveToken(user.uid, token)),
+          (token) => unawaited(_saveToken(user.uid, token).catchError((_) {})),
         );
       }
     } catch (_) {
@@ -115,6 +142,24 @@ class WapiNotifications {
 
   static Future<void> dismissCall(String callId) =>
       _notifications.cancel(_stableId(callId));
+
+  static Future<void> _openRemoteMessage(RemoteMessage message) async {
+    final payload = _payloadFor(message.data);
+    final handler = _onTap;
+    if (payload != null && handler != null) {
+      await handler(payload, null);
+    }
+  }
+
+  static String? _payloadFor(Map<String, dynamic> data) {
+    final callId = data['callId']?.toString() ?? '';
+    if (callId.isNotEmpty) return 'call:$callId';
+    final conversationId = data['conversationId']?.toString() ?? '';
+    if (conversationId.isNotEmpty) return 'conversation:$conversationId';
+    final liveId = data['liveId']?.toString() ?? '';
+    if (liveId.isNotEmpty) return 'live:$liveId';
+    return null;
+  }
 
   static Future<void> show(RemoteMessage message) async {
     await _ensureInitialized();
@@ -136,15 +181,9 @@ class WapiNotifications {
     final id = isMessage
         ? _stableId(conversationId)
         : liveId.isNotEmpty
-        ? _stableId('live:' + liveId)
+        ? _stableId('live:$liveId')
         : _stableId(data['callId']?.toString() ?? body);
-    final payload = data['callId'] != null
-        ? 'call:' + data['callId'].toString()
-        : conversationId.isNotEmpty
-        ? 'conversation:' + conversationId
-        : liveId.isNotEmpty
-        ? 'live:' + liveId
-        : null;
+    final payload = _payloadFor(data);
     if ((type == 'call_answered' || type == 'call_cancel') &&
         data['callId'] != null) {
       await _notifications.cancel(id);
@@ -286,16 +325,33 @@ class WapiNotifications {
     return hash.abs() % 2000000000 + 100;
   }
 
-  static Future<void> _saveToken(String userId, String token) =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('devices')
-          .doc(token.replaceAll('/', '_'))
-          .set({
-            'token': token,
-            'platform': 'android',
-            'enabled': true,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+  static Future<void> _saveToken(String userId, String token) async {
+    final platform = defaultTargetPlatform == TargetPlatform.iOS
+        ? 'ios'
+        : 'android';
+    try {
+      await FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable(
+            'registerPushDevice',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 8)),
+          )
+          .call<Map<String, dynamic>>({'token': token, 'platform': platform});
+      return;
+    } catch (_) {
+      // Keep compatibility with a backend that has not yet received the new
+      // callable. Firestore remains protected by the signed-in user's path.
+    }
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('devices')
+        .doc(token.replaceAll('/', '_'))
+        .set({
+          'token': token,
+          'platform': platform,
+          'enabled': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true))
+        .timeout(const Duration(seconds: 8));
+  }
 }

@@ -40,18 +40,31 @@ class _WapiGamesPageState extends State<WapiGamesPage> {
     });
     try {
       final result = await Future.wait([
-        _call('kingQiGetProfile'),
-        _call('getGameProfile', {'gameId': 'billard'}),
+        _optionalCall('kingQiGetProfile'),
+        _optionalCall('getGameProfile', {'gameId': 'billard'}),
       ]);
-      if (mounted)
-        setState(() {
-          _king = result[0];
-          _pool = _map(result[1]['profile']);
-        });
-    } catch (error) {
-      if (mounted) setState(() => _error = _errorText(error));
+      if (!mounted) return;
+      setState(() {
+        _king = result[0];
+        _pool = _map(result[1]['profile']);
+        if (_king.isEmpty && result[1].isEmpty) {
+          _error =
+              'Les profils en ligne sont temporairement indisponibles. Les jeux locaux restent accessibles.';
+        }
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<Map<String, dynamic>> _optionalCall(
+    String name, [
+    Map<String, dynamic> data = const {},
+  ]) async {
+    try {
+      return await _call(name, data);
+    } catch (_) {
+      return const {};
     }
   }
 
@@ -722,12 +735,12 @@ class _KingRoomFormState extends State<_KingRoomForm> {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<int>(
-          value: _players,
+          initialValue: _players,
           items: [2, 3, 4, 6, 8]
               .map(
                 (value) => DropdownMenuItem(
                   value: value,
-                  child: Text(value.toString() + ' joueurs maximum'),
+                  child: Text('$value joueurs maximum'),
                 ),
               )
               .toList(),
@@ -736,12 +749,12 @@ class _KingRoomFormState extends State<_KingRoomForm> {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<int>(
-          value: _credits,
+          initialValue: _credits,
           items: [0, 10, 25, 50]
               .map(
                 (value) => DropdownMenuItem(
                   value: value,
-                  child: Text(value.toString() + ' crédits promotionnels'),
+                  child: Text('$value crédits promotionnels'),
                 ),
               )
               .toList(),

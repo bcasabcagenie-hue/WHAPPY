@@ -379,6 +379,29 @@ async function pushDevices(userIds: string[]): Promise<PushDevice[]> {
   return [...devices.values()];
 }
 
+/**
+ * Registers the current installation through trusted code.  This avoids a
+ * silent loss of push notifications when an older Firestore ruleset rejects
+ * the phone's direct device-document write.
+ */
+export const registerPushDevice = onCall(async request => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Connexion WAPI requise.");
+  const token = String(request.data?.token || "").trim();
+  const platform = request.data?.platform === "ios" ? "ios" : "android";
+  if (token.length < 20 || token.length > 4_096 || /\s/.test(token)) {
+    throw new HttpsError("invalid-argument", "Jeton de notification invalide.");
+  }
+  const deviceId = createHash("sha256").update(token).digest("hex");
+  await db.collection("users").doc(request.auth.uid).collection("devices").doc(deviceId).set({
+    token,
+    platform,
+    enabled: true,
+    app: "wapi",
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { registered: true };
+});
+
 function staleRegistration(errorCode?: string) {
   return errorCode === "messaging/registration-token-not-registered" || errorCode === "messaging/invalid-registration-token";
 }
@@ -870,6 +893,9 @@ async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessa
       const category = message.data?.type === "direct_call" || message.data?.type === "incoming_call"
         ? "WAPI_DIRECT_CALL"
         : undefined;
+      const androidTag = String(
+        message.data?.conversationId || message.data?.liveId || message.data?.messageId || "activity",
+      ).slice(0, 80);
       const response = await getMessaging().sendEachForMulticast({
         ...message,
         ...(apple ? {
@@ -885,7 +911,26 @@ async function sendInBatches(devices: PushDevice[], message: Omit<MulticastMessa
                 : { alert: { title, body }, sound: "default", badge, category, contentAvailable: true },
             },
           },
-        } : {}),
+        } : {
+          android: {
+            ...message.android,
+            // Calls remain data-only so the handset can build Answer/Decline
+            // actions. Messages and live alerts include a system payload: the
+            // OS can display it even after Android has reclaimed WAPI's UI.
+            ...(silent || category ? {} : {
+              notification: {
+                title,
+                body,
+                channelId: "wapi_messages_v3",
+                icon: "ic_stat_wapi",
+                color: "#0094F0",
+                sound: "default",
+                clickAction: "FLUTTER_NOTIFICATION_CLICK",
+                tag: `wapi-${androidTag}`,
+              },
+            }),
+          },
+        }),
         tokens: batch.map((device) => device.token),
       });
     const stale = response.responses.flatMap((result, responseIndex) =>

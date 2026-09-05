@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -27,6 +28,8 @@ class WapiPoolTablePage extends StatefulWidget {
 
 class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+  late final DocumentReference<Map<String, dynamic>> _roomReference;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _roomStream;
   double _power = 48;
   double _angle = 0;
   double _sideSpin = 0;
@@ -45,7 +48,10 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   List<_PoolBall> _lastKnownBalls = const [];
   List<_PoolBall> _replayAuthoritative = const [];
   bool _physicsActive = false;
+  bool _strokePreparing = false;
+  bool _presentationAiAiming = false;
   bool _optimisticShot = false;
+  final List<_PendingPoolShot> _pendingShots = [];
   bool _canShoot = false;
   bool _resultDismissed = false;
   int _poolTokens = 1000;
@@ -59,10 +65,21 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   DateTime? _lastCollisionSound;
   DateTime? _lastRailSound;
   String _pocketNotice = '';
+  double? _presentationAngle;
+  double? _presentationPower;
+  double? _presentationSideSpin;
+  double? _presentationFollowSpin;
 
   @override
   void initState() {
     super.initState();
+    _roomReference = FirebaseFirestore.instance
+        .collection('gameRooms')
+        .doc(widget.roomId);
+    // Keep one stable subscription for the complete match. Recreating the
+    // stream on every aiming/power setState caused visible input stalls and
+    // unnecessary Firestore listener churn on slower Android devices.
+    _roomStream = _roomReference.snapshots();
     unawaited(
       SystemChrome.setPreferredOrientations(const [
         DeviceOrientation.landscapeLeft,
@@ -296,7 +313,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
   }
 
   Future<void> _shoot({double? angle, double? power}) async {
-    if (_sending || _physicsActive) return;
+    if (_sending || _physicsActive || _strokePreparing) return;
     final shotAngle = angle ?? _angle;
     final selectedCue = _selectedCue;
     final basePower = (power ?? _power).clamp(10, 100).toDouble();
@@ -313,6 +330,11 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
     setState(() {
       _angle = shotAngle;
       _power = basePower;
+      _strokePreparing = true;
+      _presentationAngle = shotAngle;
+      _presentationPower = shotPower;
+      _presentationSideSpin = shotSideSpin;
+      _presentationFollowSpin = shotFollowSpin;
     });
     // Animate the backswing immediately, then move the balls exactly when the
     // cue tip reaches the white ball. Network validation runs in parallel.
@@ -320,7 +342,6 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
     unawaited(_poolStageKey.currentState?.stroke() ?? Future<void>.value());
     if (_lastKnownBalls.length == 16) {
       _optimisticShot = true;
-      _physicsActive = true;
       _replayBalls = _lastKnownBalls;
       _replayAuthoritative = _lastKnownBalls;
       _replayBallsNotifier.value = _lastKnownBalls;
@@ -339,6 +360,7 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       });
     } else {
       _playPoolSound('cue', shotPower / 100);
+      _strokePreparing = false;
     }
     setState(() => _sending = true);
     try {
@@ -356,6 +378,8 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         setState(() {
           _optimisticShot = false;
           _physicsActive = false;
+          _strokePreparing = false;
+          _clearPresentationShot();
           _replayBalls = null;
           _replayBallsNotifier.value = null;
         });
@@ -463,41 +487,32 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
     }
     if (revision <= _lastShotRevision || startBalls.length != 16) return;
     _lastShotRevision = revision;
-    if (_physicsActive && _optimisticShot) {
+    if (_optimisticShot && shotBy == widget.user.uid) {
       _replayAuthoritative = authoritativeBalls;
       _optimisticShot = false;
       _announcePocketed(startBalls, authoritativeBalls);
       return;
     }
-    _announcePocketed(startBalls, authoritativeBalls);
-    // Keep the rack at its pre-shot position while the opponent's cue moves.
-    // Previously the authoritative final board was painted for one frame,
-    // which looked like every IA ball had teleported before the replay began.
     if (shotBy.isNotEmpty && shotBy != widget.user.uid) {
-      _remoteStrokeTimer?.cancel();
-      _replayBalls = startBalls;
-      _replayBallsNotifier.value = startBalls;
-      _replayAuthoritative = authoritativeBalls;
-      _physicsActive = true;
-      if (mounted) setState(() {});
-      unawaited(_poolStageKey.currentState?.stroke() ?? Future<void>.value());
-      _remoteStrokeTimer = Timer(
-        Duration(milliseconds: shotBy == 'wapi-pool-ai' ? 560 : 230),
-        () {
-          if (!mounted) return;
-          _playPoolSound('cue', power / 100);
-          _startReplay(
-            startBalls,
-            authoritativeBalls,
-            angle: angle,
-            power: power,
-            sideSpin: sideSpin,
-            followSpin: followSpin,
-          );
-        },
+      final pending = _PendingPoolShot(
+        start: startBalls,
+        authoritative: authoritativeBalls,
+        angle: angle,
+        power: power,
+        sideSpin: sideSpin,
+        followSpin: followSpin,
+        shotBy: shotBy,
       );
+      // Firestore can publish the IA result while balls from the human shot
+      // are still rolling. Queue it instead of cutting the current movement.
+      if (_physicsActive || _strokePreparing) {
+        _pendingShots.add(pending);
+      } else {
+        _beginRemoteShot(pending);
+      }
       return;
     }
+    _announcePocketed(startBalls, authoritativeBalls);
     _startReplay(
       startBalls,
       authoritativeBalls,
@@ -506,6 +521,45 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       sideSpin: sideSpin,
       followSpin: followSpin,
     );
+  }
+
+  void _beginRemoteShot(_PendingPoolShot shot) {
+    if (!mounted) return;
+    _remoteStrokeTimer?.cancel();
+    _replayBalls = shot.start;
+    _replayBallsNotifier.value = shot.start;
+    _replayAuthoritative = shot.authoritative;
+    _lastKnownBalls = shot.start;
+    _strokePreparing = true;
+    _presentationAiAiming = shot.shotBy == 'wapi-pool-ai';
+    _presentationAngle = shot.angle;
+    _presentationPower = shot.power;
+    _presentationSideSpin = shot.sideSpin;
+    _presentationFollowSpin = shot.followSpin;
+    _announcePocketed(shot.start, shot.authoritative);
+    setState(() {});
+
+    // A short final alignment keeps the opponent readable, then the balls
+    // start exactly as the animated cue tip reaches the white ball.
+    final alignment = _presentationAiAiming ? 420 : 16;
+    _remoteStrokeTimer = Timer(Duration(milliseconds: alignment), () {
+      if (!mounted) return;
+      _presentationAiAiming = false;
+      setState(() {});
+      unawaited(_poolStageKey.currentState?.stroke() ?? Future<void>.value());
+      _remoteStrokeTimer = Timer(const Duration(milliseconds: 138), () {
+        if (!mounted) return;
+        _playPoolSound('cue', shot.power / 100);
+        _startReplay(
+          shot.start,
+          shot.authoritative,
+          angle: shot.angle,
+          power: shot.power,
+          sideSpin: shot.sideSpin,
+          followSpin: shot.followSpin,
+        );
+      });
+    });
   }
 
   void _announcePocketed(List<_PoolBall> start, List<_PoolBall> authoritative) {
@@ -536,6 +590,8 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
     required double followSpin,
   }) {
     _replayTimer?.cancel();
+    _strokePreparing = false;
+    _clearPresentationShot();
     _replayAuthoritative = authoritative;
     final speed = 3.4 + power / 100 * 7.4;
     _replayBalls = start
@@ -565,6 +621,15 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       _replayTicks += 1;
       if (!_PoolPhysics.isMoving(frame) || _replayTicks >= 1050) {
         timer.cancel();
+        final pending = _pendingShots.isEmpty
+            ? null
+            : _pendingShots.removeAt(0);
+        if (pending != null) {
+          _physicsActive = false;
+          _optimisticShot = false;
+          _beginRemoteShot(pending);
+          return;
+        }
         setState(() {
           _replayBalls = null;
           _replayBallsNotifier.value = null;
@@ -579,6 +644,14 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
       _replayBalls = frame;
       _replayBallsNotifier.value = frame;
     });
+  }
+
+  void _clearPresentationShot() {
+    _presentationAiAiming = false;
+    _presentationAngle = null;
+    _presentationPower = null;
+    _presentationSideSpin = null;
+    _presentationFollowSpin = null;
   }
 
   void _playFrameSounds(List<_PoolBall> before, List<_PoolBall> after) {
@@ -612,11 +685,8 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
 
   @override
   Widget build(BuildContext context) {
-    final room = FirebaseFirestore.instance
-        .collection('gameRooms')
-        .doc(widget.roomId);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: room.snapshots(),
+      stream: _roomStream,
       builder: (context, snapshot) {
         final data = snapshot.data?.data();
         if (data == null) {
@@ -665,22 +735,31 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
         final ballInHandUid = _text(data['ballInHandUid']);
         final active = status == 'playing';
         final myTurn = active && turnUid == widget.user.uid;
-        final aiAiming =
+        final serverAiAiming =
             active &&
             turnUid == 'wapi-pool-ai' &&
             _text(data['aiState']) == 'aiming';
-        final tableAngle = aiAiming
-            ? (data['aiAimAngle'] as num?)?.toDouble() ?? _angle
-            : _angle;
-        final tablePower = aiAiming
-            ? (data['aiAimPower'] as num?)?.toDouble() ?? _power
-            : _power;
-        final tableSideSpin = aiAiming
-            ? (data['aiAimSideSpin'] as num?)?.toDouble() ?? 0
-            : _sideSpin;
-        final tableFollowSpin = aiAiming
-            ? (data['aiAimFollowSpin'] as num?)?.toDouble() ?? 0
-            : _followSpin;
+        final aiAiming = serverAiAiming || _presentationAiAiming;
+        final tableAngle =
+            _presentationAngle ??
+            (serverAiAiming
+                ? (data['aiAimAngle'] as num?)?.toDouble() ?? _angle
+                : _angle);
+        final tablePower =
+            _presentationPower ??
+            (serverAiAiming
+                ? (data['aiAimPower'] as num?)?.toDouble() ?? _power
+                : _power);
+        final tableSideSpin =
+            _presentationSideSpin ??
+            (serverAiAiming
+                ? (data['aiAimSideSpin'] as num?)?.toDouble() ?? 0
+                : _sideSpin);
+        final tableFollowSpin =
+            _presentationFollowSpin ??
+            (serverAiAiming
+                ? (data['aiAimFollowSpin'] as num?)?.toDouble() ?? 0
+                : _followSpin);
         final ballInHand = myTurn && ballInHandUid == widget.user.uid;
         final winnerUid = _text(data['winnerUid']);
         final winner = _player(profiles, winnerUid, groups, balls);
@@ -689,7 +768,8 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
             : const <String, dynamic>{};
         final winnerRun = (bestRuns[winnerUid] as num?)?.toInt() ?? 0;
         if (!_physicsActive) _lastKnownBalls = authoritativeBalls;
-        _canShoot = myTurn && !ballInHand && !_physicsActive;
+        _canShoot =
+            myTurn && !ballInHand && !_physicsActive && !_strokePreparing;
         return Scaffold(
           backgroundColor: const Color(0xFF031610),
           appBar: AppBar(
@@ -773,8 +853,11 @@ class _WapiPoolTablePageState extends State<WapiPoolTablePage> {
                                             ? 3
                                             : _selectedCue.aimBonus,
                                         moving: _physicsActive,
+                                        aiAiming: aiAiming,
                                         showAim:
-                                            (myTurn || aiAiming) &&
+                                            (myTurn ||
+                                                aiAiming ||
+                                                _strokePreparing) &&
                                             !ballInHand &&
                                             !_physicsActive,
                                         cueInHand: ballInHand,
@@ -1177,7 +1260,7 @@ class _PoolVictoryOverlayState extends State<_PoolVictoryOverlay>
                       backgroundColor: const Color(0xFF174B65),
                       backgroundImage: photo.isEmpty
                           ? null
-                          : NetworkImage(photo),
+                          : CachedNetworkImageProvider(photo),
                       child: photo.isEmpty
                           ? Text(
                               name.substring(0, 1).toUpperCase(),
@@ -1400,7 +1483,7 @@ class _PlayerTile extends StatelessWidget {
     final avatar = CircleAvatar(
       radius: 20,
       backgroundColor: const Color(0xFF0D3A2E),
-      backgroundImage: photo.isEmpty ? null : NetworkImage(photo),
+      backgroundImage: photo.isEmpty ? null : CachedNetworkImageProvider(photo),
       child: photo.isEmpty
           ? const Icon(Icons.person_rounded, color: Color(0xFF98F0C9))
           : null,
@@ -1849,6 +1932,7 @@ class _WapiPool3DStage extends StatefulWidget {
     required this.followSpin,
     required this.aimBonus,
     required this.moving,
+    required this.aiAiming,
     required this.showAim,
     required this.cueInHand,
     required this.cueStyle,
@@ -1864,6 +1948,7 @@ class _WapiPool3DStage extends StatefulWidget {
   final double followSpin;
   final int aimBonus;
   final bool moving;
+  final bool aiAiming;
   final bool showAim;
   final bool cueInHand;
   final String cueStyle;
@@ -1879,6 +1964,8 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
   MethodChannel? _channel;
   Offset? _fallbackPullStart;
   Offset? _fallbackPullEnd;
+  bool _rendering = false;
+  bool _renderQueued = false;
 
   Map<String, dynamic> get _renderState => {
     'balls': widget.balls
@@ -1899,6 +1986,8 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
     'followSpin': widget.followSpin,
     'aimBonus': widget.aimBonus,
     'moving': widget.moving,
+    'aiAiming': widget.aiAiming,
+    'showAim': widget.showAim,
     'cueInHand': widget.cueInHand,
     'tableTheme': widget.tableTheme,
     'cueStyle': widget.cueStyle,
@@ -1929,7 +2018,25 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
   }
 
   Future<void> _render() async {
-    await _channel?.invokeMethod<void>('render', _renderState);
+    final channel = _channel;
+    if (channel == null) return;
+    if (_rendering) {
+      // Physics can produce another state while the platform channel is
+      // painting the previous frame. Drop stale intermediate frames instead
+      // of building a queue that appears as delayed movement on screen.
+      _renderQueued = true;
+      return;
+    }
+    _rendering = true;
+    try {
+      do {
+        _renderQueued = false;
+        final state = _renderState;
+        await channel.invokeMethod<void>('render', state);
+      } while (_renderQueued && mounted && identical(channel, _channel));
+    } finally {
+      _rendering = false;
+    }
   }
 
   Future<dynamic> _onNativeMessage(MethodCall call) async {
@@ -2041,6 +2148,7 @@ class _WapiPool3DStageState extends State<_WapiPool3DStage> {
   @override
   void dispose() {
     _channel?.setMethodCallHandler(null);
+    _channel = null;
     super.dispose();
   }
 }
@@ -2887,6 +2995,26 @@ class _CueOption {
   int get powerScore => ((powerMultiplier - .96) * 80).round().clamp(1, 10);
   int get aimScore => (4 + aimBonus).clamp(1, 10);
   int get spinScore => (3 + spinBonus).clamp(1, 10);
+}
+
+class _PendingPoolShot {
+  const _PendingPoolShot({
+    required this.start,
+    required this.authoritative,
+    required this.angle,
+    required this.power,
+    required this.sideSpin,
+    required this.followSpin,
+    required this.shotBy,
+  });
+
+  final List<_PoolBall> start;
+  final List<_PoolBall> authoritative;
+  final double angle;
+  final double power;
+  final double sideSpin;
+  final double followSpin;
+  final String shotBy;
 }
 
 class _PoolBall {

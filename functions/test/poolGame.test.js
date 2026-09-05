@@ -54,6 +54,15 @@ test("pool AI difficulty is deterministic and changes shot execution", () => {
   assert.ok(Math.abs(rookie.sideSpin) <= 1 && Math.abs(rookie.followSpin) <= 1);
 });
 
+test("pool AI recognizes a rack and performs a committed break", () => {
+  const shot = planPoolAiShot(initialPoolBalls(), "open", 1);
+  assert.ok(shot.power >= 95, "a master IA must open a full rack with real break power");
+  assert.ok(Math.abs(shot.angle) < .05, "the break must pass through the head ball");
+  assert.ok(shot.followSpin > 0, "the break keeps controlled forward roll");
+  const result = simulatePoolShot(initialPoolBalls(), shot);
+  assert.notEqual(result.firstContactBallId, null);
+});
+
 test("authoritative eight-ball rules assign groups and protect the black", () => {
   const table = initialPoolBalls();
   const assignment = resolvePoolShot(table, "open", "open", {

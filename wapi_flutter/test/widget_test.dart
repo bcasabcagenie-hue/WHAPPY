@@ -1,8 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wapi_flutter/app/wapi_session.dart';
 import 'package:wapi_flutter/app/wapi_theme.dart';
 
 void main() {
+  test('une session réellement expirée redemande une connexion WAPI', () {
+    expect(
+      wapiSessionNeedsSignIn(
+        'internal-error',
+        'An internal error has occurred. [ INVALID_REFRESH_TOKEN ]',
+      ),
+      isTrue,
+    );
+    expect(wapiSessionNeedsSignIn('network-request-failed', null), isFalse);
+  });
+
   testWidgets('le thème WAPI expose une surface mobile claire', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

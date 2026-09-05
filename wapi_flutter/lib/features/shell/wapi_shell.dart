@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -247,10 +249,26 @@ class _WapiAppBar extends StatelessWidget implements PreferredSizeWidget {
   );
 }
 
-class _HomePage extends StatelessWidget {
+class _HomePage extends StatefulWidget {
   const _HomePage({required this.user, required this.repository});
   final User user;
   final WapiRepository repository;
+
+  @override
+  State<_HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<_HomePage> {
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _profileStream;
+
+  User get user => widget.user;
+  WapiRepository get repository => widget.repository;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileStream = repository.profile(user.uid);
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -268,7 +286,7 @@ class _HomePage extends StatelessWidget {
       ],
     ),
     body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: repository.profile(user.uid),
+      stream: _profileStream,
       builder: (context, snapshot) {
         final profile = snapshot.data?.data() ?? const <String, dynamic>{};
         final name =
@@ -555,7 +573,9 @@ class _HomeIdentity extends StatelessWidget {
               radius: 31,
               backgroundColor: WapiColors.blueSoft,
               foregroundColor: WapiColors.blue,
-              backgroundImage: photoUrl.isEmpty ? null : NetworkImage(photoUrl),
+              backgroundImage: photoUrl.isEmpty
+                  ? null
+                  : CachedNetworkImageProvider(photoUrl),
               child: photoUrl.isEmpty
                   ? Text(
                       name.characters.first.toUpperCase(),
@@ -662,7 +682,9 @@ class _AccountChoice extends StatelessWidget {
         backgroundColor: personal
             ? WapiColors.blueSoft
             : const Color(0xFFEAF8F4),
-        backgroundImage: photoUrl.isEmpty ? null : NetworkImage(photoUrl),
+        backgroundImage: photoUrl.isEmpty
+            ? null
+            : CachedNetworkImageProvider(photoUrl),
         child: photoUrl.isEmpty
             ? Icon(
                 personal ? Icons.person_rounded : Icons.storefront_rounded,
@@ -838,9 +860,28 @@ class _HomeRow extends StatelessWidget {
   );
 }
 
-class _CallsPage extends StatelessWidget {
+class _CallsPage extends StatefulWidget {
   const _CallsPage({required this.user});
   final User user;
+
+  @override
+  State<_CallsPage> createState() => _CallsPageState();
+}
+
+class _CallsPageState extends State<_CallsPage> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _callsStream;
+
+  User get user => widget.user;
+
+  @override
+  void initState() {
+    super.initState();
+    _callsStream = FirebaseFirestore.instance
+        .collection('directCallSessions')
+        .where('memberIds', arrayContains: user.uid)
+        .limit(50)
+        .snapshots();
+  }
 
   void _openCall(
     BuildContext context, {
@@ -884,11 +925,7 @@ class _CallsPage extends StatelessWidget {
       subtitle: 'Historique audio et vidéo',
     ),
     body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('directCallSessions')
-          .where('memberIds', arrayContains: user.uid)
-          .limit(50)
-          .snapshots(),
+      stream: _callsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const _StateMessage(
@@ -2819,9 +2856,16 @@ class _InboxPage extends StatefulWidget {
 }
 
 class _InboxPageState extends State<_InboxPage> {
+  late final Stream<List<WapiConversation>> _conversationsStream;
   bool _showRecents = false;
   bool _searching = false;
   final _search = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _conversationsStream = widget.repository.conversations(widget.user.uid);
+  }
 
   @override
   void dispose() {
@@ -2876,7 +2920,7 @@ class _InboxPageState extends State<_InboxPage> {
       ],
     ),
     body: StreamBuilder<List<WapiConversation>>(
-      stream: widget.repository.conversations(widget.user.uid),
+      stream: _conversationsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const _StateMessage(
@@ -3109,7 +3153,7 @@ class _InboxPageState extends State<_InboxPage> {
                   backgroundColor: WapiColors.blueSoft,
                   foregroundColor: WapiColors.blue,
                   backgroundImage: item.avatarUrl.isNotEmpty
-                      ? NetworkImage(item.avatarUrl)
+                      ? CachedNetworkImageProvider(item.avatarUrl)
                       : null,
                   child: item.avatarUrl.isNotEmpty
                       ? null
@@ -3289,6 +3333,8 @@ class _ChatPageState extends State<_ChatPage> {
   final _player = AudioPlayer();
   final _messageScrollController = ScrollController();
   final _composerFocusNode = FocusNode();
+  late final Stream<List<WapiMessage>> _messagesStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _peerProfileStream;
   StreamSubscription<List<WapiMessage>>? _messagesSubscription;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _conversationReceiptSubscription;
@@ -3297,9 +3343,11 @@ class _ChatPageState extends State<_ChatPage> {
   StreamSubscription<PlayerState>? _audioStateSubscription;
   StreamSubscription<Duration>? _audioPositionSubscription;
   StreamSubscription<Duration?>? _audioDurationSubscription;
+  StreamSubscription<Amplitude>? _recordingAmplitudeSubscription;
   bool _sending = false;
   bool _recording = false;
   int _recordingSeconds = 0;
+  List<double> _recordingLevels = List<double>.filled(24, .08);
   Timer? _recordingTicker;
   Timer? _voiceOutboxRetryTimer;
   bool _showEmojiPanel = false;
@@ -3395,14 +3443,30 @@ class _ChatPageState extends State<_ChatPage> {
     _voiceOutboxRetryTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) unawaited(_retryVoiceOutbox());
     });
+    final peerId = widget.conversation.peerId;
+    if (!widget.conversation.isGroup && peerId.isNotEmpty) {
+      _peerProfileStream = widget.repository
+          .profile(peerId)
+          .asBroadcastStream(
+            onCancel: (subscription) => unawaited(subscription.cancel()),
+          );
+    }
     _watchMessageReceipts();
     _markConversationRead();
-    _messagesSubscription = widget.repository
+    _messagesStream = widget.repository
         .messages(widget.conversation.id)
-        .listen((messages) {
-          _markVisibleMessagesRead(messages);
-          unawaited(_reconcileDeliveredVoiceMessages(messages));
-        });
+        .asBroadcastStream(
+          onCancel: (subscription) => unawaited(subscription.cancel()),
+        );
+    _messagesSubscription = _messagesStream.listen(
+      (messages) {
+        _markVisibleMessagesRead(messages);
+        unawaited(_reconcileDeliveredVoiceMessages(messages));
+      },
+      onError: (_) {
+        // Le StreamBuilder affiche l'état hors ligne sans erreur non gérée.
+      },
+    );
     _audioStateSubscription = _player.playerStateStream.listen((state) {
       if (!mounted || _playingAudioMessageId == null) return;
       if (state.processingState == ProcessingState.completed ||
@@ -3411,13 +3475,18 @@ class _ChatPageState extends State<_ChatPage> {
       }
     });
     _audioPositionSubscription = _player.positionStream.listen((position) {
-      if (mounted && _playingAudioMessageId != null) {
-        setState(() => _audioPosition = position);
+      if (!mounted || _playingAudioMessageId == null) return;
+      final elapsed = (position - _audioPosition).abs();
+      if (elapsed < const Duration(milliseconds: 120) &&
+          position != Duration.zero) {
+        return;
       }
+      setState(() => _audioPosition = position);
     });
     _audioDurationSubscription = _player.durationStream.listen((duration) {
-      if (mounted && duration != null)
+      if (mounted && duration != null) {
         setState(() => _audioDuration = duration);
+      }
     });
   }
 
@@ -3428,24 +3497,34 @@ class _ChatPageState extends State<_ChatPage> {
         .collection('conversations')
         .doc(widget.conversation.id)
         .snapshots()
-        .listen((snapshot) {
-          final readBy = Map<String, dynamic>.from(
-            snapshot.data()?['readBy'] as Map? ?? const {},
-          );
-          final value = readBy[peerId];
-          final next = value is Timestamp
-              ? value.toDate()
-              : value is DateTime
-              ? value
-              : null;
-          if (!mounted || next == _peerReadAt) return;
-          setState(() => _peerReadAt = next);
-        });
-    _peerPresenceSubscription = widget.repository.profile(peerId).listen((doc) {
-      final next = doc.data()?['isOnline'] == true;
-      if (!mounted || next == _peerOnline) return;
-      setState(() => _peerOnline = next);
-    });
+        .listen(
+          (snapshot) {
+            final readBy = Map<String, dynamic>.from(
+              snapshot.data()?['readBy'] as Map? ?? const {},
+            );
+            final value = readBy[peerId];
+            final next = value is Timestamp
+                ? value.toDate()
+                : value is DateTime
+                ? value
+                : null;
+            if (!mounted || next == _peerReadAt) return;
+            setState(() => _peerReadAt = next);
+          },
+          onError: (_) {
+            // Les accusés connus restent affichés en mode hors ligne.
+          },
+        );
+    _peerPresenceSubscription = _peerProfileStream?.listen(
+      (doc) {
+        final next = doc.data()?['isOnline'] == true;
+        if (!mounted || next == _peerOnline) return;
+        setState(() => _peerOnline = next);
+      },
+      onError: (_) {
+        // Une présence momentanément indisponible ne bloque pas la discussion.
+      },
+    );
   }
 
   _MessageReceiptState _receiptFor(WapiMessage message) {
@@ -3720,6 +3799,7 @@ class _ChatPageState extends State<_ChatPage> {
     _audioStateSubscription?.cancel();
     _audioPositionSubscription?.cancel();
     _audioDurationSubscription?.cancel();
+    _recordingAmplitudeSubscription?.cancel();
     _recordingTicker?.cancel();
     _voiceOutboxRetryTimer?.cancel();
     _messageScrollController.dispose();
@@ -3872,7 +3952,24 @@ class _ChatPageState extends State<_ChatPage> {
       _recordingTicker = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted && _recording) setState(() => _recordingSeconds++);
       });
-      if (mounted) setState(() => _recording = true);
+      await _recordingAmplitudeSubscription?.cancel();
+      _recordingAmplitudeSubscription = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 90))
+          .listen((amplitude) {
+            if (!mounted || !_recording) return;
+            final normalized = ((amplitude.current + 55) / 55)
+                .clamp(.06, 1.0)
+                .toDouble();
+            setState(() {
+              _recordingLevels = [..._recordingLevels.skip(1), normalized];
+            });
+          });
+      if (mounted) {
+        setState(() {
+          _recording = true;
+          _recordingLevels = List<double>.filled(24, .08);
+        });
+      }
       HapticFeedback.selectionClick();
     } catch (error) {
       _showSendIssue(label: 'L’enregistrement', error: error);
@@ -3881,6 +3978,8 @@ class _ChatPageState extends State<_ChatPage> {
 
   Future<void> _cancelRecording() async {
     _recordingTicker?.cancel();
+    await _recordingAmplitudeSubscription?.cancel();
+    _recordingAmplitudeSubscription = null;
     try {
       await _recorder.cancel();
     } finally {
@@ -3888,6 +3987,7 @@ class _ChatPageState extends State<_ChatPage> {
         setState(() {
           _recording = false;
           _recordingSeconds = 0;
+          _recordingLevels = List<double>.filled(24, .08);
         });
       }
     }
@@ -3895,12 +3995,15 @@ class _ChatPageState extends State<_ChatPage> {
 
   Future<void> _finishRecording() async {
     _recordingTicker?.cancel();
+    await _recordingAmplitudeSubscription?.cancel();
+    _recordingAmplitudeSubscription = null;
     final seconds = _recordingSeconds;
     final path = await _recorder.stop();
     if (mounted) {
       setState(() {
         _recording = false;
         _recordingSeconds = 0;
+        _recordingLevels = List<double>.filled(24, .08);
       });
     }
     HapticFeedback.selectionClick();
@@ -3944,10 +4047,13 @@ class _ChatPageState extends State<_ChatPage> {
       voiceTranslations: const {},
     );
     setState(() => _pendingVoiceMessages.add(localMessage));
-    await _saveVoiceOutbox();
+    final outboxPersistence = _saveVoiceOutbox();
     // The bubble is already visible and playable locally. Let delivery finish
-    // in the background so the composer never freezes on a weak connection.
-    unawaited(_deliverVoiceMessage(localMessage));
+    // in the background while its recovery copy is persisted in parallel, so
+    // neither disk nor network latency delays the other.
+    unawaited(
+      _deliverVoiceMessage(localMessage, outboxPersistence: outboxPersistence),
+    );
   }
 
   String get _voiceOutboxKey =>
@@ -4037,7 +4143,15 @@ class _ChatPageState extends State<_ChatPage> {
   Future<void> _deliverVoiceMessage(
     WapiMessage localMessage, {
     bool silent = false,
+    Future<void>? outboxPersistence,
   }) async {
+    final persistenceReady = () async {
+      try {
+        await outboxPersistence;
+      } catch (_) {
+        // The in-memory outbox remains authoritative for this app session.
+      }
+    }();
     if (_sendingVoiceMessageIds.contains(localMessage.id)) return;
     final file = File(localMessage.mediaUrl);
     if (!await file.exists()) {
@@ -4059,16 +4173,19 @@ class _ChatPageState extends State<_ChatPage> {
       _failedVoiceMessageIds.remove(localMessage.id);
     });
     try {
-      await widget.repository.sendMediaMessage(
-        conversationId: widget.conversation.id,
-        user: widget.user,
-        file: file,
-        kind: 'audio',
-        contentType: 'audio/mp4',
-        fileName: localMessage.mediaName,
-        durationSeconds: localMessage.durationSeconds,
-        clientMessageId: localMessage.id,
-      );
+      await Future.wait([
+        widget.repository.sendMediaMessage(
+          conversationId: widget.conversation.id,
+          user: widget.user,
+          file: file,
+          kind: 'audio',
+          contentType: 'audio/mp4',
+          fileName: localMessage.mediaName,
+          durationSeconds: localMessage.durationSeconds,
+          clientMessageId: localMessage.id,
+        ),
+        persistenceReady,
+      ]);
       void clearDeliveredVoice() {
         _pendingVoiceMessages.removeWhere(
           (message) => message.id == localMessage.id,
@@ -4159,6 +4276,8 @@ class _ChatPageState extends State<_ChatPage> {
       }
       _audioPosition = Duration.zero;
       _audioDuration = Duration.zero;
+      final audioSession = await AudioSession.instance;
+      await audioSession.configure(const AudioSessionConfiguration.speech());
       if (source.startsWith('https://') || source.startsWith('http://')) {
         await _player.setUrl(source);
       } else {
@@ -4641,7 +4760,9 @@ class _ChatPageState extends State<_ChatPage> {
                                       (data['photoUrl'] as String?)
                                               ?.isNotEmpty ==
                                           true
-                                      ? NetworkImage(data['photoUrl'] as String)
+                                      ? CachedNetworkImageProvider(
+                                          data['photoUrl'] as String,
+                                        )
                                       : null,
                                   child:
                                       (data['photoUrl'] as String?)
@@ -4736,7 +4857,9 @@ class _ChatPageState extends State<_ChatPage> {
                       radius: 19,
                       backgroundColor: WapiColors.blueSoft,
                       backgroundImage: widget.conversation.avatarUrl.isNotEmpty
-                          ? NetworkImage(widget.conversation.avatarUrl)
+                          ? CachedNetworkImageProvider(
+                              widget.conversation.avatarUrl,
+                            )
                           : null,
                       child: widget.conversation.avatarUrl.isNotEmpty
                           ? null
@@ -4750,6 +4873,7 @@ class _ChatPageState extends State<_ChatPage> {
                       fallbackUrl: widget.conversation.avatarUrl,
                       name: widget.conversation.title,
                       radius: 19,
+                      profileStream: _peerProfileStream,
                     ),
               const SizedBox(width: 10),
               Expanded(child: _chatTitle()),
@@ -4837,7 +4961,7 @@ class _ChatPageState extends State<_ChatPage> {
                     ),
                   ),
                 StreamBuilder<List<WapiMessage>>(
-                  stream: widget.repository.messages(widget.conversation.id),
+                  stream: _messagesStream,
                   builder: (context, snapshot) {
                     if (snapshot.hasError && _pendingVoiceMessages.isEmpty) {
                       return const _StateMessage(
@@ -5481,12 +5605,19 @@ class _ChatPageState extends State<_ChatPage> {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            'Enregistrement  ${_recordingSeconds ~/ 60}:${(_recordingSeconds % 60).toString().padLeft(2, '0')}',
-                            style: const TextStyle(
-                              color: Color(0xFF9E1B2B),
-                              fontWeight: FontWeight.w800,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Enregistrement  ${_recordingSeconds ~/ 60}:${(_recordingSeconds % 60).toString().padLeft(2, '0')}',
+                                style: const TextStyle(
+                                  color: Color(0xFF9E1B2B),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              _LiveRecordingWaveform(levels: _recordingLevels),
+                            ],
                           ),
                         ),
                         TextButton(
@@ -5655,7 +5786,7 @@ class _ChatPageState extends State<_ChatPage> {
       return Text(widget.conversation.title);
     }
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: widget.repository.profile(widget.conversation.peerId),
+      stream: _peerProfileStream,
       builder: (context, snapshot) {
         final data = snapshot.data?.data() ?? const <String, dynamic>{};
         final online = data['isOnline'] == true;
@@ -5817,7 +5948,7 @@ class _ChatPageState extends State<_ChatPage> {
                       backgroundImage: photo != null
                           ? FileImage(photo!)
                           : existingPhotoUrl.isNotEmpty
-                          ? NetworkImage(existingPhotoUrl)
+                          ? CachedNetworkImageProvider(existingPhotoUrl)
                           : null,
                       child: photo == null && existingPhotoUrl.isEmpty
                           ? const Icon(
@@ -5899,7 +6030,7 @@ class _ChatPageState extends State<_ChatPage> {
                             backgroundColor: WapiColors.blueSoft,
                             backgroundImage: photoUrl.isEmpty
                                 ? null
-                                : NetworkImage(photoUrl),
+                                : CachedNetworkImageProvider(photoUrl),
                             child: photoUrl.isEmpty
                                 ? Text(name.substring(0, 1).toUpperCase())
                                 : null,
@@ -6892,6 +7023,39 @@ class _VoiceWaveform extends StatelessWidget {
   }
 }
 
+class _LiveRecordingWaveform extends StatelessWidget {
+  const _LiveRecordingWaveform({required this.levels});
+
+  final List<double> levels;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 22,
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: levels.indexed
+          .map((entry) {
+            final recent = entry.$1 >= levels.length - 4;
+            return Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 80),
+                curve: Curves.easeOut,
+                height: 3 + entry.$2.clamp(.06, 1) * 18,
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                decoration: BoxDecoration(
+                  color: Color(
+                    recent ? 0xFFD92D3A : 0xFFEE8C98,
+                  ).withValues(alpha: .45 + entry.$2 * .5),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            );
+          })
+          .toList(growable: false),
+    ),
+  );
+}
+
 class _ContactProfilePage extends StatelessWidget {
   const _ContactProfilePage({
     required this.user,
@@ -6948,7 +7112,7 @@ class _ContactProfilePage extends StatelessWidget {
                   backgroundColor: WapiColors.blueSoft,
                   backgroundImage: photoUrl.isEmpty
                       ? null
-                      : NetworkImage(photoUrl),
+                      : CachedNetworkImageProvider(photoUrl),
                   child: photoUrl.isEmpty
                       ? Text(
                           name.substring(0, 1).toUpperCase(),
@@ -7092,10 +7256,27 @@ class _ContactProfilePage extends StatelessWidget {
   }
 }
 
-class _UpdatesPage extends StatelessWidget {
+class _UpdatesPage extends StatefulWidget {
   const _UpdatesPage({required this.user, required this.repository});
   final User user;
   final WapiRepository repository;
+
+  @override
+  State<_UpdatesPage> createState() => _UpdatesPageState();
+}
+
+class _UpdatesPageState extends State<_UpdatesPage> {
+  late final Stream<List<WapiStory>> _storiesStream;
+
+  User get user => widget.user;
+  WapiRepository get repository => widget.repository;
+
+  @override
+  void initState() {
+    super.initState();
+    _storiesStream = repository.stories(user.uid);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: _WapiAppBar(
@@ -7110,7 +7291,7 @@ class _UpdatesPage extends StatelessWidget {
       ],
     ),
     body: StreamBuilder<List<WapiStory>>(
-      stream: repository.stories(user.uid),
+      stream: _storiesStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const _StateMessage(
@@ -7706,8 +7887,11 @@ class _StoryViewerState extends State<_StoryViewer> {
   double _progress = 0;
   double _videoProgress = 0;
   bool _paused = false;
+  String? _readyImageKey;
+  String? _scheduledImageKey;
 
   String get _publishedAt => _storyTimeLabel(story.createdAt);
+  String get _imageKey => '${story.id}|${story.mediaUrl}';
 
   @override
   void initState() {
@@ -7721,21 +7905,34 @@ class _StoryViewerState extends State<_StoryViewer> {
     _progressTimer?.cancel();
     _progress = 0;
     _videoProgress = 0;
+    _readyImageKey = null;
+    _scheduledImageKey = null;
     if (!_isAuthor && !story.viewedByCurrentUser && story.id.isNotEmpty) {
       unawaited(widget.repository.recordStoryView(story.id).catchError((_) {}));
     }
-    if (story.mediaType != 'video') _startImageTimer();
+    if (story.mediaType != 'video' &&
+        (story.mediaType != 'image' || story.mediaUrl.isEmpty)) {
+      _startImageTimer();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _currentIndex + 1 >= _stories.length) return;
       final next = _stories[_currentIndex + 1];
       if (next.mediaType == 'image' && next.mediaUrl.isNotEmpty) {
-        unawaited(precacheImage(NetworkImage(next.mediaUrl), context));
+        unawaited(
+          precacheImage(CachedNetworkImageProvider(next.mediaUrl), context),
+        );
       }
     });
   }
 
   void _startImageTimer() {
-    if (_paused || story.mediaType == 'video') return;
+    if (_paused ||
+        story.mediaType == 'video' ||
+        (story.mediaType == 'image' &&
+            story.mediaUrl.isNotEmpty &&
+            _readyImageKey != _imageKey)) {
+      return;
+    }
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!mounted || _paused) return;
@@ -7746,6 +7943,18 @@ class _StoryViewerState extends State<_StoryViewer> {
         return;
       }
       setState(() => _progress = next);
+    });
+  }
+
+  void _scheduleImageReady() {
+    final key = _imageKey;
+    if (_readyImageKey == key || _scheduledImageKey == key) return;
+    _scheduledImageKey = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _imageKey != key) return;
+      _readyImageKey = key;
+      _scheduledImageKey = null;
+      _startImageTimer();
     });
   }
 
@@ -8036,28 +8245,34 @@ class _StoryViewerState extends State<_StoryViewer> {
       return Stack(
         fit: StackFit.expand,
         children: [
-          Image.network(
-            story.mediaUrl,
+          CachedNetworkImage(
+            imageUrl: story.mediaUrl,
             fit: BoxFit.cover,
             color: Colors.black.withValues(alpha: .5),
             colorBlendMode: BlendMode.darken,
-            gaplessPlayback: true,
+            fadeInDuration: const Duration(milliseconds: 120),
+            placeholder: (_, _) => const ColoredBox(color: Colors.black),
+            errorWidget: (_, _, _) => const ColoredBox(color: Colors.black),
           ),
           Center(
-            child: Image.network(
-              story.mediaUrl,
+            child: CachedNetworkImage(
+              imageUrl: story.mediaUrl,
               fit: BoxFit.contain,
-              gaplessPlayback: true,
-              frameBuilder: (context, child, frame, synchronouslyLoaded) {
-                if (synchronouslyLoaded || frame != null) return child;
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
+              fadeInDuration: const Duration(milliseconds: 120),
+              imageBuilder: (context, provider) {
+                _scheduleImageReady();
+                return Image(image: provider, fit: BoxFit.contain);
+              },
+              placeholder: (_, _) => const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+              errorWidget: (_, _, _) {
+                _scheduleImageReady();
+                return const _StoryFallback(
+                  icon: Icons.broken_image_outlined,
+                  label: 'Image indisponible',
                 );
               },
-              errorBuilder: (_, _, _) => const _StoryFallback(
-                icon: Icons.broken_image_outlined,
-                label: 'Image indisponible',
-              ),
             ),
           ),
         ],
@@ -8139,45 +8354,76 @@ class _MessageReceipt extends StatelessWidget {
   }
 }
 
-class _LiveProfileAvatar extends StatelessWidget {
+class _LiveProfileAvatar extends StatefulWidget {
   const _LiveProfileAvatar({
     required this.userId,
     required this.fallbackUrl,
     required this.name,
     this.radius = 20,
+    this.profileStream,
   });
 
   final String userId;
   final String fallbackUrl;
   final String name;
   final double radius;
+  final Stream<DocumentSnapshot<Map<String, dynamic>>>? profileStream;
+
+  @override
+  State<_LiveProfileAvatar> createState() => _LiveProfileAvatarState();
+}
+
+class _LiveProfileAvatarState extends State<_LiveProfileAvatar> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _profileStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindProfile();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveProfileAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId ||
+        oldWidget.profileStream != widget.profileStream) {
+      _bindProfile();
+    }
+  }
+
+  void _bindProfile() {
+    _profileStream =
+        widget.profileStream ??
+        (widget.userId.isEmpty
+            ? null
+            : FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(widget.userId)
+                  .snapshots());
+  }
 
   @override
   Widget build(
     BuildContext context,
   ) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-    stream: userId.isEmpty
-        ? null
-        : FirebaseFirestore.instance
-              .collection('users')
-              .doc(userId)
-              .snapshots(),
+    stream: _profileStream,
     builder: (context, snapshot) {
       final data = snapshot.data?.data() ?? const <String, dynamic>{};
       final current = (data['photoUrl'] as String?)?.trim();
       final verified = data['verified'] == true;
       final photoUrl = current?.isNotEmpty == true
           ? current!
-          : fallbackUrl.trim();
-      final initial = _initial(name);
+          : widget.fallbackUrl.trim();
+      final initial = _initial(widget.name);
       return Semantics(
         image: true,
-        label: 'Photo de profil de $name${verified ? ', compte certifié' : ''}',
+        label:
+            'Photo de profil de ${widget.name}${verified ? ', compte certifié' : ''}',
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             CircleAvatar(
-              radius: radius,
+              radius: widget.radius,
               backgroundColor: WapiColors.blueSoft,
               child: ClipOval(
                 child: photoUrl.isEmpty
@@ -8186,20 +8432,20 @@ class _LiveProfileAvatar extends StatelessWidget {
                           initial,
                           style: TextStyle(
                             color: WapiColors.blue,
-                            fontSize: radius,
+                            fontSize: widget.radius,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
                       )
                     : _StableNetworkAvatarImage(
                         url: photoUrl,
-                        size: radius * 2,
+                        size: widget.radius * 2,
                         fallback: Center(
                           child: Text(
                             initial,
                             style: TextStyle(
                               color: WapiColors.blue,
-                              fontSize: radius,
+                              fontSize: widget.radius,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -8220,7 +8466,7 @@ class _LiveProfileAvatar extends StatelessWidget {
                   child: Icon(
                     Icons.verified_rounded,
                     color: WapiColors.blue,
-                    size: radius < 20 ? 13 : 15,
+                    size: widget.radius < 20 ? 13 : 15,
                   ),
                 ),
               ),
@@ -8243,24 +8489,21 @@ class _StableNetworkAvatarImage extends StatelessWidget {
   final Widget fallback;
 
   @override
-  Widget build(BuildContext context) => Image.network(
-    url,
+  Widget build(BuildContext context) => CachedNetworkImage(
+    imageUrl: url,
     width: size,
     height: size,
     fit: BoxFit.cover,
-    gaplessPlayback: true,
-    cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
-    frameBuilder: (context, child, frame, synchronouslyLoaded) {
-      if (synchronouslyLoaded || frame != null) return child;
-      return SizedBox.square(dimension: size, child: fallback);
-    },
-    errorBuilder: (_, _, _) =>
-        SizedBox.square(dimension: size, child: fallback),
+    memCacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
+    fadeInDuration: const Duration(milliseconds: 100),
+    useOldImageOnUrlChange: true,
+    placeholder: (_, _) => SizedBox.square(dimension: size, child: fallback),
+    errorWidget: (_, _, _) => SizedBox.square(dimension: size, child: fallback),
   );
 }
 
 ImageProvider? _imageProvider(String value) =>
-    value.trim().isEmpty ? null : NetworkImage(value.trim());
+    value.trim().isEmpty ? null : CachedNetworkImageProvider(value.trim());
 
 String _storyTimeLabel(DateTime? value) {
   if (value == null) return 'À l’instant';
@@ -8732,7 +8975,7 @@ class _ProfilePageState extends State<_ProfilePage> {
                                   ? FileImage(_pendingPhoto!)
                                   : photoUrl.isEmpty
                                   ? null
-                                  : NetworkImage(photoUrl),
+                                  : CachedNetworkImageProvider(photoUrl),
                               child: !hasPhoto
                                   ? Text(
                                       name.substring(0, 1).toUpperCase(),
